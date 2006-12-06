@@ -218,17 +218,18 @@ static const struct skl_dsp_ops dsp_ops[] = {
 	},
 	{
 		.id = 0x02c8,
-		.num_cores = 4,
 		.loader_ops = bxt_get_loader_ops,
 		.init = cnl_sst_dsp_init,
-		.cleanup = cnl_sst_dsp_cleanup
 	},
 	{
 		.id = 0x06c8,
-		.num_cores = 4,
 		.loader_ops = bxt_get_loader_ops,
 		.init = cnl_sst_dsp_init,
-		.cleanup = cnl_sst_dsp_cleanup
+	},
+	{
+		.id = 0x34c8,
+		.loader_ops = bxt_get_loader_ops,
+		.init = cnl_sst_dsp_init,
 	},
 };
 
