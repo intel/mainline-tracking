@@ -139,6 +139,31 @@ static const struct file_operations mei_dbgfs_allow_fa_fops = {
 	.llseek = generic_file_llseek,
 };
 
+static ssize_t mei_dbgfs_write_reset(struct file *file,
+				     const char __user *ubuf,
+				     size_t count, loff_t *ppos)
+{
+	char buf[48] = {};
+	size_t bufsz = min(count, sizeof(buf) -  1);
+	struct mei_device *dev = file->private_data;
+
+	if (copy_from_user(buf, ubuf, bufsz))
+		return -EFAULT;
+
+	if (sysfs_streq("reset", buf)) {
+		dev_info(dev->dev, "debug reset\n");
+		schedule_work(&dev->reset_work);
+	}
+
+	return count;
+}
+
+static const struct file_operations mei_dbgfs_fops_reset = {
+	.open = simple_open,
+	.write = mei_dbgfs_write_reset,
+	.llseek = generic_file_llseek,
+};
+
 /**
  * mei_dbgfs_deregister - Remove the debugfs files and directories
  *
@@ -195,6 +220,13 @@ int mei_dbgfs_register(struct mei_device *dev, const char *name)
 		dev_err(dev->dev, "allow_fixed_address: registration failed\n");
 		goto err;
 	}
+	f = debugfs_create_file("reset", 0400, dir,
+				dev, &mei_dbgfs_fops_reset);
+	if (!f) {
+		dev_err(dev->dev, "reset: registration failed\n");
+		goto err;
+	}
+
 	return 0;
 err:
 	mei_dbgfs_deregister(dev);
