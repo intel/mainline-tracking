@@ -27,3 +27,4 @@ CFLAGS_mei-trace.o = -I$(src)
 
 obj-$(CONFIG_INTEL_MEI_HDCP) += hdcp/
 obj-$(CONFIG_INTEL_MEI_DAL) += dal/
+obj-$(CONFIG_INTEL_MEI_SPD) += spd/
