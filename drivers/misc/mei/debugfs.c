@@ -191,6 +191,61 @@ static const struct file_operations mei_dbgfs_fops_reset = {
 	.llseek = generic_file_llseek,
 };
 
+static ssize_t mei_dbgfs_read_pg_enter(struct file *fp, char __user *ubuf,
+				       size_t cnt, loff_t *ppos)
+{
+	struct mei_device *dev = fp->private_data;
+	const size_t bufsz = 1024;
+	char *buf = kzalloc(bufsz, GFP_KERNEL);
+	int pos = 0;
+	int ret;
+
+	if  (!buf)
+		return -ENOMEM;
+
+	mutex_lock(&dev->device_lock);
+	ret = mei_pg_enter_sync(dev);
+	mutex_unlock(&dev->device_lock);
+
+	pos += scnprintf(buf + pos, bufsz - pos, "ret: %d\n", ret);
+	ret = simple_read_from_buffer(ubuf, cnt, ppos, buf, pos);
+	kfree(buf);
+	return ret;
+}
+
+static const struct file_operations mei_dbgfs_fops_pg_enter = {
+	.open = simple_open,
+	.read = mei_dbgfs_read_pg_enter,
+	.llseek = generic_file_llseek,
+};
+
+static ssize_t mei_dbgfs_read_pg_exit(struct file *fp, char __user *ubuf,
+				      size_t cnt, loff_t *ppos)
+{
+	struct mei_device *dev = fp->private_data;
+	const size_t bufsz = 1024;
+	char *buf = kzalloc(bufsz, GFP_KERNEL);
+	int pos = 0;
+	int ret;
+
+	if  (!buf)
+		return -ENOMEM;
+
+	mutex_lock(&dev->device_lock);
+	ret = mei_pg_exit_sync(dev);
+	mutex_unlock(&dev->device_lock);
+
+	pos += scnprintf(buf + pos, bufsz - pos, "ret: %d\n", ret);
+	ret = simple_read_from_buffer(ubuf, cnt, ppos, buf, pos);
+	kfree(buf);
+	return ret;
+}
+
+static const struct file_operations mei_dbgfs_fops_pg_exit = {
+	.open = simple_open,
+	.read = mei_dbgfs_read_pg_exit,
+	.llseek = generic_file_llseek,
+};
 /**
  * mei_dbgfs_deregister - Remove the debugfs files and directories
  *
@@ -228,4 +283,9 @@ void mei_dbgfs_register(struct mei_device *dev, const char *name)
 			    &mei_dbgfs_allow_fa_fops);
 	debugfs_create_file("reset", 0400, dir,
 			    dev, &mei_dbgfs_fops_reset);
+	debugfs_create_file("pg_enter", 0400, dir,
+			    dev, &mei_dbgfs_fops_pg_enter);
+
+	debugfs_create_file("pg_exit", 0400, dir,
+			    dev, &mei_dbgfs_fops_pg_exit);
 }
