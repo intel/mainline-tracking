@@ -1350,7 +1350,10 @@ static const struct mei_hw_ops mei_me_hw_ops = {
 
 	.rdbuf_full_slots = mei_me_count_full_read_slots,
 	.read_hdr = mei_me_mecbrw_read,
-	.read = mei_me_read_slots
+	.read = mei_me_read_slots,
+
+	.pg_enter_sync = mei_me_pg_enter_sync,
+	.pg_exit_sync = mei_me_pg_exit_sync
 };
 
 static bool mei_me_fw_type_nm(struct pci_dev *pdev)

@@ -335,6 +335,9 @@ struct mei_hw_ops {
 	u32 (*read_hdr)(const struct mei_device *dev);
 	int (*read)(struct mei_device *dev,
 		     unsigned char *buf, unsigned long len);
+
+	int (*pg_enter_sync)(struct mei_device *dev);
+	int (*pg_exit_sync)(struct mei_device *dev);
 };
 
 /* MEI bus API*/
@@ -757,6 +760,16 @@ static inline int mei_fw_status(struct mei_device *dev,
 				struct mei_fw_status *fw_status)
 {
 	return dev->ops->fw_status(dev, fw_status);
+}
+
+static inline bool mei_pg_enter_sync(struct mei_device *dev)
+{
+	return dev->ops->pg_enter_sync(dev);
+}
+
+static inline bool mei_pg_exit_sync(struct mei_device *dev)
+{
+	return dev->ops->pg_exit_sync(dev);
 }
 
 bool mei_hbuf_acquire(struct mei_device *dev);
