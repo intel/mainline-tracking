@@ -36,6 +36,7 @@ struct skl_debug {
 	struct dentry *nhlt;
 	u8 fw_read_buff[FW_REG_BUF];
 	struct nhlt_blob ssp_blob[MAX_SSP];
+	struct nhlt_blob dmic_blob;
 };
 
 /**
@@ -595,6 +596,11 @@ static int skl_init_nhlt(struct skl_debug *d)
 					&d->ssp_blob[i], &nhlt_fops))
 			dev_err(d->dev, "%s: debugfs init failed\n", name);
 	}
+
+	if (!debugfs_create_file("dmic", 0644,
+				d->nhlt, &d->dmic_blob,
+				&nhlt_fops))
+		dev_err(d->dev, "%s: debugfs init failed\n", name);
 
 	return 0;
 }
