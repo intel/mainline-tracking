@@ -46,12 +46,10 @@ static void __dma_tx_rerun(void *param)
 	spin_unlock_irqrestore(&p->port.lock, flags);
 }
 
-int serial8250_tx_dma(struct uart_8250_port *p)
+static int __dma_tx(struct uart_8250_port *p, struct uart_8250_dma *dma)
 {
-	struct uart_8250_dma		*dma = p->dma;
 	struct circ_buf			*xmit = &p->port.state->xmit;
 	struct dma_async_tx_descriptor	*desc;
-	int ret;
 
 	if (dma->tx_running)
 		return 0;
@@ -68,10 +66,8 @@ int serial8250_tx_dma(struct uart_8250_port *p)
 					   dma->tx_addr + xmit->tail,
 					   dma->tx_size, DMA_MEM_TO_DEV,
 					   DMA_PREP_INTERRUPT | DMA_CTRL_ACK);
-	if (!desc) {
-		ret = -EBUSY;
-		goto err;
-	}
+	if (!desc)
+		return -EBUSY;
 
 	dma->tx_running = 1;
 	desc->callback = __dma_tx_rerun;
@@ -83,13 +79,21 @@ int serial8250_tx_dma(struct uart_8250_port *p)
 				   UART_XMIT_SIZE, DMA_TO_DEVICE);
 
 	dma_async_issue_pending(dma->txchan);
-	if (dma->tx_err) {
+	return 0;
+}
+
+int serial8250_tx_dma(struct uart_8250_port *p)
+{
+	struct uart_8250_dma *dma = p->dma;
+	int ret;
+
+	ret = __dma_tx(p, dma);
+	if (ret) {
+		dma->tx_err = 1;
+	} else if (dma->tx_err) {
 		dma->tx_err = 0;
 		serial8250_clear_THRI(p);
 	}
-	return 0;
-err:
-	dma->tx_err = 1;
 	return ret;
 }
 
