@@ -89,6 +89,7 @@ struct skl_dev {
 	struct skl_fw_config cfg;
 	struct snd_soc_acpi_mach *mach;
 	bool nhlt_override;
+	bool mod_set_get_status;
 
 	struct device *dev;
 	struct sst_dsp *dsp;
