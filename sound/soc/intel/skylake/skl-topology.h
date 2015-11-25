@@ -23,6 +23,7 @@
 #define MAX_TS_GROUPS 8
 #define MAX_DMIC_TS_GROUPS 4
 #define MAX_FIXED_DMIC_PARAMS_SIZE 727
+#define MAX_ADSP_SZ 1024
 
 #define MODULE_MAX_IN_PINS	8
 #define MODULE_MAX_OUT_PINS	8
@@ -347,6 +348,13 @@ struct mod_set_get {
 	u32 primary;
 	u32 extension;
 	u32 mailbx[1024];
+};
+
+struct fw_ipc_data {
+	u32 replysz;
+	u32 adsp_id;
+	u32 mailbx[MAX_ADSP_SZ];
+	struct mutex mutex;
 };
 
 int skl_tplg_be_update_params(struct snd_soc_dai *dai,
