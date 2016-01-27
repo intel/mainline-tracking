@@ -8,6 +8,8 @@
 #include <linux/pci.h>
 #include <linux/debugfs.h>
 #include <uapi/sound/skl-tplg-interface.h>
+#include <linux/pm_runtime.h>
+#include <sound/soc.h>
 #include "skl.h"
 #include "skl-sst-dsp.h"
 #include "skl-sst-ipc.h"
@@ -635,6 +637,73 @@ static int skl_init_nhlt(struct skl_debug *d)
 	return 0;
 }
 
+static ssize_t core_power_write(struct file *file,
+		const char __user *user_buf, size_t count, loff_t *ppos)
+{
+	struct skl_debug *d = file->private_data;
+	struct skl_dev *skl_ctx = d->skl;
+	struct sst_dsp *ctx = skl_ctx->dsp;
+	char buf[16];
+	int len = min(count, (sizeof(buf) - 1));
+	unsigned int core_id;
+	char *ptr;
+	int wake;
+	int err;
+
+
+	if (copy_from_user(buf, user_buf, len))
+		return -EFAULT;
+	buf[len] = 0;
+
+	/*
+	 * The buffer content should be "wake n" or "sleep n",
+	 * where n is the core id
+	 */
+	ptr = strnstr(buf, "wake", len);
+	if (ptr) {
+		ptr = ptr + 5;
+		wake = 1;
+	} else {
+		ptr = strnstr(buf, "sleep", len);
+		if (ptr) {
+			ptr = ptr + 6;
+			wake = 0;
+		} else
+			return -EINVAL;
+	}
+
+	err = kstrtouint(ptr, 10, &core_id);
+	if (err) {
+		dev_err(d->dev, "%s: Debugfs kstrtouint returned error = %d\n",
+				__func__, err);
+		return err;
+	}
+
+	dev_info(d->dev, "Debugfs: %s %d\n", wake ? "wake" : "sleep", core_id);
+
+	if (wake) {
+		if (core_id == SKL_DSP_CORE0_ID)
+			pm_runtime_get_sync(d->dev);
+		else
+			skl_dsp_get_core(ctx, core_id);
+	} else {
+		if (core_id == SKL_DSP_CORE0_ID)
+			pm_runtime_put_sync(d->dev);
+		else
+			skl_dsp_put_core(ctx, core_id);
+	}
+
+	/* Userspace has been fiddling around behind the kernel's back */
+	add_taint(TAINT_USER, LOCKDEP_NOW_UNRELIABLE);
+
+	return len;
+}
+static const struct file_operations core_power_fops = {
+	.open = simple_open,
+	.write = core_power_write,
+	.llseek = default_llseek,
+};
+
 struct skl_debug *skl_debugfs_init(struct skl_dev *skl)
 {
 	struct skl_debug *d;
@@ -660,6 +729,12 @@ struct skl_debug *skl_debugfs_init(struct skl_dev *skl)
 
 	debugfs_create_file("fw_soft_regs_rd", 0444, d->fs, d,
 			    &soft_regs_ctrl_fops);
+
+	if (!debugfs_create_file("core_power", 0644, d->fs, d,
+			 &core_power_fops)) {
+		dev_err(d->dev, "core power debugfs init failed\n");
+		return NULL;
+	}
 
 	/* now create the NHLT dir */
 	d->nhlt =  debugfs_create_dir("nhlt", d->fs);
