@@ -40,23 +40,6 @@ static void __dma_tx_complete(void *param)
 	spin_unlock_irqrestore(&p->port.lock, flags);
 }
 
-static void __dma_rx_complete(struct uart_8250_port *p, struct uart_8250_dma *dma)
-{
-	struct tty_port		*tty_port = &p->port.state->port;
-	struct dma_tx_state	state;
-	int			count;
-
-	dma->rx_running = 0;
-	dmaengine_tx_status(dma->rxchan, dma->rx_cookie, &state);
-
-	count = dma->rx_size - state.residue;
-
-	tty_insert_flip_string(tty_port, dma->rx_buf, count);
-	p->port.icount.rx += count;
-
-	tty_flip_buffer_push(tty_port);
-}
-
 int serial8250_tx_dma(struct uart_8250_port *p)
 {
 	struct uart_8250_dma		*dma = p->dma;
@@ -102,6 +85,23 @@ int serial8250_tx_dma(struct uart_8250_port *p)
 err:
 	dma->tx_err = 1;
 	return ret;
+}
+
+static void __dma_rx_complete(struct uart_8250_port *p, struct uart_8250_dma *dma)
+{
+	struct tty_port		*tty_port = &p->port.state->port;
+	struct dma_tx_state	state;
+	int			count;
+
+	dma->rx_running = 0;
+	dmaengine_tx_status(dma->rxchan, dma->rx_cookie, &state);
+
+	count = dma->rx_size - state.residue;
+
+	tty_insert_flip_string(tty_port, dma->rx_buf, count);
+	p->port.icount.rx += count;
+
+	tty_flip_buffer_push(tty_port);
 }
 
 static void __dma_rx_rerun(void *param)
