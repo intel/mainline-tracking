@@ -11,18 +11,12 @@
 
 #include "8250.h"
 
-static void __dma_tx_complete(void *param)
+static void __dma_tx_complete(struct uart_8250_port *p, struct uart_8250_dma *dma)
 {
-	struct uart_8250_port	*p = param;
-	struct uart_8250_dma	*dma = p->dma;
 	struct circ_buf		*xmit = &p->port.state->xmit;
-	unsigned long	flags;
-	int		ret;
 
 	dma_sync_single_for_cpu(dma->txchan->device->dev, dma->tx_addr,
 				UART_XMIT_SIZE, DMA_TO_DEVICE);
-
-	spin_lock_irqsave(&p->port.lock, flags);
 
 	dma->tx_running = 0;
 
@@ -32,6 +26,18 @@ static void __dma_tx_complete(void *param)
 
 	if (uart_circ_chars_pending(xmit) < WAKEUP_CHARS)
 		uart_write_wakeup(&p->port);
+}
+
+static void __dma_tx_rerun(void *param)
+{
+	struct uart_8250_port   *p = param;
+	struct uart_8250_dma	*dma = p->dma;
+	unsigned long	flags;
+	int		ret;
+
+	spin_lock_irqsave(&p->port.lock, flags);
+
+	__dma_tx_complete(p, dma);
 
 	ret = serial8250_tx_dma(p);
 	if (ret)
@@ -68,7 +74,7 @@ int serial8250_tx_dma(struct uart_8250_port *p)
 	}
 
 	dma->tx_running = 1;
-	desc->callback = __dma_tx_complete;
+	desc->callback = __dma_tx_rerun;
 	desc->callback_param = p;
 
 	dma->tx_cookie = dmaengine_submit(desc);
