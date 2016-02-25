@@ -575,37 +575,11 @@ static ssize_t mod_control_read(struct file *file,
 			char __user *user_buf, size_t count, loff_t *ppos)
 {
 	struct skl_debug *d = file->private_data;
-	char *state;
-	char *buf1;
-	int ret;
-	unsigned int ofs = 0;
+	const u32 param_data_size = d->ipc_data[0];
+	const u32 *param_data = &d->ipc_data[1];
 
-	if (d->ipc_data[0] == 0) {
-		state = d->skl->mod_set_get_status ? "Fail\n" : "success\n";
-		return simple_read_from_buffer(user_buf, count, ppos,
-			state, strlen(state));
-	}
-
-	state = d->skl->mod_set_get_status ? "Fail\n" : "success\n";
-	buf1 = kzalloc(MOD_BUF1, GFP_KERNEL);
-	if (!buf1)
-		return -ENOMEM;
-
-	ret = snprintf(buf1, MOD_BUF1,
-			"%s\nLARGE PARAM DATA\n", state);
-
-	for (ofs = 0 ; ofs < d->ipc_data[0] ; ofs += 16) {
-		ret += snprintf(buf1 + ret, MOD_BUF1 - ret, "0x%.4x : ", ofs);
-		hex_dump_to_buffer(&(d->ipc_data[1]) + ofs, 16, 16, 4,
-					buf1 + ret, MOD_BUF1 - ret, 0);
-		ret += strlen(buf1 + ret);
-		if (MOD_BUF1 - ret > 0)
-			buf1[ret++] = '\n';
-	}
-
-	ret = simple_read_from_buffer(user_buf, count, ppos, buf1, ret);
-	kfree(buf1);
-	return ret;
+	return simple_read_from_buffer(user_buf, count, ppos,
+					param_data, param_data_size);
 
 }
 
@@ -617,14 +591,14 @@ static ssize_t mod_control_write(struct file *file,
 	char *buf;
 	int retval, type;
 	ssize_t written, mbsz;
-	u32 size;
-	u32 *large_data;
-	int large_param_size;
+	u32 size, *payload;
 
 	struct skl_dev *skl = d->skl;
 	struct skl_ipc_large_config_msg msg;
 	struct skl_ipc_header header = {0};
 	u64 *ipc_header = (u64 *)(&header);
+
+	d->ipc_data[0] = 0;
 
 	buf = kzalloc(MOD_BUF, GFP_KERNEL);
 	if (!buf)
@@ -652,23 +626,21 @@ static ssize_t mod_control_write(struct file *file,
 		msg.instance_id = ((header.primary) & 0x00ff0000)>>16;
 		msg.large_param_id = ((header.extension) & 0x0ff00000)>>20;
 		msg.param_data_size = (header.extension) & 0x000fffff;
-		large_param_size = msg.param_data_size;
 
+		payload = &d->ipc_data[1];
 		if (mbsz)
 			retval = skl_ipc_get_large_config(&skl->ipc, &msg,
-				&large_data, (struct skl_tlv *)
-				&(mod_set_get->mailbx[0]), &mbsz);
+					&payload,
+					(struct skl_tlv *)&mod_set_get->mailbx[0],
+					&mbsz);
 		else
 			retval = skl_ipc_get_large_config(&skl->ipc, &msg,
-					&large_data, NULL, &mbsz);
-
-		d->ipc_data[0] = msg.param_data_size;
-		memcpy(&d->ipc_data[1], large_data, msg.param_data_size);
-		kfree(large_data);
+					&payload, NULL, &mbsz);
+		if (retval == 0)
+			d->ipc_data[0] = msg.param_data_size;
 		break;
 
 	case IPC_MOD_LARGE_CONFIG_SET:
-		d->ipc_data[0] = 0;
 		msg.module_id = (header.primary) & 0x0000ffff;
 		msg.instance_id = ((header.primary) & 0x00ff0000)>>16;
 		msg.large_param_id = ((header.extension) & 0x0ff00000)>>20;
@@ -676,7 +648,6 @@ static ssize_t mod_control_write(struct file *file,
 
 		retval = skl_ipc_set_large_config(&skl->ipc, &msg,
 						(u32 *)(&mod_set_get->mailbx));
-		d->ipc_data[0] = 0;
 		break;
 
 	default:
@@ -688,14 +659,12 @@ static ssize_t mod_control_write(struct file *file,
 			retval = sst_ipc_tx_message_wait(&skl->ipc, *ipc_header,
 				NULL, 0, NULL, NULL, 0);
 
-		d->ipc_data[0] = 0;
 		break;
 
 	}
+
 	if (retval)
-		d->skl->mod_set_get_status = 1;
-	else
-		d->skl->mod_set_get_status = 0;
+		return -EIO;
 
 	/* Userspace has been fiddling around behind the kernel's back */
 	add_taint(TAINT_USER, LOCKDEP_NOW_UNRELIABLE);
