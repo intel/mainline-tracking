@@ -586,9 +586,9 @@ hdac_ext_host_stream_compr_assign(struct hdac_bus *bus,
 		res->hstream.running = 0;
 		res->hstream.stream = substream;
 		spin_unlock_irq(&bus->reg_lock);
-	}
-	 dev_dbg(bus->dev, "Stream tag = %d, index = %d\n",
+		dev_dbg(bus->dev, "Stream tag = %d, index = %d\n",
 				res->hstream.stream_tag, res->hstream.index);
+	}
 	return res;
 }
 EXPORT_SYMBOL_GPL(hdac_ext_host_stream_compr_assign);
