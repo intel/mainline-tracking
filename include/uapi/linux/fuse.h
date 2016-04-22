@@ -422,6 +422,7 @@ enum fuse_opcode {
 	FUSE_RENAME2		= 45,
 	FUSE_LSEEK		= 46,
 	FUSE_COPY_FILE_RANGE	= 47,
+	FUSE_CANONICAL_PATH= 2016,
 
 	/* CUSE specific operations */
 	CUSE_INIT		= 4096,
