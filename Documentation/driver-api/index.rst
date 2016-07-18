@@ -59,6 +59,7 @@ available subsections can be seen below.
    fpga/index
    acpi/index
    generic-counter
+   rpmb/index
 
 .. only::  subproject and html
 
