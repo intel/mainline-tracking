@@ -67,23 +67,6 @@ static inline void uart_port_deref(struct uart_port *uport)
 		wake_up(&uport->state->remove_wait);
 }
 
-#define uart_port_lock(state, flags)					\
-	({								\
-		struct uart_port *__uport = uart_port_ref(state);	\
-		if (__uport)						\
-			spin_lock_irqsave(&__uport->lock, flags);	\
-		__uport;						\
-	})
-
-#define uart_port_unlock(uport, flags)					\
-	({								\
-		struct uart_port *__uport = uport;			\
-		if (__uport) {						\
-			spin_unlock_irqrestore(&__uport->lock, flags);	\
-			uart_port_deref(__uport);			\
-		}							\
-	})
-
 static inline struct uart_port *uart_port_check(struct uart_state *state)
 {
 	lockdep_assert_held(&state->port.mutex);
@@ -111,10 +94,14 @@ static void uart_stop(struct tty_struct *tty)
 	struct uart_port *port;
 	unsigned long flags;
 
-	port = uart_port_lock(state, flags);
-	if (port)
-		port->ops->stop_tx(port);
-	uart_port_unlock(port, flags);
+	port = uart_port_ref(state);
+	if (!port)
+		return;
+
+	spin_lock_irqsave(&port->lock, flags);
+	port->ops->stop_tx(port);
+	spin_unlock_irqrestore(&port->lock, flags);
+	uart_port_deref(port);
 }
 
 static void __uart_start(struct tty_struct *tty)
@@ -132,9 +119,14 @@ static void uart_start(struct tty_struct *tty)
 	struct uart_port *port;
 	unsigned long flags;
 
-	port = uart_port_lock(state, flags);
+	port = uart_port_ref(state);
+	if (!port)
+		return;
+
+	spin_lock_irqsave(&port->lock, flags);
 	__uart_start(tty);
-	uart_port_unlock(port, flags);
+	spin_unlock_irqrestore(&port->lock, flags);
+	uart_port_deref(port);
 }
 
 static void
@@ -184,7 +176,7 @@ static int uart_port_startup(struct tty_struct *tty, struct uart_state *state,
 {
 	struct uart_port *uport = uart_port_check(state);
 	unsigned long page;
-	unsigned long flags = 0;
+	unsigned long flags;
 	int retval = 0;
 
 	if (uport->type == PORT_UNKNOWN)
@@ -203,13 +195,14 @@ static int uart_port_startup(struct tty_struct *tty, struct uart_state *state,
 	if (!page)
 		return -ENOMEM;
 
-	uart_port_lock(state, flags);
+	spin_lock_irqsave(&uport->lock, flags);
 	if (!state->xmit.buf) {
 		state->xmit.buf = (unsigned char *) page;
 		uart_circ_clear(&state->xmit);
-		uart_port_unlock(uport, flags);
+		spin_unlock_irqrestore(&uport->lock, flags);
 	} else {
-		uart_port_unlock(uport, flags);
+		spin_unlock_irqrestore(&uport->lock, flags);
+
 		/*
 		 * Do not free() the page under the port lock, see
 		 * uart_shutdown().
@@ -274,8 +267,8 @@ static void uart_shutdown(struct tty_struct *tty, struct uart_state *state)
 {
 	struct uart_port *uport = uart_port_check(state);
 	struct tty_port *port = &state->port;
-	unsigned long flags = 0;
 	char *xmit_buf = NULL;
+	unsigned long flags;
 
 	/*
 	 * Set the TTY IO error marker
@@ -309,12 +302,12 @@ static void uart_shutdown(struct tty_struct *tty, struct uart_state *state)
 	 * Do not free() the transmit buffer page under the port lock since
 	 * this can create various circular locking scenarios. For instance,
 	 * console driver may need to allocate/free a debug object, which
-	 * can endup in printk() recursion.
+	 * can end up in printk() recursion.
 	 */
-	uart_port_lock(state, flags);
+	spin_lock_irqsave(&uport->lock, flags);
 	xmit_buf = state->xmit.buf;
 	state->xmit.buf = NULL;
-	uart_port_unlock(uport, flags);
+	spin_unlock_irqrestore(&uport->lock, flags);
 
 	if (xmit_buf)
 		free_page((unsigned long)xmit_buf);
@@ -551,19 +544,19 @@ static int uart_put_char(struct tty_struct *tty, unsigned char c)
 	unsigned long flags;
 	int ret = 0;
 
-	circ = &state->xmit;
-	port = uart_port_lock(state, flags);
-	if (!circ->buf) {
-		uart_port_unlock(port, flags);
+	port = uart_port_ref(state);
+	if (!port)
 		return 0;
-	}
 
-	if (port && uart_circ_chars_free(circ) != 0) {
+	spin_lock_irqsave(&port->lock, flags);
+	circ = &state->xmit;
+	if (circ->buf && uart_circ_chars_free(circ) != 0) {
 		circ->buf[circ->head] = c;
 		circ->head = (circ->head + 1) & (UART_XMIT_SIZE - 1);
 		ret = 1;
 	}
-	uart_port_unlock(port, flags);
+	spin_unlock_irqrestore(&port->lock, flags);
+	uart_port_deref(port);
 	return ret;
 }
 
@@ -590,13 +583,17 @@ static int uart_write(struct tty_struct *tty,
 		return -EL3HLT;
 	}
 
-	port = uart_port_lock(state, flags);
+	port = uart_port_ref(state);
+	if (!port)
+		return 0;
+
+	spin_lock_irqsave(&port->lock, flags);
 	circ = &state->xmit;
 	if (!circ->buf) {
-		uart_port_unlock(port, flags);
+		spin_unlock_irqrestore(&port->lock, flags);
+		uart_port_deref(port);
 		return 0;
 	}
-
 	while (port) {
 		c = CIRC_SPACE_TO_END(circ->head, circ->tail, UART_XMIT_SIZE);
 		if (count < c)
@@ -611,7 +608,8 @@ static int uart_write(struct tty_struct *tty,
 	}
 
 	__uart_start(tty);
-	uart_port_unlock(port, flags);
+	spin_unlock_irqrestore(&port->lock, flags);
+	uart_port_deref(port);
 	return ret;
 }
 
@@ -622,9 +620,14 @@ static int uart_write_room(struct tty_struct *tty)
 	unsigned long flags;
 	int ret;
 
-	port = uart_port_lock(state, flags);
+	port = uart_port_ref(state);
+	if (!port)
+		return uart_circ_chars_free(&state->xmit);
+
+	spin_lock_irqsave(&port->lock, flags);
 	ret = uart_circ_chars_free(&state->xmit);
-	uart_port_unlock(port, flags);
+	spin_unlock_irqrestore(&port->lock, flags);
+	uart_port_deref(port);
 	return ret;
 }
 
@@ -635,9 +638,14 @@ static int uart_chars_in_buffer(struct tty_struct *tty)
 	unsigned long flags;
 	int ret;
 
-	port = uart_port_lock(state, flags);
+	port = uart_port_ref(state);
+	if (!port)
+		return uart_circ_chars_pending(&state->xmit);
+
+	spin_lock_irqsave(&port->lock, flags);
 	ret = uart_circ_chars_pending(&state->xmit);
-	uart_port_unlock(port, flags);
+	spin_unlock_irqrestore(&port->lock, flags);
+	uart_port_deref(port);
 	return ret;
 }
 
@@ -658,13 +666,15 @@ static void uart_flush_buffer(struct tty_struct *tty)
 
 	pr_debug("uart_flush_buffer(%d) called\n", tty->index);
 
-	port = uart_port_lock(state, flags);
+	port = uart_port_ref(state);
 	if (!port)
 		return;
+	spin_lock_irqsave(&port->lock, flags);
 	uart_circ_clear(&state->xmit);
 	if (port->ops->flush_buffer)
 		port->ops->flush_buffer(port);
-	uart_port_unlock(port, flags);
+	spin_unlock_irqrestore(&port->lock, flags);
+	uart_port_deref(port);
 	tty_port_tty_wakeup(&state->port);
 }
 
