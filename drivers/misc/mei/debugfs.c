@@ -139,6 +139,18 @@ static const struct file_operations mei_dbgfs_allow_fa_fops = {
 	.llseek = generic_file_llseek,
 };
 
+static ssize_t mei_dbgfs_read_reset(struct file *fp, char __user *ubuf,
+				    size_t cnt, loff_t *ppos)
+{
+	char buf[250];
+	int pos = 0;
+
+	pos += scnprintf(buf, 100, "%s\n%s\n%s\n",
+			"reset", "stall-init", "stall-cl");
+
+	return simple_read_from_buffer(ubuf, cnt, ppos, buf, pos);
+}
+
 static ssize_t mei_dbgfs_write_reset(struct file *file,
 				     const char __user *ubuf,
 				     size_t count, loff_t *ppos)
@@ -153,13 +165,28 @@ static ssize_t mei_dbgfs_write_reset(struct file *file,
 	if (sysfs_streq("reset", buf)) {
 		dev_info(dev->dev, "debug reset\n");
 		schedule_work(&dev->reset_work);
+		goto out;
 	}
 
+	if (sysfs_streq("stall-init", buf)) {
+		dev_info(dev->dev, "init: stall\n");
+		dev->stall_timer_init = 1;
+		goto out;
+	}
+
+	if (sysfs_streq("stall-cl", buf)) {
+		dev_info(dev->dev, "cl: stall\n");
+		dev->stall_timer_cl = 1;
+		goto out;
+	}
+
+out:
 	return count;
 }
 
 static const struct file_operations mei_dbgfs_fops_reset = {
 	.open = simple_open,
+	.read = mei_dbgfs_read_reset,
 	.write = mei_dbgfs_write_reset,
 	.llseek = generic_file_llseek,
 };
