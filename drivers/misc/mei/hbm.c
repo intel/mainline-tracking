@@ -925,6 +925,10 @@ static void mei_hbm_cl_res(struct mei_device *dev,
 		return;
 	}
 
+	if (dev->stall_timer_cl) {
+		dev->stall_timer_cl = 0;
+		return;
+	}
 	cl->timer_count = 0;
 	wake_up(&cl->wait);
 }
@@ -1161,6 +1165,10 @@ int mei_hbm_dispatch(struct mei_device *dev, struct mei_msg_hdr *hdr)
 	case HOST_START_RES_CMD:
 		dev_dbg(dev->dev, "hbm: start: response message received.\n");
 
+		if (dev->stall_timer_init) {
+			dev->stall_timer_init = 0;
+			return 0;
+		}
 		dev->init_clients_timer = 0;
 
 		version_res = (struct hbm_host_version_response *)mei_msg;
@@ -1328,6 +1336,10 @@ int mei_hbm_dispatch(struct mei_device *dev, struct mei_msg_hdr *hdr)
 	case HOST_CLIENT_PROPERTIES_RES_CMD:
 		dev_dbg(dev->dev, "hbm: properties response: message received.\n");
 
+		if (dev->stall_timer_init) {
+			dev->stall_timer_init = 0;
+			return 0;
+		}
 		dev->init_clients_timer = 0;
 
 		if (dev->dev_state != MEI_DEV_INIT_CLIENTS ||
@@ -1360,6 +1372,10 @@ int mei_hbm_dispatch(struct mei_device *dev, struct mei_msg_hdr *hdr)
 	case HOST_ENUM_RES_CMD:
 		dev_dbg(dev->dev, "hbm: enumeration response: message received\n");
 
+		if (dev->stall_timer_init) {
+			dev->stall_timer_init = 0;
+			return 0;
+		}
 		dev->init_clients_timer = 0;
 
 		enum_res = (struct hbm_host_enum_response *) mei_msg;
