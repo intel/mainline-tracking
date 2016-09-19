@@ -561,6 +561,9 @@ struct mei_device {
 	struct dentry *dbgfs_dir;
 #endif /* CONFIG_DEBUG_FS */
 
+	unsigned int stall_timer_cl:1;
+	unsigned int stall_timer_init:1;
+
 	const struct mei_hw_ops *ops;
 	char hw[] __aligned(sizeof(void *));
 };
