@@ -63,6 +63,7 @@
 #define MEI_DEV_ID_SPT_H_2    0xA13B  /* Sunrise Point H 2 */
 
 #define MEI_DEV_ID_LBG        0xA1BA  /* Lewisburg (SPT) */
+#define MEI_DEV_ID_LBG_SSX    0xA23A  /* Lewisburg SSX (SPT) */
 
 #define MEI_DEV_ID_LBG_IE     0xA1F8  /* Lewisburg IE (SPT) */
 #define MEI_DEV_ID_LBG_IE_SSX 0xA278  /* Lewisburg IE SSX (SPT) */
