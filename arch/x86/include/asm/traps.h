@@ -35,6 +35,9 @@ asmlinkage void alignment_check(void);
 asmlinkage void machine_check(void);
 #endif /* CONFIG_X86_MCE */
 asmlinkage void simd_coprocessor_error(void);
+#ifdef CONFIG_X86_INTEL_CET
+asmlinkage void control_protection(void);
+#endif
 
 #if defined(CONFIG_X86_64) && defined(CONFIG_XEN_PV)
 asmlinkage void xen_divide_error(void);
@@ -86,6 +89,7 @@ dotraplinkage void do_simd_coprocessor_error(struct pt_regs *regs, long error_co
 dotraplinkage void do_iret_error(struct pt_regs *regs, long error_code);
 #endif
 dotraplinkage void do_mce(struct pt_regs *regs, long error_code);
+dotraplinkage void do_control_protection(struct pt_regs *regs, long error_code);
 
 #ifdef CONFIG_X86_64
 asmlinkage __visible notrace struct pt_regs *sync_regs(struct pt_regs *eregs);
@@ -151,6 +155,7 @@ enum {
 	X86_TRAP_AC,		/* 17, Alignment Check */
 	X86_TRAP_MC,		/* 18, Machine Check */
 	X86_TRAP_XF,		/* 19, SIMD Floating-Point Exception */
+	X86_TRAP_CP = 21,	/* 21 Control Protection Fault */
 	X86_TRAP_IRET = 32,	/* 32, IRET Exception */
 };
 
