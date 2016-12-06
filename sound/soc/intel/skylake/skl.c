@@ -207,6 +207,32 @@ static void skl_get_total_bytes_transferred(struct hdac_stream *hstr)
 	hstr->curr_pos += no_of_bytes;
 }
 
+/*
+ * skl_dum_set - Set the DUM bit in EM2 register to fix the IP bug
+ * of incorrect postion reporting for capture stream.
+ */
+static void skl_dum_set(struct hdac_bus *bus)
+{
+	u32 reg;
+	u8 val;
+
+	/*
+	 * For the DUM bit to be set, CRST needs to be out of reset state
+	 */
+	val = snd_hdac_chip_readb(bus, GCTL) & AZX_GCTL_RESET;
+	if (!val) {
+		skl_enable_miscbdcge(bus->dev, false);
+		snd_hdac_bus_exit_link_reset(bus);
+		skl_enable_miscbdcge(bus->dev, true);
+	}
+	/*
+	 * Set the DUM bit in EM2 register to fix the IP bug of incorrect
+	 * postion reporting for capture stream.
+	 */
+	reg  = snd_hdac_chip_readl(bus, VS_EM2);
+	snd_hdac_chip_writel(bus, VS_EM2, (reg | AZX_EM2_DUM_MASK));
+}
+
 /* called from IRQ */
 static void skl_stream_update(struct hdac_bus *bus, struct hdac_stream *hstr)
 {
@@ -413,6 +439,7 @@ static int skl_resume(struct device *dev)
 			snd_hdac_bus_init_cmd_io(bus);
 	} else {
 		ret = _skl_resume(bus);
+		skl_dum_set(bus);
 
 		/* turn off the links which are off before suspend */
 		list_for_each_entry(hlink, &bus->hlink_list, list) {
@@ -999,6 +1026,8 @@ static int skl_first_init(struct hdac_bus *bus)
 
 	/* initialize chip */
 	skl_init_pci(skl);
+
+	skl_dum_set(bus);
 
 	return skl_init_chip(bus, true);
 }
