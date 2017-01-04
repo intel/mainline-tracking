@@ -552,7 +552,7 @@ struct ufs_dev_desc {
 	u8 subclass;
 	u32 min_uma_sz;
 	u16 wmanufacturerid;
-	char model[MAX_MODEL_LEN + 1];
+	char *model;
 };
 
 /**
