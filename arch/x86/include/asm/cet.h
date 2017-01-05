@@ -6,6 +6,8 @@
 #include <linux/types.h>
 
 struct task_struct;
+struct sc_ext;
+
 /*
  * Per-thread CET status
  */
@@ -18,9 +20,15 @@ struct cet_status {
 int cet_setup_shstk(void);
 void cet_disable_shstk(void);
 void cet_free_shstk(struct task_struct *p);
+int cet_verify_rstor_token(bool ia32, unsigned long ssp, unsigned long *new_ssp);
+void cet_restore_signal(struct sc_ext *sc);
+int cet_setup_signal(bool ia32, unsigned long rstor, struct sc_ext *sc);
 #else
 static inline void cet_disable_shstk(void) {}
 static inline void cet_free_shstk(struct task_struct *p) {}
+static inline void cet_restore_signal(struct sc_ext *sc) { return; }
+static inline int cet_setup_signal(bool ia32, unsigned long rstor,
+				   struct sc_ext *sc) { return -EINVAL; }
 #endif
 
 #endif /* __ASSEMBLY__ */
