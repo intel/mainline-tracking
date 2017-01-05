@@ -443,6 +443,16 @@ static inline void copy_kernel_to_fpregs(union fpregs_state *fpstate)
 	__copy_kernel_to_fpregs(fpstate, -1);
 }
 
+#ifdef CONFIG_X86_CET_USER
+extern int save_cet_to_sigframe(int ia32, void __user *fp,
+				unsigned long restorer);
+#else
+static inline int save_cet_to_sigframe(int ia32, void __user *fp,
+				unsigned long restorer)
+{
+	return 0;
+}
+#endif
 extern int copy_fpstate_to_sigframe(void __user *buf, void __user *fp, int size);
 
 /*
