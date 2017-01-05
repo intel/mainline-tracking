@@ -35,6 +35,7 @@
 #include <asm/sigframe.h>
 #include <asm/sighandling.h>
 #include <asm/smap.h>
+#include <asm/cet.h>
 
 static inline void reload_segments(struct sigcontext_32 *sc)
 {
@@ -205,6 +206,7 @@ static void __user *get_sigframe(struct ksignal *ksig, struct pt_regs *regs,
 				 void __user **fpstate)
 {
 	unsigned long sp, fx_aligned, math_size;
+	void __user *restorer = NULL;
 
 	/* Default to using normal stack */
 	sp = regs->sp;
@@ -218,8 +220,23 @@ static void __user *get_sigframe(struct ksignal *ksig, struct pt_regs *regs,
 		 ksig->ka.sa.sa_restorer)
 		sp = (unsigned long) ksig->ka.sa.sa_restorer;
 
+	if (ksig->ka.sa.sa_flags & SA_RESTORER) {
+		restorer = ksig->ka.sa.sa_restorer;
+	} else if (current->mm->context.vdso) {
+		if (ksig->ka.sa.sa_flags & SA_SIGINFO)
+			restorer = current->mm->context.vdso +
+				vdso_image_32.sym___kernel_rt_sigreturn;
+		else
+			restorer = current->mm->context.vdso +
+				vdso_image_32.sym___kernel_sigreturn;
+	}
+
 	sp = fpu__alloc_mathframe(sp, 1, &fx_aligned, &math_size);
 	*fpstate = (struct _fpstate_32 __user *) sp;
+
+	if (save_cet_to_sigframe(1, *fpstate, (unsigned long)restorer))
+		return (void __user *) -1L;
+
 	if (copy_fpstate_to_sigframe(*fpstate, (void __user *)fx_aligned,
 				     math_size) < 0)
 		return (void __user *) -1L;
