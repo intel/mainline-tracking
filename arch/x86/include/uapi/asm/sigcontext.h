@@ -197,6 +197,15 @@ struct _xstate {
 };
 
 /*
+ * Located at the end of sigcontext->fpstate, aligned to 8.
+ */
+struct sc_ext {
+	unsigned long total_size;
+	unsigned long ssp;
+	unsigned long wait_endbr;
+};
+
+/*
  * The 32-bit signal frame:
  */
 struct sigcontext_32 {
