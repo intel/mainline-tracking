@@ -129,6 +129,8 @@ struct skl_dev;
 
 #define DSP_BUF                PAGE_SIZE
 
+#define DEFAULT_HASH_SHA256_LEN 32
+
 /* DSP Core state */
 enum skl_dsp_states {
 	SKL_DSP_RUNNING = 1,
@@ -199,6 +201,7 @@ struct uuid_module {
 	int num_configs;
 
 	struct list_head list;
+	u8 hash[DEFAULT_HASH_SHA256_LEN];
 };
 
 struct skl_load_module_info {
@@ -279,4 +282,8 @@ int bxt_set_dsp_D0i0(struct sst_dsp *ctx);
 int bxt_schedule_dsp_D0i3(struct sst_dsp *ctx);
 
 void bxt_set_dsp_D0i3(struct work_struct *work);
+
+int skl_module_sysfs_init(struct skl_dev *skl, struct kobject *fw_modules_kobj);
+
+void skl_module_sysfs_exit(struct skl_dev *skl);
 #endif /*__SKL_SST_DSP_H__*/
