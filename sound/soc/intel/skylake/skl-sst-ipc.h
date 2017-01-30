@@ -121,6 +121,9 @@ struct skl_sst {
 
 	/* Callback to update dynamic clock and power gating registers */
 	void (*clock_power_gating)(struct device *dev, bool enable);
+
+	/* sysfs for module info */
+	struct skl_sysfs_tree *sysfs_tree;
 };
 
 struct skl_ipc_init_instance_msg {
