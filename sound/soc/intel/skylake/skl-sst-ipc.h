@@ -123,6 +123,61 @@ struct skl_probe_config {
 	struct extractor_data eprobe[NO_OF_EXTRACTOR];
 };
 
+struct skl_fw_version {
+	u16 major;
+	u16 minor;
+	u16 hotfix;
+	u16 build;
+};
+
+struct skl_dma_buff_config {
+	u32 min_size_bytes;
+	u32 max_size_bytes;
+};
+
+enum skl_alh_support_level {
+	ALH_NO_SUPPORT = 0x00000,
+	ALH_CAVS_1_8_CNL = 0x10000,
+};
+
+struct skl_clk_config {
+	u32 clock_source;
+	u32 clock_param_mask;
+};
+
+struct skl_scheduler_config {
+	u32  sys_tick_multiplier;
+	u32  sys_tick_divider;
+	u32  sys_tick_source;
+	u32  sys_tick_cfg_length;
+	u32  *sys_tick_cfg;
+};
+
+struct skl_fw_property_info {
+	struct skl_fw_version version;
+	u32 memory_reclaimed;
+	u32 slow_clock_freq_hz;
+	u32 fast_clock_freq_hz;
+	enum skl_alh_support_level alh_support;
+	u32 ipc_dl_mailbox_bytes;
+	u32 ipc_ul_mailbox_bytes;
+	u32 trace_log_bytes;
+	u32 max_ppl_count;
+	u32 max_astate_count;
+	u32 max_module_pin_count;
+	u32 modules_count;
+	u32 max_mod_inst_count;
+	u32 max_ll_tasks_per_pri_count;
+	u32 ll_pri_count;
+	u32 max_dp_tasks_count;
+	u32 max_libs_count;
+	u32 xtal_freq_hz;
+	struct skl_clk_config clk_config;
+	struct skl_scheduler_config scheduler_config;
+	u32 num_dma_cfg;
+	struct skl_dma_buff_config *dma_config;
+};
+
 struct skl_sst {
 	struct device *dev;
 	struct sst_dsp *dsp;
@@ -171,6 +226,9 @@ struct skl_sst {
 	void (*clock_power_gating)(struct device *dev, bool enable);
 
 	struct skl_probe_config probe_config;
+
+	/* firmware configuration information */
+	struct skl_fw_property_info fw_property;
 };
 
 struct skl_ipc_init_instance_msg {
