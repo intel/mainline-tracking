@@ -103,8 +103,15 @@ static int ipc_tx_message(struct sst_generic_ipc *ipc,
 		ipc->ops.tx_data_copy(msg, request.data, request.size);
 
 	list_add_tail(&msg->list, &ipc->tx_list);
-	schedule_work(&ipc->kwork);
-	spin_unlock_irqrestore(&ipc->dsp->spinlock, flags);
+
+	if ((ipc->ops.is_dsp_busy && ipc->ops.is_dsp_busy(ipc->dsp)) ||
+                        (ipc->ops.direct_tx_msg == NULL)) {
+                schedule_work(&ipc->kwork);
+                spin_unlock_irqrestore(&ipc->dsp->spinlock, flags);
+        } else {
+                spin_unlock_irqrestore(&ipc->dsp->spinlock, flags);
+                ipc->ops.direct_tx_msg(ipc);
+        }
 
 	if (wait)
 		return tx_wait_done(ipc, msg, reply);
