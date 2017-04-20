@@ -1034,35 +1034,6 @@ static ssize_t dev_state_show(struct device *device,
 }
 static DEVICE_ATTR_RO(dev_state);
 
-static int match_devt(struct device *dev, const void *data)
-{
-	const dev_t *devt = data;
-
-	return dev->devt == *devt;
-}
-
-/**
- * dev_set_devstate: set to new device state and notify sysfs file.
- *
- * @dev: mei_device
- * @state: new device state
- */
-void mei_set_devstate(struct mei_device *dev, enum mei_dev_state state)
-{
-	struct device *clsdev;
-
-	if (dev->dev_state == state)
-		return;
-
-	dev->dev_state = state;
-
-	clsdev = class_find_device(mei_class, NULL, &dev->cdev.dev, match_devt);
-	if (clsdev) {
-		sysfs_notify(&clsdev->kobj, NULL, "dev_state");
-		put_device(clsdev);
-	}
-}
-
 static struct attribute *mei_attrs[] = {
 	&dev_attr_fw_status.attr,
 	&dev_attr_hbm_ver.attr,
@@ -1159,6 +1130,8 @@ int mei_register(struct mei_device *dev, struct device *parent)
 		ret = PTR_ERR(clsdev);
 		goto err_dev_create;
 	}
+
+	dev->sysfs_state = sysfs_get_dirent(clsdev->kobj.sd, "dev_state");
 
 	ret = mei_dbgfs_register(dev, dev_name(clsdev));
 	if (ret) {
