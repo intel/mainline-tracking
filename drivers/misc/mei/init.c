@@ -379,6 +379,8 @@ void mei_device_init(struct mei_device *dev,
 	INIT_WORK(&dev->reset_work, mei_reset_work);
 	INIT_WORK(&dev->bus_rescan_work, mei_cl_bus_rescan_work);
 
+	dev->sysfs_state = NULL;
+
 	bitmap_zero(dev->host_clients_map, MEI_CLIENTS_MAX);
 	dev->open_handle_count = 0;
 
