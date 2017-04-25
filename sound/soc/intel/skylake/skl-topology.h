@@ -19,6 +19,10 @@
 #include <sound/soc.h>
 #include "skl.h"
 
+#define SKL_FIRST_PIPE		0
+#define SKL_LAST_PIPE		1
+#define SKL_INTERMEDIATE_PIPE	2
+
 #define BITS_PER_BYTE 8
 #define MAX_TS_GROUPS 8
 #define MAX_DMIC_TS_GROUPS 4
