@@ -28,6 +28,11 @@ struct nhlt_blob {
 	struct nhlt_specific_cfg *cfg;
 };
 
+struct skl_pipe_event_data {
+	long event_time;
+	int event_type;
+};
+
 struct skl_debug {
 	struct skl_dev *skl;
 	struct device *dev;
@@ -39,6 +44,7 @@ struct skl_debug {
 	u8 fw_read_buff[FW_REG_BUF];
 	struct nhlt_blob ssp_blob[2*MAX_SSP];
 	struct nhlt_blob dmic_blob;
+	struct skl_pipe_event_data data;
 };
 
 /**
@@ -704,9 +710,76 @@ static const struct file_operations core_power_fops = {
 	.llseek = default_llseek,
 };
 
+void skl_dbg_event(struct skl_dev *ctx, int type)
+{
+	int retval;
+	struct timespec64 pipe_event_ts;
+	struct skl_dev *skl = get_skl_ctx(ctx->dev);
+	struct kobject *kobj;
+
+	kobj = &skl->component->dev->kobj;
+
+	if (type == SKL_PIPE_CREATED)
+		/* pipe creation event */
+		retval = kobject_uevent(kobj, KOBJ_ADD);
+	else if (type == SKL_PIPE_INVALID)
+		/* pipe deletion event */
+		retval = kobject_uevent(kobj, KOBJ_REMOVE);
+	else
+		return;
+
+	if (retval < 0) {
+		dev_err(ctx->dev,
+			"pipeline uevent failed, ret = %d\n", retval);
+		return;
+	}
+
+	ktime_get_real_ts64(&pipe_event_ts);
+
+	skl->debugfs->data.event_time = pipe_event_ts.tv_nsec/1000;
+	skl->debugfs->data.event_type = type;
+}
+
+static ssize_t skl_dbg_event_read(struct file *file,
+		char __user *user_buf, size_t count, loff_t *ppos)
+{
+	struct skl_debug *d = file->private_data;
+	char buf[32];
+	char pipe_state[24];
+	int retval;
+
+	if (d->data.event_type)
+		strcpy(pipe_state, "SKL_PIPE_CREATED");
+	else
+		strcpy(pipe_state, "SKL_PIPE_INVALID");
+
+	retval = snprintf(buf, sizeof(buf), "%s - %ld\n",
+			pipe_state, d->data.event_time);
+
+	return simple_read_from_buffer(user_buf, count, ppos, buf, retval);
+}
+
+static const struct file_operations skl_dbg_event_fops = {
+	.open = simple_open,
+	.read = skl_dbg_event_read,
+	.llseek = default_llseek,
+};
+
+static int skl_init_dbg_event(struct skl_debug *d)
+{
+	if (!debugfs_create_file("dbg_event", 0644, d->fs, d,
+				&skl_dbg_event_fops)) {
+		dev_err(d->dev, "dbg_event debugfs file creation failed\n");
+		return -EIO;
+	}
+
+	return 0;
+}
+
 struct skl_debug *skl_debugfs_init(struct skl_dev *skl)
 {
 	struct skl_debug *d;
+	int ret;
 
 	d = devm_kzalloc(&skl->pci->dev, sizeof(*d), GFP_KERNEL);
 	if (!d)
@@ -744,6 +817,13 @@ struct skl_debug *skl_debugfs_init(struct skl_dev *skl)
 	}
 
 	skl_init_nhlt(d);
+
+	ret = skl_init_dbg_event(d);
+	if (ret < 0) {
+		dev_err(&skl->pci->dev,
+			"dbg_event debugfs init failed, ret = %d\n", ret);
+		return NULL;
+	}
 
 	return d;
 }

@@ -196,6 +196,7 @@ void skl_debug_init_module(struct skl_debug *d,
 struct nhlt_specific_cfg
 *skl_nhlt_get_debugfs_blob(struct skl_debug *d, u8 link_type, u32 instance,
 			u8 stream);
+void skl_dbg_event(struct skl_dev *ctx, int type);
 #else
 static inline struct skl_debug *skl_debugfs_init(struct skl_dev *skl)
 {
@@ -214,6 +215,9 @@ static inline struct nhlt_specific_cfg
 			u8 stream)
 {
 	return NULL;
+}
+static inline void skl_dbg_event(struct skl_dev *ctx, int type)
+{
 }
 #endif
 
