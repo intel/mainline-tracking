@@ -1322,6 +1322,7 @@ int skl_create_pipeline(struct skl_sst *ctx, struct skl_pipe *pipe)
 	}
 
 	pipe->state = SKL_PIPE_CREATED;
+	skl_dbg_event(ctx, pipe->state);
 
 	return 0;
 }
@@ -1360,6 +1361,7 @@ int skl_delete_pipe(struct skl_sst *ctx, struct skl_pipe *pipe)
 	}
 
 	pipe->state = SKL_PIPE_INVALID;
+	skl_dbg_event(ctx, pipe->state);
 
 	return ret;
 }
