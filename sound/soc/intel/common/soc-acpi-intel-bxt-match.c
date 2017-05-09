@@ -9,6 +9,7 @@
 #include <linux/dmi.h>
 #include <sound/soc-acpi.h>
 #include <sound/soc-acpi-intel-match.h>
+#include "../skylake/skl.h"
 
 enum {
 	APL_RVP,
@@ -44,6 +45,10 @@ static struct snd_soc_acpi_mach *apl_quirk(void *arg)
 static struct snd_soc_acpi_codecs bxt_codecs = {
 	.num_codecs = 1,
 	.codecs = {"MX98357A"}
+};
+
+static struct skl_machine_pdata bxt_pdata = {
+	.use_tplg_pcm = true,
 };
 
 struct snd_soc_acpi_mach snd_soc_acpi_intel_bxt_machines[] = {
@@ -82,10 +87,12 @@ struct snd_soc_acpi_mach snd_soc_acpi_intel_bxt_machines[] = {
 	{
 		.id = "INT34C3",
 		.drv_name = "bxt_tdf8532",
+		.fw_filename = "intel/dsp_fw_bxtn.bin",
 		.machine_quirk = apl_quirk,
 		.sof_fw_filename = "intel/sof-apl.ri",
 		.sof_tplg_filename = "intel/sof-apl-tdf8532.tplg",
 		.asoc_plat_name = "0000:00:0e.0",
+		.pdata = &bxt_pdata,
 	},
 	{},
 };
