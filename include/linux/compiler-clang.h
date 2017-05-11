@@ -42,3 +42,7 @@
  * compilers, like ICC.
  */
 #define barrier() __asm__ __volatile__("" : : : "memory")
+
+#ifdef CONFIG_CFI_CLANG
+#define __nocfi		__attribute__((no_sanitize("cfi")))
+#endif
