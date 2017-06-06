@@ -9,9 +9,9 @@
  * ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
  */
 #include <linux/pci.h>
-#include <sound/intel-nhlt.h>
 #include "skl.h"
 #include "skl-i2s.h"
+#include "skl-nhlt.h"
 
 static struct nhlt_specific_cfg *skl_get_specific_cfg(
 		struct device *dev, struct nhlt_fmt *fmt,
@@ -350,6 +350,42 @@ void skl_get_clks(struct skl_dev *skl, struct skl_ssp_clk *ssp_clks)
 
 			skl_get_ssp_clks(skl, ssp_clks, fmt, id);
 			skl_get_mclk(skl, ssp_clks, fmt, id);
+		}
+		epnt = (struct nhlt_endpoint *)((u8 *)epnt + epnt->length);
+	}
+}
+
+static bool is_vbus_id_exist(struct skl_dev *skl, int vbus_id)
+{
+	bool ret = false;
+	int i;
+
+	for (i = 0; i < skl->nhlt->endpoint_count; i++) {
+		if (vbus_id == skl->grp_cnt.vbus_id[i])
+			return true;
+	}
+	return ret;
+}
+
+/*
+ * This function gets endpoint count and vbus_id for the specific link type
+ *  passed as parameter.
+ */
+void skl_nhlt_get_ep_cnt(struct skl_dev *skl, int link_type)
+{
+	struct nhlt_endpoint *epnt = (struct nhlt_endpoint *) skl->nhlt->desc;
+	int i;
+
+	skl->grp_cnt.cnt = 0;
+	memset(skl->grp_cnt.vbus_id, 0xff,
+		(sizeof(int) * skl->nhlt->endpoint_count));
+
+	for (i = 0; i < skl->nhlt->endpoint_count; i++) {
+
+		if (epnt->linktype == link_type) {
+			if (!is_vbus_id_exist(skl, epnt->virtual_bus_id))
+				skl->grp_cnt.vbus_id[skl->grp_cnt.cnt++] =
+						epnt->virtual_bus_id;
 		}
 		epnt = (struct nhlt_endpoint *)((u8 *)epnt + epnt->length);
 	}

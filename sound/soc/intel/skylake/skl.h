@@ -60,6 +60,11 @@ struct skl_fw_config {
 	struct skl_astate_config *astate_cfg;
 };
 
+struct ep_group_cnt {
+	int cnt;
+	int *vbus_id;
+};
+
 struct skl_dev {
 	struct hda_bus hbus;
 	struct pci_dev *pci;
@@ -139,6 +144,8 @@ struct skl_dev {
 
 	/* sysfs for module info */
 	struct skl_sysfs_tree *sysfs_tree;
+
+	struct ep_group_cnt grp_cnt;
 
 	/* probe stream management */
 	struct hdac_ext_stream *extractor;
