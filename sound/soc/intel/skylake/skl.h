@@ -57,6 +57,11 @@ struct skl_fw_config {
 	struct skl_astate_config *astate_cfg;
 };
 
+struct ep_group_cnt {
+	int cnt;
+	int *vbus_id;
+};
+
 struct skl_dev {
 	struct hda_bus hbus;
 	struct pci_dev *pci;
@@ -142,6 +147,8 @@ struct skl_dev {
 	/* sysfs for module info */
 	struct skl_sysfs_tree *sysfs_tree;
 
+	struct ep_group_cnt grp_cnt;
+
 	/* probe stream management */
 	struct hdac_ext_stream *extractor;
 	unsigned int num_probe_streams;
@@ -176,6 +183,7 @@ int skl_platform_unregister(struct device *dev);
 int skl_platform_register(struct device *dev);
 
 int skl_get_nhlt_version(struct device *dev);
+void skl_nhlt_get_ep_cnt(struct skl_dev *skl, int link_type);
 struct nhlt_acpi_table *skl_nhlt_init(struct device *dev);
 void skl_nhlt_free(struct nhlt_acpi_table *addr);
 struct nhlt_specific_cfg *skl_get_ep_blob(struct skl_dev *skl, u32 instance,
