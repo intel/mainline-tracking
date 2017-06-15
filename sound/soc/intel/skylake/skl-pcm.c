@@ -1516,6 +1516,9 @@ static int skl_platform_soc_probe(struct snd_soc_component *component)
 		if (ret < 0)
 			return ret;
 
+		/* Set DMA clock controls */
+		skl_dsp_set_dma_clk_controls(skl);
+
 		skl_populate_modules(skl);
 		skl->update_d0i3c = skl_update_d0i3c;
 

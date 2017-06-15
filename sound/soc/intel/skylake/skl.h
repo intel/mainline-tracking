@@ -195,6 +195,9 @@ int skl_platform_register(struct device *dev);
 struct nhlt_specific_cfg *skl_get_ep_blob(struct skl_dev *skl, u32 instance,
 					u8 link_type, u8 s_fmt, u8 no_ch,
 					u32 s_rate, u8 dirn, u8 dev_type);
+struct nhlt_specific_cfg *
+skl_get_nhlt_specific_cfg(struct skl_dev *skl, u32 instance, u8 link_type,
+		u8 s_fmt, u8 num_ch, u32 s_rate, u8 dir, u8 dev_type);
 
 int skl_nhlt_update_topology_bin(struct skl_dev *skl);
 int skl_init_dsp(struct skl_dev *skl, struct sst_pdata *pdata);
