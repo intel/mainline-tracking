@@ -20,11 +20,27 @@
 #include <sound/jack.h>
 #include <linux/input.h>
 
+#include "../../codecs/hdac_hdmi.h"
 #include "../../codecs/rt274.h"
 
 #define CNL_FREQ_OUT		24000000
 #define CNL_BE_FIXUP_RATE	48000
 #define RT274_CODEC_DAI		"rt274-aif1"
+#define CNL_NAME_SIZE		32
+#define CNL_MAX_HDMI		3
+
+static struct snd_soc_jack cnl_hdmi[CNL_MAX_HDMI];
+
+struct cnl_hdmi_pcm {
+	struct list_head head;
+	struct snd_soc_dai *codec_dai;
+	int device;
+};
+
+struct cnl_rt274_private {
+	struct list_head hdmi_pcm_list;
+	int pcm_count;
+};
 
 static struct snd_soc_dai *cnl_get_codec_dai(struct snd_soc_card *card,
 						     const char *dai_name)
@@ -136,6 +152,13 @@ static const struct snd_soc_dapm_route cnl_map[] = {
 
 	{"Headphone Jack", NULL, "Platform Clock"},
 	{"MIC", NULL, "Platform Clock"},
+
+	{"hifi1", NULL, "iDisp1 Tx"},
+	{"iDisp1 Tx", NULL, "iDisp1_out"},
+	{"hifi2", NULL, "iDisp2 Tx"},
+	{"iDisp2 Tx", NULL, "iDisp2_out"},
+	{"hifi3", NULL, "iDisp3 Tx"},
+	{"iDisp3 Tx", NULL, "iDisp3_out"},
 };
 
 static int cnl_rt274_init(struct snd_soc_pcm_runtime *runtime)
@@ -198,6 +221,21 @@ SND_SOC_DAILINK_DEF(dmic01_pin,
 SND_SOC_DAILINK_DEF(dmic_codec,
 	DAILINK_COMP_ARRAY(COMP_CODEC("dmic-codec", "dmic-hifi")));
 
+SND_SOC_DAILINK_DEF(idisp1_pin,
+	DAILINK_COMP_ARRAY(COMP_CPU("iDisp1 Pin")));
+SND_SOC_DAILINK_DEF(idisp1_codec,
+	DAILINK_COMP_ARRAY(COMP_CODEC("ehdaudio0D2", "intel-hdmi-hifi1")));
+
+SND_SOC_DAILINK_DEF(idisp2_pin,
+	DAILINK_COMP_ARRAY(COMP_CPU("iDisp2 Pin")));
+SND_SOC_DAILINK_DEF(idisp2_codec,
+	DAILINK_COMP_ARRAY(COMP_CODEC("ehdaudio0D2", "intel-hdmi-hifi2")));
+
+SND_SOC_DAILINK_DEF(idisp3_pin,
+	DAILINK_COMP_ARRAY(COMP_CPU("iDisp3 Pin")));
+SND_SOC_DAILINK_DEF(idisp3_codec,
+	DAILINK_COMP_ARRAY(COMP_CODEC("ehdaudio0D2", "intel-hdmi-hifi3")));
+
 SND_SOC_DAILINK_DEF(probe_pb,
 	DAILINK_COMP_ARRAY(COMP_CPU("Probe Injection0 CPU DAI")));
 SND_SOC_DAILINK_DEF(probe_cp,
@@ -230,6 +268,27 @@ static struct snd_soc_dai_link cnl_rt274_msic_dailink[] = {
 		.be_hw_params_fixup = cnl_dmic_fixup,
 		SND_SOC_DAILINK_REG(dmic01_pin, dmic_codec, platform),
 	},
+	{
+		.name = "iDisp1",
+		.id = 3,
+		.dpcm_playback = 1,
+		.no_pcm = 1,
+		SND_SOC_DAILINK_REG(idisp1_pin, idisp1_codec, platform),
+	},
+	{
+		.name = "iDisp2",
+		.id = 4,
+		.dpcm_playback = 1,
+		.no_pcm = 1,
+		SND_SOC_DAILINK_REG(idisp2_pin, idisp2_codec, platform),
+	},
+	{
+		.name = "iDisp3",
+		.id = 5,
+		.dpcm_playback = 1,
+		.no_pcm = 1,
+		SND_SOC_DAILINK_REG(idisp3_pin, idisp3_codec, platform),
+	},
 	/* Probe DAI links */
 	{
 		.name = "Compress Probe Playback",
@@ -244,15 +303,74 @@ static struct snd_soc_dai_link cnl_rt274_msic_dailink[] = {
 		.ignore_suspend = 1,
 		.nonatomic = 1,
 		SND_SOC_DAILINK_REG(probe_cp, dummy, platform),
-	},};
+	},
+};
 
 static int
 cnl_add_dai_link(struct snd_soc_card *card, struct snd_soc_dai_link *link)
 {
+	struct cnl_rt274_private *ctx = snd_soc_card_get_drvdata(card);
+	char hdmi_dai_name[CNL_NAME_SIZE];
+	struct cnl_hdmi_pcm *pcm;
+
 	link->platforms->name = pname;
 	link->nonatomic = 1;
 
+	/* Assuming HDMI dai link will consist the string "HDMI" */
+	if (strstr(link->name, "HDMI")) {
+		static int i = 1; /* hdmi codec dai name starts from index 1 */
+
+		pcm = devm_kzalloc(card->dev, sizeof(*pcm), GFP_KERNEL);
+		if (!pcm)
+			return -ENOMEM;
+
+		snprintf(hdmi_dai_name, sizeof(hdmi_dai_name),
+			 "intel-hdmi-hifi%d", i++);
+		pcm->codec_dai = cnl_get_codec_dai(card, hdmi_dai_name);
+		if (!pcm->codec_dai)
+			return -EINVAL;
+
+		pcm->device = ctx->pcm_count;
+		list_add_tail(&pcm->head, &ctx->hdmi_pcm_list);
+	}
+	ctx->pcm_count++;
+
 	return 0;
+}
+
+static int cnl_card_late_probe(struct snd_soc_card *card)
+{
+	struct cnl_rt274_private *ctx = snd_soc_card_get_drvdata(card);
+	struct snd_soc_component *component = NULL;
+	char jack_name[CNL_NAME_SIZE];
+	struct cnl_hdmi_pcm *pcm;
+	int err, i = 0;
+
+	if (list_empty(&ctx->hdmi_pcm_list))
+		return 0;
+
+	list_for_each_entry(pcm, &ctx->hdmi_pcm_list, head) {
+		component = pcm->codec_dai->component;
+		snprintf(jack_name, sizeof(jack_name),
+			"HDMI/DP, pcm=%d Jack", pcm->device);
+		err = snd_soc_card_jack_new(card, jack_name,
+					SND_JACK_AVOUT, &cnl_hdmi[i],
+					NULL, 0);
+		if (err)
+			return err;
+
+		err = hdac_hdmi_jack_init(pcm->codec_dai,
+					  pcm->device, &cnl_hdmi[i]);
+		if (err < 0)
+			return err;
+
+		i++;
+	}
+
+	if (!component)
+		return -EINVAL;
+
+	return hdac_hdmi_jack_port_init(component, &card->dapm);
 }
 
 /* SoC card */
@@ -267,11 +385,24 @@ static struct snd_soc_card snd_soc_card_cnl = {
 	.controls = cnl_controls,
 	.num_controls = ARRAY_SIZE(cnl_controls),
 	.add_dai_link = cnl_add_dai_link,
+	.fully_routed = true,
+	.late_probe = cnl_card_late_probe,
 };
 
 static int snd_cnl_rt274_mc_probe(struct platform_device *pdev)
 {
+	struct cnl_rt274_private *ctx;
+
+	ctx = devm_kzalloc(&pdev->dev, sizeof(*ctx), GFP_KERNEL);
+	if (!ctx)
+		return -ENOMEM;
+
+	ctx->pcm_count = ARRAY_SIZE(cnl_rt274_msic_dailink);
+	INIT_LIST_HEAD(&ctx->hdmi_pcm_list);
+
 	snd_soc_card_cnl.dev = &pdev->dev;
+	snd_soc_card_set_drvdata(&snd_soc_card_cnl, ctx);
+
 	return devm_snd_soc_register_card(&pdev->dev, &snd_soc_card_cnl);
 }
 

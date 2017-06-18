@@ -92,7 +92,8 @@ skl_get_nhlt_specific_cfg(struct skl_dev *skl, u32 instance, u8 link_type,
 				num_ch, s_rate, dir, dev_type);
 	} else {
 		dev_dbg(bus->dev, "Querying NHLT blob from Debugfs!!\n");
-		cfg = skl_nhlt_get_debugfs_blob(skl->debugfs, link_type, instance, dir);
+		cfg = skl_nhlt_get_debugfs_blob(skl->debugfs, link_type,
+			instance, dir);
 	}
 
 	return cfg;

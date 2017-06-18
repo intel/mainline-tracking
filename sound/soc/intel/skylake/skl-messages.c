@@ -590,7 +590,7 @@ int skl_dsp_set_dma_clk_controls(struct skl_dev *skl)
 							hdr->tdm_slot);
 
 			ret = skl_dsp_set_dma_control(skl, (u32 *)i2s_config,
-							i2s_config_size, node_id);
+						i2s_config_size, node_id);
 
 			kfree(i2s_config);
 
