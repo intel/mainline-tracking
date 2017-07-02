@@ -48,7 +48,8 @@ static int cnl_prepare_fw(struct sst_dsp *ctx, const void *fwdata, u32 fwsize)
 
 	int ret, stream_tag;
 
-	stream_tag = skl_dsp_prepare(ctx->dev, 0x40, fwsize, &ctx->dmab);
+	stream_tag = skl_dsp_prepare(ctx->dev, 0x40, fwsize, &ctx->dmab,
+						SNDRV_PCM_STREAM_PLAYBACK);
 	if (stream_tag <= 0) {
 		dev_err(ctx->dev, "dma prepare failed: 0%#x\n", stream_tag);
 		return stream_tag;
@@ -83,7 +84,8 @@ static int cnl_prepare_fw(struct sst_dsp *ctx, const void *fwdata, u32 fwsize)
 	return stream_tag;
 
 base_fw_load_failed:
-	skl_dsp_cleanup(ctx->dev, &ctx->dmab, stream_tag);
+	skl_dsp_cleanup(ctx->dev, &ctx->dmab, stream_tag,
+						SNDRV_PCM_STREAM_PLAYBACK);
 	cnl_dsp_disable_core(ctx, SKL_DSP_CORE0_MASK);
 
 	return ret;
@@ -93,13 +95,16 @@ static int sst_transfer_fw_host_dma(struct sst_dsp *ctx, int stream_tag)
 {
 	int ret;
 
-	skl_dsp_trigger(ctx->dev, true, stream_tag);
+	skl_dsp_trigger(ctx->dev, true, stream_tag,
+						SNDRV_PCM_STREAM_PLAYBACK);
 	ret = sst_dsp_register_poll(ctx, CNL_ADSP_FW_STATUS, CNL_FW_STS_MASK,
 				    CNL_FW_INIT, CNL_BASEFW_TIMEOUT,
 				    "firmware boot");
 
-	skl_dsp_trigger(ctx->dev, false, stream_tag);
-	skl_dsp_cleanup(ctx->dev, &ctx->dmab, stream_tag);
+	skl_dsp_trigger(ctx->dev, false, stream_tag,
+						SNDRV_PCM_STREAM_PLAYBACK);
+	skl_dsp_cleanup(ctx->dev, &ctx->dmab, stream_tag,
+						SNDRV_PCM_STREAM_PLAYBACK);
 
 	return ret;
 }
