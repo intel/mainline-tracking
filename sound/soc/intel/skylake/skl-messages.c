@@ -91,7 +91,9 @@ static int skl_dsp_setup_spib(struct device *dev, unsigned int size,
 }
 
 static int skl_dsp_prepare(struct device *dev, unsigned int format,
-			unsigned int size, struct snd_dma_buffer *dmab)
+						unsigned int size,
+						struct snd_dma_buffer *dmab,
+						int direction)
 {
 	struct hdac_bus *bus = dev_get_drvdata(dev);
 	struct hdac_ext_stream *estream;
@@ -103,7 +105,8 @@ static int skl_dsp_prepare(struct device *dev, unsigned int format,
 		return -ENODEV;
 
 	memset(&substream, 0, sizeof(substream));
-	substream.stream = SNDRV_PCM_STREAM_PLAYBACK;
+
+	substream.stream = direction;
 
 	estream = snd_hdac_ext_stream_assign(bus, &substream,
 					HDAC_EXT_STREAM_TYPE_HOST);
@@ -122,7 +125,8 @@ static int skl_dsp_prepare(struct device *dev, unsigned int format,
 	return stream->stream_tag;
 }
 
-static int skl_dsp_trigger(struct device *dev, bool start, int stream_tag)
+static int skl_dsp_trigger(struct device *dev, bool start, int stream_tag,
+							int direction)
 {
 	struct hdac_bus *bus = dev_get_drvdata(dev);
 	struct hdac_stream *stream;
@@ -130,8 +134,7 @@ static int skl_dsp_trigger(struct device *dev, bool start, int stream_tag)
 	if (!bus)
 		return -ENODEV;
 
-	stream = snd_hdac_get_stream(bus,
-		SNDRV_PCM_STREAM_PLAYBACK, stream_tag);
+	stream = snd_hdac_get_stream(bus, direction, stream_tag);
 	if (!stream)
 		return -EINVAL;
 
@@ -140,8 +143,8 @@ static int skl_dsp_trigger(struct device *dev, bool start, int stream_tag)
 	return 0;
 }
 
-static int skl_dsp_cleanup(struct device *dev,
-		struct snd_dma_buffer *dmab, int stream_tag)
+static int skl_dsp_cleanup(struct device *dev, struct snd_dma_buffer *dmab,
+				int stream_tag, int direction)
 {
 	struct hdac_bus *bus = dev_get_drvdata(dev);
 	struct hdac_stream *stream;
@@ -150,8 +153,7 @@ static int skl_dsp_cleanup(struct device *dev,
 	if (!bus)
 		return -ENODEV;
 
-	stream = snd_hdac_get_stream(bus,
-		SNDRV_PCM_STREAM_PLAYBACK, stream_tag);
+	stream = snd_hdac_get_stream(bus, direction, stream_tag);
 	if (!stream)
 		return -EINVAL;
 
