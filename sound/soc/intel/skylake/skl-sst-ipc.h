@@ -357,19 +357,6 @@ struct sw_version {
 	u16 build;
 } __packed;
 
-struct skl_dsp_core_dump {
-	u16 type0;
-	u16 length0;
-	u32 crash_dump_ver;
-	u16 bus_dev_id;
-	u16 cavs_hw_version;
-	struct fw_version fw_ver;
-	struct sw_version sw_ver;
-	u16 type2;
-	u16 length2;
-	u32 fwreg[FW_REG_SZ];
-} __packed;
-
 struct skl_module_notify {
 	u32 unique_id;
 	u32 event_id;
@@ -452,4 +439,5 @@ int skl_ipc_process_notification(struct sst_generic_ipc *ipc,
 		struct skl_ipc_header header);
 void skl_ipc_tx_data_copy(struct ipc_message *msg, char *tx_data,
 		size_t tx_size);
+int skl_dsp_crash_dump_read(struct skl_sst *ctx);
 #endif /* __SKL_IPC_H */
