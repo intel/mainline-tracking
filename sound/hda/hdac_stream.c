@@ -193,6 +193,10 @@ void snd_hdac_stream_reset(struct hdac_stream *azx_dev)
 		if (val)
 			break;
 	} while (--timeout);
+
+	if (!timeout)
+		dev_err(azx_dev->bus->dev, "timeout on stream reset entry\n");
+
 	val &= ~SD_CTL_STREAM_RESET;
 	snd_hdac_stream_writeb(azx_dev, SD_CTL, val);
 	udelay(3);
@@ -205,6 +209,9 @@ void snd_hdac_stream_reset(struct hdac_stream *azx_dev)
 		if (!val)
 			break;
 	} while (--timeout);
+
+	if (!timeout)
+		dev_err(azx_dev->bus->dev, "timeout on stream reset exit\n");
 
 	/* reset first position - may not be synced with hw at this time */
 	if (azx_dev->posbuf)
