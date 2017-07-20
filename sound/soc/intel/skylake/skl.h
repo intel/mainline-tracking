@@ -158,6 +158,8 @@ struct skl_dev {
 	/* Callback to update D0i3C register */
 	void (*update_d0i3c)(struct device *dev, bool enable);
 
+	struct skl_dsp_notify_ops notify_ops;
+
 	struct skl_d0i3_data d0i3;
 
 	const struct skl_dsp_ops *dsp_ops;
@@ -169,6 +171,8 @@ struct skl_dev {
 	struct skl_sysfs_tree *sysfs_tree;
 
 	struct ep_group_cnt grp_cnt;
+
+	struct snd_kcontrol *kcontrol;
 
 	/* probe stream management */
 	struct hdac_ext_stream *extractor;
