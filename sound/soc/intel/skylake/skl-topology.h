@@ -399,4 +399,7 @@ int skl_dai_load(struct snd_soc_component *cmp, int index,
 		struct snd_soc_tplg_pcm *pcm, struct snd_soc_dai *dai);
 void skl_tplg_add_moduleid_in_bind_params(struct skl_dev *skl,
 				struct snd_soc_dapm_widget *w);
+
+int skl_tplg_change_notification_get(struct snd_kcontrol *kcontrol,
+			unsigned int __user *data, unsigned int size);
 #endif

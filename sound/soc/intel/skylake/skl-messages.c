@@ -1403,6 +1403,10 @@ int skl_delete_pipe(struct skl_dev *skl, struct skl_pipe *pipe)
 
 	pipe->state = SKL_PIPE_INVALID;
 	skl_dbg_event(skl, pipe->state);
+	ret = skl_notify_tplg_change(skl, SKL_TPLG_CHG_NOTIFY_PIPELINE_DELETE);
+	if (ret < 0)
+		dev_warn(skl->dev,
+			"update of topology event delete pipe failed\n");
 
 	return ret;
 }
@@ -1438,6 +1442,10 @@ int skl_run_pipe(struct skl_dev *skl, struct skl_pipe *pipe)
 	}
 
 	pipe->state = SKL_PIPE_STARTED;
+	ret = skl_notify_tplg_change(skl, SKL_TPLG_CHG_NOTIFY_PIPELINE_START);
+	if (ret < 0)
+		dev_warn(skl->dev,
+			"update of topology event run pipe failed\n");
 
 	return 0;
 }
