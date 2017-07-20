@@ -28,6 +28,7 @@ struct sst_generic_ipc;
 #define NO_OF_INJECTOR 6
 #define NO_OF_EXTRACTOR 8
 #define FW_REG_SZ 1024
+#define	SKL_TPLG_CHG_NOTIFY	3
 
 enum skl_ipc_pipeline_state {
 	PPL_INVALID_STATE =	0,
@@ -273,6 +274,8 @@ struct skl_sst {
 	/* Callback to update D0i3C register */
 	void (*update_d0i3c)(struct device *dev, bool enable);
 
+	struct skl_dsp_notify_ops notify_ops;
+
 	struct skl_d0i3_data d0i3;
 
 	const struct skl_dsp_ops *dsp_ops;
@@ -290,6 +293,8 @@ struct skl_sst {
 
 	/* sysfs for module info */
 	struct skl_sysfs_tree *sysfs_tree;
+
+	struct snd_kcontrol *kcontrol;
 };
 
 struct skl_ipc_init_instance_msg {
@@ -440,4 +445,6 @@ int skl_ipc_process_notification(struct sst_generic_ipc *ipc,
 void skl_ipc_tx_data_copy(struct ipc_message *msg, char *tx_data,
 		size_t tx_size);
 int skl_dsp_crash_dump_read(struct skl_sst *ctx);
+
+int skl_notify_tplg_change(struct skl_sst *ctx, int type);
 #endif /* __SKL_IPC_H */
