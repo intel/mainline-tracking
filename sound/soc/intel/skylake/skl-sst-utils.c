@@ -490,6 +490,27 @@ void skl_release_library(struct skl_lib_info *linfo, int lib_count)
 	}
 }
 
+int skl_notify_tplg_change(struct skl_dev *skl, int type)
+{
+	struct skl_notify_data *notify_data;
+	struct timespec64 ts;
+
+	notify_data = kzalloc(sizeof(*notify_data), GFP_KERNEL);
+	if (!notify_data)
+		return -ENOMEM;
+
+	notify_data->type = 0xFF;
+	notify_data->length = sizeof(struct skl_tcn_events);
+	notify_data->tcn_data.type = type;
+	ktime_get_real_ts64(&ts);
+	memcpy(&notify_data->tcn_data.ts, &ts, sizeof(ts));
+	skl->notify_ops.notify_cb(skl, SKL_TPLG_CHG_NOTIFY, notify_data);
+	kfree(notify_data);
+
+	return 0;
+}
+EXPORT_SYMBOL_GPL(skl_notify_tplg_change);
+
 static ssize_t uuid_attr_show(struct kobject *kobj, struct attribute *attr,
 				char *buf)
 {
