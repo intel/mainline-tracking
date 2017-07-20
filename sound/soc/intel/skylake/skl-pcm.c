@@ -743,6 +743,10 @@ static const struct snd_soc_dai_ops skl_link_dai_ops = {
 	.trigger = skl_link_pcm_trigger,
 };
 
+static struct skl_dsp_notify_ops cb_ops = {
+	.notify_cb = skl_dsp_cb_event,
+};
+
 static struct snd_soc_dai_driver skl_fe_dai[] = {
 {
 	.name = "System Pin",
@@ -1429,6 +1433,7 @@ static int skl_platform_soc_probe(struct snd_soc_component *component)
 
 		skl_populate_modules(skl);
 		skl->skl_sst->update_d0i3c = skl_update_d0i3c;
+		skl->skl_sst->notify_ops = cb_ops;
 		skl_dsp_enable_notification(skl->skl_sst, false);
 
 		if (skl->cfg.astate_cfg != NULL) {
