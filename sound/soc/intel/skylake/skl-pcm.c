@@ -759,6 +759,10 @@ static const struct snd_soc_dai_ops skl_link_dai_ops = {
 	.trigger = skl_link_pcm_trigger,
 };
 
+static struct skl_dsp_notify_ops cb_ops = {
+	.notify_cb = skl_dsp_cb_event,
+};
+
 static struct snd_soc_dai_driver skl_fe_dai[] = {
 {
 	.name = "System Pin",
@@ -1525,6 +1529,7 @@ static int skl_platform_soc_probe(struct snd_soc_component *component)
 
 		skl_populate_modules(skl);
 		skl->update_d0i3c = skl_update_d0i3c;
+		skl->notify_ops = cb_ops;
 
 		if (skl->cfg.astate_cfg != NULL) {
 			skl_dsp_set_astate_cfg(skl,
@@ -1551,6 +1556,12 @@ static void skl_pcm_remove(struct snd_soc_component *component)
 	skl_debugfs_exit(skl);
 }
 
+static struct snd_kcontrol_new skl_controls[] = {
+	SND_SOC_BYTES_TLV("Topology Change Notification",
+		sizeof(struct skl_tcn_events),
+		skl_tplg_change_notification_get, NULL),
+};
+
 static const struct snd_soc_component_driver skl_component  = {
 	.name		= "pcm",
 	.probe		= skl_platform_soc_probe,
@@ -1559,6 +1570,8 @@ static const struct snd_soc_component_driver skl_component  = {
 	.compr_ops	= &skl_platform_compr_ops,
 	.pcm_new	= skl_pcm_new,
 	.pcm_free	= skl_pcm_free,
+	.controls	= skl_controls,
+	.num_controls	= ARRAY_SIZE(skl_controls),
 	.module_get_upon_open = 1, /* increment refcount when a pcm is opened */
 };
 
