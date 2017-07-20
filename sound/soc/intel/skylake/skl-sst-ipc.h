@@ -13,6 +13,8 @@
 #include "skl-sst-dsp.h"
 #include <uapi/sound/skl-tplg-interface.h>
 
+#define	SKL_TPLG_CHG_NOTIFY	3
+
 struct sst_dsp;
 struct sst_generic_ipc;
 
@@ -500,5 +502,7 @@ int skl_probe_points_connect(struct skl_dev *skl,
 		struct skl_probe_point_desc *desc, size_t num_desc);
 int skl_probe_points_disconnect(struct skl_dev *skl,
 		union skl_probe_point_id *id, size_t num_id);
+
+int skl_notify_tplg_change(struct skl_dev *skl, int type);
 
 #endif /* __SKL_IPC_H */
