@@ -42,6 +42,7 @@
 #define SKL_MAX_MODULES_IN_PIPE	8
 #define SKL_MAX_MODULE_FORMATS		64
 #define SKL_MAX_MODULE_RESOURCES	32
+#define MAX_NUM_CHANNELS	8
 
 enum skl_widget_type {
 	SKL_WIDGET_VMIXER = 1,
@@ -261,6 +262,12 @@ struct skl_event_timestamp {
 	u64 time_stamp_cnt;
 } __packed;
 
+struct skl_gain_data {
+	u64 ramp_duration;
+	u32 ramp_type;
+	u32 volume[MAX_NUM_CHANNELS];
+};
+
 struct skl_module_cfg {
 	u8 guid[16];
 	struct skl_module_inst_id id;
@@ -301,6 +308,7 @@ struct skl_module_cfg {
 	struct skl_pipe_mcfg mod_cfg[SKL_MAX_MODULES_IN_PIPE];
 	struct skl_event_timestamp ts;
 	struct completion ts_completion;
+	struct skl_gain_data *gain_data;
 };
 
 struct skl_algo_data {
