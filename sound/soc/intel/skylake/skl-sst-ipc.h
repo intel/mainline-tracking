@@ -202,6 +202,11 @@ struct skl_probe_point_desc {
 	union skl_connector_node_id node_id;
 } __packed;
 
+struct skl_gain_module_config {
+	struct skl_base_cfg mconf;
+	struct skl_gain_config gain_cfg;
+};
+
 enum skl_ipc_pipeline_state {
 	PPL_INVALID_STATE =	0,
 	PPL_UNINITIALIZED =	1,

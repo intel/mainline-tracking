@@ -27,6 +27,7 @@
 #define INVALID_PIPELINE_ID	0xFF
 #define ASRC_MODE_UPLINK	2
 #define ASRC_MODE_DOWNLINK	1
+#define SKL_ENABLE_ALL_CHANNELS  0xffffffff
 
 int skl_alloc_dma_buf(struct device *dev,
 		struct snd_dma_buffer *dmab, size_t size)
@@ -636,6 +637,22 @@ static void skl_setup_out_format(struct skl_dev *skl,
 		out_fmt->number_of_channels, format->s_freq, format->bit_depth);
 }
 
+static int skl_set_gain_format(struct skl_dev *skl,
+			struct skl_module_cfg *mconfig,
+			struct skl_gain_module_config *gain_mconfig)
+{
+	struct skl_gain_data *gain_fmt = mconfig->gain_data;
+
+	skl_set_base_module_format(skl, mconfig,
+			(struct skl_base_cfg *)gain_mconfig);
+	gain_mconfig->gain_cfg.channel_id = SKL_ENABLE_ALL_CHANNELS;
+	gain_mconfig->gain_cfg.target_volume = gain_fmt->volume[0];
+	gain_mconfig->gain_cfg.ramp_type = gain_fmt->ramp_type;
+	gain_mconfig->gain_cfg.ramp_duration = gain_fmt->ramp_duration;
+
+	return 0;
+}
+
 /*
  * DSP needs SRC module for frequency conversion, SRC takes base module
  * configuration and the target frequency as extra parameter passed as src
@@ -747,6 +764,7 @@ static u16 skl_get_module_param_size(struct skl_dev *skl,
 			struct skl_module_cfg *mconfig)
 {
 	u16 param_size;
+	struct skl_module_iface *m_intf;
 
 	switch (mconfig->m_type) {
 	case SKL_MODULE_TYPE_COPIER:
@@ -770,6 +788,13 @@ static u16 skl_get_module_param_size(struct skl_dev *skl,
 	case SKL_MODULE_TYPE_MIC_SELECT:
 	case SKL_MODULE_TYPE_KPB:
 		return sizeof(struct skl_base_outfmt_cfg);
+
+	case SKL_MODULE_TYPE_GAIN:
+		m_intf = &mconfig->module->formats[mconfig->fmt_idx];
+		param_size = sizeof(struct skl_base_cfg);
+		param_size += sizeof(struct skl_gain_config)
+			* m_intf->outputs[0].fmt.channels;
+		return param_size;
 
 	default:
 		/*
@@ -826,6 +851,10 @@ static int skl_set_module_format(struct skl_dev *skl,
 	case SKL_MODULE_TYPE_MIC_SELECT:
 	case SKL_MODULE_TYPE_KPB:
 		skl_set_base_outfmt_format(skl, module_config, *param_data);
+		break;
+
+	case SKL_MODULE_TYPE_GAIN:
+		skl_set_gain_format(skl, module_config, *param_data);
 		break;
 
 	default:
