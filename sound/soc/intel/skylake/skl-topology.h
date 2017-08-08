@@ -402,4 +402,10 @@ void skl_tplg_add_moduleid_in_bind_params(struct skl_dev *skl,
 
 int skl_tplg_change_notification_get(struct snd_kcontrol *kcontrol,
 			unsigned int __user *data, unsigned int size);
+struct snd_kcontrol *skl_search_notify_kctl(struct skl_dev *skl, u32 notify_id);
+int skl_create_notify_kctl_list(struct skl_dev *skl, struct snd_card *card);
+void skl_delete_notify_kctl_list(struct skl_dev *skl);
+struct snd_kcontrol *skl_get_notify_kcontrol(struct skl_dev *skl,
+				struct snd_card *card, u32 notify_id);
+
 #endif
