@@ -2020,6 +2020,132 @@ int skl_tplg_be_update_params(struct snd_soc_dai *dai,
 	return 0;
 }
 
+/*
+ * This function searches notification kcontrol list present in skl_sst
+ * context against unique notify_id and returns kcontrol pointer if match
+ * found.
+ */
+struct snd_kcontrol *skl_search_notify_kctl(struct skl_dev *skl, u32 notify_id)
+{
+	struct skl_notify_kctrl_info *kctl_info;
+
+	list_for_each_entry(kctl_info, &skl->notify_kctls, list) {
+		if (notify_id == kctl_info->notify_id)
+			return kctl_info->notify_kctl;
+	}
+	return NULL;
+}
+
+/*
+ * This function creates notification kcontrol list by searching control
+ * list present in snd_card context. It compares kcontrol name with specific
+ * string "notify params" to get notification kcontrols and add it up to the
+ * notification list present in skl_sst context.
+ * NOTE: To use module notification feature, new kcontrol named "notify" should
+ * be added in topology XML for that particular module.
+ */
+int skl_create_notify_kctl_list(struct skl_dev *skl, struct snd_card *card)
+{
+	struct snd_kcontrol *kctl;
+	struct snd_soc_dapm_widget *w;
+	struct skl_module_cfg *mconfig;
+	struct skl_notify_kctrl_info *info;
+	u32 size = sizeof(*info);
+
+	list_for_each_entry(kctl, &card->controls, list) {
+		if (strnstr(kctl->id.name, "notify params",
+						strlen(kctl->id.name))) {
+			info = kzalloc(size, GFP_KERNEL);
+			if (!info)
+				return -ENOMEM;
+
+			w = snd_soc_dapm_kcontrol_widget(kctl);
+			mconfig = w->priv;
+
+			/* Module ID (MS word) + Module Instance ID (LS word) */
+			info->notify_id = ((mconfig->id.module_id << 16) |
+					   (mconfig->id.instance_id));
+			info->notify_kctl = kctl;
+
+			list_add_tail(&info->list, &skl->notify_kctls);
+		}
+	}
+	return 0;
+}
+
+/*
+ * This function deletes notification kcontrol list from skl_sst
+ * context.
+ */
+void skl_delete_notify_kctl_list(struct skl_dev *skl)
+{
+	struct skl_notify_kctrl_info *info, *tmp;
+
+	list_for_each_entry_safe(info, tmp, &skl->notify_kctls, list) {
+		list_del(&info->list);
+		kfree(info);
+	}
+}
+
+/*
+ * This function creates notification kcontrol list on first module
+ * notification from firmware. It also search notification kcontrol
+ * list against unique notify_id sent from firmware and returns the
+ * corresponding kcontrol pointer.
+ */
+struct snd_kcontrol *skl_get_notify_kcontrol(struct skl_dev *skl,
+			struct snd_card *card, u32 notify_id)
+{
+	struct snd_kcontrol *kctl = NULL;
+
+	if (list_empty(&skl->notify_kctls))
+		skl_create_notify_kctl_list(skl, card);
+
+	kctl = skl_search_notify_kctl(skl, notify_id);
+
+	return kctl;
+}
+
+/*
+ * Get the events along with data stored in notify_data and pass
+ * to kcontrol private data.
+ */
+int skl_dsp_cb_event(struct skl_dev *skl, unsigned int event,
+				struct skl_notify_data *notify_data)
+{
+	struct snd_soc_card *card;
+	struct soc_bytes_ext *sb;
+	struct snd_soc_component *component = skl->component;
+	struct skl_module_notify *m_notification = NULL;
+	struct skl_algo_data *bc;
+	u8 param_length;
+
+	switch (event) {
+	case SKL_EVENT_GLB_MODULE_NOTIFICATION:
+		m_notification = (struct skl_module_notify *)notify_data->data;
+		card = component->card;
+		skl->kcontrol = skl_get_notify_kcontrol(skl, card->snd_card,
+					m_notification->unique_id);
+		if (!skl->kcontrol) {
+			dev_dbg(skl->dev, "Module notify control not found\n");
+			return -EINVAL;
+		}
+
+		sb = (struct soc_bytes_ext *)skl->kcontrol->private_value;
+		bc = (struct skl_algo_data *)sb->dobj.private;
+		param_length = sizeof(struct skl_notify_data)
+					+ notify_data->length;
+		memcpy(bc->params, (char *)notify_data, param_length);
+		snd_ctl_notify(card->snd_card,
+				SNDRV_CTL_EVENT_MASK_VALUE, &skl->kcontrol->id);
+		break;
+	default:
+		return -EINVAL;
+	}
+
+	return 0;
+}
+
 static const struct snd_soc_tplg_widget_events skl_tplg_widget_ops[] = {
 	{SKL_MIXER_EVENT, skl_tplg_mixer_event},
 	{SKL_VMIXER_EVENT, skl_tplg_mixer_event},

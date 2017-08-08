@@ -168,6 +168,10 @@ struct skl_dev {
 
 	struct ep_group_cnt grp_cnt;
 
+	struct snd_kcontrol *kcontrol;
+	struct list_head notify_kctls;
+	struct skl_dsp_notify_ops notify_ops;
+
 	/* probe stream management */
 	struct hdac_ext_stream *extractor;
 	unsigned int num_probe_streams;

@@ -156,6 +156,7 @@ int skl_init_dsp(struct skl_dev *skl, struct sst_pdata *pdata)
 
 	skl->is_first_boot = true;
 	INIT_LIST_HEAD(&skl->module_list);
+	INIT_LIST_HEAD(&skl->notify_kctls);
 	init_waitqueue_head(&skl->mod_load_wait);
 
 	pdata->id = skl->pci->device;

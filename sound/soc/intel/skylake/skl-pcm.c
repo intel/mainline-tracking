@@ -724,6 +724,10 @@ static int skl_link_hw_free(struct snd_pcm_substream *substream,
 	return 0;
 }
 
+static struct skl_dsp_notify_ops cb_ops = {
+	.notify_cb = skl_dsp_cb_event,
+};
+
 static struct snd_compr_ops skl_platform_compr_ops = {
 	.copy		= skl_probe_compr_copy,
 };
@@ -1521,6 +1525,7 @@ static int skl_platform_soc_probe(struct snd_soc_component *component)
 
 		skl_populate_modules(skl);
 		skl->update_d0i3c = skl_update_d0i3c;
+		skl->notify_ops = cb_ops;
 
 		if (skl->cfg.astate_cfg != NULL) {
 			skl_dsp_set_astate_cfg(skl,
