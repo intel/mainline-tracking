@@ -282,6 +282,8 @@ int skl_init_dsp(struct skl_dev *skl)
 	skl->dsp_ops = ops;
 	dev_dbg(bus->dev, "dsp registration status=%d\n", ret);
 
+	INIT_LIST_HEAD(&skl->notify_kctls);
+
 	/* Set DMA clock controls */
 	ret = skl_dsp_set_dma_clk_controls(skl);
 	if (ret < 0)
