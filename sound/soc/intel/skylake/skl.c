@@ -29,6 +29,7 @@
 #include "skl.h"
 #include "skl-sst-dsp.h"
 #include "skl-sst-ipc.h"
+#include "skl-topology.h"
 #if IS_ENABLED(CONFIG_SND_SOC_INTEL_SKYLAKE_HDAUDIO_CODEC)
 #include "../../../soc/codecs/hdac_hda.h"
 #endif
@@ -1177,6 +1178,7 @@ static void skl_remove(struct pci_dev *pci)
 	struct hdac_bus *bus = pci_get_drvdata(pci);
 	struct skl_dev *skl = bus_to_skl(bus);
 
+	skl_delete_notify_kctl_list(skl);
 	release_firmware(skl->tplg);
 
 	pm_runtime_get_noresume(&pci->dev);
