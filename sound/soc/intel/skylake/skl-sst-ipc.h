@@ -23,6 +23,7 @@ struct sst_dsp;
 struct skl_sst;
 struct sst_generic_ipc;
 
+#define	SKL_EVENT_GLB_MODULE_NOTIFICATION	12
 #define	SKL_TPLG_CHG_NOTIFY	3
 
 enum skl_ipc_pipeline_state {
@@ -52,6 +53,13 @@ struct skl_dsp_cores {
 	int *usage_count;
 };
 
+struct skl_module_notify {
+	u32 unique_id;
+	u32 event_id;
+	u32 event_data_size;
+	u32 event_data[0];
+} __packed;
+
 /**
  * skl_d0i3_data: skl D0i3 counters data struct
  *
@@ -75,6 +83,12 @@ struct skl_d0i3_data {
 struct skl_lib_info {
 	char name[SKL_LIB_NAME_LENGTH];
 	const struct firmware *fw;
+};
+
+struct skl_notify_kctrl_info {
+	struct list_head list;
+	u32 notify_id;
+	struct snd_kcontrol *notify_kctl;
 };
 
 struct skl_sst {
@@ -130,6 +144,8 @@ struct skl_sst {
 	struct skl_sysfs_tree *sysfs_tree;
 
 	struct snd_kcontrol *kcontrol;
+
+	struct list_head notify_kctls;
 };
 
 struct skl_ipc_init_instance_msg {
