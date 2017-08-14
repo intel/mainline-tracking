@@ -164,5 +164,6 @@ MEI Client Bus Drivers
 .. toctree::
    :maxdepth: 2
 
+   dal
    hdcp
    nfc
