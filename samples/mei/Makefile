@@ -3,6 +3,9 @@
 
 hostprogs := mei-amt-version
 
+obj-$(CONFIG_SAMPLE_INTEL_MEI_DAL_TEST) := dal_test.o
+
+
 HOSTCFLAGS_mei-amt-version.o += -I$(objtree)/usr/include
 
 always-y := $(hostprogs)
