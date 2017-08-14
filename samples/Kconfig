@@ -169,4 +169,12 @@ config SAMPLE_VFS
 	  as mount API and statx().  Note that this is restricted to the x86
 	  arch whilst it accesses system calls that aren't yet in all arches.
 
+config SAMPLE_DAL_TEST
+	tristate "Test Module for Dynamic Application Loader for ME"
+	depends on INTEL_MEI_DAL
+	help
+	  Testing Module for Dynamic Application Loader, to test the
+	  kernel space api from a user space client. The test module
+	  calls the kernel space api functions of DAL module.
+
 endif # SAMPLES
