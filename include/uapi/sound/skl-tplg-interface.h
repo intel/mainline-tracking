@@ -78,6 +78,7 @@ enum skl_module_type {
 	SKL_MODULE_TYPE_BASE_OUTFMT,
 	SKL_MODULE_TYPE_KPB,
 	SKL_MODULE_TYPE_MIC_SELECT,
+	SKL_MODULE_TYPE_ASRC = 9
 };
 
 enum skl_core_affinity {
