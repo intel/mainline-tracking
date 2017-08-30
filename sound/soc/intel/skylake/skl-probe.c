@@ -96,8 +96,6 @@ int skl_probe_compr_open(struct snd_compr_stream *substream,
 	dev_dbg(dai->dev, "%s dev is  %s\n",  __func__, dev_name(dai->dev));
 
 	if ((pconfig->i_refc + pconfig->e_refc) == 0) {
-		/*TODO: Configuring the right DMA buffer size*/
-		pconfig->edma_buffsize = 832;
 		pconfig->edma_type = SKL_DMA_HDA_HOST_INPUT_CLASS;
 		/*
 		 * Extractor DMA is to be assigned when the first probe

@@ -518,7 +518,7 @@ int skl_probe_attach_inj_dma(struct snd_soc_dapm_widget *w,
 		ad.node_id.node.vindex = pconfig->iprobe[index].dma_id;
 		ad.node_id.node.dma_type = SKL_DMA_HDA_HOST_OUTPUT_CLASS;
 		ad.node_id.node.rsvd = 0;
-		ad.dma_buff_size = 1536;/* TODO:Configure based on calculation*/
+		ad.dma_buff_size = pconfig->edma_buffsize;
 
 		ret = skl_set_module_params(ctx, (void *)&ad,
 					sizeof(struct skl_probe_attach_inj_dma),
