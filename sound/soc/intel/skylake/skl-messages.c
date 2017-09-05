@@ -278,7 +278,11 @@ int skl_resume_dsp(struct skl_dev *skl)
 		skl_dsp_set_astate_cfg(skl, skl->cfg.astate_cfg->count,
 					skl->cfg.astate_cfg);
 	}
-	return ret;
+
+	/* Set DMA buffer configuration */
+	if (skl->cfg.dmacfg.size)
+		skl_ipc_set_dma_cfg(&skl->ipc, BXT_INSTANCE_ID,
+			BXT_BASE_FW_MODULE_ID, (u32 *)(&skl->cfg.dmacfg));
 
 	/* Set DMA clock controls */
 	return skl_dsp_set_dma_clk_controls(skl);
