@@ -16,6 +16,7 @@
  * General Public License for more details.
  */
 #include <sound/pcm.h>
+#include <linux/delay.h>
 #include <linux/slab.h>
 #include "../common/sst-dsp.h"
 #include "../common/sst-ipc.h"
@@ -222,6 +223,9 @@ int skl_dsp_start_core(struct sst_dsp *ctx, unsigned int core_mask)
 			"Unstall Core");
 	if (ret < 0)
 		return ret;
+
+	/* delay to ensure proper signal propagation after unreset/unstall */
+	usleep_range(1000, 1500);
 
 	if (!is_skl_dsp_core_enable(ctx, core_mask)) {
 		skl_dsp_reset_core(ctx, core_mask);
