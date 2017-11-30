@@ -659,8 +659,11 @@ static int __init populate_rootfs(void)
 {
 	char *err;
 
-	if (do_skip_initramfs)
+	if (do_skip_initramfs) {
+		if (initrd_start)
+			kexec_free_initrd();
 		return default_rootfs();
+	}
 
 	/* Load the built in initramfs */
 	err = unpack_to_rootfs(__initramfs_start, __initramfs_size);
