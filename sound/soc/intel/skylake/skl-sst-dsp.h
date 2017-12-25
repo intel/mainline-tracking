@@ -265,6 +265,7 @@ struct uuid_module *skl_find_module(struct skl_dev *skl, const guid_t *uuid);
 int skl_get_module_id(struct skl_dev *skl, const guid_t *uuid);
 int skl_get_pvt_id(struct skl_dev *skl, guid_t *uuid_mod, int instance_id);
 int skl_put_pvt_id(struct skl_dev *skl, guid_t *uuid_mod, int *pvt_id);
+void skl_reset_instance_id(struct skl_dev *skl);
 int skl_get_pvt_instance_id_map(struct skl_dev *skl,
 				int module_id, int instance_id);
 
