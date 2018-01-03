@@ -290,6 +290,9 @@ config SND_SOC_INTEL_BXTP_IVI_RSE_MACH
 config SND_SOC_INTEL_BXTP_IVI_HU_MACH
 	tristate
 
+config SND_SOC_INTEL_BXTP_IVI_M3_MACH
+	tristate
+
 choice SND_SOC_INTEL_BXT_RT298_I2S
 	tristate "Broxton with RT298 in I2S mode drivers"
 	depends on I2C && ACPI
@@ -320,6 +323,15 @@ config SND_SOC_INTEL_BXTP_IVI_DUMMY_HU
 	help
 	  This adds support for ASoC machine driver for Broxton-P platforms
 	  with Dummy I2S audio codec for IVI Head Unit.
+	  Say Y or m if you have such a device. This is a recommended option.
+	  If unsure select "N".
+
+config SND_SOC_INTEL_BXTP_IVI_DUMMY_M3
+	prompt "BXTP with Dummy codec for M3"
+	select SND_SOC_INTEL_BXTP_IVI_M3_MACH
+	help
+	  This adds support for ASoC machine driver for Broxton-P platforms
+	  with Dummy I2S audio codec for IVI M3 topology.
 	  Say Y or m if you have such a device. This is a recommended option.
 	  If unsure select "N".
 
