@@ -12,6 +12,11 @@
 
 static struct skl_machine_pdata skl_dmic_data;
 
+static struct snd_soc_acpi_codecs kbl_298_codec = {
+	.num_codecs = 1,
+	.codecs = {"10EC0298"}
+};
+
 static struct snd_soc_acpi_codecs kbl_codecs = {
 	.num_codecs = 1,
 	.codecs = {"10508825"}
@@ -43,6 +48,12 @@ static struct snd_soc_acpi_codecs kbl_7219_98373_codecs = {
 };
 
 struct snd_soc_acpi_mach snd_soc_acpi_intel_kbl_machines[] = {
+	{
+		.id = "INT343A",
+		.drv_name = "kblr_alc298s_i2s",
+		.machine_quirk = snd_soc_acpi_codec_list,
+		.quirk_data = &kbl_298_codec,
+	},
 	{
 		.id = "INT343A",
 		.drv_name = "kbl_alc286s_i2s",
