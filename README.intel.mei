@@ -1,0 +1,70 @@
+======================
+CSE post v5.2 changes
+======================
+
+Affected IP: CSE/CSME
+----------------------
+
+Embargoed Supported MEI Devices
+===============================
+
+Cedar Falls
+------------
+0x18D3  /* Cedar Falls */
+
+Ice Lake Point
+---------------
+0x34E0  /* Ice Lake Point LP */
+-- dropped 0x38E0  /* Ice Lake Point N */
+-- dropped 0x3DE0  /* Ice Lake Point H */
+
+Tiger Lake Point
+-----------------
+0xA0E0  /* Tiger Lake LP */
+0x42E0  /* Tiger Lake K */
+0x43E0  /* Tiger Lake H */
+
+Mule Creek Canyon (EHL) - upstream in 5.3-rc2
+-----------------------
+0x4970  /* Mule Creek Canyon */
+0x4975  /* Mule Creek Canyon 4 SPD */
+
+Lake Field
+-----------
+0x98E0  /* Lake Field */
+
+Inovation Engine
+-----------------
+
+0xA1F8  /* Lewisburg IE (SPT) */
+0xA278  /* Lewisburg IE SSX (SPT) */
+
+Commet Lake
+-----------
+0x02e0 /* Comet Lake LP */
+0x06e0 /* Comet Lake H */
+
+Jasper Lake
+----------
+0x38E0  /* Jasper Point - testing only */
+0x4DE0  /* Jasper Lake Point N */
+
+
+New Features:
+=============
+
+ * Virtio HW layer.
+ * ACRN SOS code
+ * Bump driver to support HBM 2.2
+ * Expose TRC register for glitch detection.
+
+New Drivers:
+============
+KDI - Kernel DAL API module
+
+Bug Fixes:
+==========
+KDI: fix ta acccess list initialization: https://hsdes.intel.com/resource/2007805339
+
+Known Issues:
+=============
