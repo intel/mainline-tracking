@@ -92,6 +92,10 @@ ifneq ($(RETPOLINE_VDSO_CFLAGS),)
 endif
 endif
 
+ifdef CONFIG_X86_INTEL_BRANCH_TRACKING_USER
+  CFL += -fcf-protection=branch
+endif
+
 $(vobjs): KBUILD_CFLAGS := $(filter-out $(GCC_PLUGINS_CFLAGS) $(RETPOLINE_CFLAGS),$(KBUILD_CFLAGS)) $(CFL)
 
 #
