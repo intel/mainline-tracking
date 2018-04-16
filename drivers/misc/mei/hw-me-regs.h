@@ -87,6 +87,9 @@
 #define MEI_DEV_ID_TGP_K      0x42E0  /* Tiger Lake Point K */
 #define MEI_DEV_ID_TGP_H      0x43E0  /* Tiger Lake Point H */
 
+#define MEI_DEV_ID_MCC        0x4B70  /* Mule Creek Canyon */
+#define MEI_DEV_ID_MCC_4      0x4B75  /* Mule Creek Canyon 4 */
+
 /*
  * MEI HW Section
  */
