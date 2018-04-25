@@ -26,9 +26,9 @@
  * and straight-forward than readdir caching.
  */
 
-static int nfs_symlink_filler(void *data, struct page *page)
+static int nfs_symlink_filler(struct file *file, struct page *page)
 {
-	struct inode *inode = data;
+	struct inode *inode = (struct inode *)file;
 	int error;
 
 	error = NFS_PROTO(inode)->readlink(inode, page, 0, PAGE_SIZE);
