@@ -278,18 +278,40 @@ config SND_SOC_INTEL_BXT_DA7219_MAX98357A_MACH
 	   If unsure select "N".
 
 config SND_SOC_INTEL_BXT_RT298_MACH
-	tristate "Broxton with RT298 I2S mode"
-	depends on I2C && ACPI
-	depends on MFD_INTEL_LPSS || COMPILE_TEST
+	tristate
 	select SND_SOC_RT298
 	select SND_SOC_DMIC
 	select SND_SOC_HDAC_HDMI
 	select SND_HDA_DSP_LOADER
+
+config SND_SOC_INTEL_BXTP_IVI_RSE_MACH
+	tristate
+
+choice SND_SOC_INTEL_BXT_RT298_I2S
+	tristate "Broxton with RT298 in I2S mode drivers"
+	depends on I2C && ACPI
+	depends on MFD_INTEL_LPSS || COMPILE_TEST
+	optional
+
+config SND_SOC_INTEL_BXT_RT298
+	prompt "Broxton with RT298 in I2S mode"
+	select SND_SOC_INTEL_BXT_RT298_MACH
 	help
-	   This adds support for ASoC machine driver for Broxton platforms
-	   with RT286 I2S audio codec.
-	   Say Y or m if you have such a device. This is a recommended option.
-	   If unsure select "N".
+	  This adds support for ASoC machine driver for Broxton platforms
+	  with RT286 I2S audio codec.
+	  Say Y or m if you have such a device. This is a recommended option.
+	  If unsure select "N".
+
+config SND_SOC_INTEL_BXTP_IVI_DUMMY_RSE
+	prompt "BXTP with Dummy codec for RSE"
+	select SND_SOC_INTEL_BXTP_IVI_RSE_MACH
+	help
+	  This adds support for ASoC machine driver for Broxton-P platforms
+	  with Dummy I2S audio codec for IVI Rear Seat Unit.
+	  Say Y or m if you have such a device. This is a recommended option.
+	  If unsure select "N".
+
+endchoice ## SND_SOC_INTEL_BXT_RT298_I2S
 
 config SND_SOC_INTEL_BXT_TDF8532_MACH
 	tristate
