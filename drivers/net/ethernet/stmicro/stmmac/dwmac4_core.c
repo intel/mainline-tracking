@@ -352,7 +352,8 @@ static void dwmac4_set_eee_mode(struct mac_device_info *hw,
 	 * state.
 	 */
 	value = readl(ioaddr + GMAC4_LPI_CTRL_STATUS);
-	value |= GMAC4_LPI_CTRL_STATUS_LPIEN | GMAC4_LPI_CTRL_STATUS_LPITXA;
+	value |= GMAC4_LPI_CTRL_STATUS_LPIEN | GMAC4_LPI_CTRL_STATUS_LPITXA |
+		 GMAC4_LPI_CTRL_STATUS_LPIATE;
 
 	if (en_tx_lpi_clockgating)
 		value |= GMAC4_LPI_CTRL_STATUS_LPITCSE;
@@ -366,7 +367,8 @@ static void dwmac4_reset_eee_mode(struct mac_device_info *hw)
 	u32 value;
 
 	value = readl(ioaddr + GMAC4_LPI_CTRL_STATUS);
-	value &= ~(GMAC4_LPI_CTRL_STATUS_LPIEN | GMAC4_LPI_CTRL_STATUS_LPITXA);
+	value &= ~(GMAC4_LPI_CTRL_STATUS_LPIEN | GMAC4_LPI_CTRL_STATUS_LPITXA |
+		   GMAC4_LPI_CTRL_STATUS_LPIATE);
 	writel(value, ioaddr + GMAC4_LPI_CTRL_STATUS);
 }
 
@@ -385,19 +387,23 @@ static void dwmac4_set_eee_pls(struct mac_device_info *hw, int link)
 	writel(value, ioaddr + GMAC4_LPI_CTRL_STATUS);
 }
 
-static void dwmac4_set_eee_timer(struct mac_device_info *hw, int ls, int tw)
+static void dwmac4_set_eee_timer(struct mac_device_info *hw, int ls, int et)
 {
 	void __iomem *ioaddr = hw->pcsr;
-	int value = ((tw & 0xffff)) | ((ls & 0x3ff) << 16);
+	int value;
 
 	/* Program the timers in the LPI timer control register:
 	 * LS: minimum time (ms) for which the link
 	 *  status from PHY should be ok before transmitting
 	 *  the LPI pattern.
-	 * TW: minimum time (us) for which the core waits
-	 *  after it has stopped transmitting the LPI pattern.
+	 * ET: entry time (us) for which the core waits
+	 *  to enter LPI mode after it has transmitted all frames.
 	 */
+	value = (ls & 0x3ff) << 16;
 	writel(value, ioaddr + GMAC4_LPI_TIMER_CTRL);
+
+	value = (et & 0xffff8) << 3;
+	writel(value, ioaddr + GMAC4_LPI_ENTRY_TIMER);
 }
 
 static void dwmac4_set_filter(struct mac_device_info *hw,
