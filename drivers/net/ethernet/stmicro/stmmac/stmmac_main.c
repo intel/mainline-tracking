@@ -2591,6 +2591,9 @@ static int stmmac_hw_setup(struct net_device *dev, bool init_ptp)
 	/* Start the ball rolling... */
 	stmmac_start_all_dma(priv);
 
+	/* Set HW VLAN stripping mode */
+	stmmac_set_hw_vlan_mode(priv, priv->ioaddr, dev->features);
+
 	return 0;
 }
 
@@ -3627,6 +3630,7 @@ static int stmmac_rx(struct stmmac_priv *priv, int limit, u32 queue)
 			struct sk_buff *skb;
 			int frame_len;
 			unsigned int des;
+			int ret;
 
 			stmmac_get_desc_addr(priv, p, &des);
 			frame_len = stmmac_get_rx_frame_len(priv, p, coe);
@@ -3682,7 +3686,13 @@ static int stmmac_rx(struct stmmac_priv *priv, int limit, u32 queue)
 
 			stmmac_get_rx_hwtstamp(priv, p, np, skb);
 
-			stmmac_rx_vlan(priv->dev, skb);
+			/* Use HW to strip VLAN header before fallback
+			 * to SW.
+			 */
+			ret = stmmac_rx_hw_vlan(priv, priv->dev,
+						priv->hw, p, skb);
+			if (ret == -EINVAL)
+				stmmac_rx_vlan(priv->dev, skb);
 
 			skb->protocol = eth_type_trans(skb, priv->dev);
 
@@ -3845,6 +3855,9 @@ static int stmmac_set_features(struct net_device *netdev,
 			       netdev_features_t features)
 {
 	struct stmmac_priv *priv = netdev_priv(netdev);
+	netdev_features_t changed;
+
+	changed = netdev->features ^ features;
 
 	/* Keep the COE Type in case of csum is supporting */
 	if (features & NETIF_F_RXCSUM)
@@ -3855,6 +3868,9 @@ static int stmmac_set_features(struct net_device *netdev,
 	 * fixed in case of issue.
 	 */
 	stmmac_rx_ipc(priv, priv->hw);
+
+	if (changed & NETIF_F_HW_VLAN_CTAG_RX)
+		stmmac_set_hw_vlan_mode(priv, priv->ioaddr, features);
 
 	netdev->features = features;
 
@@ -4654,8 +4670,9 @@ int stmmac_dvr_probe(struct device *device,
 	ndev->watchdog_timeo = msecs_to_jiffies(watchdog);
 #ifdef STMMAC_VLAN_TAG_USED
 	/* Both mac100 and gmac support receive VLAN tag detection */
-	ndev->features |= NETIF_F_HW_VLAN_CTAG_RX | NETIF_F_HW_VLAN_STAG_RX;
+	ndev->hw_features |= NETIF_F_HW_VLAN_CTAG_RX | NETIF_F_HW_VLAN_STAG_RX;
 #endif
+	ndev->features |= ndev->hw_features | NETIF_F_HIGHDMA;
 	priv->msg_enable = netif_msg_init(debug, default_msg_level);
 
 	/* MTU range: 46 - hw-specific max */
