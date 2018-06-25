@@ -340,6 +340,14 @@ struct stmmac_ops {
 			   struct dma_desc *rx_desc, struct sk_buff *skb);
 	void (*set_hw_vlan_mode)(void __iomem *ioaddr,
 				 netdev_features_t features);
+	int (*add_hw_vlan_rx_fltr)(struct net_device *dev,
+				   struct mac_device_info *hw,
+				   __be16 proto, u16 vid);
+	int (*del_hw_vlan_rx_fltr)(struct net_device *dev,
+				   struct mac_device_info *hw,
+				   __be16 proto, u16 vid);
+	void (*restore_hw_vlan_rx_fltr)(struct net_device *dev,
+					struct mac_device_info *hw);
 };
 
 #define stmmac_core_init(__priv, __args...) \
@@ -414,6 +422,12 @@ struct stmmac_ops {
 	stmmac_do_void_callback(__priv, mac, rx_hw_vlan, __args)
 #define stmmac_set_hw_vlan_mode(__priv, __args...) \
 	stmmac_do_void_callback(__priv, mac, set_hw_vlan_mode, __args)
+#define stmmac_add_hw_vlan_rx_fltr(__priv, __args...) \
+	stmmac_do_callback(__priv, mac, add_hw_vlan_rx_fltr, __args)
+#define stmmac_del_hw_vlan_rx_fltr(__priv, __args...) \
+	stmmac_do_callback(__priv, mac, del_hw_vlan_rx_fltr, __args)
+#define stmmac_restore_hw_vlan_rx_fltr(__priv, __args...) \
+	stmmac_do_void_callback(__priv, mac, restore_hw_vlan_rx_fltr, __args)
 
 /* Helpers for serdes */
 struct stmmac_serdes_ops {
