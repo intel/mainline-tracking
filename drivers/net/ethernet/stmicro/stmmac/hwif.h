@@ -393,6 +393,25 @@ struct stmmac_ops {
 #define stmmac_flex_pps_config(__priv, __args...) \
 	stmmac_do_callback(__priv, mac, flex_pps_config, __args)
 
+/* Helpers for DW xPCS */
+struct stmmac_xpcs_ops {
+	void (*xpcs_init)(struct net_device *ndev, int pcs_mode);
+	void (*xpcs_ctrl_ane)(struct net_device *ndev, bool ane, bool loopback);
+	void (*xpcs_get_adv_lp)(struct net_device *ndev, struct rgmii_adv *adv,
+				int pcs_mode);
+	int (*xpcs_irq_status)(struct net_device *ndev,
+			       struct stmmac_extra_stats *x, int pcs_mode);
+};
+
+#define stmmac_xpcs_init(__priv, __args...) \
+	stmmac_do_void_callback(__priv, xpcs, xpcs_init, __args)
+#define stmmac_xpcs_ctrl_ane(__priv, __args...) \
+	stmmac_do_void_callback(__priv, xpcs, xpcs_ctrl_ane, __args)
+#define stmmac_xpcs_get_adv_lp(__priv, __args...) \
+	stmmac_do_void_callback(__priv, xpcs, xpcs_get_adv_lp, __args)
+#define stmmac_xpcs_irq_status(__priv, __args...) \
+	stmmac_do_callback(__priv, xpcs, xpcs_irq_status, __args)
+
 /* PTP and HW Timer helpers */
 struct stmmac_hwtimestamp {
 	void (*config_hw_tstamping) (void __iomem *ioaddr, u32 data);
