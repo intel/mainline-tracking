@@ -102,6 +102,7 @@ module_param(chain_mode, int, 0444);
 MODULE_PARM_DESC(chain_mode, "To use chain instead of ring mode");
 
 static irqreturn_t stmmac_interrupt(int irq, void *dev_id);
+static irqreturn_t xpcs_interrupt(int irq, void *dev_id);
 
 #ifdef CONFIG_DEBUG_FS
 static int stmmac_init_fs(struct net_device *dev);
@@ -838,6 +839,54 @@ static void stmmac_mac_flow_ctrl(struct stmmac_priv *priv, u32 duplex)
 			priv->pause, tx_cnt);
 }
 
+static bool mac_adjust_link(struct stmmac_priv *priv,
+			    int *speed, int *duplex)
+{
+	u32 ctrl = readl(priv->ioaddr + MAC_CTRL_REG);
+	bool new_state = false;
+
+	/* Now we make sure that we can be in full duplex mode.
+	 * If not, we operate in half-duplex mode.
+	 */
+	if (*duplex != priv->oldduplex) {
+		new_state = true;
+		if (!*duplex)
+			ctrl &= ~priv->hw->link.duplex;
+		else
+			ctrl |= priv->hw->link.duplex;
+		priv->oldduplex = *duplex;
+	}
+
+	if (*speed != priv->speed) {
+		new_state = true;
+		ctrl &= ~priv->hw->link.speed_mask;
+		switch (*speed) {
+		case SPEED_1000:
+			ctrl |= priv->hw->link.speed1000;
+			break;
+		case SPEED_100:
+			ctrl |= priv->hw->link.speed100;
+			break;
+		case SPEED_10:
+			ctrl |= priv->hw->link.speed10;
+			break;
+		default:
+			netif_warn(priv, link, priv->dev,
+				   "broken speed: %d\n", *speed);
+			*speed = SPEED_UNKNOWN;
+			break;
+		}
+		if (*speed != SPEED_UNKNOWN)
+			stmmac_hw_fix_mac_speed(priv);
+
+		priv->speed = *speed;
+	}
+
+	writel(ctrl, priv->ioaddr + MAC_CTRL_REG);
+
+	return new_state;
+}
+
 /**
  * stmmac_adjust_link - adjusts the link parameters
  * @dev: net device structure
@@ -859,47 +908,12 @@ static void stmmac_adjust_link(struct net_device *dev)
 	mutex_lock(&priv->lock);
 
 	if (phydev->link) {
-		u32 ctrl = readl(priv->ioaddr + MAC_CTRL_REG);
-
-		/* Now we make sure that we can be in full duplex mode.
-		 * If not, we operate in half-duplex mode. */
-		if (phydev->duplex != priv->oldduplex) {
-			new_state = true;
-			if (!phydev->duplex)
-				ctrl &= ~priv->hw->link.duplex;
-			else
-				ctrl |= priv->hw->link.duplex;
-			priv->oldduplex = phydev->duplex;
-		}
 		/* Flow Control operation */
 		if (phydev->pause)
 			stmmac_mac_flow_ctrl(priv, phydev->duplex);
 
-		if (phydev->speed != priv->speed) {
-			new_state = true;
-			ctrl &= ~priv->hw->link.speed_mask;
-			switch (phydev->speed) {
-			case SPEED_1000:
-				ctrl |= priv->hw->link.speed1000;
-				break;
-			case SPEED_100:
-				ctrl |= priv->hw->link.speed100;
-				break;
-			case SPEED_10:
-				ctrl |= priv->hw->link.speed10;
-				break;
-			default:
-				netif_warn(priv, link, priv->dev,
-					   "broken speed: %d\n", phydev->speed);
-				phydev->speed = SPEED_UNKNOWN;
-				break;
-			}
-			if (phydev->speed != SPEED_UNKNOWN)
-				stmmac_hw_fix_mac_speed(priv);
-			priv->speed = phydev->speed;
-		}
-
-		writel(ctrl, priv->ioaddr + MAC_CTRL_REG);
+		new_state = mac_adjust_link(priv, &phydev->speed,
+					    &phydev->duplex);
 
 		if (!priv->oldlink) {
 			new_state = true;
@@ -2528,6 +2542,9 @@ static int stmmac_hw_setup(struct net_device *dev, bool init_ptp)
 	/* Initialize MTL*/
 	stmmac_mtl_configuration(priv);
 
+	/* Initialize the xPCS PHY */
+	stmmac_xpcs_init(priv, dev, priv->plat->pcs_mode);
+
 	/* Initialize Safety Features */
 	stmmac_safety_feat_configuration(priv);
 
@@ -2568,6 +2585,8 @@ static int stmmac_hw_setup(struct net_device *dev, bool init_ptp)
 
 	if (priv->hw->pcs)
 		stmmac_pcs_ctrl_ane(priv, priv->hw, 1, priv->hw->ps, 0);
+
+	stmmac_xpcs_ctrl_ane(priv, dev, 1, 0);
 
 	/* set TX and RX rings length */
 	stmmac_set_rings_length(priv);
@@ -2684,10 +2703,26 @@ static int stmmac_open(struct net_device *dev)
 		}
 	}
 
+	/* xPCS IRQ line */
+	if (priv->xpcs_irq > 0) {
+		ret = request_irq(priv->xpcs_irq, xpcs_interrupt, IRQF_SHARED,
+				  dev->name, dev);
+		if (unlikely(ret < 0)) {
+			netdev_err(priv->dev,
+				   "%s: ERROR: allocating the xPCS IRQ %d (%d)\n",
+				   __func__, priv->xpcs_irq, ret);
+			goto xpcsirq_error;
+		}
+	}
+
 	stmmac_enable_all_queues(priv);
 	stmmac_start_all_queues(priv);
 
 	return 0;
+
+xpcsirq_error:
+	if (priv->lpi_irq > 0)
+		free_irq(priv->lpi_irq, dev);
 
 lpiirq_error:
 	if (priv->wol_irq != dev->irq)
@@ -3769,6 +3804,35 @@ static irqreturn_t stmmac_interrupt(int irq, void *dev_id)
 	return IRQ_HANDLED;
 }
 
+static irqreturn_t xpcs_interrupt(int irq, void *dev_id)
+{
+	struct net_device *ndev = (struct net_device *)dev_id;
+	struct stmmac_priv *priv = netdev_priv(ndev);
+	irqreturn_t ret = IRQ_NONE;
+
+	/* To handle xPCS interrupts */
+	ret = stmmac_xpcs_irq_status(priv, ndev, &priv->xstats,
+				     priv->plat->pcs_mode);
+
+	if (ret == IRQ_HANDLED) {
+		/* Keep the MAC's speed & duplex consistent with DW xPCS
+		 * because AN in DW xPCS does not update DW EQoS MAC
+		 * directly.
+		 */
+		int speed = (int)priv->xstats.pcs_speed;
+		int duplex = (int)priv->xstats.pcs_speed;
+
+		mac_adjust_link(priv, &speed, &duplex);
+
+		if (priv->xstats.pcs_link)
+			netif_carrier_on(ndev);
+		else
+			netif_carrier_off(ndev);
+	}
+
+	return ret;
+}
+
 #ifdef CONFIG_NET_POLL_CONTROLLER
 /* Polling receive - used by NETCONSOLE and other diagnostic tools
  * to allow network I/O with interrupts disabled.
@@ -4258,6 +4322,7 @@ int stmmac_dvr_probe(struct device *device,
 	priv->dev->irq = res->irq;
 	priv->wol_irq = res->wol_irq;
 	priv->lpi_irq = res->lpi_irq;
+	priv->xpcs_irq = res->xpcs_irq;
 
 	if (!IS_ERR_OR_NULL(res->mac))
 		memcpy(priv->dev->dev_addr, res->mac, ETH_ALEN);
