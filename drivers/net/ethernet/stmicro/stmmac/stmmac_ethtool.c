@@ -18,6 +18,7 @@
 
 #include "stmmac.h"
 #include "dwmac_dma.h"
+#include "dwxpcs.h"
 
 #define REG_SPACE_SIZE	0x1060
 #define MAC100_ETHTOOL_NAME	"st_mac100"
@@ -267,7 +268,8 @@ static int stmmac_ethtool_get_link_ksettings(struct net_device *dev,
 	struct phy_device *phy = dev->phydev;
 
 	if (priv->hw->pcs & STMMAC_PCS_RGMII ||
-	    priv->hw->pcs & STMMAC_PCS_SGMII) {
+	    priv->hw->pcs & STMMAC_PCS_SGMII ||
+	    priv->plat->pcs_mode == AN_CTRL_PCS_MD_C37_1000BASEX) {
 		struct rgmii_adv adv;
 		u32 supported, advertising, lp_advertising;
 
@@ -283,6 +285,11 @@ static int stmmac_ethtool_get_link_ksettings(struct net_device *dev,
 		/* Get and convert ADV/LP_ADV from the HW AN registers */
 		if (stmmac_pcs_get_adv_lp(priv, priv->ioaddr, &adv))
 			return -EOPNOTSUPP;	/* should never happen indeed */
+
+		/* Get ADV & LPA is only application for 1000BASE-X C37.
+		 * For MAC side SGMII AN, get ADV & LPA from PHY.
+		 */
+		stmmac_xpcs_get_adv_lp(priv, dev, &adv, priv->plat->pcs_mode);
 
 		/* Encoding of PSE bits is defined in 802.3z, 37.2.1.4 */
 
@@ -366,22 +373,23 @@ stmmac_ethtool_set_link_ksettings(struct net_device *dev,
 	int rc;
 
 	if (priv->hw->pcs & STMMAC_PCS_RGMII ||
-	    priv->hw->pcs & STMMAC_PCS_SGMII) {
-		u32 mask = ADVERTISED_Autoneg | ADVERTISED_Pause;
-
+	    priv->hw->pcs & STMMAC_PCS_SGMII ||
+	    priv->plat->pcs_mode == AN_CTRL_PCS_MD_C37_1000BASEX) {
 		/* Only support ANE */
 		if (cmd->base.autoneg != AUTONEG_ENABLE)
 			return -EINVAL;
 
-		mask &= (ADVERTISED_1000baseT_Half |
-			ADVERTISED_1000baseT_Full |
-			ADVERTISED_100baseT_Half |
-			ADVERTISED_100baseT_Full |
-			ADVERTISED_10baseT_Half |
-			ADVERTISED_10baseT_Full);
-
 		mutex_lock(&priv->lock);
 		stmmac_pcs_ctrl_ane(priv, priv->ioaddr, 1, priv->hw->ps, 0);
+
+		/* For 1000BASE-X C37 AN, it is always 1000Mbps. And, we only
+		 * support FD which is set by default in SR_MII_AN_ADV
+		 * during XPCS init. So, we don't need to set FD again.
+		 * For SGMII C37 AN, we let user to change link settings
+		 * through PHY since it is MAC side SGMII.
+		 */
+		stmmac_xpcs_ctrl_ane(priv, dev, 1, 0);
+
 		mutex_unlock(&priv->lock);
 
 		return 0;
@@ -447,6 +455,16 @@ stmmac_get_pauseparam(struct net_device *netdev,
 		pause->autoneg = 1;
 		if (!adv_lp.pause)
 			return;
+	} else if (priv->plat->pcs_mode == AN_CTRL_PCS_MD_C37_1000BASEX &&
+		   !stmmac_xpcs_get_adv_lp(priv, netdev, &adv_lp,
+					   priv->plat->pcs_mode)) {
+		/* DW xPCS 1000BASE-X C37 AN mode only because for MAC side
+		 * SGMII C37 AN, xPCS AN ADV is not set. See more comment in
+		 * dw_xpcs_init()
+		 */
+		pause->autoneg = 1;
+		if (!adv_lp.pause)
+			return;
 	} else {
 		if (!linkmode_test_bit(ETHTOOL_LINK_MODE_Pause_BIT,
 				       netdev->phydev->supported) ||
@@ -475,6 +493,16 @@ stmmac_set_pauseparam(struct net_device *netdev,
 	struct rgmii_adv adv_lp;
 
 	if (priv->hw->pcs && !stmmac_pcs_get_adv_lp(priv, priv->ioaddr, &adv_lp)) {
+		pause->autoneg = 1;
+		if (!adv_lp.pause)
+			return -EOPNOTSUPP;
+	} else if (priv->plat->pcs_mode == AN_CTRL_PCS_MD_C37_1000BASEX &&
+		   !stmmac_xpcs_get_adv_lp(priv, netdev, &adv_lp,
+					   priv->plat->pcs_mode)) {
+		/* DW xPCS 1000BASE-X C37 AN mode only because for MAC side
+		 * SGMII C37 AN, xPCS AN ADV is not set. See more comment in
+		 * dw_xpcs_init()
+		 */
 		pause->autoneg = 1;
 		if (!adv_lp.pause)
 			return -EOPNOTSUPP;
