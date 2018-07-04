@@ -2149,9 +2149,6 @@ int skl_platform_component_register(struct device *dev,
 	int i, j, index;
 	bool dai_already_added;
 
-	INIT_LIST_HEAD(&skl->ppl_list);
-	INIT_LIST_HEAD(&skl->bind_list);
-
 	skl->grp_cnt.vbus_id = devm_kcalloc(dev, skl->nhlt->endpoint_count,
 						sizeof(int), GFP_KERNEL);
 	if (!skl->grp_cnt.vbus_id) {
