@@ -40,6 +40,7 @@
 #include "stmmac.h"
 #include <linux/reset.h>
 #include <linux/of_mdio.h>
+#include "dw_tsn_lib.h"
 #include "dwmac1000.h"
 #include "dwxgmac2.h"
 #include "hwif.h"
@@ -3725,6 +3726,8 @@ static int stmmac_set_features(struct net_device *netdev,
 	 */
 	stmmac_rx_ipc(priv, priv->hw);
 
+	netdev->features = features;
+
 	return 0;
 }
 
@@ -4204,6 +4207,8 @@ static void stmmac_service_task(struct work_struct *work)
  */
 static int stmmac_hw_init(struct stmmac_priv *priv)
 {
+	struct tsn_hw_cap *tsn_hwcap;
+	int gcl_depth = 0;
 	int ret;
 
 	/* dwmac-sun8i only work in chain mode */
@@ -4215,6 +4220,38 @@ static int stmmac_hw_init(struct stmmac_priv *priv)
 	ret = stmmac_hwif_init(priv);
 	if (ret)
 		return ret;
+
+	/* Initialize TSN capability */
+	stmmac_tsn_init(priv, priv->ioaddr);
+	stmmac_get_tsn_hwcap(priv, &tsn_hwcap);
+	if (tsn_hwcap)
+		gcl_depth = tsn_hwcap->gcl_depth;
+	if (gcl_depth > 0) {
+		u32 bank;
+		struct est_gc_entry *gcl[EST_GCL_BANK_MAX];
+
+		for (bank = 0; bank < EST_GCL_BANK_MAX; bank++) {
+			gcl[bank] = devm_kzalloc(priv->device,
+						 (sizeof(*gcl) * gcl_depth),
+						 GFP_KERNEL);
+			if (!gcl[bank]) {
+				ret = -ENOMEM;
+				break;
+			}
+			stmmac_set_est_gcb(priv, gcl[bank], bank);
+		}
+		if (ret) {
+			int i;
+
+			for (i = bank - 1; i >= 0; i--) {
+				devm_kfree(priv->device, gcl[i]);
+				stmmac_set_est_gcb(priv, NULL, bank);
+			}
+			dev_warn(priv->device, "EST: GCL -ENOMEM\n");
+
+			return ret;
+		}
+	}
 
 	/* Get the HW capability (new GMAC newer than 3.50a) */
 	priv->hw_cap_support = stmmac_get_hw_features(priv);
@@ -4302,6 +4339,7 @@ int stmmac_dvr_probe(struct device *device,
 		     struct stmmac_resources *res)
 {
 	struct net_device *ndev = NULL;
+	struct tsn_hw_cap *tsn_hwcap;
 	struct stmmac_priv *priv;
 	u32 queue, maxq;
 	int ret = 0;
@@ -4391,6 +4429,14 @@ int stmmac_dvr_probe(struct device *device,
 	}
 	ndev->features |= ndev->hw_features | NETIF_F_HIGHDMA;
 	ndev->watchdog_timeo = msecs_to_jiffies(watchdog);
+
+	/* TSN HW feature setup */
+	stmmac_get_tsn_hwcap(priv, &tsn_hwcap);
+	if (tsn_hwcap && tsn_hwcap->est_support && priv->plat->tsn_est_en) {
+		stmmac_set_tsn_feat(priv, TSN_FEAT_ID_EST, true);
+		dev_info(priv->device, "EST feature enabled\n");
+	}
+
 #ifdef STMMAC_VLAN_TAG_USED
 	/* Both mac100 and gmac support receive VLAN tag detection */
 	ndev->features |= NETIF_F_HW_VLAN_CTAG_RX | NETIF_F_HW_VLAN_STAG_RX;
