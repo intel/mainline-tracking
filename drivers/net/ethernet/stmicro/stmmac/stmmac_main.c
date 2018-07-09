@@ -2606,6 +2606,9 @@ static int stmmac_hw_setup(struct net_device *dev, bool init_ptp)
 	/* Start the ball rolling... */
 	stmmac_start_all_dma(priv);
 
+	/* Setup for TSN capability */
+	dwmac_tsn_setup(priv->ioaddr);
+
 	return 0;
 }
 
@@ -3797,6 +3800,9 @@ static irqreturn_t stmmac_interrupt(int irq, void *dev_id)
 						       queue);
 		}
 
+		if (priv->hw->tsn_cap & TSN_CAP_EST)
+			stmmac_est_irq_status(priv, priv->ioaddr);
+
 		/* PCS link status */
 		if (priv->hw->pcs) {
 			if (priv->xstats.pcs_link)
@@ -4434,6 +4440,7 @@ int stmmac_dvr_probe(struct device *device,
 	stmmac_get_tsn_hwcap(priv, &tsn_hwcap);
 	if (tsn_hwcap && tsn_hwcap->est_support && priv->plat->tsn_est_en) {
 		stmmac_set_tsn_feat(priv, TSN_FEAT_ID_EST, true);
+		priv->hw->tsn_cap |= TSN_CAP_EST;
 		dev_info(priv->device, "EST feature enabled\n");
 	}
 
