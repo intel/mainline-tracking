@@ -1280,6 +1280,12 @@ static struct sst_pdata icl_desc = {
 	.boards = snd_soc_acpi_intel_icl_machines,
 };
 
+static struct sst_pdata tgl_desc = {
+	.fw_name = "intel/dsp_fw_tgl.bin",
+	.ops = &cnl_sst_ops,
+	.boards = snd_soc_acpi_intel_tgl_machines,
+};
+
 static struct sst_pdata ehl_desc = {
 	.fw_name = "intel/dsp_fw_ehl.bin",
 	.ops = &cnl_sst_ops,
@@ -1331,6 +1337,9 @@ static const struct pci_device_id skl_ids[] = {
 	/* ICL */
 	{ PCI_DEVICE(0x8086, 0x34c8),
 		.driver_data = (unsigned long)&icl_desc },
+	/* TGL */
+	{ PCI_DEVICE(0x8086, 0xa0c8),
+		.driver_data = (unsigned long)&tgl_desc },
 	/* EHL */
 	{ PCI_DEVICE(0x8086, 0x4b55),
 		.driver_data = (unsigned long)&ehl_desc },
