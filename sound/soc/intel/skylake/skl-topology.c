@@ -2549,7 +2549,7 @@ static int skl_tplg_be_set_src_pipe_params(struct snd_soc_dai *dai,
 				struct skl_pipe_params *params)
 {
 	struct snd_soc_dapm_path *p;
-	int ret = -EIO;
+	int ret = 0;
 
 	snd_soc_dapm_widget_for_each_source_path(w, p) {
 		if (p->connect && is_skl_dsp_widget_type(p->source, dai->dev) &&
@@ -2574,7 +2574,7 @@ static int skl_tplg_be_set_sink_pipe_params(struct snd_soc_dai *dai,
 	struct snd_soc_dapm_widget *w, struct skl_pipe_params *params)
 {
 	struct snd_soc_dapm_path *p = NULL;
-	int ret = -EIO;
+	int ret = 0;
 
 	snd_soc_dapm_widget_for_each_sink_path(w, p) {
 		if (p->connect && is_skl_dsp_widget_type(p->sink, dai->dev) &&
