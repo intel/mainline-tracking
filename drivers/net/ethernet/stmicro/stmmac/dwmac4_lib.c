@@ -101,6 +101,14 @@ void dwmac4_set_rx_ring_len(void __iomem *ioaddr, u32 len, u32 chan)
 	writel(len, ioaddr + DMA_CHAN_RX_RING_LEN(chan));
 }
 
+void dwmac4_set_intr_mode(void __iomem *ioaddr)
+{
+	u32 value = readl(ioaddr + DMA_BUS_MODE);
+
+	value |= DMA_BUS_MODE_INTR_MODE_01;
+	writel(value, ioaddr + DMA_BUS_MODE);
+}
+
 void dwmac4_enable_dma_irq(void __iomem *ioaddr, u32 chan)
 {
 	writel(DMA_CHAN_INTR_DEFAULT_MASK, ioaddr +

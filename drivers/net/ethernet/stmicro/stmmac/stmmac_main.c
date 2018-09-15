@@ -104,6 +104,8 @@ module_param(chain_mode, int, 0444);
 MODULE_PARM_DESC(chain_mode, "To use chain instead of ring mode");
 
 static irqreturn_t stmmac_interrupt(int irq, void *dev_id);
+static irqreturn_t stmmac_msi_dma(int irq, void *dev_id);
+static irqreturn_t stmmac_msi_non_dma(int irq, void *dev_id);
 static irqreturn_t xpcs_interrupt(int irq, void *dev_id);
 
 #ifdef CONFIG_DEBUG_FS
@@ -2208,6 +2210,9 @@ static int stmmac_init_dma_engine(struct stmmac_priv *priv)
 		return ret;
 	}
 
+	if (!priv->plat->multi_msi_en)
+		stmmac_set_intr_mode(priv, priv->ioaddr);
+
 	/* DMA Configuration */
 	stmmac_dma_init(priv, priv->ioaddr, priv->plat->dma_cfg, atds);
 
@@ -2647,6 +2652,7 @@ static int stmmac_open(struct net_device *dev)
 	struct stmmac_priv *priv = netdev_priv(dev);
 	u32 chan;
 	int ret;
+	int i;
 
 	if (priv->hw->pcs != STMMAC_PCS_RGMII &&
 	    priv->hw->pcs != STMMAC_PCS_TBI &&
@@ -2693,48 +2699,151 @@ static int stmmac_open(struct net_device *dev)
 		phy_start(dev->phydev);
 
 	/* Request the IRQ lines */
-	ret = request_irq(dev->irq, stmmac_interrupt,
-			  IRQF_SHARED, dev->name, dev);
-	if (unlikely(ret < 0)) {
-		netdev_err(priv->dev,
-			   "%s: ERROR: allocating the IRQ %d (error: %d)\n",
-			   __func__, dev->irq, ret);
-		goto irq_error;
-	}
-
-	/* Request the Wake IRQ in case of another line is used for WoL */
-	if (priv->wol_irq != dev->irq) {
-		ret = request_irq(priv->wol_irq, stmmac_interrupt,
+	if (!priv->plat->multi_msi_en) {
+		ret = request_irq(dev->irq, stmmac_interrupt,
 				  IRQF_SHARED, dev->name, dev);
 		if (unlikely(ret < 0)) {
 			netdev_err(priv->dev,
-				   "%s: ERROR: allocating the WoL IRQ %d (%d)\n",
-				   __func__, priv->wol_irq, ret);
-			goto wolirq_error;
+				   "%s: ERROR: allocating IRQ %d (error: %d)\n",
+				   __func__, dev->irq, ret);
+			goto irq_error;
 		}
-	}
 
-	/* Request the IRQ lines */
-	if (priv->lpi_irq > 0) {
-		ret = request_irq(priv->lpi_irq, stmmac_interrupt, IRQF_SHARED,
-				  dev->name, dev);
-		if (unlikely(ret < 0)) {
-			netdev_err(priv->dev,
-				   "%s: ERROR: allocating the LPI IRQ %d (%d)\n",
-				   __func__, priv->lpi_irq, ret);
-			goto lpiirq_error;
+		/* Request the Wake IRQ in case of another line is used for WoL */
+		if (priv->wol_irq != dev->irq) {
+			ret = request_irq(priv->wol_irq, stmmac_interrupt,
+					  IRQF_SHARED, dev->name, dev);
+			if (unlikely(ret < 0)) {
+				netdev_err(priv->dev,
+					   "%s: ERROR: allocating the WoL IRQ %d (%d)\n",
+					   __func__, priv->wol_irq, ret);
+				goto wolirq_error;
+			}
 		}
-	}
 
-	/* xPCS IRQ line */
-	if (priv->xpcs_irq > 0) {
-		ret = request_irq(priv->xpcs_irq, xpcs_interrupt, IRQF_SHARED,
-				  dev->name, dev);
-		if (unlikely(ret < 0)) {
+		/* Request the IRQ lines */
+		if (priv->lpi_irq > 0) {
+			ret = request_irq(priv->lpi_irq, stmmac_interrupt, IRQF_SHARED,
+					  dev->name, dev);
+			if (unlikely(ret < 0)) {
+				netdev_err(priv->dev,
+					   "%s: ERROR: allocating the LPI IRQ %d (%d)\n",
+					   __func__, priv->lpi_irq, ret);
+				goto lpiirq_error;
+			}
+		}
+
+		/* xPCS IRQ line */
+		if (priv->xpcs_irq > 0) {
+			ret = request_irq(priv->xpcs_irq, xpcs_interrupt, IRQF_SHARED,
+					  dev->name, dev);
+			if (unlikely(ret < 0)) {
+				netdev_err(priv->dev,
+					   "%s: ERROR: allocating the xPCS IRQ %d (%d)\n",
+					   __func__, priv->xpcs_irq, ret);
+				goto xpcsirq_error;
+			}
+		}
+	} else {
+		/* LPI IRQ lines */
+		if (priv->lpi_irq > 0) {
+			ret = request_irq(priv->lpi_irq, stmmac_msi_non_dma,
+					  0, dev->name, dev);
+			if (unlikely(ret < 0)) {
+				netdev_err(priv->dev,
+					   "%s: ERROR allocating IRQ %d (error: %d)\n",
+					   __func__, priv->lpi_irq, ret);
+				goto lpiirq_error;
+			}
+		}
+
+		/* xPCS IRQ line */
+		if (priv->xpcs_irq > 0) {
+			ret = request_irq(priv->xpcs_irq, xpcs_interrupt, 0,
+					  dev->name, dev);
+			if (unlikely(ret < 0)) {
+				netdev_err(priv->dev,
+					   "%s: ERROR allocating IRQ %d (error: %d)\n",
+					   __func__, priv->xpcs_irq, ret);
+				goto xpcsirq_error;
+			}
+		}
+
+		/* MAC IRQ lines */
+		if (priv->mac_irq > 0) {
+			ret = request_irq(priv->mac_irq, stmmac_msi_non_dma,
+					  0, dev->name, dev);
+			if (unlikely(ret < 0)) {
+				netdev_err(priv->dev,
+					   "%s: ERROR allocating IRQ %d (error: %d)\n",
+					   __func__, priv->mac_irq, ret);
+				goto macirq_error;
+			}
+		}
+
+		/* Safety correctable error IRQ line */
+		if (priv->sfty_ce_irq > 0) {
+			ret = request_irq(priv->sfty_ce_irq, stmmac_msi_non_dma,
+					  0, dev->name, dev);
+			if (unlikely(ret < 0)) {
+				netdev_err(priv->dev,
+					   "%s: ERROR allocating IRQ %d (error: %d)\n",
+					    __func__, priv->sfty_ce_irq, ret);
+				goto sfty_ce_irq_error;
+			}
+		}
+
+		/* Safety uncorrectable error IRQ line */
+		if (priv->sfty_ue_irq > 0) {
+			ret = request_irq(priv->sfty_ue_irq, stmmac_msi_non_dma,
+					  0, dev->name, dev);
+			if (unlikely(ret < 0)) {
+				netdev_err(priv->dev,
+					   "%s: ERROR allocating IRQ %d (error: %d)\n",
+					   __func__, priv->sfty_ue_irq, ret);
+				goto sfty_ue_irq_error;
+			}
+		}
+
+		/* MSI-style IRQs are handled by DMA and non-DMA ISRs */
+		/* Assign ISR to RX DMA IRQ lines */
+		for (i = 0; i < MTL_MAX_RX_QUEUES; i++) {
+			if (priv->rx_irq[i]) {
+				ret = request_irq(priv->rx_irq[i],
+						  stmmac_msi_dma,
+						  0,
+						  dev->name,
+						  dev);
+			if (unlikely(ret < 0))
+				break;
+			}
+		}
+
+		if (ret < 0) {
 			netdev_err(priv->dev,
-				   "%s: ERROR: allocating the xPCS IRQ %d (%d)\n",
-				   __func__, priv->xpcs_irq, ret);
-			goto xpcsirq_error;
+				   "%s: ERROR: allocating IRQ %d (error: %d)\n",
+				   __func__, priv->rx_irq[i], ret);
+			goto rxirq_error;
+		}
+
+		/* Assign ISR to TX DMA IRQ lines */
+		for (i = 0; i < MTL_MAX_TX_QUEUES; i++) {
+			if (priv->tx_irq[i]) {
+				ret = request_irq(priv->tx_irq[i],
+						  stmmac_msi_dma,
+						  0,
+						  dev->name,
+						  dev);
+			}
+			if (unlikely(ret < 0))
+				break;
+		}
+
+		if (ret < 0) {
+			netdev_err(priv->dev,
+				   "%s: ERROR: allocating IRQ %d (error: %d)\n",
+				   __func__, priv->tx_irq[i], ret);
+			goto txirq_error;
 		}
 	}
 
@@ -2743,15 +2852,34 @@ static int stmmac_open(struct net_device *dev)
 
 	return 0;
 
+txirq_error:
+	if (priv->tx_irq[0]) {
+		for (i = 0; i < MTL_MAX_TX_QUEUES; i++)
+			free_irq(priv->tx_irq[i], dev);
+	}
+rxirq_error:
+	if (priv->rx_irq[0]) {
+		for (i = 0; i < MTL_MAX_RX_QUEUES; i++)
+			free_irq(priv->rx_irq[i], dev);
+	}
+sfty_ue_irq_error:
+	if (priv->sfty_ue_irq)
+		free_irq(priv->sfty_ue_irq, dev);
+sfty_ce_irq_error:
+	if (priv->sfty_ce_irq)
+		free_irq(priv->sfty_ce_irq, dev);
+macirq_error:
+	if (priv->mac_irq)
+		free_irq(priv->mac_irq, dev);
 xpcsirq_error:
-	if (priv->lpi_irq > 0)
-		free_irq(priv->lpi_irq, dev);
-
+	if (priv->xpcs_irq)
+		free_irq(priv->xpcs_irq, dev);
 lpiirq_error:
-	if (priv->wol_irq != dev->irq)
-		free_irq(priv->wol_irq, dev);
+	if (priv->lpi_irq)
+		free_irq(priv->lpi_irq, dev);
 wolirq_error:
-	free_irq(dev->irq, dev);
+	if (priv->wol_irq != dev->irq && priv->wol_irq > 0)
+		free_irq(priv->wol_irq, dev);
 irq_error:
 	if (dev->phydev)
 		phy_stop(dev->phydev);
@@ -2779,6 +2907,7 @@ static int stmmac_release(struct net_device *dev)
 {
 	struct stmmac_priv *priv = netdev_priv(dev);
 	u32 chan;
+	int i;
 
 	if (priv->eee_enabled)
 		del_timer_sync(&priv->eee_ctrl_timer);
@@ -2797,11 +2926,32 @@ static int stmmac_release(struct net_device *dev)
 		del_timer_sync(&priv->tx_queue[chan].txtimer);
 
 	/* Free the IRQ lines */
-	free_irq(dev->irq, dev);
-	if (priv->wol_irq != dev->irq)
-		free_irq(priv->wol_irq, dev);
-	if (priv->lpi_irq > 0)
-		free_irq(priv->lpi_irq, dev);
+	if (!priv->plat->multi_msi_en)
+		free_irq(dev->irq, dev);
+	else {
+		if (priv->wol_irq != dev->irq  && priv->wol_irq > 0)
+			free_irq(priv->wol_irq, dev);
+		if (priv->lpi_irq > 0)
+			free_irq(priv->lpi_irq, dev);
+		if (priv->mac_irq > 0)
+			free_irq(priv->mac_irq, dev);
+		if (priv->xpcs_irq > 0)
+			free_irq(priv->xpcs_irq, dev);
+		if (priv->sfty_ue_irq > 0)
+			free_irq(priv->sfty_ue_irq, dev);
+		if (priv->sfty_ce_irq > 0)
+			free_irq(priv->sfty_ce_irq, dev);
+
+		if (priv->tx_irq[0] > 0) {
+			for (i = 0; i < priv->plat->tx_queues_to_use; i++)
+				free_irq(priv->tx_irq[i], dev);
+		}
+
+		if (priv->rx_irq[0] > 0) {
+			for (i = 0; i < priv->plat->rx_queues_to_use; i++)
+				free_irq(priv->rx_irq[i], dev);
+		}
+	}
 
 	/* Stop TX/RX DMA and clear the descriptors */
 	stmmac_stop_all_dma(priv);
@@ -3317,7 +3467,6 @@ static void stmmac_rx_vlan(struct net_device *dev, struct sk_buff *skb)
 	}
 }
 
-
 static inline int stmmac_rx_threshold_count(struct stmmac_rx_queue *rx_q)
 {
 	if (rx_q->rx_zeroc_thresh < STMMAC_RX_THRESH)
@@ -3746,6 +3895,160 @@ static int stmmac_set_features(struct net_device *netdev,
 	netdev->features = features;
 
 	return 0;
+}
+
+/**
+ *  stmmac_msi_non_dma - same as main ISR but without dma interrupt handling
+ *  @irq: interrupt number.
+ *  @dev_id: to pass the net device pointer.
+ *  Description: ISR to service non-dma interrupts only when msi is available
+ *  It can call:
+ *  o Core interrupts to manage: remote wake-up, management counter, LPI
+ *    interrupts.
+ */
+static irqreturn_t stmmac_msi_non_dma(int irq, void *dev_id)
+{
+	struct net_device *dev = (struct net_device *)dev_id;
+	struct stmmac_priv *priv = netdev_priv(dev);
+	u32 rx_cnt = priv->plat->rx_queues_to_use;
+	u32 tx_cnt = priv->plat->tx_queues_to_use;
+	u32 queues_count;
+	u32 queue;
+
+	queues_count = (rx_cnt > tx_cnt) ? rx_cnt : tx_cnt;
+
+	if (priv->irq_wake)
+		pm_wakeup_event(priv->device, 0);
+
+	if (unlikely(!dev)) {
+		netdev_err(priv->dev, "%s: invalid dev pointer\n", __func__);
+		return IRQ_NONE;
+	}
+
+	/* Check if adapter is up */
+	if (test_bit(STMMAC_DOWN, &priv->state))
+		return IRQ_HANDLED;
+
+	/* Check if a fatal error happened */
+	if (stmmac_safety_feat_interrupt(priv))
+		return IRQ_HANDLED;
+
+	/* To handle GMAC own interrupts */
+	if (priv->plat->has_gmac || priv->plat->has_gmac4) {
+		int status = stmmac_host_irq_status(priv, priv->hw,
+						    &priv->xstats);
+		int mtl_status;
+
+		if (unlikely(status)) {
+			/* For LPI we need to save the tx status */
+			if (status & CORE_IRQ_TX_PATH_IN_LPI_MODE)
+				priv->tx_path_in_lpi_mode = true;
+			if (status & CORE_IRQ_TX_PATH_EXIT_LPI_MODE)
+				priv->tx_path_in_lpi_mode = false;
+		}
+
+		for (queue = 0; queue < queues_count; queue++) {
+			struct stmmac_rx_queue *rx_q = &priv->rx_queue[queue];
+
+			mtl_status = stmmac_host_mtl_irq_status(priv, priv->hw,
+								queue);
+			if (mtl_status != -EINVAL)
+				status |= mtl_status;
+
+			if (status & CORE_IRQ_MTL_RX_OVERFLOW)
+				stmmac_set_rx_tail_ptr(priv, priv->ioaddr,
+						       rx_q->rx_tail_addr,
+						       queue);
+		}
+
+		if (priv->hw->tsn_cap & TSN_CAP_EST)
+			stmmac_est_irq_status(priv, priv->ioaddr);
+
+		/* PCS link status */
+		if (priv->hw->pcs) {
+			if (priv->xstats.pcs_link)
+				netif_carrier_on(dev);
+			else
+				netif_carrier_off(dev);
+		}
+	}
+
+	return IRQ_HANDLED;
+}
+
+/**
+ *  stmmac_msi_non_dma - secondary ISR for dma interrupt handling only
+ *  @irq: interrupt number.
+ *  @dev_id: to pass the net device pointer.
+ *  Description: ISR to service dma interrupts only when msi is available
+ *  It can call:
+ *  o DMA service routine (to manage incoming frame reception and transmission
+ *    status)
+ */
+static irqreturn_t stmmac_msi_dma(int irq, void *dev_id)
+{
+	struct net_device *dev = (struct net_device *)dev_id;
+	struct stmmac_priv *priv = netdev_priv(dev);
+	u32 tx_channel_count = priv->plat->tx_queues_to_use;
+	u32 rx_channel_count = priv->plat->rx_queues_to_use;
+
+	u32 chan = -1; /* Invalid channel number */
+	int i;
+	int status;
+
+	if (unlikely(!dev)) {
+		netdev_err(priv->dev, "%s: invalid dev pointer\n", __func__);
+		return IRQ_NONE;
+	}
+
+	/* Check if adapter is up */
+	if (test_bit(STMMAC_DOWN, &priv->state))
+		return IRQ_HANDLED;
+
+	/* Find the queue/channel this IRQ is assigned to */
+	for (i = 0; i < rx_channel_count; i++)
+		if (priv->rx_irq[i] == irq)
+			chan = i;
+
+	if (chan < 0) {
+		for (i = 0; chan < tx_channel_count; i++)
+			if (priv->tx_irq[i] == irq)
+				chan = i;
+	}
+
+	spin_lock(&priv->dma_chan_status_lock);
+	status = stmmac_napi_check(priv, chan);
+	spin_unlock(&priv->dma_chan_status_lock);
+
+	if (unlikely(status & tx_hard_error_bump_tc)) {
+		/* Try to bump up the dma threshold on this failure */
+		if (unlikely(priv->xstats.threshold != SF_DMA_MODE) &&
+		    tc <= 256) {
+			tc += 64;
+			spin_lock(&priv->dma_operation_lock);
+
+			if (priv->plat->force_thresh_dma_mode)
+				stmmac_set_dma_operation_mode(priv,
+							      tc,
+							      tc,
+							      chan);
+			else
+				stmmac_set_dma_operation_mode(priv,
+							      tc,
+							      SF_DMA_MODE,
+							      chan);
+
+			spin_unlock(&priv->dma_operation_lock);
+			priv->xstats.threshold = tc;
+		}
+	} else if (unlikely(status == tx_hard_error)) {
+		stmmac_tx_err(priv, chan);
+	}
+
+	 /* To handle DMA interrupts */
+	stmmac_dma_interrupt(priv);
+
+	return IRQ_HANDLED;
 }
 
 /**
@@ -4365,6 +4668,7 @@ int stmmac_dvr_probe(struct device *device,
 	struct stmmac_priv *priv;
 	u32 queue, maxq;
 	int ret = 0;
+	int i;
 
 	ndev = alloc_etherdev_mqs(sizeof(struct stmmac_priv),
 				  MTL_MAX_TX_QUEUES,
@@ -4388,6 +4692,15 @@ int stmmac_dvr_probe(struct device *device,
 	priv->wol_irq = res->wol_irq;
 	priv->lpi_irq = res->lpi_irq;
 	priv->xpcs_irq = res->xpcs_irq;
+	priv->mac_irq = res->mac_irq;
+	priv->sfty_ue_irq = res->sfty_ue_irq;
+	priv->sfty_ce_irq = res->sfty_ce_irq;
+
+	for (i = 0; i < priv->plat->tx_queues_to_use; i++)
+		priv->tx_irq[i] = res->tx_irq[i];
+
+	for (i = 0; i < priv->plat->rx_queues_to_use; i++)
+		priv->rx_irq[i] = res->rx_irq[i];
 
 	if (!IS_ERR_OR_NULL(res->mac))
 		memcpy(priv->dev->dev_addr, res->mac, ETH_ALEN);
@@ -4508,6 +4821,9 @@ int stmmac_dvr_probe(struct device *device,
 	}
 
 	mutex_init(&priv->lock);
+	spin_lock_init(&priv->dma_chan_status_lock);
+	spin_lock_init(&priv->dma_intr_enable_lock);
+	spin_lock_init(&priv->dma_operation_lock);
 
 	/* If a specific clk_csr value is passed from the platform
 	 * this means that the CSR Clock Range selection cannot be

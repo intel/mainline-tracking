@@ -436,7 +436,6 @@ static int stmmac_pci_probe(struct pci_dev *pdev,
 	}
 
 	pci_set_master(pdev);
-
 	ret = info->setup(pdev, plat);
 	if (ret)
 		return ret;
@@ -449,19 +448,38 @@ static int stmmac_pci_probe(struct pci_dev *pdev,
 	if (ret > 1) {
 		dev_info(&pdev->dev, "%s: Multi-MSI with %d vectors\n",
 			 __func__, ret);
-		/* MAC MSI vector offset at 29 */
-		res.irq = pci_irq_vector(pdev, 29);
+		plat->multi_msi_en = 1;
+
+		for (i = 0; i < plat->rx_queues_to_use; i++)
+			res.rx_irq[i] = pci_irq_vector(pdev,
+						       MSI_RX_OFFSET_VEC + i * 2);
+
+		for (i = 0; i < plat->tx_queues_to_use; i++)
+			res.tx_irq[i] = pci_irq_vector(pdev,
+						       MSI_TX_OFFSET_VEC + i * 2);
+
+		res.mac_irq = pci_irq_vector(pdev, MSI_MAC_VEC);
+		res.lpi_irq = pci_irq_vector(pdev, MSI_LPI_VEC);
+		res.xpcs_irq = pci_irq_vector(pdev, MSI_PCS_VEC);
+		res.sfty_ue_irq = pci_irq_vector(pdev, MSI_SAFETY_UE_VEC);
+		res.sfty_ce_irq = pci_irq_vector(pdev, MSI_SAFETY_CE_VEC);
+
 	} else if (ret == 1) {
 		dev_info(&pdev->dev, "%s: Single MSI\n",
 			 __func__);
+		plat->multi_msi_en = 0;
 		res.irq = pci_irq_vector(pdev, 0);
+		res.wol_irq = res.irq;
+		res.mac_irq = 0;
 	} else {
 		dev_info(&pdev->dev, "%s: Fall back to legacy IRQ\n",
 			 __func__);
+		plat->multi_msi_en = 0;
 		res.irq = pdev->irq;
+		res.wol_irq = res.irq;
+		res.mac_irq = 0;
 	}
 
-	res.wol_irq = res.irq;
 	res.xpcs_irq = 0;
 
 	return stmmac_dvr_probe(&pdev->dev, plat, &res);
