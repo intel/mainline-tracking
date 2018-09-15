@@ -187,6 +187,8 @@ struct stmmac_dma_ops {
 	void (*enable_tso)(void __iomem *ioaddr, bool en, u32 chan);
 	void (*qmode)(void __iomem *ioaddr, u32 channel, u8 qmode);
 	void (*set_bfsize)(void __iomem *ioaddr, int bfsize, u32 chan);
+	/* Set the interrupt mode (if using MSI interrupts) */
+	void (*set_intr_mode)(void __iomem *ioaddr);
 };
 
 #define stmmac_reset(__priv, __args...) \
@@ -243,6 +245,8 @@ struct stmmac_dma_ops {
 	stmmac_do_void_callback(__priv, dma, qmode, __args)
 #define stmmac_set_dma_bfsize(__priv, __args...) \
 	stmmac_do_void_callback(__priv, dma, set_bfsize, __args)
+#define stmmac_set_intr_mode(__priv, __args...) \
+	stmmac_do_void_callback(__priv, dma, set_intr_mode, __args)
 
 struct mac_device_info;
 struct net_device;
