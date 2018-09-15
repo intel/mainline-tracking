@@ -386,7 +386,6 @@ stmmac_probe_config_dt(struct platform_device *pdev, const char **mac)
 
 	*mac = of_get_mac_address(np);
 	plat->interface = of_get_phy_mode(np);
-
 	/* Get max speed of operation from device tree */
 	if (of_property_read_u32(np, "max-speed", &plat->max_speed))
 		plat->max_speed = -1;
@@ -609,7 +608,6 @@ int stmmac_get_platform_resources(struct platform_device *pdev,
 	struct resource *res;
 
 	memset(stmmac_res, 0, sizeof(*stmmac_res));
-
 	/* Get IRQ information early to have an ability to ask for deferred
 	 * probe if needed before we went too far with resource allocation.
 	 */

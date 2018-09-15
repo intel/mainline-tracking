@@ -23,6 +23,16 @@
 #define STMMAC_RX_COE_TYPE1	1
 #define STMMAC_RX_COE_TYPE2	2
 
+/* Multi interrupt MSI vector */
+#define STMMAC_MAX_MSI_VECS	32
+#define MSI_RX_OFFSET_VEC	0
+#define MSI_TX_OFFSET_VEC	1
+#define MSI_SAFETY_UE_VEC	26
+#define MSI_SAFETY_CE_VEC	27
+#define MSI_LPI_VEC		28
+#define MSI_MAC_VEC		29
+#define MSI_PCS_VEC		30
+
 /* Define the macros for CSR clock range parameters to be passed by
  * platform code.
  * This could also be configured at run time using CPU freq framework. */
@@ -193,5 +203,16 @@ struct plat_stmmacenet_data {
 	unsigned int ctov;
 	unsigned int tils;
 	bool has_safety_feat;
+	int dma_tx_totalirq;
+	int dma_rx_totalirq;
+	int dma_tx_os;
+	int dma_rx_os;
+	int mac_irq_os;
+	int sfty_ue_irq_os;
+	int sfty_ce_irq_os;
+	int lpi_irq_os;
+	int xpcs_irq_os;
+	int wol_irq_os;
+	bool multi_msi_en;
 };
 #endif
