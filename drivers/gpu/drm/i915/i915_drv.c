@@ -51,6 +51,7 @@
 #include "i915_pmu.h"
 #include "i915_query.h"
 #include "i915_vgpu.h"
+#include "intel_uc.h"
 #include "intel_drv.h"
 #include "intel_uc.h"
 
@@ -895,6 +896,7 @@ static int i915_driver_init_early(struct drm_i915_private *dev_priv,
 		     sizeof(device_info->platform_mask) * BITS_PER_BYTE);
 	BUG_ON(device_info->gen > sizeof(device_info->gen_mask) * BITS_PER_BYTE);
 	spin_lock_init(&dev_priv->irq_lock);
+	spin_lock_init(&dev_priv->shared_page_lock);
 	spin_lock_init(&dev_priv->gpu_error.lock);
 	mutex_init(&dev_priv->backlight_lock);
 	spin_lock_init(&dev_priv->uncore.lock);
@@ -991,6 +993,9 @@ static void i915_mmio_cleanup(struct drm_i915_private *dev_priv)
 
 	intel_teardown_mchbar(dev_priv);
 	pci_iounmap(pdev, dev_priv->regs);
+	if (intel_vgpu_active(dev_priv) && dev_priv->shared_page)
+		pci_iounmap(pdev, dev_priv->shared_page);
+
 }
 
 /**
@@ -1024,6 +1029,21 @@ static int i915_driver_init_mmio(struct drm_i915_private *dev_priv)
 
 	intel_uc_init_mmio(dev_priv);
 
+	if (intel_vgpu_active(dev_priv) && i915_modparams.enable_pvmmio) {
+		u32 bar = 0;
+		u32 mmio_size = 2 * 1024 * 1024;
+
+		/* Map a share page from the end of 2M mmio region in bar0. */
+		dev_priv->shared_page = (struct gvt_shared_page *)
+			pci_iomap_range(dev_priv->drm.pdev, bar,
+			mmio_size, PAGE_SIZE);
+		if (dev_priv->shared_page == NULL) {
+			ret = -EIO;
+			DRM_ERROR("ivi: failed to map share page.\n");
+			goto err_uncore;
+		}
+	}
+
 	ret = intel_engines_init_mmio(dev_priv);
 	if (ret)
 		goto err_uncore;
@@ -1033,6 +1053,8 @@ static int i915_driver_init_mmio(struct drm_i915_private *dev_priv)
 	return 0;
 
 err_uncore:
+	if (intel_vgpu_active(dev_priv) && dev_priv->shared_page)
+		pci_iounmap(dev_priv->drm.pdev, dev_priv->shared_page);
 	intel_uncore_fini(dev_priv);
 err_bridge:
 	pci_dev_put(dev_priv->bridge_dev);
@@ -2860,6 +2882,7 @@ static const struct drm_ioctl_desc i915_ioctls[] = {
 	DRM_IOCTL_DEF_DRV(I915_PERF_ADD_CONFIG, i915_perf_add_config_ioctl, DRM_UNLOCKED|DRM_RENDER_ALLOW),
 	DRM_IOCTL_DEF_DRV(I915_PERF_REMOVE_CONFIG, i915_perf_remove_config_ioctl, DRM_UNLOCKED|DRM_RENDER_ALLOW),
 	DRM_IOCTL_DEF_DRV(I915_QUERY, i915_query_ioctl, DRM_UNLOCKED|DRM_RENDER_ALLOW),
+	DRM_IOCTL_DEF_DRV(I915_GEM_GVTBUFFER, i915_gem_gvtbuffer_ioctl, DRM_RENDER_ALLOW),
 };
 
 static struct drm_driver driver = {
