@@ -39,6 +39,9 @@
 static int skl_pci_binding;
 module_param_named(pci_binding, skl_pci_binding, int, 0444);
 MODULE_PARM_DESC(pci_binding, "PCI binding (0=auto, 1=only legacy, 2=only asoc");
+static char *tplg_name;
+module_param(tplg_name, charp, 0444);
+MODULE_PARM_DESC(tplg_name, "Name of topology binary file");
 
 /*
  * initialize the PCI registers
@@ -1098,7 +1101,11 @@ static int skl_probe(struct pci_dev *pci,
 			goto out_nhlt_free;
 		}
 
-		skl_nhlt_update_topology_bin(skl);
+		if (!tplg_name || strlen(tplg_name) >= sizeof(skl->tplg_name))
+			skl_nhlt_update_topology_bin(skl);
+		else
+			snprintf(skl->tplg_name, sizeof(skl->tplg_name), "%s",
+				tplg_name);
 
 		/* create device for dsp clk */
 		err = skl_clock_device_register(skl);
