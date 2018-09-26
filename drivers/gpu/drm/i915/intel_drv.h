@@ -564,6 +564,7 @@ struct intel_initial_plane_config {
 struct intel_scaler {
 	int in_use;
 	uint32_t mode;
+	int owned;
 };
 
 struct intel_crtc_scaler_state {
@@ -1384,6 +1385,11 @@ static inline bool intel_irqs_enabled(struct drm_i915_private *dev_priv)
 	return dev_priv->runtime_pm.irqs_enabled;
 }
 
+bool is_shadow_context(struct i915_gem_context *ctx);
+int get_vgt_id(struct i915_gem_context *ctx);
+int get_pid_shadowed(struct i915_gem_context *ctx,
+		      struct intel_engine_cs *engine);
+
 int intel_get_crtc_scanline(struct intel_crtc *crtc);
 void gen8_irq_power_well_post_enable(struct drm_i915_private *dev_priv,
 				     u8 pipe_mask);
@@ -1708,6 +1714,7 @@ int intel_dp_rate_select(struct intel_dp *intel_dp, int rate);
 void intel_dp_hot_plug(struct intel_encoder *intel_encoder);
 void intel_power_sequencer_reset(struct drm_i915_private *dev_priv);
 uint32_t intel_dp_pack_aux(const uint8_t *src, int src_bytes);
+void intel_dp_unpack_aux(uint32_t src, uint8_t *dst, int dst_bytes);
 void intel_plane_destroy(struct drm_plane *plane);
 void intel_edp_drrs_enable(struct intel_dp *intel_dp,
 			   const struct intel_crtc_state *crtc_state);
