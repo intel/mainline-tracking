@@ -418,6 +418,7 @@ struct intel_connector {
 	uint64_t hdcp_value; /* protected by hdcp_mutex */
 	struct delayed_work hdcp_check_work;
 	struct work_struct hdcp_prop_work;
+	struct work_struct hdcp_enable_work;
 };
 
 struct intel_digital_connector_state {
@@ -564,6 +565,7 @@ struct intel_initial_plane_config {
 struct intel_scaler {
 	int in_use;
 	uint32_t mode;
+	int owned;
 };
 
 struct intel_crtc_scaler_state {
@@ -1384,6 +1386,11 @@ static inline bool intel_irqs_enabled(struct drm_i915_private *dev_priv)
 	return dev_priv->runtime_pm.irqs_enabled;
 }
 
+bool is_shadow_context(struct i915_gem_context *ctx);
+int get_vgt_id(struct i915_gem_context *ctx);
+int get_pid_shadowed(struct i915_gem_context *ctx,
+		      struct intel_engine_cs *engine);
+
 int intel_get_crtc_scanline(struct intel_crtc *crtc);
 void gen8_irq_power_well_post_enable(struct drm_i915_private *dev_priv,
 				     u8 pipe_mask);
@@ -1708,6 +1715,7 @@ int intel_dp_rate_select(struct intel_dp *intel_dp, int rate);
 void intel_dp_hot_plug(struct intel_encoder *intel_encoder);
 void intel_power_sequencer_reset(struct drm_i915_private *dev_priv);
 uint32_t intel_dp_pack_aux(const uint8_t *src, int src_bytes);
+void intel_dp_unpack_aux(uint32_t src, uint8_t *dst, int dst_bytes);
 void intel_plane_destroy(struct drm_plane *plane);
 void intel_edp_drrs_enable(struct intel_dp *intel_dp,
 			   const struct intel_crtc_state *crtc_state);
@@ -1916,10 +1924,13 @@ static inline void intel_backlight_device_unregister(struct intel_connector *con
 void intel_hdcp_atomic_check(struct drm_connector *connector,
 			     struct drm_connector_state *old_state,
 			     struct drm_connector_state *new_state);
+void intel_hdcp_atomic_pre_commit(struct drm_connector *connector,
+				  struct drm_connector_state *old_state,
+				  struct drm_connector_state *new_state);
+void intel_hdcp_atomic_commit(struct drm_connector *connector,
+			      struct drm_connector_state *new_state);
 int intel_hdcp_init(struct intel_connector *connector,
 		    const struct intel_hdcp_shim *hdcp_shim);
-int intel_hdcp_enable(struct intel_connector *connector);
-int intel_hdcp_disable(struct intel_connector *connector);
 int intel_hdcp_check_link(struct intel_connector *connector);
 bool is_hdcp_supported(struct drm_i915_private *dev_priv, enum port port);
 

@@ -55,6 +55,7 @@
 
 #include "i915_params.h"
 #include "i915_reg.h"
+#include "i915_pvinfo.h"
 #include "i915_utils.h"
 
 #include "intel_bios.h"
@@ -78,6 +79,9 @@
 #include "i915_scheduler.h"
 #include "i915_timeline.h"
 #include "i915_vma.h"
+#if IS_ENABLED(CONFIG_DRM_I915_MEMTRACK)
+#include "i915_gpu_error.h"
+#endif
 
 #include "intel_gvt.h"
 
@@ -333,6 +337,11 @@ struct drm_i915_file_private {
 	struct drm_i915_private *dev_priv;
 	struct drm_file *file;
 
+#if IS_ENABLED(CONFIG_DRM_I915_MEMTRACK)
+	char *process_name;
+	struct pid *tgid;
+#endif
+
 	struct {
 		spinlock_t lock;
 		struct list_head request_list;
@@ -350,6 +359,10 @@ struct drm_i915_file_private {
 	} rps_client;
 
 	unsigned int bsd_engine;
+
+#if IS_ENABLED(CONFIG_DRM_I915_MEMTRACK)
+	struct bin_attribute *obj_attr;
+#endif
 
 /*
  * Every context ban increments per client ban score. Also
@@ -996,6 +1009,10 @@ struct i915_gem_mm {
 	spinlock_t object_stat_lock;
 	u64 object_memory;
 	u32 object_count;
+
+#if IS_ENABLED(CONFIG_DRM_I915_MEMTRACK)
+	size_t phys_mem_total;
+#endif
 };
 
 #define I915_IDLE_ENGINES_TIMEOUT (200) /* in ms */
@@ -1306,6 +1323,7 @@ struct i915_workarounds {
 struct i915_virtual_gpu {
 	bool active;
 	u32 caps;
+	u32 scaler_owned;
 };
 
 /* used in computing the new watermarks state */
@@ -1589,6 +1607,8 @@ struct drm_i915_private {
 	resource_size_t stolen_usable_size;	/* Total size minus reserved ranges */
 
 	void __iomem *regs;
+	struct gvt_shared_page *shared_page;
+	spinlock_t shared_page_lock;
 
 	struct intel_uncore uncore;
 
@@ -1665,6 +1685,10 @@ struct drm_i915_private {
 	struct intel_vbt_data vbt;
 
 	bool preserve_bios_swizzle;
+
+#if IS_ENABLED(CONFIG_DRM_I915_MEMTRACK)
+	struct kobject memtrack_kobj;
+#endif
 
 	/* overlay */
 	struct intel_overlay *overlay;
@@ -1837,6 +1861,10 @@ struct drm_i915_private {
 		 * This is limited in execlists to 21 bits.
 		 */
 		struct ida hw_ida;
+
+	/* In case of virtualization, 3-bits of vgt-id will be added to hw_id */
+#define SIZE_CONTEXT_HW_ID_GVT (18)
+#define MAX_CONTEXT_HW_ID_GVT (1<<SIZE_CONTEXT_HW_ID_GVT)
 #define MAX_CONTEXT_HW_ID (1<<21) /* exclusive */
 #define MAX_GUC_CONTEXT_HW_ID (1 << 20) /* exclusive */
 #define GEN11_MAX_CONTEXT_HW_ID (1<<11) /* exclusive */
@@ -2780,7 +2808,7 @@ static inline bool intel_gvt_active(struct drm_i915_private *dev_priv)
 	return dev_priv->gvt;
 }
 
-static inline bool intel_vgpu_active(struct drm_i915_private *dev_priv)
+static inline bool intel_vgpu_active(const struct drm_i915_private *dev_priv)
 {
 	return dev_priv->vgpu.active;
 }
@@ -2898,6 +2926,11 @@ i915_gem_object_create(struct drm_i915_private *dev_priv, u64 size);
 struct drm_i915_gem_object *
 i915_gem_object_create_from_data(struct drm_i915_private *dev_priv,
 				 const void *data, size_t size);
+
+#if IS_ENABLED(CONFIG_DRM_I915_MEMTRACK)
+int i915_gem_open_object(struct drm_gem_object *gem, struct drm_file *file);
+#endif
+
 void i915_gem_close_object(struct drm_gem_object *gem, struct drm_file *file);
 void i915_gem_free_object(struct drm_gem_object *obj);
 
@@ -3242,6 +3275,8 @@ int i915_perf_remove_config_ioctl(struct drm_device *dev, void *data,
 void i915_oa_init_reg_state(struct intel_engine_cs *engine,
 			    struct i915_gem_context *ctx,
 			    uint32_t *reg_state);
+int i915_gem_gvtbuffer_ioctl(struct drm_device *dev, void *data,
+			     struct drm_file *file);
 
 /* i915_gem_evict.c */
 int __must_check i915_gem_evict_something(struct i915_address_space *vm,
@@ -3319,6 +3354,19 @@ u32 i915_gem_fence_size(struct drm_i915_private *dev_priv, u32 size,
 u32 i915_gem_fence_alignment(struct drm_i915_private *dev_priv, u32 size,
 			     unsigned int tiling, unsigned int stride);
 
+#if IS_ENABLED(CONFIG_DRM_I915_MEMTRACK)
+int i915_get_pid_cmdline(struct task_struct *task, char *buffer);
+int i915_gem_obj_insert_pid(struct drm_i915_gem_object *obj);
+void i915_gem_obj_remove_all_pids(struct drm_i915_gem_object *obj);
+int i915_obj_insert_virt_addr(struct drm_i915_gem_object *obj,
+			unsigned long addr, bool is_map_gtt,
+			bool is_mutex_locked);
+int i915_get_drm_clients_info(struct drm_i915_error_state_buf *m,
+			struct drm_device *dev);
+int i915_gem_get_obj_info(struct drm_i915_error_state_buf *m,
+			struct drm_device *dev, struct pid *tgid);
+#endif
+
 /* i915_debugfs.c */
 #ifdef CONFIG_DEBUG_FS
 int i915_debugfs_register(struct drm_i915_private *dev_priv);
@@ -3357,6 +3405,13 @@ extern int i915_restore_state(struct drm_i915_private *dev_priv);
 /* i915_sysfs.c */
 void i915_setup_sysfs(struct drm_i915_private *dev_priv);
 void i915_teardown_sysfs(struct drm_i915_private *dev_priv);
+
+#if IS_ENABLED(CONFIG_DRM_I915_MEMTRACK)
+int i915_gem_create_sysfs_file_entry(struct drm_device *dev,
+			struct drm_file *file);
+void i915_gem_remove_sysfs_file_entry(struct drm_device *dev,
+			struct drm_file *file);
+#endif
 
 /* intel_lpe_audio.c */
 int  intel_lpe_audio_init(struct drm_i915_private *dev_priv);
@@ -3578,7 +3633,11 @@ static inline u64 intel_rc6_residency_us(struct drm_i915_private *dev_priv,
 static inline uint##x##_t __raw_i915_read##x(const struct drm_i915_private *dev_priv, \
 					     i915_reg_t reg) \
 { \
-	return read##s(dev_priv->regs + i915_mmio_reg_offset(reg)); \
+	if (!intel_vgpu_active(dev_priv) || !i915_modparams.enable_pvmmio || \
+		likely(!in_mmio_read_trap_list((reg).reg))) \
+		return read##s(dev_priv->regs + i915_mmio_reg_offset(reg)); \
+	dev_priv->shared_page->reg_addr = i915_mmio_reg_offset(reg); \
+	return read##s(dev_priv->regs + i915_mmio_reg_offset(vgtif_reg(pv_mmio))); \
 }
 
 #define __raw_write(x, s) \
