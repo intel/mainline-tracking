@@ -49,6 +49,10 @@
 #include <linux/dma_remapping.h>
 #include <linux/reservation.h>
 
+#if IS_ENABLED(CONFIG_DRM_I915_GVT)
+#include "gvt.h"
+#endif
+
 /* Primary plane formats for gen <= 3 */
 static const uint32_t i8xx_primary_formats[] = {
 	DRM_FORMAT_C8,
@@ -8728,7 +8732,8 @@ static void skylake_get_pfit_config(struct intel_crtc *crtc,
 	/* find scaler attached to this pipe */
 	for (i = 0; i < crtc->num_scalers; i++) {
 		ps_ctrl = I915_READ(SKL_PS_CTRL(crtc->pipe, i));
-		if (ps_ctrl & PS_SCALER_EN && !(ps_ctrl & PS_PLANE_SEL_MASK)) {
+		if (ps_ctrl & PS_SCALER_EN && !(ps_ctrl & PS_PLANE_SEL_MASK) &&
+		    scaler_state->scalers[i].owned) {
 			id = i;
 			pipe_config->pch_pfit.enabled = true;
 			pipe_config->pch_pfit.pos = I915_READ(SKL_PS_WIN_POS(crtc->pipe, i));
@@ -11874,7 +11879,16 @@ verify_crtc_state(struct drm_crtc *crtc,
 	intel_pipe_config_sanity_check(dev_priv, pipe_config);
 
 	sw_config = to_intel_crtc_state(new_crtc_state);
-	if (!intel_pipe_config_compare(dev_priv, sw_config,
+
+	/*
+	 * Only check for pipe config if we are not in a GVT guest environment,
+	 * because such a check in a GVT guest environment doesn't make any sense
+	 * as we don't allow the guest to do a mode set, so there can very well
+	 * be a difference between what it has programmed vs. what the host
+	 * truly configured the HW pipe to be in.
+	 */
+	if (!intel_vgpu_active(dev_priv) &&
+		!intel_pipe_config_compare(dev_priv, sw_config,
 				       pipe_config, false)) {
 		I915_STATE_WARN(1, "pipe state doesn't match!\n");
 		intel_dump_pipe_config(intel_crtc, pipe_config,
@@ -12580,6 +12594,8 @@ static void intel_atomic_commit_tail(struct drm_atomic_state *state)
 	struct intel_atomic_state *intel_state = to_intel_atomic_state(state);
 	struct drm_i915_private *dev_priv = to_i915(dev);
 	struct drm_crtc_state *old_crtc_state, *new_crtc_state;
+	struct drm_connector_state *old_conn_state, *new_conn_state;
+	struct drm_connector *connector;
 	struct drm_crtc *crtc;
 	struct intel_crtc_state *intel_cstate;
 	u64 put_domains[I915_MAX_PIPES] = {};
@@ -12677,8 +12693,16 @@ static void intel_atomic_commit_tail(struct drm_atomic_state *state)
 		}
 	}
 
+	for_each_oldnew_connector_in_state(state, connector, old_conn_state,
+					   new_conn_state, i)
+		intel_hdcp_atomic_pre_commit(connector, old_conn_state,
+					     new_conn_state);
+
 	/* Now enable the clocks, plane, pipe, and connectors that we set up. */
 	dev_priv->display.update_crtcs(state);
+
+	for_each_new_connector_in_state(state, connector, new_conn_state, i)
+		intel_hdcp_atomic_commit(connector, new_conn_state);
 
 	/* FIXME: We should call drm_atomic_helper_commit_hw_done() here
 	 * already, but still need the state for the delayed optimization. To
@@ -13715,10 +13739,7 @@ intel_primary_plane_create(struct drm_i915_private *dev_priv, enum pipe pipe)
 			num_formats = ARRAY_SIZE(skl_primary_formats);
 		}
 
-		if (primary->has_ccs)
-			modifiers = skl_format_modifiers_ccs;
-		else
-			modifiers = skl_format_modifiers_noccs;
+		modifiers = i9xx_format_modifiers;
 
 		primary->update_plane = skl_update_plane;
 		primary->disable_plane = skl_disable_plane;
@@ -13911,6 +13932,16 @@ static void intel_crtc_init_scalers(struct intel_crtc *crtc,
 
 		scaler->in_use = 0;
 		scaler->mode = PS_SCALER_MODE_DYN;
+		scaler->owned = 1;
+#if IS_ENABLED(CONFIG_DRM_I915_GVT)
+		if (intel_gvt_active(dev_priv) &&
+		    dev_priv->gvt->pipe_info[crtc->pipe].scaler_owner[i] != 0)
+			scaler->owned = 0;
+#endif
+		if (intel_vgpu_active(dev_priv) &&
+			 !(1 << (crtc->pipe * SKL_NUM_SCALERS + i) &
+			  dev_priv->vgpu.scaler_owned))
+			scaler->owned = 0;
 	}
 
 	scaler_state->scaler_id = -1;
@@ -14314,6 +14345,15 @@ static void intel_setup_outputs(struct drm_i915_private *dev_priv)
 		encoder->base.possible_clones =
 			intel_encoder_clones(encoder);
 	}
+
+#if IS_ENABLED(CONFIG_DRM_I915_GVT)
+	/*
+	 * Encoders have been initialized. If we are in VGT mode,
+	 * let's inform the HV that it can start Dom U as Dom 0
+	 * is ready to accept new Dom Us.
+	 */
+	gvt_dom0_ready(dev_priv);
+#endif
 
 	intel_init_pch_refclk(dev_priv);
 
@@ -15925,6 +15965,7 @@ static void intel_hpd_poll_fini(struct drm_device *dev)
 		if (connector->hdcp_shim) {
 			cancel_delayed_work_sync(&connector->hdcp_check_work);
 			cancel_work_sync(&connector->hdcp_prop_work);
+			cancel_work_sync(&connector->hdcp_enable_work);
 		}
 	}
 	drm_connector_list_iter_end(&conn_iter);
