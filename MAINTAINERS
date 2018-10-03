@@ -9317,6 +9317,17 @@ M:	Shruthi Sanil <shruthi.sanil@intel.com>
 S:	Maintained
 F:	drivers/clocksource/timer-keembay.c
 
+INTEL KEEM BAY VPU IPC DRIVER
+M:	Daniele Alessandrelli <daniele.alessandrelli@intel.com>
+M:	Paul J Murphy <paul.j.murphy@intel.com>
+M:	Mark Gross <mgross@linux.intel.com>
+S:	Supported
+F:	Documentation/devicetree/bindings/soc/intel/intel,keembay-vpu-ipc.yaml
+F:	drivers/soc/intel/keembay-ipc.c
+F:	drivers/soc/intel/keembay-ipc.h
+F:	drivers/soc/intel/keembay-vpu-ipc.c
+F:	include/linux/soc/intel/keembay-vpu-ipc.h
+
 INTEL MANAGEMENT ENGINE (mei)
 M:	Tomas Winkler <tomas.winkler@intel.com>
 L:	linux-kernel@vger.kernel.org
