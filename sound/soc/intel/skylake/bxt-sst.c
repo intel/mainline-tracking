@@ -397,14 +397,14 @@ static int bxt_set_dsp_D0(struct sst_dsp *ctx, unsigned int core_id)
 
 	if (skl->fw_loaded == false) {
 		skl->boot_complete = false;
-		ret = bxt_load_base_firmware(ctx);
+		ret = ctx->fw_ops.load_fw(ctx);
 		if (ret < 0) {
 			dev_err(ctx->dev, "reload fw failed: %d\n", ret);
 			return ret;
 		}
 
 		if (skl->lib_count > 1) {
-			ret = bxt_load_library(ctx, skl->lib_info,
+			ret = ctx->fw_ops.load_library(ctx, skl->lib_info,
 						skl->lib_count);
 			if (ret < 0) {
 				dev_err(ctx->dev, "reload libs failed: %d\n", ret);
