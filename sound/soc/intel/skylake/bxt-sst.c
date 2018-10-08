@@ -670,33 +670,6 @@ int bxt_sst_dsp_init(struct device *dev, void __iomem *mmio_base, int irq,
 }
 EXPORT_SYMBOL_GPL(bxt_sst_dsp_init);
 
-int bxt_sst_init_fw(struct device *dev, struct skl_sst *ctx)
-{
-	int ret;
-	struct sst_dsp *sst = ctx->dsp;
-
-	ret = sst->fw_ops.load_fw(sst);
-	if (ret < 0) {
-		dev_err(dev, "Load base fw failed: %x\n", ret);
-		return ret;
-	}
-
-	skl_dsp_init_core_state(sst);
-
-	if (ctx->lib_count > 1) {
-		ret = sst->fw_ops.load_library(sst, ctx->lib_info,
-						ctx->lib_count);
-		if (ret < 0) {
-			dev_err(dev, "Load Library failed : %x\n", ret);
-			return ret;
-		}
-	}
-	ctx->is_first_boot = false;
-
-	return 0;
-}
-EXPORT_SYMBOL_GPL(bxt_sst_init_fw);
-
 void bxt_sst_dsp_cleanup(struct device *dev, struct skl_sst *ctx)
 {
 
