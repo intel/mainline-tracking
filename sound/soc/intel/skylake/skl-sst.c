@@ -166,7 +166,7 @@ static int skl_set_dsp_D0(struct sst_dsp *ctx, unsigned int core_id)
 
 	/* If core0 is being turned on, we need to load the FW */
 	if (core_id == SKL_DSP_CORE0_ID) {
-		ret = skl_load_base_firmware(ctx);
+		ret = ctx->fw_ops.load_fw(ctx);
 		if (ret < 0) {
 			dev_err(ctx->dev, "unable to load firmware\n");
 			return ret;
