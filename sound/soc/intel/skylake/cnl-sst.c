@@ -172,7 +172,7 @@ static int cnl_set_dsp_D0(struct sst_dsp *ctx, unsigned int core_id)
 
 	if (!cnl->fw_loaded) {
 		cnl->boot_complete = false;
-		ret = cnl_load_base_firmware(ctx);
+		ret = ctx->fw_ops.load_fw(ctx);
 		if (ret < 0) {
 			dev_err(ctx->dev, "fw reload failed: %d\n", ret);
 			return ret;
