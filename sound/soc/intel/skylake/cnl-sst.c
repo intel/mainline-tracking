@@ -178,6 +178,16 @@ static int cnl_set_dsp_D0(struct sst_dsp *ctx, unsigned int core_id)
 			return ret;
 		}
 
+		if (cnl->lib_count > 1) {
+			ret = ctx->fw_ops.load_library(ctx, cnl->lib_info,
+						cnl->lib_count);
+			if (ret < 0) {
+				dev_err(ctx->dev,
+					"reload libs failed: %d\n", ret);
+				return ret;
+			}
+		}
+
 		cnl->cores.state[core_id] = SKL_DSP_RUNNING;
 		return ret;
 	}
@@ -272,6 +282,7 @@ static const struct skl_dsp_fw_ops cnl_fw_ops = {
 	.set_state_D3 = cnl_set_dsp_D3,
 	.load_fw = cnl_load_base_firmware,
 	.get_fw_errcode = cnl_get_errno,
+	.load_library = bxt_load_library,
 };
 
 static struct sst_ops cnl_ops = {
