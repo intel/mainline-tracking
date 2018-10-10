@@ -224,6 +224,9 @@ static int tgl_default_data(struct pci_dev *pdev,
 	plat->rx_queues_to_use = 6;
 	plat->tx_queues_to_use = 4;
 
+	/* Marvell 88E2110 TSN AIC PHY */
+	plat->mdio_bus_data->is_c45 = 1;
+
 	return intel_common_data(pdev, plat);
 }
 
