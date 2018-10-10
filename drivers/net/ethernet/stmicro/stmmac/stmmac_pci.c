@@ -252,6 +252,9 @@ static int tgl_default_data(struct pci_dev *pdev,
 	plat->ptov = 0;
 	plat->tils = 0;
 
+	/* Marvell 88E2110 TSN AIC PHY */
+	plat->mdio_bus_data->is_c45 = 1;
+
 	return intel_common_data(pdev, plat);
 }
 
