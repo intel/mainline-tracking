@@ -153,6 +153,35 @@ static void get_systime(void __iomem *ioaddr, u64 *systime)
 		*systime = ns;
 }
 
+static void get_arttime(struct mii_bus *mii, int intel_adhoc_addr,
+			u64 *art_time)
+{
+	u64 ns;
+
+	ns = mdiobus_read(mii, intel_adhoc_addr, PMC_ART_VALUE3);
+	ns <<= GMAC4_ART_TIME_SHIFT;
+
+	ns |= mdiobus_read(mii, intel_adhoc_addr, PMC_ART_VALUE2);
+	ns <<= GMAC4_ART_TIME_SHIFT;
+
+	ns |= mdiobus_read(mii, intel_adhoc_addr, PMC_ART_VALUE1);
+	ns <<= GMAC4_ART_TIME_SHIFT;
+
+	ns |= mdiobus_read(mii, intel_adhoc_addr, PMC_ART_VALUE0);
+
+	*art_time = ns;
+}
+
+static void get_ptptime(void __iomem *ptpaddr, u64 *ptp_time)
+{
+	u64 ns;
+
+	ns = readl(ptpaddr + PTP_ATNR);
+	ns += readl(ptpaddr + PTP_ATSR) * 1000000000ULL;
+
+	*ptp_time = ns;
+}
+
 const struct stmmac_hwtimestamp stmmac_ptp = {
 	.config_hw_tstamping = config_hw_tstamping,
 	.init_systime = init_systime,
@@ -160,4 +189,6 @@ const struct stmmac_hwtimestamp stmmac_ptp = {
 	.config_addend = config_addend,
 	.adjust_systime = adjust_systime,
 	.get_systime = get_systime,
+	.get_arttime = get_arttime,
+	.get_ptptime = get_ptptime,
 };

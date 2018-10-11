@@ -9,6 +9,7 @@
 #include "dwmac-intel.h"
 #include "dwmac4.h"
 #include "stmmac.h"
+#include "stmmac_ptp.h"
 
 struct intel_priv_data {
 	int mdio_adhoc_addr;	/* mdio address for serdes & etc */
@@ -274,7 +275,8 @@ static int intel_mgbe_common_data(struct pci_dev *pdev,
 {
 	int ret;
 	int i;
-
+	struct intel_priv_data *intel_priv = (struct intel_priv_data *)
+					     plat->bsp_priv;
 	plat->pdev = pdev;
 	plat->bus_id = pci_dev_id(pdev);
 	plat->clk_csr = 5;
@@ -383,6 +385,11 @@ static int intel_mgbe_common_data(struct pci_dev *pdev,
 	plat->msi_sfty_ue_vec = 26;
 	plat->msi_rx_base_vec = 0;
 	plat->msi_tx_base_vec = 1;
+
+	/* Intel spefic adhoc (mdio) address for serdes & etc */
+	plat->intel_adhoc_addr = intel_priv->mdio_adhoc_addr;
+
+	plat->int_snapshot_num = AUX_SNAPSHOT1;
 
 	return 0;
 }
