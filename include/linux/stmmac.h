@@ -216,5 +216,8 @@ struct plat_stmmacenet_data {
 	int msi_sfty_ue_vec;
 	int msi_rx_base_vec;
 	int msi_tx_base_vec;
+	bool has_art;
+	int int_snapshot_num;
+	int intel_adhoc_addr;
 };
 #endif
