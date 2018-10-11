@@ -14,8 +14,9 @@
 #include <linux/pci.h>
 #include <linux/dmi.h>
 #include <linux/dwxpcs.h>
-#include "stmmac.h"
 #include "dwmac4.h"
+#include "stmmac.h"
+#include "stmmac_ptp.h"
 
 /*
  * This struct is used to associate PCI Function of MAC controller on a board,
@@ -273,6 +274,8 @@ static int intel_mgbe_common_data(struct pci_dev *pdev,
 	plat->ctov = 0;
 	plat->ptov = 0;
 	plat->tils = 0;
+
+	plat->int_snapshot_num = AUX_SNAPSHOT1;
 
 	return 0;
 }

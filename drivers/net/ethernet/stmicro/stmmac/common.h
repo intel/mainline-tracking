@@ -376,6 +376,8 @@ struct dma_features {
 	unsigned int frpbs;
 	unsigned int frpes;
 	unsigned int addr64;
+	/* Number of Auxiliary Snapshot Inputs */
+	unsigned int aux_snapshot_n;
 };
 
 /* GMAC TX FIFO is 8K, Rx FIFO is 16K */
