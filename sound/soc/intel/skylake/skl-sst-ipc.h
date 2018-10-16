@@ -113,7 +113,14 @@ struct skl_cpr_pin_fmt {
 struct skl_src_module_cfg {
 	struct skl_base_cfg base_cfg;
 	enum skl_s_freq src_cfg;
-	u32 mode;
+} __packed;
+
+struct skl_asrc_module_cfg {
+	struct skl_src_module_cfg src_cfg;
+	u32 mode:2;
+	u32 rsvd_1:2;
+	u32 disable_jitter_buffer:1;
+	u32 rsvd_2:27;
 } __packed;
 
 /* Maximum number of coefficients up down mixer module */

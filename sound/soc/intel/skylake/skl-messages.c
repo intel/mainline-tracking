@@ -25,8 +25,8 @@
 #include "skl-topology.h"
 
 #define INVALID_PIPELINE_ID	0xFF
-#define ASRC_MODE_UPLINK	2
-#define ASRC_MODE_DOWNLINK	1
+#define ASRC_MODE_UPLINK	BIT(0)
+#define ASRC_MODE_DOWNLINK	BIT(1)
 #define SKL_ENABLE_ALL_CHANNELS  0xffffffff
 
 int skl_alloc_dma_buf(struct device *dev,
@@ -668,13 +668,23 @@ static void skl_set_src_format(struct skl_dev *skl,
 
 	src_mconfig->src_cfg = fmt->s_freq;
 
-	if (mconfig->m_type == SKL_MODULE_TYPE_ASRC) {
-		if (mconfig->pipe->p_params->stream ==
-				SNDRV_PCM_STREAM_PLAYBACK)
-			src_mconfig->mode = ASRC_MODE_DOWNLINK;
-		else
-			src_mconfig->mode = ASRC_MODE_UPLINK;
-	}
+}
+
+/*
+ * DSP needs ASRC module for asynchronous frequency conversion, ASRC takes
+ * the same parameters as a SRC module and mode parameter as an extra parameter
+ * to know in which direction stream is going
+ */
+static void skl_set_asrc_format(struct skl_dev *skl,
+			struct skl_module_cfg *mconfig,
+			struct skl_asrc_module_cfg *asrc_mconfig)
+{
+	skl_set_src_format(skl, mconfig, &asrc_mconfig->src_cfg);
+
+	if (mconfig->pipe->p_params->stream == SNDRV_PCM_STREAM_PLAYBACK)
+		asrc_mconfig->mode = ASRC_MODE_UPLINK;
+	else
+		asrc_mconfig->mode = ASRC_MODE_DOWNLINK;
 }
 
 /*
@@ -770,8 +780,10 @@ static u16 skl_get_module_param_size(struct skl_dev *skl,
 		return param_size;
 
 	case SKL_MODULE_TYPE_SRCINT:
-	case SKL_MODULE_TYPE_ASRC:
 		return sizeof(struct skl_src_module_cfg);
+
+	case SKL_MODULE_TYPE_ASRC:
+		return sizeof(struct skl_asrc_module_cfg);
 
 	case SKL_MODULE_TYPE_UPDWMIX:
 		return sizeof(struct skl_up_down_mixer_cfg);
@@ -832,8 +844,11 @@ static int skl_set_module_format(struct skl_dev *skl,
 		break;
 
 	case SKL_MODULE_TYPE_SRCINT:
-	case SKL_MODULE_TYPE_ASRC:
 		skl_set_src_format(skl, module_config, *param_data);
+		break;
+
+	case SKL_MODULE_TYPE_ASRC:
+		skl_set_asrc_format(skl, module_config, *param_data);
 		break;
 
 	case SKL_MODULE_TYPE_UPDWMIX:
