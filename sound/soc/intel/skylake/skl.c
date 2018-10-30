@@ -1287,6 +1287,9 @@ static const struct pci_device_id skl_ids[] = {
 	/* ICL */
 	{ PCI_DEVICE(0x8086, 0x34c8),
 		.driver_data = (unsigned long)&snd_soc_acpi_intel_icl_machines},
+	/* EHL */
+	{ PCI_DEVICE(0x8086, 0x4b55),
+		.driver_data = (unsigned long)&snd_soc_acpi_intel_ehl_machines},
 	{ 0, }
 };
 MODULE_DEVICE_TABLE(pci, skl_ids);
