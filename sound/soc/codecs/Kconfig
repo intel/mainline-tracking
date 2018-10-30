@@ -999,6 +999,7 @@ config SND_SOC_RT5659
 
 config SND_SOC_RT5660
 	tristate
+	depends on I2C
 
 config SND_SOC_RT5663
 	tristate

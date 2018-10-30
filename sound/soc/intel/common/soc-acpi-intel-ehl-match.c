@@ -8,9 +8,28 @@
 
 #include <sound/soc-acpi.h>
 #include <sound/soc-acpi-intel-match.h>
+#include "../skylake/skl.h"
+
+static struct skl_machine_pdata ehl_pdata = {
+	.use_tplg_pcm = true,
+};
 
 struct snd_soc_acpi_mach snd_soc_acpi_intel_ehl_machines[] = {
+
+	{
+		.id = "INTC1027", /* EHL board */
+		.drv_name = "ehl_rt5660",
+		.fw_filename = "intel/dsp_fw_ehl.bin",
+		.pdata = &ehl_pdata,
+	},
+	{
+		.id = "10EC5682",
+		.drv_name = "sof_rt5682",
+		.sof_fw_filename = "sof-icl.ri",
+		.sof_tplg_filename = "sof-icl-rt5682.tplg",
+	},
 	{},
+
 };
 EXPORT_SYMBOL_GPL(snd_soc_acpi_intel_ehl_machines);
 
