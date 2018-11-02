@@ -29,6 +29,7 @@ static int sgx_open(struct inode *inode, struct file *file)
 	atomic_set(&encl->flags, 0);
 	kref_init(&encl->refcount);
 	xa_init(&encl->page_array);
+	INIT_LIST_HEAD(&encl->va_pages);
 	mutex_init(&encl->lock);
 	INIT_LIST_HEAD(&encl->mm_list);
 	spin_lock_init(&encl->mm_lock);
