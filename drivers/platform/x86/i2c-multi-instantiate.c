@@ -88,6 +88,8 @@ static int i2c_multi_inst_probe(struct platform_device *pdev)
 		return -ENOMEM;
 
 	multi->num_clients = ret;
+	if (multi->num_clients == 1)
+		return -EINVAL;
 
 	for (i = 0; i < multi->num_clients && inst_data[i].type; i++) {
 		memset(&board_info, 0, sizeof(board_info));
