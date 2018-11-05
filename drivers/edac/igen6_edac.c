@@ -66,6 +66,7 @@
 #define IGEN6_ECCERRLOG_OFF		(IGEN6_ECC_BASE + 0x170)
 #define IGEN6_ECCERRLOG_CE		BIT_ULL(62)
 #define IGEN6_ECCERRLOG_UE		BIT_ULL(63)
+#define IGEN6_ECCERRLOG_ADDR_SHIFT	5
 #define IGEN6_ECCERRLOG_ADDR(v)		GET_BITFIELD(v, 5, 38)
 #define IGEN6_ECCERRLOG_SYND(v)		GET_BITFIELD(v, 46, 61)
 
@@ -652,8 +653,66 @@ static void igen6_reg_dump(void)
 	edac_dbg(2, "Tolud	: 0x%x", igen6_tolud);
 	edac_dbg(2, "Tom	: 0x%llx", igen6_tom);
 }
+
+static struct dentry *igen6_test;
+
+static u64 convert_saddr_to_maddr(u64 addr)
+{
+	if (addr < igen6_tolud)
+		return addr;
+
+	if (igen6_tom <= _4GB)
+		return addr + igen6_tolud - _4GB;
+
+	if (addr < _4GB)
+		return addr + igen6_tolud - igen6_tom;
+
+	return addr;
+}
+
+static int debugfs_u64_set(void *data, u64 val)
+{
+	u64 ecclog;
+
+	if ((val >= igen6_tolud && val < _4GB) || val >= igen6_touud) {
+		edac_dbg(0, "Address 0x%llx out of range\n", val);
+		return 0;
+	}
+
+	pr_warn_once("Fake error to 0x%llx injected via debugfs\n", val);
+
+	val = convert_saddr_to_maddr(val);
+	ecclog = (val << IGEN6_ECCERRLOG_ADDR_SHIFT) | IGEN6_ECCERRLOG_CE;
+
+	if (!ecclog_gen_pool_add(ecclog))
+		irq_work_queue(&ecclog_irq_work);
+
+	return 0;
+}
+DEFINE_SIMPLE_ATTRIBUTE(fops_u64_wo, NULL, debugfs_u64_set, "%llu\n");
+
+static void igen6_debug_setup(void)
+{
+	igen6_test = edac_debugfs_create_dir("igen6_test");
+	if (!igen6_test)
+		return;
+
+	if (!edac_debugfs_create_file("addr", 0200, igen6_test,
+				      NULL, &fops_u64_wo)) {
+		debugfs_remove(igen6_test);
+		igen6_test = NULL;
+	}
+}
+
+static void igen6_debug_teardown(void)
+{
+	debugfs_remove_recursive(igen6_test);
+}
+
 #else
 static void igen6_reg_dump(void) {}
+static void igen6_debug_setup(void) {}
+static void igen6_debug_teardown(void) {}
 #endif
 
 static int igen6_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
@@ -734,6 +793,7 @@ static int igen6_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 		goto fail2;
 	}
 
+	igen6_debug_setup();
 	return 0;
 
 fail2:
@@ -754,6 +814,7 @@ static void igen6_remove(struct pci_dev *pdev)
 
 	edac_dbg(2, "\n");
 
+	igen6_debug_teardown();
 	unregister_nmi_handler(NMI_LOCAL, IGEN6_NMI_NAME);
 	irq_work_sync(&ecclog_irq_work);
 	flush_work(&ecclog_work);
