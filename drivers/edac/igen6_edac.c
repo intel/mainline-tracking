@@ -642,8 +642,52 @@ static void igen6_reg_dump(struct igen6_imc *imc)
 	edac_dbg(2, "Tolud	: 0x%x", igen6_tolud);
 	edac_dbg(2, "Tom	: 0x%llx", igen6_tom);
 }
+
+static struct dentry *igen6_test;
+
+static int debugfs_u64_set(void *data, u64 val)
+{
+	u64 ecclog;
+
+	if ((val >= igen6_tolud && val < _4GB) || val >= igen6_touud) {
+		edac_dbg(0, "Address 0x%llx out of range\n", val);
+		return 0;
+	}
+
+	pr_warn_once("Fake error to 0x%llx injected via debugfs\n", val);
+
+	val  >>= IGEN6_ECCERRLOG_ADDR_SHIFT;
+	ecclog = (val << IGEN6_ECCERRLOG_ADDR_SHIFT) | IGEN6_ECCERRLOG_CE;
+
+	if (!ecclog_gen_pool_add(0, ecclog))
+		irq_work_queue(&ecclog_irq_work);
+
+	return 0;
+}
+DEFINE_SIMPLE_ATTRIBUTE(fops_u64_wo, NULL, debugfs_u64_set, "%llu\n");
+
+static void igen6_debug_setup(void)
+{
+	igen6_test = edac_debugfs_create_dir("igen6_test");
+	if (!igen6_test)
+		return;
+
+	if (!edac_debugfs_create_file("addr", 0200, igen6_test,
+				      NULL, &fops_u64_wo)) {
+		debugfs_remove(igen6_test);
+		igen6_test = NULL;
+	}
+}
+
+static void igen6_debug_teardown(void)
+{
+	debugfs_remove_recursive(igen6_test);
+}
+
 #else
 static void igen6_reg_dump(struct igen6_imc *imc) {}
+static void igen6_debug_setup(void) {}
+static void igen6_debug_teardown(void) {}
 #endif
 
 static int igen6_register_mci(int mc, u64 mchbar, struct pci_dev *pdev)
@@ -781,6 +825,7 @@ static int igen6_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 		goto fail3;
 	}
 
+	igen6_debug_setup();
 	return 0;
 
 fail3:
@@ -796,6 +841,7 @@ static void igen6_remove(struct pci_dev *pdev)
 {
 	edac_dbg(2, "\n");
 
+	igen6_debug_teardown();
 	unregister_nmi_handler(NMI_SERR, IGEN6_NMI_NAME);
 	irq_work_sync(&ecclog_irq_work);
 	flush_work(&ecclog_work);
