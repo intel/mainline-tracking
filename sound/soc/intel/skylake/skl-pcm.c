@@ -2064,6 +2064,18 @@ int skl_platform_soc_probe(struct snd_soc_component *component)
 }
 EXPORT_SYMBOL(skl_platform_soc_probe);
 
+static void skl_platform_soc_remove(struct snd_soc_component *component)
+{
+	struct hdac_bus *bus = dev_get_drvdata(component->dev);
+	struct skl *skl = bus_to_skl(bus);
+
+	skl_module_sysfs_exit(skl->skl_sst);
+
+	skl_tplg_exit(component, bus);
+
+	skl_debugfs_exit(skl);
+}
+
 static const char* const dsp_log_text[] =
 	{"QUIET", "CRITICAL", "HIGH", "MEDIUM", "LOW", "VERBOSE"};
 
@@ -2081,6 +2093,7 @@ static struct snd_kcontrol_new skl_controls[] = {
 static const struct snd_soc_component_driver skl_component  = {
 	.name		= "pcm",
 	.probe		= skl_platform_soc_probe,
+	.remove		= skl_platform_soc_remove,
 	.ops		= &skl_platform_ops,
 	.compr_ops	= &skl_platform_compr_ops,
 	.pcm_new	= skl_pcm_new,

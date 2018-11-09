@@ -1213,8 +1213,6 @@ static void skl_remove(struct pci_dev *pci)
 	struct skl *skl = bus_to_skl(bus);
 
 	cancel_work_sync(&skl->probe_work);
-	skl_delete_notify_kctl_list(skl->skl_sst);
-	release_firmware(skl->tplg);
 
 	pm_runtime_get_noresume(&pci->dev);
 
