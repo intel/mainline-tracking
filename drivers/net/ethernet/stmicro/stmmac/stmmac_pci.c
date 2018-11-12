@@ -349,6 +349,14 @@ static int ehl_pse0_common_data(struct pci_dev *pdev,
 	plat->bus_id = 2;
 	plat->phy_addr = 1;
 	ehl_pse_work_around(pdev, plat);
+
+	/* store A2H packets in L2 SRAM, access through BAR0 + 128KB */
+#ifdef CONFIG_STMMAC_NETWORK_PROXY
+#if (CONFIG_STMMAC_NETWORK_PROXY_PORT == 0)
+	plat->has_netproxy = 1;
+#endif /* CONFIG_STMMAC_NETWORK_PROXY_PORT */
+#endif /* CONFIG_STMMAC_NETWORK_PROXY */
+
 	return ehl_common_data(pdev, plat);
 }
 
@@ -380,6 +388,14 @@ static int ehl_pse1_common_data(struct pci_dev *pdev,
 	plat->bus_id = 3;
 	plat->phy_addr = 1;
 	ehl_pse_work_around(pdev, plat);
+
+	/* store A2H packets in L2 SRAM, access through BAR0 + 128KB */
+#ifdef CONFIG_STMMAC_NETWORK_PROXY
+#if (CONFIG_STMMAC_NETWORK_PROXY_PORT == 1)
+	plat->has_netproxy = 1;
+#endif /* CONFIG_STMMAC_NETWORK_PROXY_PORT */
+#endif /* CONFIG_STMMAC_NETWORK_PROXY */
+
 	return ehl_common_data(pdev, plat);
 }
 
