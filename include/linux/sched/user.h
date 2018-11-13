@@ -40,8 +40,9 @@ struct user_struct {
 	atomic_t nr_watches;	/* The number of watches this user currently has */
 #endif
 
-	/* Miscellaneous per-user rate limit */
+	/* Miscellaneous per-user rate limits */
 	struct ratelimit_state ratelimit;
+	struct ratelimit_state ratelimit_bl;
 };
 
 extern int uids_sysfs_init(void);
@@ -51,6 +52,7 @@ extern struct user_struct *find_user(kuid_t);
 extern struct user_struct root_user;
 #define INIT_USER (&root_user)
 
+extern int ratelimit_bl;
 
 /* per-UID process charging. */
 extern struct user_struct * alloc_uid(kuid_t);
