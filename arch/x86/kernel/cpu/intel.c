@@ -10,6 +10,9 @@
 #include <linux/thread_info.h>
 #include <linux/init.h>
 #include <linux/uaccess.h>
+#include <linux/cred.h>
+#include <linux/delay.h>
+#include <linux/sched/user.h>
 
 #include <asm/cpufeature.h>
 #include <asm/msr.h>
@@ -40,6 +43,7 @@ enum split_lock_detect_state {
 	sld_off = 0,
 	sld_warn,
 	sld_fatal,
+	sld_ratelimit,
 };
 
 /*
@@ -998,13 +1002,25 @@ static const struct {
 	{ "off",	sld_off   },
 	{ "warn",	sld_warn  },
 	{ "fatal",	sld_fatal },
+	{ "ratelimit:", sld_ratelimit },
 };
 
 static inline bool match_option(const char *arg, int arglen, const char *opt)
 {
-	int len = strlen(opt);
 
-	return len == arglen && !strncmp(arg, opt, len);
+	int len = strlen(opt), ratelimit;
+
+	if (strncmp(arg, opt, len))
+		return false;
+
+	if (sscanf(arg, "ratelimit:%d", &ratelimit) == 1 && ratelimit > 0 &&
+	    ratelimit_bl <= HZ / 2) {
+		ratelimit_bl = ratelimit;
+
+		return true;
+	}
+
+	return len == arglen;
 }
 
 static bool split_lock_verify_msr(bool on)
@@ -1085,10 +1101,10 @@ static void sld_update_msr(bool on)
 static void split_lock_init(void)
 {
 	/*
-	 * If supported, #DB for bus lock will handle warn
+	 * If supported, #DB for bus lock will handle warn or ratelimit
 	 * and #AC for split lock is disabled.
 	 */
-	if (bld && sld_state == sld_warn) {
+	if ((bld && sld_state == sld_warn) || sld_state == sld_ratelimit) {
 		split_lock_verify_msr(false);
 		return;
 	}
@@ -1147,7 +1163,8 @@ static void bus_lock_init(void)
 
 bool handle_user_split_lock(struct pt_regs *regs, long error_code)
 {
-	if ((regs->flags & X86_EFLAGS_AC) || !sld || sld_state == sld_fatal)
+	if ((regs->flags & X86_EFLAGS_AC) || !sld || sld_state == sld_fatal ||
+	    sld_state == sld_ratelimit)
 		return false;
 	split_lock_warn(regs->ip);
 	return true;
@@ -1167,6 +1184,10 @@ void handle_bus_lock(struct pt_regs *regs)
 		break;
 	case sld_fatal:
 		force_sig_fault(SIGBUS, BUS_ADRALN, NULL);
+		break;
+	case sld_ratelimit:
+		while (!__ratelimit(&get_current_user()->ratelimit_bl))
+			msleep(1000 / ratelimit_bl);
 		break;
 	}
 }
@@ -1260,6 +1281,10 @@ static void sld_state_show(void)
 			pr_info("#AC: crashing the kernel on kernel split_locks and sending SIGBUS on user-space split_locks\n");
 		if (bld)
 			pr_info("#DB: sending SIGBUS on user-space bus_locks%s\n", sld ? " from non-WB" : "");
+		break;
+	case sld_ratelimit:
+		if (bld)
+			pr_info("#DB: setting rate limit to %d/sec per user on non-root user-space bus_locks\n", ratelimit_bl);
 		break;
 	}
 }
