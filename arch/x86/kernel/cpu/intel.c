@@ -10,6 +10,7 @@
 #include <linux/thread_info.h>
 #include <linux/init.h>
 #include <linux/uaccess.h>
+#include <linux/delay.h>
 
 #include <asm/cpufeature.h>
 #include <asm/msr.h>
@@ -41,6 +42,7 @@ enum split_lock_detect_state {
 	sld_off = 0,
 	sld_warn,
 	sld_fatal,
+	sld_ratelimit,
 };
 
 /*
@@ -997,13 +999,30 @@ static const struct {
 	{ "off",	sld_off   },
 	{ "warn",	sld_warn  },
 	{ "fatal",	sld_fatal },
+	{ "ratelimit:", sld_ratelimit },
 };
+
+static unsigned long bld_ratelimit __read_mostly;
 
 static inline bool match_option(const char *arg, int arglen, const char *opt)
 {
-	int len = strlen(opt);
+	int len = strlen(opt), ratelimit;
 
-	return len == arglen && !strncmp(arg, opt, len);
+	if (strncmp(arg, opt, len))
+		return false;
+
+	/*
+	 * Min ratelimit is 1 bus lock/sec.
+	 * Max ratelimit is 1000000 bus locks/sec.
+	 */
+	if (sscanf(arg, "ratelimit:%d", &ratelimit) == 1 &&
+	    ratelimit > 0 && ratelimit <= USEC_PER_SEC) {
+		bld_ratelimit = ratelimit;
+
+		return true;
+	}
+
+	return len == arglen;
 }
 
 static bool split_lock_verify_msr(bool on)
@@ -1082,6 +1101,15 @@ static void sld_update_msr(bool on)
 
 static void split_lock_init(void)
 {
+	/*
+	 * #DB for bus lock handles ratelimit and #AC for split lock is
+	 * disabled.
+	 */
+	if (sld_state == sld_ratelimit) {
+		split_lock_verify_msr(false);
+		return;
+	}
+
 	if (cpu_model_supports_sld)
 		split_lock_verify_msr(sld_state != sld_off);
 }
@@ -1118,6 +1146,8 @@ bool handle_guest_split_lock(unsigned long ip)
 }
 EXPORT_SYMBOL_GPL(handle_guest_split_lock);
 
+static struct ratelimit_state global_bld_ratelimit;
+
 static void bus_lock_init(void)
 {
 	u64 val;
@@ -1139,6 +1169,9 @@ static void bus_lock_init(void)
 	rdmsrl(MSR_IA32_DEBUGCTLMSR, val);
 	val |= DEBUGCTLMSR_BUS_LOCK_DETECT;
 	wrmsrl(MSR_IA32_DEBUGCTLMSR, val);
+
+	ratelimit_state_init(&global_bld_ratelimit, HZ, bld_ratelimit);
+	ratelimit_set_flags(&global_bld_ratelimit, RATELIMIT_MSG_ON_RELEASE);
 }
 
 bool handle_user_split_lock(struct pt_regs *regs, long error_code)
@@ -1160,6 +1193,13 @@ void handle_bus_lock(struct pt_regs *regs)
 		break;
 	case sld_fatal:
 		force_sig_fault(SIGBUS, BUS_ADRALN, NULL);
+		break;
+	case sld_ratelimit:
+		/* Enforce no more than bld_ratelimit bus locks/sec. */
+		while (!__ratelimit(&global_bld_ratelimit)) {
+			usleep_range(USEC_PER_SEC / bld_ratelimit,
+				     USEC_PER_SEC / bld_ratelimit);
+		}
 		break;
 	}
 }
@@ -1258,6 +1298,10 @@ static void sld_state_show(void)
 				boot_cpu_has(X86_FEATURE_SPLIT_LOCK_DETECT) ?
 				" from non-WB" : "");
 		}
+		break;
+	case sld_ratelimit:
+		if (boot_cpu_has(X86_FEATURE_BUS_LOCK_DETECT))
+			pr_info("#DB: setting rate limit to %lu/sec per user on non-root user-space bus_locks\n", bld_ratelimit);
 		break;
 	}
 }
