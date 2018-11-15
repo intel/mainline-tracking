@@ -47,10 +47,6 @@ static struct snd_soc_acpi_codecs bxt_codecs = {
 	.codecs = {"MX98357A"}
 };
 
-static struct skl_machine_pdata bxt_pdata = {
-	.use_tplg_pcm = true,
-};
-
 struct snd_soc_acpi_mach snd_soc_acpi_intel_bxt_machines[] = {
 	{
 		.id = "INT343A",
@@ -85,7 +81,6 @@ struct snd_soc_acpi_mach snd_soc_acpi_intel_bxt_machines[] = {
 		.machine_quirk = apl_quirk,
 		.sof_fw_filename = "sof-apl.ri",
 		.sof_tplg_filename = "sof-apl-tdf8532.tplg",
-		.pdata = &bxt_pdata,
 	},
 	{},
 };
