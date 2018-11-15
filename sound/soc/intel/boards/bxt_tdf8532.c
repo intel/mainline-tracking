@@ -84,6 +84,42 @@ static int bxt_tdf8532_ssp2_fixup(struct snd_soc_pcm_runtime *rtd,
 SND_SOC_DAILINK_DEF(dummy,
 	DAILINK_COMP_ARRAY(COMP_DUMMY()));
 
+SND_SOC_DAILINK_DEF(speaker,
+	DAILINK_COMP_ARRAY(COMP_CPU("Speaker Pin")));
+
+SND_SOC_DAILINK_DEF(dirana_cp,
+	DAILINK_COMP_ARRAY(COMP_CPU("Dirana Cp Pin")));
+
+SND_SOC_DAILINK_DEF(dirana_pb,
+	DAILINK_COMP_ARRAY(COMP_CPU("Dirana Pb Pin")));
+
+SND_SOC_DAILINK_DEF(test_cp,
+	DAILINK_COMP_ARRAY(COMP_CPU("TestPin Cp Pin")));
+
+SND_SOC_DAILINK_DEF(test_pb,
+	DAILINK_COMP_ARRAY(COMP_CPU("TestPin Cp Pin")));
+
+SND_SOC_DAILINK_DEF(bthfp_cp,
+	DAILINK_COMP_ARRAY(COMP_CPU("BtHfp Cp Pin")));
+
+SND_SOC_DAILINK_DEF(bthfp_pb,
+	DAILINK_COMP_ARRAY(COMP_CPU("BtHfp Pb Pin")));
+
+SND_SOC_DAILINK_DEF(modem_pb,
+	DAILINK_COMP_ARRAY(COMP_CPU("Modem Pb Pin")));
+
+SND_SOC_DAILINK_DEF(modem_cp,
+	DAILINK_COMP_ARRAY(COMP_CPU("Modem Cp Pin")));
+
+SND_SOC_DAILINK_DEF(hdmi_cp,
+	DAILINK_COMP_ARRAY(COMP_CPU("HDMI Cp Pin")));
+
+SND_SOC_DAILINK_DEF(dirana_aux_cp,
+	DAILINK_COMP_ARRAY(COMP_CPU("Dirana Aux Cp Pin")));
+
+SND_SOC_DAILINK_DEF(dirana_tuner_cp,
+	DAILINK_COMP_ARRAY(COMP_CPU("Dirana Tuner Cp Pin")));
+
 SND_SOC_DAILINK_DEF(tdf8532,
 	DAILINK_COMP_ARRAY(COMP_CODEC("i2c-INT34C3:00", "tdf8532-hifi")));
 
@@ -119,6 +155,127 @@ DAI_LINK_SSP_PIN(5);
 
 /* broxton digital audio interface glue - connects codec <--> CPU */
 static struct snd_soc_dai_link broxton_tdf8532_dais[] = {
+	/* Front End DAI links */
+	{
+		.name = "Speaker Port",
+		.stream_name = "Speaker",
+		.nonatomic = 1,
+		.dynamic = 1,
+		.trigger = {
+			SND_SOC_DPCM_TRIGGER_POST, SND_SOC_DPCM_TRIGGER_POST},
+		.dpcm_playback = 1,
+		SND_SOC_DAILINK_REG(speaker, dummy, platform),
+	},
+	{
+		.name = "Dirana Capture Port",
+		.stream_name = "Dirana Cp",
+		.init = NULL,
+		.dpcm_capture = 1,
+		.ignore_suspend = 1,
+		.nonatomic = 1,
+		.dynamic = 1,
+		SND_SOC_DAILINK_REG(dirana_cp, dummy, platform),
+	},
+	{
+		.name = "Dirana Playback Port",
+		.stream_name = "Dirana Pb",
+		.nonatomic = 1,
+		.dynamic = 1,
+		.trigger = {
+			SND_SOC_DPCM_TRIGGER_POST, SND_SOC_DPCM_TRIGGER_POST},
+		.dpcm_playback = 1,
+		SND_SOC_DAILINK_REG(dirana_pb, dummy, platform),
+	},
+	{
+		.name = "TestPin Capture Port",
+		.stream_name = "TestPin Cp",
+		.init = NULL,
+		.dpcm_capture = 1,
+		.ignore_suspend = 1,
+		.nonatomic = 1,
+		.dynamic = 1,
+		SND_SOC_DAILINK_REG(test_cp, dummy, platform),
+	},
+	{
+		.name = "TestPin Playback Port",
+		.stream_name = "TestPin Pb",
+		.nonatomic = 1,
+		.dynamic = 1,
+		.trigger = {
+			SND_SOC_DPCM_TRIGGER_POST, SND_SOC_DPCM_TRIGGER_POST},
+		.dpcm_playback = 1,
+		SND_SOC_DAILINK_REG(test_pb, dummy, platform),
+	},
+	{
+		.name = "BtHfp Capture Port",
+		.stream_name = "BtHfp Cp",
+		.init = NULL,
+		.dpcm_capture = 1,
+		.ignore_suspend = 1,
+		.nonatomic = 1,
+		.dynamic = 1,
+		SND_SOC_DAILINK_REG(bthfp_cp, dummy, platform),
+	},
+	{
+		.name = "BtHfp Playback Port",
+		.stream_name = "BtHfp Pb",
+		.nonatomic = 1,
+		.dynamic = 1,
+		.trigger = {
+			SND_SOC_DPCM_TRIGGER_POST, SND_SOC_DPCM_TRIGGER_POST},
+		.dpcm_playback = 1,
+		SND_SOC_DAILINK_REG(bthfp_pb, dummy, platform),
+	},
+	{
+		.name = "Modem Capture Port",
+		.stream_name = "Modem Cp",
+		.init = NULL,
+		.dpcm_capture = 1,
+		.ignore_suspend = 1,
+		.nonatomic = 1,
+		.dynamic = 1,
+		SND_SOC_DAILINK_REG(modem_cp, dummy, platform),
+	},
+	{
+		.name = "Modem Playback Port",
+		.stream_name = "Modem Pb",
+		.nonatomic = 1,
+		.dynamic = 1,
+		.trigger = {
+			SND_SOC_DPCM_TRIGGER_POST, SND_SOC_DPCM_TRIGGER_POST},
+		.dpcm_playback = 1,
+		SND_SOC_DAILINK_REG(modem_pb, dummy, platform),
+	},
+	{
+		.name = "HDMI Capture Port",
+		.stream_name = "HDMI Cp",
+		.init = NULL,
+		.dpcm_capture = 1,
+		.ignore_suspend = 1,
+		.nonatomic = 1,
+		.dynamic = 1,
+		SND_SOC_DAILINK_REG(hdmi_cp, dummy, platform),
+	},
+	{
+		.name = "Dirana Aux Capture Port",
+		.stream_name = "Dirana Aux Cp",
+		.init = NULL,
+		.dpcm_capture = 1,
+		.ignore_suspend = 1,
+		.nonatomic = 1,
+		.dynamic = 1,
+		SND_SOC_DAILINK_REG(dirana_aux_cp, dummy, platform),
+	},
+	{
+		.name = "Dirana Tuner Capture Port",
+		.stream_name = "Dirana Tuner Cp",
+		.init = NULL,
+		.dpcm_capture = 1,
+		.ignore_suspend = 1,
+		.nonatomic = 1,
+		.dynamic = 1,
+		SND_SOC_DAILINK_REG(dirana_tuner_cp, dummy, platform),
+	},
 	/* Back End DAI links */
 	DAI_LINK(0, 1, 1, NULL), /* SSP0 - BT */
 	DAI_LINK(1, 0, 1, NULL), /* SSP1 - HDMI-In */
