@@ -140,7 +140,7 @@ static void default_release(struct device *dev)
 int snd_hdac_ext_bus_device_init(struct hdac_bus *bus, int addr,
 					struct hdac_device *hdev)
 {
-	char name[15];
+	char name[31];
 	int ret;
 
 	hdev->bus = bus;
