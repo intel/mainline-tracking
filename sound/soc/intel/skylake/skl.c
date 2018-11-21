@@ -544,7 +544,10 @@ static int skl_find_machine(struct skl_dev *skl, void *driver_data)
 {
 	struct hdac_bus *bus = skl_to_bus(skl);
 	struct snd_soc_acpi_mach *mach = driver_data;
-	struct skl_machine_pdata *pdata;
+	struct skl_machine_pdata *pdata = mach->pdata;
+
+	if (pdata && pdata->imr_alloc)
+		goto out;
 
 	mach = snd_soc_acpi_find_machine(mach);
 	if (!mach) {
@@ -556,8 +559,8 @@ static int skl_find_machine(struct skl_dev *skl, void *driver_data)
 		}
 	}
 
+out:
 	skl->mach = mach;
-	pdata = mach->pdata;
 
 	if (pdata) {
 		skl->use_tplg_pcm = pdata->use_tplg_pcm;

@@ -21,12 +21,14 @@
 #include <linux/device.h>
 #include <asm/set_memory.h>
 #include <asm/cacheflush.h>
+#include <sound/soc-acpi.h>
 
 #include "../common/sst-dsp.h"
 #include "../common/sst-dsp-priv.h"
 #include "../common/sst-ipc.h"
 #include "cnl-sst-dsp.h"
 #include "skl.h"
+#include "skl-topology.h"
 
 #define CNL_FW_ROM_INIT		0x1
 #define CNL_FW_INIT		0x5
@@ -45,11 +47,60 @@
 #define CNL_ADSP_FW_HDR_OFFSET	0x2000
 #define CNL_ROM_CTRL_DMA_ID	0x9
 
+#ifdef CONFIG_X86_64
+#define CNL_IMR_MEMSIZE					0x400000
+#define CNL_IMR_PAGES	((CNL_IMR_MEMSIZE + PAGE_SIZE - 1) >> PAGE_SHIFT)
+#define HDA_ADSP_REG_ADSPCS_IMR_CACHED_TLB_START	0x100
+#define HDA_ADSP_REG_ADSPCS_IMR_UNCACHED_TLB_START	0x200
+#define HDA_ADSP_REG_ADSPCS_IMR_SIZE			0x8
+
+/* Needed for presilicon platform based on FPGA */
+static int cnl_alloc_imr(struct sst_dsp *ctx)
+{
+	if (skl_alloc_dma_buf(ctx->dev, &ctx->imr_buf,
+	     CNL_IMR_MEMSIZE) < 0) {
+		dev_err(ctx->dev, "Alloc imr buffer failed\n");
+		return -ENOMEM;
+	}
+
+	set_memory_uc((unsigned long)ctx->imr_buf.area, CNL_IMR_PAGES);
+	writeq(virt_to_phys(ctx->imr_buf.area) + 1,
+		 ctx->addr.shim + HDA_ADSP_REG_ADSPCS_IMR_CACHED_TLB_START);
+	writeq(virt_to_phys(ctx->imr_buf.area) + 1,
+		 ctx->addr.shim + HDA_ADSP_REG_ADSPCS_IMR_UNCACHED_TLB_START);
+
+	writel(CNL_IMR_MEMSIZE, ctx->addr.shim
+		+ HDA_ADSP_REG_ADSPCS_IMR_CACHED_TLB_START
+		+ HDA_ADSP_REG_ADSPCS_IMR_SIZE);
+	writel(CNL_IMR_MEMSIZE, ctx->addr.shim
+		+ HDA_ADSP_REG_ADSPCS_IMR_UNCACHED_TLB_START
+		+ HDA_ADSP_REG_ADSPCS_IMR_SIZE);
+
+	memset(ctx->imr_buf.area, 0, CNL_IMR_MEMSIZE);
+
+	return 0;
+}
+
+static inline void cnl_free_imr(struct sst_dsp *ctx)
+{
+	skl_free_dma_buf(ctx->dev, &ctx->imr_buf);
+}
+#endif
+
 static int cnl_prepare_fw(struct sst_dsp *ctx, const void *fwdata, u32 fwsize)
 {
 
 	int ret, stream_tag;
-
+#ifdef CONFIG_X86_64
+	struct skl_dev *skl = get_skl_ctx(ctx->dev);
+	struct skl_machine_pdata *pdata = (struct skl_machine_pdata *)
+						skl->mach->pdata;
+	if (pdata && pdata->imr_alloc) {
+		ret = cnl_alloc_imr(ctx);
+		if (ret < 0)
+			return ret;
+	}
+#endif
 	stream_tag = skl_dsp_prepare(ctx->dev, 0x40, fwsize, &ctx->dmab,
 						SNDRV_PCM_STREAM_PLAYBACK);
 	if (stream_tag <= 0) {
@@ -90,7 +141,10 @@ base_fw_load_failed:
 	skl_dsp_cleanup(ctx->dev, &ctx->dmab, stream_tag,
 						SNDRV_PCM_STREAM_PLAYBACK);
 	cnl_dsp_disable_core(ctx, SKL_DSP_CORE0_MASK);
-
+#ifdef CONFIG_X86_64
+	if (pdata && pdata->imr_alloc)
+		cnl_free_imr(ctx);
+#endif
 	return ret;
 }
 
