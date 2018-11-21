@@ -219,6 +219,7 @@ struct skl_dma_params {
 
 struct skl_machine_pdata {
 	bool use_tplg_pcm; /* use dais and dai links from topology */
+	bool imr_alloc;
 };
 
 struct skl_dsp_ops {
