@@ -937,6 +937,8 @@ static void soc_remove_component(struct snd_soc_component *component)
 
 	list_del(&component->card_list);
 
+	snd_soc_component_set_jack(component, NULL, NULL);
+
 	if (component->driver->remove)
 		component->driver->remove(component);
 
