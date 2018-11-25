@@ -2,6 +2,8 @@
 snd-soc-skl-objs := skl.o skl-pcm.o skl-nhlt.o skl-messages.o \
 skl-topology.o
 
+include sound/soc/intel/skylake/virtio/Makefile
+
 ifdef CONFIG_DEBUG_FS
   snd-soc-skl-objs += skl-debug.o
 endif
