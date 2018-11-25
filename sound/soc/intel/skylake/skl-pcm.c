@@ -1450,7 +1450,7 @@ int skl_dai_load(struct snd_soc_component *cmp, int index,
 	return 0;
 }
 
-static int skl_platform_open(struct snd_pcm_substream *substream)
+int skl_platform_open(struct snd_pcm_substream *substream)
 {
 	struct snd_soc_pcm_runtime *rtd = substream->private_data;
 	struct snd_soc_dai_link *dai_link = rtd->dai_link;
@@ -1462,6 +1462,7 @@ static int skl_platform_open(struct snd_pcm_substream *substream)
 
 	return 0;
 }
+EXPORT_SYMBOL(skl_platform_open);
 
 static int skl_coupled_trigger(struct snd_pcm_substream *substream,
 					int cmd)
@@ -1536,7 +1537,7 @@ static int skl_coupled_trigger(struct snd_pcm_substream *substream,
 	return 0;
 }
 
-static int skl_platform_pcm_trigger(struct snd_pcm_substream *substream,
+int skl_platform_pcm_trigger(struct snd_pcm_substream *substream,
 					int cmd)
 {
 	struct hdac_bus *bus = get_bus_ctx(substream);
@@ -1546,6 +1547,7 @@ static int skl_platform_pcm_trigger(struct snd_pcm_substream *substream,
 
 	return 0;
 }
+EXPORT_SYMBOL(skl_platform_pcm_trigger);
 
 /* update SPIB register with appl position */
 static int skl_platform_ack(struct snd_pcm_substream *substream)
@@ -1682,14 +1684,15 @@ static const struct snd_pcm_ops skl_platform_ops = {
 	.ack = skl_platform_ack,
 };
 
-static void skl_pcm_free(struct snd_pcm *pcm)
+void skl_pcm_free(struct snd_pcm *pcm)
 {
 	snd_pcm_lib_preallocate_free_for_all(pcm);
 }
+EXPORT_SYMBOL(skl_pcm_free);
 
 #define MAX_PREALLOC_SIZE	(32 * 1024 * 1024)
 
-static int skl_pcm_new(struct snd_soc_pcm_runtime *rtd)
+int skl_pcm_new(struct snd_soc_pcm_runtime *rtd)
 {
 	struct snd_soc_dai *dai = rtd->cpu_dai;
 	struct hdac_bus *bus = dev_get_drvdata(dai->dev);
@@ -1716,6 +1719,7 @@ static int skl_pcm_new(struct snd_soc_pcm_runtime *rtd)
 
 	return retval;
 }
+EXPORT_SYMBOL(skl_pcm_new);
 
 static int skl_get_module_info(struct skl *skl, struct skl_module_cfg *mconfig)
 {
@@ -1835,7 +1839,7 @@ static int skl_get_probe_widget(struct snd_soc_component *component,
 	return 0;
 }
 
-static int skl_platform_soc_probe(struct snd_soc_component *component)
+int skl_platform_soc_probe(struct snd_soc_component *component)
 {
 	struct hdac_bus *bus = dev_get_drvdata(component->dev);
 	struct skl *skl = bus_to_skl(bus);
@@ -1904,6 +1908,7 @@ static int skl_platform_soc_probe(struct snd_soc_component *component)
 
 	return 0;
 }
+EXPORT_SYMBOL(skl_platform_soc_probe);
 
 static const char* const dsp_log_text[] =
 	{"QUIET", "CRITICAL", "HIGH", "MEDIUM", "LOW", "VERBOSE"};
