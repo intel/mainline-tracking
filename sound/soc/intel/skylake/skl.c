@@ -38,6 +38,7 @@
 #include "skl-sst-dsp.h"
 #include "skl-sst-ipc.h"
 #include "skl-topology.h"
+#include "virtio/skl-virtio.h"
 #if IS_ENABLED(CONFIG_SND_SOC_INTEL_SKYLAKE_HDAUDIO_CODEC)
 #include "../../../soc/codecs/hdac_hda.h"
 #endif
@@ -1126,6 +1127,7 @@ static int skl_probe(struct pci_dev *pci,
 		goto out_dsp_free;
 	}
 
+	snd_soc_skl_virtio_miscdev_register(skl);
 	schedule_work(&skl->probe_work);
 
 	return 0;
