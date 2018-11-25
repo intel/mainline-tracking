@@ -1677,7 +1677,8 @@ static struct snd_soc_dai_driver ssp_dai_info = {
 	},
 };
 
-int skl_platform_register(struct device *dev)
+int skl_platform_component_register(struct device *dev,
+	const struct snd_soc_component_driver *component_drv)
 {
 	int ret;
 	struct hdac_bus *bus = dev_get_drvdata(dev);
@@ -1745,7 +1746,7 @@ int skl_platform_register(struct device *dev)
 		memcpy(&dais[num_platform_dais + skl->grp_cnt.cnt],
 		       skl_fe_dai, sizeof(skl_fe_dai));
 
-	ret = devm_snd_soc_register_component(dev, &skl_component, dais,
+	ret = devm_snd_soc_register_component(dev, component_drv, dais,
 					      total_dais);
 	if (ret)
 		goto err;
@@ -1758,6 +1759,13 @@ err:
 	dev_err(dev, "soc component registration failed %d\n", ret);
 	return ret;
 }
+EXPORT_SYMBOL(skl_platform_component_register);
+
+int skl_platform_register(struct device *dev)
+{
+	return skl_platform_component_register(dev, &skl_component);
+}
+EXPORT_SYMBOL(skl_platform_register);
 
 int skl_platform_unregister(struct device *dev)
 {
