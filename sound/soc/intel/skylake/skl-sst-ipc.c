@@ -477,7 +477,6 @@ static void
 skl_process_log_buffer(struct sst_dsp *sst, struct skl_ipc_header header)
 {
 	int core, size;
-	u32 *ptr;
 	u8 __iomem *base;
 	u32 write, read;
 
@@ -497,21 +496,18 @@ skl_process_log_buffer(struct sst_dsp *sst, struct skl_ipc_header header)
 	base = (u8 __iomem *)sst->trace_wind.addr;
 	/* move to the source dsp tracing window */
 	base += (core * size);
-	ptr = (u32 *) base;
-	read = ptr[0];
-	write = ptr[1];
+	read = readl(base);
+	write = readl(base + 4);
 	if (write > read) {
 		skl_dsp_write_log(sst, (base + 8 + read),
 					core, (write - read));
-		/* read pointer */
-		ptr[0] += write - read;
 	} else {
 		skl_dsp_write_log(sst, (base + 8 + read),
 					core, size - 8 - read);
 		skl_dsp_write_log(sst, (base + 8),
 					core, write);
-		ptr[0] = write;
 	}
+	writel(write, base);
 	skl_dsp_put_log_buff(sst, core);
 }
 
