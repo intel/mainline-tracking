@@ -142,22 +142,10 @@ static int buf_prepare(struct vb2_buffer *vb)
 {
 	struct ipu_isys_queue *aq = vb2_queue_to_ipu_isys_queue(vb->vb2_queue);
 	struct ipu_isys_video *av = ipu_isys_queue_to_video(aq);
-	struct ipu_isys_buffer *ib = vb2_buffer_to_ipu_isys_buffer(vb);
-	u32 request =
-	    0;
 	int rval;
 	if (av->isys->adev->isp->flr_done)
 		return -EIO;
 
-	if (request) {
-		ib->req = media_device_request_find(&av->isys->media_dev,
-						    request);
-		if (!ib->req) {
-			dev_dbg(&av->isys->adev->dev,
-				"can't find request %u\n", request);
-			return -ENOENT;
-		}
-	}
 
 	rval = aq->buf_prepare(vb);
 	return rval;
@@ -167,31 +155,9 @@ static void buf_finish(struct vb2_buffer *vb)
 {
 	struct ipu_isys_queue *aq = vb2_queue_to_ipu_isys_queue(vb->vb2_queue);
 	struct ipu_isys_video *av = ipu_isys_queue_to_video(aq);
-	struct ipu_isys_buffer *ib = vb2_buffer_to_ipu_isys_buffer(vb);
 	dev_dbg(&av->isys->adev->dev, "buffer: %s: %s\n", av->vdev.name,
 		__func__);
 
-	if (ib->req) {
-		struct ipu_isys_request *ireq = to_ipu_isys_request(ib->req);
-		unsigned long flags;
-		bool done;
-
-		spin_lock_irqsave(&ireq->lock, flags);
-		list_del(&ib->req_head);
-		done = list_empty(&ireq->buffers);
-		spin_unlock_irqrestore(&ireq->lock, flags);
-		dev_dbg(&av->isys->adev->dev, "request %u complete %s\n",
-			ib->req->id, done ? "true" : "false");
-		if (done) {
-			media_device_request_complete(&av->isys->media_dev,
-						      ib->req);
-			mutex_lock(&av->isys->stream_mutex);
-			list_del(&ireq->head);
-			mutex_unlock(&av->isys->stream_mutex);
-		}
-		media_device_request_put(ib->req);
-		ib->req = NULL;
-	}
 }
 
 static void buf_cleanup(struct vb2_buffer *vb)
@@ -359,11 +325,6 @@ static int buffer_list_get(struct ipu_isys_pipeline *ip,
 
 		ib = list_last_entry(&aq->incoming,
 				     struct ipu_isys_buffer, head);
-		if (ib->req) {
-			spin_unlock_irqrestore(&aq->lock, flags);
-			ret = -ENODATA;
-			goto error;
-		}
 
 		dev_dbg(&ip->isys->adev->dev, "buffer: %s: buffer %u\n",
 			ipu_isys_queue_to_video(aq)->vdev.name,
@@ -479,69 +440,6 @@ void ipu_isys_buffer_list_to_ipu_fw_isys_frame_buff_set(
 	}
 }
 
-static void
-ipu_isys_req_dispatch(struct media_device *mdev,
-		      struct ipu_isys_request *ireq,
-		      struct ipu_isys_pipeline *ip,
-		      struct ipu_fw_isys_frame_buff_set_abi *set,
-		      dma_addr_t dma_addr);
-
-struct ipu_isys_request *ipu_isys_next_queued_request(struct ipu_isys_pipeline
-						      *ip)
-{
-	struct ipu_isys *isys =
-	    container_of(ip, struct ipu_isys_video, ip)->isys;
-	struct ipu_isys_request *ireq;
-	struct ipu_isys_buffer *ib;
-	unsigned long flags;
-
-	lockdep_assert_held(&isys->stream_mutex);
-
-	if (list_empty(&isys->requests)) {
-		dev_dbg(&isys->adev->dev, "%s: no requests found\n", __func__);
-		return NULL;
-	}
-
-	list_for_each_entry_reverse(ireq, &isys->requests, head) {
-		/* Does the request belong to this pipeline? */
-		bool is_ours = false;
-		bool is_others = false;
-
-		dev_dbg(&isys->adev->dev, "%s: checking request %u\n",
-			__func__, ireq->req.id);
-
-		spin_lock_irqsave(&ireq->lock, flags);
-		list_for_each_entry(ib, &ireq->buffers, req_head) {
-			struct vb2_buffer *vb =
-			    ipu_isys_buffer_to_vb2_buffer(ib);
-			struct ipu_isys_queue *aq =
-			    vb2_queue_to_ipu_isys_queue(vb->vb2_queue);
-			struct ipu_isys_video *av = ipu_isys_queue_to_video(aq);
-
-			dev_dbg(&isys->adev->dev, "%s: buffer in vdev %s\n",
-				__func__, av->vdev.name);
-
-			if (media_entity_enum_test(&ip->entity_enum,
-						   &av->vdev.entity))
-				is_ours = true;
-			else
-				is_others = true;
-		}
-		spin_unlock_irqrestore(&ireq->lock, flags);
-
-		dev_dbg(&isys->adev->dev, "%s: is%s ours, is%s others'\n",
-			__func__, is_ours ? "" : "n't", is_others ? "" : "n't");
-
-		if (!is_ours || WARN_ON(is_others))
-			continue;
-
-		list_del_init(&ireq->head);
-
-		return ireq;
-	}
-
-	return NULL;
-}
 
 /* Start streaming for real. The buffer list must be available. */
 static int ipu_isys_stream_start(struct ipu_isys_pipeline *ip,
@@ -549,9 +447,7 @@ static int ipu_isys_stream_start(struct ipu_isys_pipeline *ip,
 {
 	struct ipu_isys_video *pipe_av =
 	    container_of(ip, struct ipu_isys_video, ip);
-	struct media_device *mdev = &pipe_av->isys->media_dev;
 	struct ipu_isys_buffer_list __bl;
-	struct ipu_isys_request *ireq;
 	int rval;
 
 	mutex_lock(&pipe_av->isys->stream_mutex);
@@ -564,34 +460,6 @@ static int ipu_isys_stream_start(struct ipu_isys_pipeline *ip,
 
 	ip->streaming = 1;
 
-	dev_dbg(&pipe_av->isys->adev->dev, "dispatching queued requests\n");
-
-	while ((ireq = ipu_isys_next_queued_request(ip))) {
-		struct ipu_fw_isys_frame_buff_set_abi *set;
-		struct isys_fw_msgs *msg;
-
-		msg = ipu_get_fw_msg_buf(ip);
-		if (!msg) {
-			/* TODO: A PROPER CLEAN UP */
-			mutex_unlock(&pipe_av->isys->stream_mutex);
-			return -ENOMEM;
-		}
-
-		set = to_frame_msg_buf(msg);
-
-		rval = ipu_isys_req_prepare(mdev, ireq, ip, set);
-		if (rval) {
-			mutex_unlock(&pipe_av->isys->stream_mutex);
-			goto out_requeue;
-		}
-
-		ipu_fw_isys_dump_frame_buff_set(&pipe_av->isys->adev->dev, set,
-						ip->nr_output_pins);
-		ipu_isys_req_dispatch(mdev, ireq, ip, set, to_dma_addr(msg));
-	}
-
-	dev_dbg(&pipe_av->isys->adev->dev,
-		"done dispatching queued requests\n");
 
 	mutex_unlock(&pipe_av->isys->stream_mutex);
 
@@ -681,8 +549,6 @@ static void __buf_queue(struct vb2_buffer *vb, bool force)
 	list_add(&ib->head, &aq->incoming);
 	spin_unlock_irqrestore(&aq->lock, flags);
 
-	if (ib->req)
-		return;
 
 	if (!pipe_av || !vb->vb2_queue->streaming) {
 		dev_dbg(&av->isys->adev->dev,
@@ -939,7 +805,6 @@ static int start_streaming(struct vb2_queue *q, unsigned int count)
 	if (ip->nr_streaming != ip->nr_queues)
 		goto out;
 
-	if (list_empty(&av->isys->requests)) {
 		bl = &__bl;
 		rval = buffer_list_get(ip, bl);
 		if (rval == -EINVAL) {
@@ -949,7 +814,6 @@ static int start_streaming(struct vb2_queue *q, unsigned int count)
 				"no request available --- postponing streamon\n");
 			goto out;
 		}
-	}
 
 	rval = ipu_isys_stream_start(ip, bl, false);
 	if (rval)
@@ -1235,200 +1099,6 @@ ipu_isys_queue_short_packet_ready(struct ipu_isys_pipeline *ip,
 	spin_unlock_irqrestore(&ip->short_packet_queue_lock, flags);
 }
 
-void ipu_isys_req_free(struct media_device *mdev,
-		       struct media_device_request *req)
-{
-	struct ipu_isys_request *ireq = to_ipu_isys_request(req);
-
-	kfree(ireq);
-}
-
-struct
-media_device_request *ipu_isys_req_alloc(struct media_device *mdev)
-{
-	struct ipu_isys_request *ireq;
-
-	ireq = kzalloc(sizeof(*ireq), GFP_KERNEL);
-	if (!ireq)
-		return NULL;
-
-	INIT_LIST_HEAD(&ireq->buffers);
-	spin_lock_init(&ireq->lock);
-	INIT_LIST_HEAD(&ireq->head);
-
-	return &ireq->req;
-}
-
-int ipu_isys_req_prepare(struct media_device *mdev,
-			 struct ipu_isys_request *ireq,
-			 struct ipu_isys_pipeline *ip,
-			 struct ipu_fw_isys_frame_buff_set_abi *set)
-{
-	struct ipu_isys *isys =
-	    container_of(ip, struct ipu_isys_video, ip)->isys;
-	struct media_device_request *req = &ireq->req;
-	struct ipu_isys_buffer *ib;
-	unsigned long flags;
-
-	dev_dbg(&isys->adev->dev, "preparing request %u\n", req->id);
-
-	set->send_irq_sof = 1;
-	set->send_resp_sof = 1;
-	set->send_irq_eof = 1;
-	set->send_resp_eof = 1;
-#if defined(CONFIG_VIDEO_INTEL_IPU4) || defined(CONFIG_VIDEO_INTEL_IPU4P)
-	set->send_irq_capture_ack = 1;
-	set->send_irq_capture_done = 1;
-#endif
-
-	spin_lock_irqsave(&ireq->lock, flags);
-
-	list_for_each_entry(ib, &ireq->buffers, req_head) {
-		struct vb2_buffer *vb = ipu_isys_buffer_to_vb2_buffer(ib);
-		struct ipu_isys_queue *aq =
-		    vb2_queue_to_ipu_isys_queue(vb->vb2_queue);
-
-		if (aq->prepare_frame_buff_set)
-			aq->prepare_frame_buff_set(vb);
-
-		if (aq->fill_frame_buff_set_pin)
-			aq->fill_frame_buff_set_pin(vb, set);
-
-		spin_lock(&aq->lock);
-		list_move(&ib->head, &aq->active);
-		spin_unlock(&aq->lock);
-	}
-
-	spin_unlock_irqrestore(&ireq->lock, flags);
-
-	return 0;
-}
-
-static void
-ipu_isys_req_dispatch(struct media_device *mdev,
-		      struct ipu_isys_request *ireq,
-		      struct ipu_isys_pipeline *ip,
-		      struct ipu_fw_isys_frame_buff_set_abi *set,
-		      dma_addr_t dma_addr)
-{
-	struct ipu_isys_video *pipe_av =
-	    container_of(ip, struct ipu_isys_video, ip);
-	int rval;
-
-	rval = ipu_fw_isys_complex_cmd(pipe_av->isys,
-				       ip->stream_handle,
-				       set, dma_addr, sizeof(*set),
-				       IPU_FW_ISYS_SEND_TYPE_STREAM_CAPTURE);
-	ipu_put_fw_mgs_buffer(pipe_av->isys, (uintptr_t) set);
-
-	WARN_ON(rval);
-}
-
-int ipu_isys_req_queue(struct media_device *mdev,
-		       struct media_device_request *req)
-{
-	struct ipu_isys *isys = container_of(mdev, struct ipu_isys, media_dev);
-	struct ipu_isys_request *ireq = to_ipu_isys_request(req);
-	struct ipu_isys_pipeline *ip;
-	struct ipu_isys_buffer *ib;
-	struct media_pipeline *pipe = NULL;
-	unsigned long flags;
-	bool no_pipe = false;
-	int rval = 0;
-
-	spin_lock_irqsave(&ireq->lock, flags);
-	if (list_empty(&ireq->buffers)) {
-		rval = -ENODATA;
-		goto out_list_empty;
-	}
-
-	/* Verify that all buffers are related to a single pipeline. */
-	list_for_each_entry(ib, &ireq->buffers, req_head) {
-		struct vb2_buffer *vb = ipu_isys_buffer_to_vb2_buffer(ib);
-		struct ipu_isys_queue *aq =
-		    vb2_queue_to_ipu_isys_queue(vb->vb2_queue);
-		struct ipu_isys_video *av = ipu_isys_queue_to_video(aq);
-
-		dev_dbg(&isys->adev->dev, "%s: device %s, id %u\n", __func__,
-			av->vdev.name, vb->
-#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 4, 0)
-			v4l2_buf.
-#endif
-			index);
-		if (!pipe) {
-			if (!av->vdev.entity.pipe) {
-				no_pipe = true;
-				continue;
-			}
-
-			pipe = av->vdev.entity.pipe;
-			dev_dbg(&isys->adev->dev, "%s: pipe %p\n",
-				av->vdev.name, pipe);
-			continue;
-		}
-
-		if (av->vdev.entity.pipe != pipe) {
-			dev_dbg(&isys->adev->dev,
-				"request %u includes buffers in multiple pipelines\n",
-				req->id);
-			rval = -EINVAL;
-			goto out_list_empty;
-		}
-	}
-
-	spin_unlock_irqrestore(&ireq->lock, flags);
-
-	mutex_lock(&isys->stream_mutex);
-
-	ip = to_ipu_isys_pipeline(pipe);
-
-	if (pipe && ip->streaming) {
-		struct isys_fw_msgs *msg;
-		struct ipu_fw_isys_frame_buff_set_abi *set;
-
-		msg = ipu_get_fw_msg_buf(ip);
-		if (!msg) {
-			rval = -ENOMEM;
-			goto out_mutex_unlock;
-		}
-
-		set = to_frame_msg_buf(msg);
-
-		if (no_pipe) {
-			dev_dbg(&isys->adev->dev,
-				"request %u includes buffers in and outside pipelines\n",
-				req->id);
-			rval = -EINVAL;
-			goto out_mutex_unlock;
-		}
-
-		dev_dbg(&isys->adev->dev,
-			"request has a pipeline, dispatching\n");
-		rval = ipu_isys_req_prepare(mdev, ireq, ip, set);
-		if (rval)
-			goto out_mutex_unlock;
-
-		ipu_fw_isys_dump_frame_buff_set(&isys->adev->dev, set,
-						ip->nr_output_pins);
-		ipu_isys_req_dispatch(mdev, ireq, ip, set, to_dma_addr(msg));
-	} else {
-		dev_dbg(&isys->adev->dev,
-			"%s: adding request %u to the mdev queue\n", __func__,
-			req->id);
-
-		list_add(&ireq->head, &isys->requests);
-	}
-
-out_mutex_unlock:
-	mutex_unlock(&isys->stream_mutex);
-
-	return rval;
-
-out_list_empty:
-	spin_unlock_irqrestore(&ireq->lock, flags);
-
-	return rval;
-}
 
 struct vb2_ops ipu_isys_queue_ops = {
 	.queue_setup = queue_setup,
