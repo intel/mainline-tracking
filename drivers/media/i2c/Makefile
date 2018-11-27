@@ -117,3 +117,4 @@ obj-$(CONFIG_VIDEO_IMX355)	+= imx355.o
 obj-$(CONFIG_SDR_MAX2175) += max2175.o
 
 obj-$(CONFIG_VIDEO_CRLMODULE) += crlmodule/
+obj-$(CONFIG_VIDEO_TI964) += ti964.o
