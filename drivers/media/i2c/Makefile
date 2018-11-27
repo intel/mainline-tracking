@@ -118,3 +118,4 @@ obj-$(CONFIG_VIDEO_ST_MIPID02) += st-mipid02.o
 obj-$(CONFIG_SDR_MAX2175) += max2175.o
 
 obj-$(CONFIG_VIDEO_CRLMODULE) += crlmodule/
+obj-$(CONFIG_VIDEO_TI964) += ti964.o
