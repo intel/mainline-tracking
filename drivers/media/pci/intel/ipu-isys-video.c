@@ -1058,7 +1058,6 @@ static int start_stream_firmware(struct ipu_isys_video *av,
 	struct ipu_fw_isys_frame_buff_set_abi *buf = NULL;
 	struct ipu_isys_queue *aq;
 	struct ipu_isys_video *isl_av = NULL;
-	struct ipu_isys_request *ireq = NULL;
 	struct v4l2_subdev_format source_fmt = { 0 };
 	struct v4l2_subdev *be_sd = NULL;
 	struct media_pad *source_pad = media_entity_remote_pad(&av->pad);
@@ -1195,9 +1194,9 @@ static int start_stream_firmware(struct ipu_isys_video *av,
 	}
 	dev_dbg(dev, "start stream: open complete\n");
 
-	ireq = ipu_isys_next_queued_request(ip);
 
-	if (bl || ireq) {
+	if (bl
+	   ) {
 		msg = ipu_get_fw_msg_buf(ip);
 		if (!msg) {
 			rval = -ENOMEM;
@@ -1210,16 +1209,12 @@ static int start_stream_firmware(struct ipu_isys_video *av,
 		ipu_isys_buffer_list_to_ipu_fw_isys_frame_buff_set(buf, ip, bl);
 		ipu_isys_buffer_list_queue(bl,
 					   IPU_ISYS_BUFFER_LIST_FL_ACTIVE, 0);
-	} else if (ireq) {
-		rval = ipu_isys_req_prepare(&av->isys->media_dev,
-					    ireq, ip, buf);
-		if (rval)
-			goto out_put_stream_opened;
 	}
 
 	reinit_completion(&ip->stream_start_completion);
 
-	if (bl || ireq) {
+	if (bl
+	   ) {
 		ipu_fw_isys_dump_frame_buff_set(dev, buf,
 						stream_cfg->nof_output_pins);
 		rval = ipu_fw_isys_complex_cmd(av->isys,
