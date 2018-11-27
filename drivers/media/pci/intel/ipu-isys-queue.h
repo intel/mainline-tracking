@@ -55,7 +55,6 @@ struct ipu_isys_buffer {
 	struct list_head head;
 	enum ipu_isys_buffer_type type;
 	struct list_head req_head;
-	struct media_device_request *req;
 	atomic_t str2mmio_flag;
 };
 
@@ -113,21 +112,6 @@ struct ipu_isys_buffer_list {
 #define ipu_isys_buffer_to_private_buffer(__ib) \
 	container_of(__ib, struct ipu_isys_private_buffer, ib)
 
-struct ipu_isys_request {
-	struct media_device_request req;
-	/* serialise access to buffers */
-	spinlock_t lock;
-	struct list_head buffers;	/* struct ipu_isys_buffer.head */
-	bool dispatched;
-	/*
-	 * struct ipu_isys.requests;
-	 * struct ipu_isys_pipeline.struct.*
-	 */
-	struct list_head head;
-};
-
-#define to_ipu_isys_request(__req) \
-	container_of(__req, struct ipu_isys_request, req)
 
 void ipu_isys_queue_lock(struct vb2_queue *q);
 void ipu_isys_queue_unlock(struct vb2_queue *q);
@@ -137,8 +121,6 @@ int ipu_isys_buf_prepare(struct vb2_buffer *vb);
 void ipu_isys_buffer_list_queue(struct ipu_isys_buffer_list *bl,
 				unsigned long op_flags,
 				enum vb2_buffer_state state);
-struct ipu_isys_request *ipu_isys_next_queued_request(
-				struct ipu_isys_pipeline *ip);
 void ipu_isys_buffer_list_to_ipu_fw_isys_frame_buff_set_pin(
 				struct vb2_buffer *vb,
 				struct ipu_fw_isys_frame_buff_set_abi *set);
@@ -158,15 +140,6 @@ void
 ipu_isys_queue_short_packet_ready(struct ipu_isys_pipeline *ip,
 				  struct ipu_fw_isys_resp_info_abi *inf);
 
-void ipu_isys_req_free(struct media_device *mdev,
-		       struct media_device_request *req);
-struct media_device_request *ipu_isys_req_alloc(struct media_device *mdev);
-int ipu_isys_req_prepare(struct media_device *mdev,
-			 struct ipu_isys_request *ireq,
-			 struct ipu_isys_pipeline *ip,
-			 struct ipu_fw_isys_frame_buff_set_abi *set);
-int ipu_isys_req_queue(struct media_device *mdev,
-		       struct media_device_request *req);
 
 int ipu_isys_queue_init(struct ipu_isys_queue *aq);
 void ipu_isys_queue_cleanup(struct ipu_isys_queue *aq);
