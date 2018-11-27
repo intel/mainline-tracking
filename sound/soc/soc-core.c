@@ -2211,22 +2211,26 @@ static int soc_cleanup_card_resources(struct snd_soc_card *card)
 	for_each_card_rtds(card, rtd)
 		flush_delayed_work(&rtd->delayed_work);
 
-	/* free the ALSA card at first; this syncs with pending operations */
-	snd_card_free(card->snd_card);
-
-	/* remove and free each DAI */
-	soc_remove_dai_links(card);
-	soc_remove_pcm_runtimes(card);
+	/* sync pending file operations */
+	snd_card_disconnect_sync(card->snd_card);
 
 	/* remove auxiliary devices */
 	soc_remove_aux_devices(card);
 
-	snd_soc_dapm_free(&card->dapm);
-	soc_cleanup_card_debugfs(card);
+	/* remove and free each DAI */
+	soc_remove_dai_links(card);
 
 	/* remove the card */
 	if (card->remove)
 		card->remove(card);
+
+	snd_soc_dapm_free(&card->dapm);
+	soc_cleanup_card_debugfs(card);
+
+	/* free the ALSA card at last */
+	snd_card_free(card->snd_card);
+
+	soc_remove_pcm_runtimes(card);
 
 	return 0;
 }
