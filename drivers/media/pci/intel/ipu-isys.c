@@ -1087,7 +1087,6 @@ static int isys_probe(struct ipu_bus_device *adev)
 	isys->adev = adev;
 	isys->pdata = adev->pdata;
 
-	INIT_LIST_HEAD(&isys->requests);
 
 	spin_lock_init(&isys->lock);
 	spin_lock_init(&isys->power_lock);
