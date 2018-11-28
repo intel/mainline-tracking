@@ -217,6 +217,8 @@ struct skl_dma_params {
 struct skl_machine_pdata {
 	bool use_tplg_pcm; /* use dais and dai links from topology */
 	bool imr_alloc;
+	const u8 *dummy_dais;
+	u8 num_dummy_dais;
 };
 
 int skl_platform_unregister(struct device *dev);

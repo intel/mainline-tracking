@@ -15,6 +15,7 @@
 #include <linux/delay.h>
 #include <sound/pcm_params.h>
 #include <sound/soc.h>
+#include <sound/soc-acpi.h>
 #include "skl.h"
 #include "skl-topology.h"
 #include "skl-sst-dsp.h"
@@ -1745,16 +1746,41 @@ static struct snd_soc_dai_driver ssp_dai_info = {
 	},
 };
 
+static int skl_populate_dai(struct device *dev, struct snd_soc_dai_driver *dai,
+				u8 ssp_port)
+{
+	memcpy(dai, &ssp_dai_info, sizeof(ssp_dai_info));
+
+	dai->name = devm_kasprintf(dev, GFP_KERNEL, "SSP%d Pin", ssp_port);
+	if (!dai->name)
+		return -ENOMEM;
+
+	dai->playback.stream_name = devm_kasprintf(dev, GFP_KERNEL, "ssp%d Tx",
+						  ssp_port);
+	if (!dai->playback.stream_name)
+		return -ENOMEM;
+
+	dai->capture.stream_name = devm_kasprintf(dev, GFP_KERNEL, "ssp%d Rx",
+						 ssp_port);
+	if (!dai->capture.stream_name)
+		return -ENOMEM;
+
+	return 0;
+}
+
 int skl_platform_register(struct device *dev)
 {
 	int ret;
 	struct hdac_bus *bus = dev_get_drvdata(dev);
 	struct skl_dev *skl = bus_to_skl(bus);
+	struct skl_machine_pdata *pdata = (struct skl_machine_pdata *)
+						skl->mach->pdata;
 	struct snd_soc_dai_driver *dais;
 	const int num_platform_dais = ARRAY_SIZE(skl_platform_dai);
 	const int num_fe_dais = ARRAY_SIZE(skl_fe_dai);
 	int total_dais;
-	int i, index;
+	int i, j, index;
+	bool dai_already_added;
 
 	skl->grp_cnt.vbus_id = devm_kcalloc(dev, skl->nhlt->endpoint_count,
 						sizeof(int), GFP_KERNEL);
@@ -1769,6 +1795,9 @@ int skl_platform_register(struct device *dev)
 	if (!skl->use_tplg_pcm)
 		total_dais += num_fe_dais;
 
+	if (pdata)
+		total_dais += pdata->num_dummy_dais;
+
 	dais = devm_kcalloc(dev, total_dais, sizeof(*dais), GFP_KERNEL);
 	if (!dais) {
 		ret = -ENOMEM;
@@ -1779,30 +1808,31 @@ int skl_platform_register(struct device *dev)
 
 	for (i = 0; i < skl->grp_cnt.cnt; i++) {
 		index = num_platform_dais + i;
-
-		memcpy(&dais[index], &ssp_dai_info, sizeof(ssp_dai_info));
-
-		dais[index].name = devm_kasprintf(dev, GFP_KERNEL, "SSP%d Pin",
-				skl->grp_cnt.vbus_id[i]);
-		if (!dais[index].name) {
-			ret = -ENOMEM;
+		ret = skl_populate_dai(dev, &dais[index],
+					skl->grp_cnt.vbus_id[i]);
+		if (ret)
 			goto err;
-		}
+	}
 
-		dais[index].playback.stream_name = devm_kasprintf(dev,
-				GFP_KERNEL, "ssp%d Tx",
-				skl->grp_cnt.vbus_id[i]);
-		if (!dais[index].playback.stream_name) {
-			ret = -ENOMEM;
-			goto err;
-		}
+	if (pdata) {
+		index = num_platform_dais + skl->grp_cnt.cnt;
+		for (i = 0; i < pdata->num_dummy_dais; i++) {
+			dai_already_added = false;
+			for (j = 0; j < skl->grp_cnt.cnt; j++)
+				if (skl->grp_cnt.vbus_id[j] ==
+				    pdata->dummy_dais[i]) {
+					dai_already_added = true;
+					break;
+				}
+			if (dai_already_added) {
+				--total_dais;
+				continue;
+			}
 
-		dais[index].capture.stream_name = devm_kasprintf(dev,
-				GFP_KERNEL, "ssp%d Rx",
-				skl->grp_cnt.vbus_id[i]);
-		if (!dais[index].capture.stream_name) {
-			ret = -ENOMEM;
-			goto err;
+			ret = skl_populate_dai(dev, &dais[index++],
+						pdata->dummy_dais[i]);
+			if (ret)
+				goto err;
 		}
 	}
 
