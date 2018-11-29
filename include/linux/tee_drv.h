@@ -526,6 +526,18 @@ int tee_client_invoke_func(struct tee_context *ctx,
 			   struct tee_ioctl_invoke_arg *arg,
 			   struct tee_param *param);
 
+/**
+ * tee_client_cancel_req() - Cancel previous request
+ * @ctx:   TEE Context
+ * @arg:   Unique cancel request id
+ * @param: Session id
+ *
+ * Returns < 0 on error else see @arg->ret for result.
+ */
+int tee_client_cancel_req(struct tee_context *ctx,
+               u32 cancel_id,
+               u32 session);
+
 static inline bool tee_param_is_memref(struct tee_param *param)
 {
 	switch (param->attr & TEE_IOCTL_PARAM_ATTR_TYPE_MASK) {
