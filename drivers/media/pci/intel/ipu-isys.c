@@ -1087,6 +1087,16 @@ static int isys_probe(struct ipu_bus_device *adev)
 	isys->adev = adev;
 	isys->pdata = adev->pdata;
 
+#if !defined(CONFIG_VIDEO_INTEL_IPU4) && !defined(CONFIG_VIDEO_INTEL_IPU4P)
+	/* initial streamID for different sensor types */
+	isys->sensor_types[IPU_FW_ISYS_VC1_SENSOR_DATA] =
+				IPU_FW_ISYS_VC1_SENSOR_DATA_START;
+	isys->sensor_types[IPU_FW_ISYS_VC1_SENSOR_PDAF] =
+				IPU_FW_ISYS_VC1_SENSOR_PDAF_START;
+	isys->sensor_types[IPU_FW_ISYS_VC0_SENSOR_DATA] =
+				IPU_FW_ISYS_VC0_SENSOR_DATA_START;
+#endif
+
 
 	spin_lock_init(&isys->lock);
 	spin_lock_init(&isys->power_lock);
