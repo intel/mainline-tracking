@@ -658,6 +658,9 @@ static int skl_parse_hw_config_info(struct sst_dsp *ctx, u8 *src, int limit)
 			hw_property->ebb_size_bytes = *value;
 			break;
 
+		case SKL_UAOL_CAPS_HW_CFG:
+			break;
+
 		default:
 			dev_err(ctx->dev, "Invalid hw info type:%d \n", type);
 			break;
@@ -983,6 +986,10 @@ static int skl_parse_fw_config_info(struct sst_dsp *ctx,
 		case SKL_CLOCKS_CONFIG:
 			memcpy(&(fw_property->clk_config), value,
 					message->length);
+			break;
+
+		case SKL_UAOL_SUPPORT:
+		case SKL_POWER_GATING_POLICY:
 			break;
 
 		default:

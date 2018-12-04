@@ -162,6 +162,8 @@ enum skl_fw_info_type {
 	SKL_SCHEDULER_CONFIG,
 	SKL_XTAL_FREQ_HZ,
 	SKL_CLOCKS_CONFIG,
+	SKL_UAOL_SUPPORT,
+	SKL_POWER_GATING_POLICY,
 };
 
 enum skl_hw_info_type {
@@ -175,6 +177,7 @@ enum skl_hw_info_type {
 	SKL_HB_EBB_COUNT,
 	SKL_LP_EBB_COUNT,
 	SKL_EBB_SIZE_BYTES,
+	SKL_UAOL_CAPS_HW_CFG,
 };
 
 /* DSP Core state */
