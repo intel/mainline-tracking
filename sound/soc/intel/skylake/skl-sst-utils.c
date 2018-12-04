@@ -305,6 +305,10 @@ int snd_skl_parse_manifest(struct sst_dsp *ctx, const struct firmware *fw,
 		return -EINVAL;
 	}
 
+	dev_info(ctx->dev, "ADSP FW Name: %.*s, Version: %d.%d.%d.%d\n",
+		 (int) sizeof(adsp_hdr->name), adsp_hdr->name, adsp_hdr->major,
+		 adsp_hdr->minor, adsp_hdr->hotfix, adsp_hdr->build);
+
 	num_entry = adsp_hdr->num_modules;
 
 	/* check all entries are in file */
