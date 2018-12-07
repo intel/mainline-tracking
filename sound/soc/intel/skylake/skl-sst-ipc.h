@@ -91,6 +91,8 @@ struct skl_notify_kctrl_info {
 	struct snd_kcontrol *notify_kctl;
 };
 
+struct skl;
+
 struct skl_sst {
 	struct device *dev;
 	struct sst_dsp *dsp;
@@ -139,6 +141,10 @@ struct skl_sst {
 
 	/* Callback to update dynamic clock and power gating registers */
 	void (*clock_power_gating)(struct device *dev, bool enable);
+
+	void (*hda_irq_ack)(struct hdac_bus *bus, struct hdac_stream *hstr);
+
+	int (*request_tplg)(struct skl *skl, const struct firmware **fw);
 
 	/* sysfs for module info */
 	struct skl_sysfs_tree *sysfs_tree;
