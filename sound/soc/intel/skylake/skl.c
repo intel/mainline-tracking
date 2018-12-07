@@ -130,6 +130,12 @@ static void skl_clock_power_gating(struct device *dev, bool enable)
 	update_pci_dword(pci, AZX_PCIREG_PGCTL, AZX_PGCTL_ADSPPGD, val);
 }
 
+int skl_request_tplg(struct skl *skl, const struct firmware **fw)
+{
+	return request_firmware(fw, skl->tplg_name, skl->skl_sst->dev);
+}
+
+
 /*
  * While performing reset, controller may not come back properly causing
  * issues, so recommendation is to set CGCTL.MISCBDCGE to 0 then do reset
@@ -275,6 +281,7 @@ static irqreturn_t skl_interrupt(int irq, void *dev_id)
 static irqreturn_t skl_threaded_handler(int irq, void *dev_id)
 {
 	struct hdac_bus *bus = dev_id;
+	struct skl *skl = bus_to_skl(bus);
 	u32 status;
 	u32 int_enable;
 	u32 mask;
@@ -282,7 +289,7 @@ static irqreturn_t skl_threaded_handler(int irq, void *dev_id)
 
 	status = snd_hdac_chip_readl(bus, INTSTS);
 
-	snd_hdac_bus_handle_stream_irq(bus, status, skl_stream_update);
+	snd_hdac_bus_handle_stream_irq(bus, status, skl->skl_sst->hda_irq_ack);
 
 	/* Re-enable stream interrupts */
 	mask = (0x1 << bus->num_streams) - 1;
@@ -567,6 +574,44 @@ static int skl_find_machine(struct skl *skl, void *driver_data)
 
 	return 0;
 }
+
+#if IS_ENABLED(CONFIG_SND_SOC_INTEL_SKYLAKE_VIRTIO_BE)
+
+int skl_virt_device_register(struct skl *skl)
+{
+	struct hdac_bus *bus = skl_to_bus(skl);
+	struct platform_device *pdev;
+	struct skl_virt_pdata *pdata;
+	int ret;
+
+	pdev = platform_device_alloc("skl-virt-audio", -1);
+	if (pdev == NULL) {
+		dev_err(bus->dev, "platform device alloc failed\n");
+		return -EIO;
+	}
+
+	ret = platform_device_add(pdev);
+	if (ret) {
+		dev_err(bus->dev, "failed to add virtualization device\n");
+		platform_device_put(pdev);
+		return -EIO;
+	}
+	pdata = devm_kzalloc(&pdev->dev,
+		sizeof(struct skl_virt_pdata), GFP_KERNEL);
+	pdata->skl = skl;
+	dev_set_drvdata(&pdev->dev, pdata);
+	skl->virt_dev = pdev;
+
+	return 0;
+}
+
+void skl_virt_device_unregister(struct skl *skl)
+{
+	if (skl->virt_dev)
+		platform_device_unregister(skl->virt_dev);
+}
+
+#endif
 
 static int skl_machine_device_register(struct skl *skl)
 {
@@ -1123,6 +1168,8 @@ static int skl_probe(struct pci_dev *pci,
 	}
 	skl->skl_sst->enable_miscbdcge = skl_enable_miscbdcge;
 	skl->skl_sst->clock_power_gating = skl_clock_power_gating;
+	skl->skl_sst->request_tplg = skl_request_tplg;
+	skl->skl_sst->hda_irq_ack = skl_stream_update;
 
 	if (bus->mlcap)
 		snd_hdac_ext_bus_get_ml_capabilities(bus);
@@ -1136,7 +1183,7 @@ static int skl_probe(struct pci_dev *pci,
 		goto out_dsp_free;
 	}
 
-	snd_soc_skl_virtio_miscdev_register(skl);
+	skl_virt_device_register(skl);
 	schedule_work(&skl->probe_work);
 
 	return 0;
@@ -1202,6 +1249,7 @@ static void skl_remove(struct pci_dev *pci)
 	snd_hdac_ext_bus_device_remove(bus);
 
 	skl->debugfs = NULL;
+	skl_virt_device_unregister(skl);
 	skl_platform_unregister(&pci->dev);
 	skl_free_dsp(skl);
 	skl_machine_device_unregister(skl);
