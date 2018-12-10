@@ -502,6 +502,7 @@ free_news:
 static void remove_dai(struct snd_soc_component *comp,
 	struct snd_soc_dobj *dobj, int pass)
 {
+	struct snd_soc_dai *dai;
 	struct snd_soc_dai_driver *dai_drv =
 		container_of(dobj, struct snd_soc_dai_driver, dobj);
 
@@ -510,6 +511,14 @@ static void remove_dai(struct snd_soc_component *comp,
 
 	if (dobj->ops && dobj->ops->dai_unload)
 		dobj->ops->dai_unload(comp, dobj);
+
+	for_each_component_dais(comp, dai) {
+		if (dai->driver == dai_drv) {
+			dai->driver = NULL;
+			snd_soc_unregister_dai(comp, dai);
+			break;
+		}
+	}
 
 	kfree(dai_drv->name);
 	list_del(&dobj->list);
