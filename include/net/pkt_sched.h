@@ -161,4 +161,24 @@ struct tc_etf_qopt_offload {
 	s32 queue;
 };
 
+struct tc_taprio_sched_entry {
+	u8 command; /* TC_TAPRIO_CMD_* */
+
+	/* The gate_mask in the offloading side refers to HW queues */
+	u32 gate_mask;
+	u32 interval;
+};
+
+struct tc_taprio_qopt_offload {
+	u8 enable;
+	ktime_t base_time;
+	u64 cycle_time;
+	u64 cycle_time_extension;
+
+	/* bit nth being set means that the nth queue is preemptible */
+	u32 frame_preemption_queue_mask;
+	size_t num_entries;
+	struct tc_taprio_sched_entry entries[0];
+};
+
 #endif
