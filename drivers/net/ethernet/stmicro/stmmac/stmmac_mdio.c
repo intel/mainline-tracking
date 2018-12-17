@@ -374,6 +374,7 @@ int stmmac_mdio_register(struct net_device *ndev)
 	new_bus->priv = ndev;
 	new_bus->phy_mask = mdio_bus_data->phy_mask;
 	new_bus->parent = priv->device;
+	new_bus->c45_scan = mdio_bus_data->is_c45;
 
 	err = of_mdiobus_register(new_bus, mdio_node);
 	if (err != 0) {

@@ -247,6 +247,10 @@ struct mii_bus {
 	int reset_delay_us;
 	/* RESET GPIO descriptor pointer */
 	struct gpio_desc *reset_gpiod;
+	/* Hint for kernel to scan the bus with C45 mode.
+	 * Some PHYs will not respond with C22.
+	 */
+	bool c45_scan;
 };
 #define to_mii_bus(d) container_of(d, struct mii_bus, dev)
 
