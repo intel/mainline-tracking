@@ -194,6 +194,7 @@ struct skl_dev {
 	struct skl_sysfs_tree *sysfs_tree;
 
 	struct ep_group_cnt grp_cnt;
+	struct list_head nhlt_endpoint_list;
 
 	struct snd_kcontrol *kcontrol;
 	struct list_head notify_kctls;
@@ -242,7 +243,6 @@ int skl_platform_register(struct device *dev);
 int skl_get_nhlt_version(struct device *dev);
 void skl_nhlt_get_ep_cnt(struct skl_dev *skl, int link_type);
 struct nhlt_acpi_table *skl_nhlt_init(struct device *dev);
-void skl_nhlt_free(struct nhlt_acpi_table *addr);
 struct nhlt_specific_cfg *skl_get_ep_blob(struct skl_dev *skl, u32 instance,
 					u8 link_type, u8 s_fmt, u8 no_ch,
 					u32 s_rate, u8 dirn, u8 dev_type);
