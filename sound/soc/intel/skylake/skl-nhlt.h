@@ -90,6 +90,11 @@ struct nhlt_acpi_table {
 	struct nhlt_endpoint desc[0];
 } __packed;
 
+struct nhlt_endpoint_list {
+	struct nhlt_endpoint *endpoint;
+	struct list_head list;
+};
+
 struct nhlt_resource_desc  {
 	u32 extra;
 	u16 flags;

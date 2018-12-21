@@ -1107,6 +1107,8 @@ static int skl_probe(struct pci_dev *pci,
 
 	device_disable_async_suspend(bus->dev);
 
+	pci_set_drvdata(skl->pci, bus);
+
 	skl->nhlt = skl_nhlt_init(bus->dev);
 
 	if (skl->nhlt == NULL) {
@@ -1121,8 +1123,10 @@ static int skl_probe(struct pci_dev *pci,
 
 		err = skl_nhlt_create_sysfs(skl);
 		if (err < 0) {
-			dev_err(bus->dev, "skl_nhlt_create_sysfs failed with err: %d\n", err);
-			goto out_nhlt_free;
+			dev_err(bus->dev,
+				"skl_nhlt_create_sysfs failed with err: %d\n",
+				err);
+			goto out_free;
 		}
 
 		if (!tplg_name || strlen(tplg_name) >= sizeof(skl->tplg_name))
@@ -1143,14 +1147,15 @@ static int skl_probe(struct pci_dev *pci,
 
 	err = skl_find_machine(skl, (void *)pci_id->driver_data);
 	if (err < 0) {
-		dev_err(bus->dev, "skl_find_machine failed with err: %d\n", err);
-		goto out_nhlt_free;
+		dev_err(bus->dev, "skl_find_machine failed with err: %d\n",
+			err);
+		goto out_free;
 	}
 
 	err = skl_init_dsp(skl);
 	if (err < 0) {
 		dev_dbg(bus->dev, "error failed to register dsp\n");
-		goto out_nhlt_free;
+		goto out_free;
 	}
 	skl->enable_miscbdcge = skl_enable_miscbdcge;
 	skl->clock_power_gating = skl_clock_power_gating;
@@ -1175,8 +1180,6 @@ out_dsp_free:
 	skl_free_dsp(skl);
 out_clk_free:
 	skl_clock_device_unregister(skl);
-out_nhlt_free:
-	skl_nhlt_free(skl->nhlt);
 out_free:
 	skl_free(bus);
 
@@ -1235,7 +1238,6 @@ static void skl_remove(struct pci_dev *pci)
 	skl_dmic_device_unregister(skl);
 	skl_clock_device_unregister(skl);
 	skl_nhlt_remove_sysfs(skl);
-	skl_nhlt_free(skl->nhlt);
 	skl_free(bus);
 	dev_set_drvdata(&pci->dev, NULL);
 }
