@@ -541,7 +541,6 @@ static void remove_link(struct snd_soc_component *comp,
 		dobj->ops->link_unload(comp, dobj);
 
 	kfree(link->name);
-	kfree(link->stream_name);
 	kfree(link->cpu_dai_name);
 
 	list_del(&dobj->list);
@@ -1645,10 +1644,11 @@ static int soc_tplg_dapm_complete(struct soc_tplg *tplg)
 	return 0;
 }
 
-static void set_stream_info(struct snd_soc_pcm_stream *stream,
-	struct snd_soc_tplg_stream_caps *caps)
+static void set_stream_info(struct soc_tplg *tplg,
+			    struct snd_soc_pcm_stream *stream,
+			    struct snd_soc_tplg_stream_caps *caps)
 {
-	stream->stream_name = kstrdup(caps->name, GFP_KERNEL);
+	stream->stream_name = devm_kstrdup(tplg->dev, caps->name, GFP_KERNEL);
 	stream->channels_min = caps->channels_min;
 	stream->channels_max = caps->channels_max;
 	stream->rates = caps->rates;
@@ -1695,13 +1695,13 @@ static int soc_tplg_dai_create(struct soc_tplg *tplg,
 	if (pcm->playback) {
 		stream = &dai_drv->playback;
 		caps = &pcm->caps[SND_SOC_TPLG_STREAM_PLAYBACK];
-		set_stream_info(stream, caps);
+		set_stream_info(tplg, stream, caps);
 	}
 
 	if (pcm->capture) {
 		stream = &dai_drv->capture;
 		caps = &pcm->caps[SND_SOC_TPLG_STREAM_CAPTURE];
-		set_stream_info(stream, caps);
+		set_stream_info(tplg, stream, caps);
 	}
 
 	if (pcm->compress)
@@ -2195,13 +2195,13 @@ static int soc_tplg_dai_config(struct soc_tplg *tplg,
 	if (d->playback) {
 		stream = &dai_drv->playback;
 		caps = &d->caps[SND_SOC_TPLG_STREAM_PLAYBACK];
-		set_stream_info(stream, caps);
+		set_stream_info(tplg, stream, caps);
 	}
 
 	if (d->capture) {
 		stream = &dai_drv->capture;
 		caps = &d->caps[SND_SOC_TPLG_STREAM_CAPTURE];
-		set_stream_info(stream, caps);
+		set_stream_info(tplg, stream, caps);
 	}
 
 	if (d->flag_mask)
