@@ -1481,15 +1481,8 @@ static int soc_tplg_dapm_widget_create(struct soc_tplg *tplg,
 	if (template.id < 0)
 		return template.id;
 
-	/* strings are allocated here, but used and freed by the widget */
-	template.name = kstrdup(w->name, GFP_KERNEL);
-	if (!template.name)
-		return -ENOMEM;
-	template.sname = kstrdup(w->sname, GFP_KERNEL);
-	if (!template.sname) {
-		ret = -ENOMEM;
-		goto err;
-	}
+	template.name = w->name;
+	template.sname = w->sname;
 	template.reg = w->reg;
 	template.shift = w->shift;
 	template.mask = w->mask;
@@ -1595,9 +1588,6 @@ ready_err:
 	snd_soc_tplg_widget_remove(widget);
 	snd_soc_dapm_free_widget(widget);
 hdr_err:
-	kfree(template.sname);
-err:
-	kfree(template.name);
 	return ret;
 }
 
