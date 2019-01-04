@@ -234,6 +234,56 @@ static ssize_t current_link_width_show(struct device *dev,
 }
 static DEVICE_ATTR_RO(current_link_width);
 
+static ssize_t link_disable_show(struct device *dev,
+				 struct device_attribute *attr, char *buf)
+{
+	struct pci_dev *pci_dev = to_pci_dev(dev);
+	u16 linkctl;
+	int ret;
+
+	ret = pcie_capability_read_word(pci_dev, PCI_EXP_LNKCTL, &linkctl);
+	if (ret)
+		return -EINVAL;
+
+	return sprintf(buf, "%d\n", !!(linkctl & PCI_EXP_LNKCTL_LD));
+}
+
+static ssize_t link_disable_store(struct device *dev,
+				  struct device_attribute *attr,
+				  const char *buf, size_t count)
+{
+	struct pci_dev *pci_dev = to_pci_dev(dev);
+	u16 linkctl;
+	bool disable;
+	int ret;
+
+	ret = kstrtobool(buf, &disable);
+	if (ret)
+		return ret;
+
+	ret = pcie_capability_read_word(pci_dev, PCI_EXP_LNKCTL, &linkctl);
+	if (ret)
+		return -EINVAL;
+
+	if (disable) {
+		if (linkctl & PCI_EXP_LNKCTL_LD)
+			goto out;
+		linkctl |= PCI_EXP_LNKCTL_LD;
+	} else {
+		if (!(linkctl & PCI_EXP_LNKCTL_LD))
+			goto out;
+		linkctl &= ~PCI_EXP_LNKCTL_LD;
+	}
+
+	ret = pcie_capability_write_word(pci_dev, PCI_EXP_LNKCTL, linkctl);
+	if (ret)
+		return ret;
+
+out:
+	return count;
+}
+static DEVICE_ATTR_RW(link_disable);
+
 static ssize_t secondary_bus_number_show(struct device *dev,
 					 struct device_attribute *attr,
 					 char *buf)
@@ -629,6 +679,7 @@ static struct attribute *pcie_dev_attrs[] = {
 	&dev_attr_current_link_width.attr,
 	&dev_attr_max_link_width.attr,
 	&dev_attr_max_link_speed.attr,
+	&dev_attr_link_disable.attr,
 	NULL,
 };
 
@@ -1600,8 +1651,20 @@ static umode_t pcie_dev_attrs_are_visible(struct kobject *kobj,
 	struct device *dev = kobj_to_dev(kobj);
 	struct pci_dev *pdev = to_pci_dev(dev);
 
-	if (pci_is_pcie(pdev))
+	if (pci_is_pcie(pdev)) {
+		if (a == &dev_attr_link_disable.attr) {
+			switch (pci_pcie_type(pdev)) {
+			case PCI_EXP_TYPE_ROOT_PORT:
+			case PCI_EXP_TYPE_DOWNSTREAM:
+				break;
+
+			default:
+				return 0;
+			}
+		}
+
 		return a->mode;
+	}
 
 	return 0;
 }
