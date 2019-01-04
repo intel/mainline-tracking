@@ -394,6 +394,14 @@ Description:
 		This is similar to /sys/bus/pci/drivers_autoprobe, but
 		affects only the VFs associated with a specific PF.
 
+What:		/sys/bus/pci/devices/.../link_disable
+Date:		September 2019
+Contact:	Mika Westerberg <mika.westerberg@linux.intel.com>
+Description:
+		PCIe root and downstream ports have this attribute. Writing
+		1 causes the link to downstream component be disabled.
+		Re-enabling the link happens by writing 0 instead.
+
 What:		/sys/bus/pci/devices/.../p2pmem/size
 Date:		November 2017
 Contact:	Logan Gunthorpe <logang@deltatee.com>
