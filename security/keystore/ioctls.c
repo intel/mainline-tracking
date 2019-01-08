@@ -428,13 +428,13 @@ long keystore_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 		       __func__, cmd, size, sizeof(union keystore_ops_union));
 		return -ENOIOCTLCMD;
 	}
-	if (!access_ok(VERIFY_READ, (void *)arg, size)) {
+	if (!access_ok((void *)arg, size)) {
 		ks_err(KBUILD_MODNAME ": %s - cmd=%u no read access\n",
 		       __func__, cmd);
 		return -EFAULT;
 	}
 	if ((_IOC_DIR(cmd) & _IOC_READ) &&
-	    (!access_ok(VERIFY_WRITE, (void *)arg, size))) {
+	    (!access_ok((void *)arg, size))) {
 		ks_err(KBUILD_MODNAME ": %s - cmd=%u no write access\n",
 		       __func__, cmd);
 		return -EFAULT;
