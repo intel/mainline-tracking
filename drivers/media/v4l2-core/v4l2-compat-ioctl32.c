@@ -1069,16 +1069,16 @@ static int get_v4l2_subdev_routing(struct v4l2_subdev_routing __user *kp,
 	compat_caddr_t p;
 	u32 num_routes;
 
-	if (!access_ok(VERIFY_READ, up, sizeof(*up)) ||
+	if (!access_ok(up, sizeof(*up)) ||
 	    get_user(p, &up->routes) ||
 	    put_user(compat_ptr(p), &kp->routes) ||
 	    get_user(num_routes, &kp->num_routes) ||
 	    assign_in_user(&kp->num_routes, &up->num_routes) ||
-	    !access_ok(VERIFY_READ, up->reserved, sizeof(*up->reserved)) ||
+	    !access_ok(up->reserved, sizeof(*up->reserved)) ||
 	    num_routes > U32_MAX / sizeof(*kp->routes))
 		return -EFAULT;
 
-	if (!access_ok(VERIFY_READ, compat_ptr(p),
+	if (!access_ok(compat_ptr(p),
 		       num_routes * (u32)sizeof(*kp->routes)))
 		return -EFAULT;
 
@@ -1092,16 +1092,16 @@ static int put_v4l2_subdev_routing(struct v4l2_subdev_routing __user *kp,
 	compat_caddr_t p;
 	u32 num_routes;
 
-	if (!access_ok(VERIFY_WRITE, up, sizeof(*up)) ||
+	if (!access_ok(up, sizeof(*up)) ||
 	    get_user(p, &up->routes) ||
 	    get_user(num_routes, &kp->num_routes) ||
 	    assign_in_user(&up->num_routes, &kp->num_routes) ||
-	    !access_ok(VERIFY_WRITE, up->reserved, sizeof(*up->reserved)))
+	    !access_ok(up->reserved, sizeof(*up->reserved)))
 		return -EFAULT;
 
 	uroutes = compat_ptr(p);
 
-	if (!access_ok(VERIFY_WRITE, uroutes,
+	if (!access_ok(uroutes,
 		       num_routes * sizeof(*kp->routes)))
 		return -EFAULT;
 
