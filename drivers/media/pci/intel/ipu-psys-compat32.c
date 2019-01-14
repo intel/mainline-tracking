@@ -58,10 +58,15 @@ get_ipu_psys_command32(struct ipu_psys_command *kp,
 		       struct ipu_psys_command32 __user *up)
 {
 	compat_uptr_t pgm, bufs;
+	bool access_ok;
 
-	if (!access_ok(VERIFY_READ, up,
-		       sizeof(struct ipu_psys_command32)) ||
-	    get_user(kp->issue_id, &up->issue_id) ||
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 0, 0)
+	access_ok = access_ok(VERIFY_READ, up,
+		sizeof(struct ipu_psys_command32));
+#else
+	access_ok = access_ok(up, sizeof(struct ipu_psys_command32));
+#endif
+	if (!access_ok || get_user(kp->issue_id, &up->issue_id) ||
 	    get_user(kp->user_token, &up->user_token) ||
 	    get_user(kp->priority, &up->priority) ||
 	    get_user(pgm, &up->pg_manifest) ||
@@ -85,10 +90,15 @@ get_ipu_psys_buffer32(struct ipu_psys_buffer *kp,
 		      struct ipu_psys_buffer32 __user *up)
 {
 	compat_uptr_t ptr;
+	bool access_ok;
 
-	if (!access_ok(VERIFY_READ, up,
-		       sizeof(struct ipu_psys_buffer32)) ||
-	    get_user(kp->len, &up->len) ||
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 0, 0)
+	access_ok = access_ok(VERIFY_READ, up,
+		sizeof(struct ipu_psys_buffer32));
+#else
+	access_ok = access_ok(up, sizeof(struct ipu_psys_buffer32));
+#endif
+	if (!access_ok || get_user(kp->len, &up->len) ||
 	    get_user(ptr, &up->base.userptr) ||
 	    get_user(kp->data_offset, &up->data_offset) ||
 	    get_user(kp->bytes_used, &up->bytes_used) ||
@@ -104,9 +114,15 @@ static int
 put_ipu_psys_buffer32(struct ipu_psys_buffer *kp,
 		      struct ipu_psys_buffer32 __user *up)
 {
-	if (!access_ok(VERIFY_WRITE, up,
-		       sizeof(struct ipu_psys_buffer32)) ||
-	    put_user(kp->len, &up->len) ||
+	bool access_ok;
+
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 0, 0)
+	access_ok = access_ok(VERIFY_WRITE, up,
+		sizeof(struct ipu_psys_buffer32));
+#else
+	access_ok = access_ok(up, sizeof(struct ipu_psys_buffer32));
+#endif
+	if (!access_ok || put_user(kp->len, &up->len) ||
 	    put_user(kp->base.fd, &up->base.fd) ||
 	    put_user(kp->data_offset, &up->data_offset) ||
 	    put_user(kp->bytes_used, &up->bytes_used) ||
@@ -121,10 +137,15 @@ get_ipu_psys_manifest32(struct ipu_psys_manifest *kp,
 			struct ipu_psys_manifest32 __user *up)
 {
 	compat_uptr_t ptr;
+	bool access_ok;
 
-	if (!access_ok(VERIFY_READ, up,
-		       sizeof(struct ipu_psys_manifest32)) ||
-	    get_user(kp->index, &up->index) ||
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 0, 0)
+	access_ok = access_ok(VERIFY_READ, up,
+		sizeof(struct ipu_psys_manifest32));
+#else
+	access_ok = access_ok(up, sizeof(struct ipu_psys_manifest32));
+#endif
+	if (!access_ok || get_user(kp->index, &up->index) ||
 	    get_user(kp->size, &up->size) || get_user(ptr, &up->manifest))
 		return -EFAULT;
 
@@ -138,10 +159,15 @@ put_ipu_psys_manifest32(struct ipu_psys_manifest *kp,
 			struct ipu_psys_manifest32 __user *up)
 {
 	compat_uptr_t ptr = (u32)((unsigned long)kp->manifest);
+	bool access_ok;
 
-	if (!access_ok(VERIFY_WRITE, up,
-		       sizeof(struct ipu_psys_manifest32)) ||
-	    put_user(kp->index, &up->index) ||
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 0, 0)
+	access_ok = access_ok(VERIFY_WRITE, up,
+		sizeof(struct ipu_psys_manifest32));
+#else
+	access_ok = access_ok(up, sizeof(struct ipu_psys_manifest32));
+#endif
+	if (!access_ok || put_user(kp->index, &up->index) ||
 	    put_user(kp->size, &up->size) || put_user(ptr, &up->manifest))
 		return -EFAULT;
 
