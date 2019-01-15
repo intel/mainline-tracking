@@ -814,6 +814,7 @@ int dal_keystore_encrypt(const uint8_t *client_ticket, int slot_id,
 	if (res) {
 		ks_err(KBUILD_MODNAME ": %s Error calculating client ID: %d\n",
 			__func__, res);
+		kzfree(in);
 		goto exit;
 	}
 
@@ -966,6 +967,7 @@ int dal_keystore_decrypt(const uint8_t *client_ticket, int slot_id,
 	if (res) {
 		ks_err(KBUILD_MODNAME ": %s Error calculating client ID: %d\n",
 			__func__, res);
+		kzfree(in);
 		goto exit;
 	}
 
