@@ -240,7 +240,7 @@ int snd_skl_parse_manifest(struct sst_dsp *ctx, const struct firmware *fw,
 	struct adsp_fw_hdr *adsp_hdr;
 	struct adsp_module_entry *mod_entry;
 	int i, num_entry, size;
-	uuid_le *uuid_bin;
+	guid_t *uuid_bin;
 	const char *buf;
 	struct skl_dev *skl = ctx->thread_context;
 	struct uuid_module *module;
@@ -301,13 +301,16 @@ int snd_skl_parse_manifest(struct sst_dsp *ctx, const struct firmware *fw,
 	 */
 
 	for (i = 0; i < num_entry; i++, mod_entry++) {
+		uuid_bin = (guid_t *)mod_entry->uuid.id;
+		if (guid_is_null(uuid_bin))
+			continue;
+
 		module = devm_kzalloc(ctx->dev, sizeof(*module), GFP_KERNEL);
 		if (!module) {
 			list_del_init(&skl->module_list);
 			return -ENOMEM;
 		}
 
-		uuid_bin = (uuid_le *)mod_entry->uuid.id;
 		memcpy(&module->uuid, uuid_bin, sizeof(module->uuid));
 
 		module->id = (i | (index << 12));
