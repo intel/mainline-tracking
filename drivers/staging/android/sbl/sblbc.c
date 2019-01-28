@@ -103,7 +103,7 @@ static const struct name2id NAME2ID[] = {
 	{ "cli",	0x10 },
 };
 
-static size_t offset; /* memorize offset between each call */
+static uint32_t offset; /* memorize offset between each call */
 
 static size_t write_data_to_nvram(char *data, size_t size)
 {
@@ -317,7 +317,6 @@ static int sblbc_reboot_notifier_call(struct notifier_block *notifier,
 				__func__, ret);
 	}
 
-done:
 	return NOTIFY_DONE;
 }
 
