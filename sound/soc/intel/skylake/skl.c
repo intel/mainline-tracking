@@ -564,7 +564,7 @@ static int skl_find_machine(struct skl *skl, void *driver_data)
 	struct snd_soc_acpi_mach *mach = driver_data;
 	struct skl_machine_pdata *pdata = mach->pdata;
 
-	if (pdata && pdata->imr_alloc)
+	if (pdata && pdata->dummy_codec)
 		goto out;
 
 	mach = snd_soc_acpi_find_machine(mach);
@@ -577,6 +577,7 @@ static int skl_find_machine(struct skl *skl, void *driver_data)
 		}
 	}
 
+out:
 	skl->mach = mach;
 	skl->fw_name = mach->fw_filename;
 
