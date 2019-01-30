@@ -95,7 +95,7 @@ static int cnl_prepare_fw(struct sst_dsp *ctx, const void *fwdata, u32 fwsize)
 	struct skl_dev *skl = get_skl_ctx(ctx->dev);
 	struct skl_machine_pdata *pdata = (struct skl_machine_pdata *)
 						skl->mach->pdata;
-	if (pdata && pdata->imr_alloc) {
+	if (pdata && pdata->imr_alloc && *(pdata->imr_alloc)) {
 		ret = cnl_alloc_imr(ctx);
 		if (ret < 0)
 			return ret;
@@ -142,7 +142,7 @@ base_fw_load_failed:
 						SNDRV_PCM_STREAM_PLAYBACK);
 	cnl_dsp_disable_core(ctx, SKL_DSP_CORE0_MASK);
 #ifdef CONFIG_X86_64
-	if (pdata && pdata->imr_alloc)
+	if (pdata && pdata->imr_alloc && *(pdata->imr_alloc))
 		cnl_free_imr(ctx);
 #endif
 	return ret;
