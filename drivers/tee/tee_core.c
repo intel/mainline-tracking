@@ -64,7 +64,6 @@ err:
 	kfree(ctx);
 	tee_device_put(teedev);
 	return ERR_PTR(rc);
-
 }
 
 void teedev_ctx_get(struct tee_context *ctx)
