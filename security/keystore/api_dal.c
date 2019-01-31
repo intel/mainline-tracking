@@ -513,8 +513,7 @@ int dal_keystore_wrap_key(const uint8_t *client_ticket,
 	uint8_t client_id[KEYSTORE_MAX_CLIENT_ID_SIZE];
 	int res = 0;
 	size_t response_code = 0;
-	uint8_t input[KEYSTORE_MAX_CLIENT_ID_SIZE + KEYSTORE_CLIENT_TICKET_SIZE
-				+ app_key_size + 2];
+	uint8_t *input;
 	int commandId = DAL_KEYSTORE_WRAP_KEY;
 	size_t output_len = 0;
 	uint8_t *out_buf = NULL;
@@ -531,6 +530,13 @@ int dal_keystore_wrap_key(const uint8_t *client_ticket,
 		return res;
 	}
 
+	input = kmalloc(KEYSTORE_MAX_CLIENT_ID_SIZE
+				+ KEYSTORE_CLIENT_TICKET_SIZE
+				+ app_key_size + 2, GFP_KERNEL);
+	if (!input) {
+		res = -ENOMEM;
+		goto exit;
+	}
 	memcpy(input, client_id, sizeof(client_id));
 	index += sizeof(client_id);
 	memcpy(input + index, client_ticket, KEYSTORE_CLIENT_TICKET_SIZE);
@@ -553,6 +559,8 @@ cmd_retry:
 		response_code = 0;
 		goto cmd_retry;
 	}
+
+	kzfree(input);
 
 	if (res) {
 		ks_err(KBUILD_MODNAME ": %s Error in send_and_receive: command id = %d %d %lu\n",
@@ -644,9 +652,7 @@ int dal_keystore_load_key(const uint8_t *client_ticket,
 	uint8_t *out_buf = NULL;
 	int retry = 0;
 	size_t index = 0;
-	uint8_t input[KEYSTORE_MAX_CLIENT_ID_SIZE
-				  + KEYSTORE_CLIENT_TICKET_SIZE
-				  + wrapped_key_size];
+	uint8_t *input;
 
 	FUNC_BEGIN;
 
@@ -668,6 +674,13 @@ int dal_keystore_load_key(const uint8_t *client_ticket,
 		return res;
 	}
 
+	input = kmalloc(KEYSTORE_MAX_CLIENT_ID_SIZE
+				  + KEYSTORE_CLIENT_TICKET_SIZE
+				  + wrapped_key_size, GFP_KERNEL);
+	if (!input) {
+		res = -ENOMEM;
+		return res;
+	}
 	memcpy(input, client_id, sizeof(client_id));
 	index += sizeof(client_id);
 	memcpy(input + index, client_ticket, KEYSTORE_CLIENT_TICKET_SIZE);
@@ -687,6 +700,8 @@ cmd_retry:
 		response_code = 0;
 		goto cmd_retry;
 	}
+
+	kzfree(input);
 
 	if (res) {
 		ks_err(KBUILD_MODNAME ": %s Error in send_and_receive: command id = %d %d\n",
