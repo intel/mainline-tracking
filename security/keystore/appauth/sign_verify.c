@@ -143,7 +143,7 @@ static int verify_cert_validity(struct x509_certificate *cert)
 {
 	struct timespec64 ts;
 
-	getnstimeofday64(&ts);
+	ktime_get_real_ts64(&ts);
 
 	ks_debug("DEBUG_APPAUTH: Cert validity period: %lld-%lld, current time: %lld\n",
 		cert->valid_from, cert->valid_to, ts.tv_sec);
