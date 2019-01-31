@@ -71,19 +71,22 @@ int keystore_calc_mac(const char *alg_name, const char *key, size_t klen,
 	if (rc) {
 		ks_err(KBUILD_MODNAME": crypto_ahash_setkey failed\n");
 	} else {
-		char hash_tmp[crypto_ahash_digestsize(tfm)];
+		char *hash_tmp;
+		unsigned int hashlen = crypto_ahash_digestsize(tfm);
 
-		memset(hash_tmp, 0, sizeof(hash_tmp));
+		hash_tmp = kzalloc(hashlen, GFP_KERNEL);
+		memset(hash_tmp, 0, hashlen);
 
 		ahash_request_set_crypt(req, &sg, hash_tmp, dlen);
 
 		rc = crypto_ahash_digest(req);
 		if (rc == 0) {
 			/* OK */
-			memcpy(hash_out, hash_tmp, sizeof(hash_tmp));
+			memcpy(hash_out, hash_tmp, hashlen);
 		} else {
 			ks_err(KBUILD_MODNAME": crypto_ahash_digest failed\n");
 		}
+		kfree(hash_tmp);
 	}
 
 	kfree(hash_buf);
