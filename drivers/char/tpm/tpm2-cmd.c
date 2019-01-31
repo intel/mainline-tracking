@@ -342,9 +342,9 @@ out:
 
 /**
  * tpm2_flush_context_cmd() - execute a TPM2_FlushContext command
- * @chip:	TPM chip to use
- * @handle:	context handle
- * @flags:	tpm transmit flags - bitmap
+ * @chip: TPM chip to use
+ * @handle: context handle
+ * @flags: tpm transmit flags - bitmap
  *
  */
 void tpm2_flush_context_cmd(struct tpm_chip *chip, u32 handle,
