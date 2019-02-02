@@ -120,7 +120,7 @@ int mf_init_file_list_ctx(const uint8_t *mf,
 			(uint8_t *) (data->app_name + data->app_name_len);
 			ks_debug("DEBUG_APPAUTH: num_files_left = %d\n",
 				 ctx->num_files_left);
-			ks_debug("DEBUG_APPAUTH: bytes_left = %lu\n",
+			ks_debug("DEBUG_APPAUTH: bytes_left = %zd\n",
 				 ctx->bytes_left);
 			return ctx->num_files_left;
 		}
