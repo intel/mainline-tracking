@@ -133,7 +133,7 @@ static int dal_keystore_register_client(enum keystore_seed_type seed_type,
 
 	res = handle_command_response(res, response_code, &retry, NULL, NULL);
 	if (res) {
-		ks_info(KBUILD_MODNAME ": %s Error in send_and_receive: command id = %d %d %lu\n",
+		ks_info(KBUILD_MODNAME ": %s Error in send_and_receive: command id = %d %d %zd\n",
 					 __func__, commandId, res,
 					 response_code);
 
@@ -563,7 +563,7 @@ cmd_retry:
 	kzfree(input);
 
 	if (res) {
-		ks_err(KBUILD_MODNAME ": %s Error in send_and_receive: command id = %d %d %lu\n",
+		ks_err(KBUILD_MODNAME ": %s Error in send_and_receive: command id = %d %d %zd\n",
 			__func__, commandId, res, response_code);
 
 		goto exit;
