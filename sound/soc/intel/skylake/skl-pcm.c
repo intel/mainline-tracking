@@ -136,6 +136,7 @@ int skl_pcm_host_dma_prepare(struct device *dev, struct skl_pipe_params *params)
 	struct hdac_stream *hstream;
 	struct hdac_ext_stream *stream;
 	int err;
+	struct skl_dev *skl = bus_to_skl(bus);
 
 	hstream = snd_hdac_get_stream(bus, params->stream,
 					params->host_dma_id + 1);
@@ -156,7 +157,19 @@ int skl_pcm_host_dma_prepare(struct device *dev, struct skl_pipe_params *params)
 	if (err < 0)
 		return err;
 
-	err = snd_hdac_stream_setup(hdac_stream(stream));
+	/*
+	 * As a workaround for BXT hw bug when using 16/16 input into 32/32
+	 * output copier, clear PPCTL.PROCEN bit for given stream before
+	 * updating SDxFMT. Set PPCTL.PROCEN back again afterward
+	 */
+	if (IS_BXT(skl->pci)) {
+		snd_hdac_ext_stream_decouple(bus, stream, false);
+		err = snd_hdac_stream_setup(hdac_stream(stream));
+		snd_hdac_ext_stream_decouple(bus, stream, true);
+	} else {
+		err = snd_hdac_stream_setup(hdac_stream(stream));
+	}
+
 	if (err < 0)
 		return err;
 
