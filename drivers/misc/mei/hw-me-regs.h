@@ -93,6 +93,9 @@
 #define MEI_DEV_ID_MCC        0x4B70  /* Mule Creek Canyon (EHL) */
 #define MEI_DEV_ID_MCC_4      0x4B75  /* Mule Creek Canyon 4 (EHL) */
 
+#define MEI_DEV_ID_CMP_LP     0x02e0 /* Comet Lake LP */
+#define MEI_DEV_ID_CMP_H      0x06e0 /* Comet Lake H */
+
 /*
  * MEI HW Section
  */
