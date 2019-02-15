@@ -245,38 +245,22 @@ enum skl_ipc_resource_event_type {
 enum skl_ipc_glb_reply {
 	IPC_GLB_REPLY_SUCCESS = 0,
 
-	IPC_GLB_REPLY_UNKNOWN_MSG_TYPE = 1,
-	IPC_GLB_REPLY_ERROR_INVALID_PARAM = 2,
+	IPC_GLB_REPLY_ERROR_INVALID_PARAM = 1,
+	IPC_GLB_REPLY_UNKNOWN_MSG_TYPE = 2,
 
-	IPC_GLB_REPLY_BUSY = 3,
-	IPC_GLB_REPLY_PENDING = 4,
-	IPC_GLB_REPLY_FAILURE = 5,
-	IPC_GLB_REPLY_INVALID_REQUEST = 6,
-
-	IPC_GLB_REPLY_OUT_OF_MEMORY = 7,
-	IPC_GLB_REPLY_OUT_OF_MIPS = 8,
+	IPC_GLB_REPLY_OUT_OF_MEMORY = 3,
+	IPC_GLB_REPLY_BUSY = 4,
+	IPC_GLB_REPLY_PENDING = 5,
+	IPC_GLB_REPLY_FAILURE = 6,
+	IPC_GLB_REPLY_INVALID_REQUEST = 7,
 
 	IPC_GLB_REPLY_INVALID_RESOURCE_ID = 9,
-	IPC_GLB_REPLY_INVALID_RESOURCE_STATE = 10,
 
-	IPC_GLB_REPLY_MOD_MGMT_ERROR = 100,
-	IPC_GLB_REPLY_MOD_LOAD_CL_FAILED = 101,
-	IPC_GLB_REPLY_MOD_LOAD_INVALID_HASH = 102,
+	IPC_GLB_REPLY_OUT_OF_MIPS = 11,
 
-	IPC_GLB_REPLY_MOD_UNLOAD_INST_EXIST = 103,
-	IPC_GLB_REPLY_MOD_NOT_INITIALIZED = 104,
+	IPC_GLB_REPLY_INVALID_RESOURCE_STATE = 12,
 
-	IPC_GLB_REPLY_INVALID_CONFIG_PARAM_ID = 120,
-	IPC_GLB_REPLY_INVALID_CONFIG_DATA_LEN = 121,
-	IPC_GLB_REPLY_GATEWAY_NOT_INITIALIZED = 140,
-	IPC_GLB_REPLY_GATEWAY_NOT_EXIST = 141,
-	IPC_GLB_REPLY_SCLK_ALREADY_RUNNING = 150,
-	IPC_GLB_REPLY_MCLK_ALREADY_RUNNING = 151,
-
-	IPC_GLB_REPLY_PPL_NOT_INITIALIZED = 160,
-	IPC_GLB_REPLY_PPL_NOT_EXIST = 161,
-	IPC_GLB_REPLY_PPL_SAVE_FAILED = 162,
-	IPC_GLB_REPLY_PPL_RESTORE_FAILED = 163,
+	IPC_GLB_REPLY_UNAVAILABLE = 15,
 
 	IPC_MAX_STATUS = ((1<<IPC_IXC_STATUS_BITS)-1)
 };
@@ -646,18 +630,34 @@ int skl_ipc_process_notification(struct sst_generic_ipc *ipc,
 }
 
 struct skl_ipc_err_map {
-	const char *msg;
 	enum skl_ipc_glb_reply reply;
+	const char *msg;
 	int err;
 };
 
 static struct skl_ipc_err_map skl_err_map[] = {
-	{"DSP out of memory", IPC_GLB_REPLY_OUT_OF_MEMORY, -ENOMEM},
-	{"DSP busy", IPC_GLB_REPLY_BUSY, -EBUSY},
-	{"SCLK already running", IPC_GLB_REPLY_SCLK_ALREADY_RUNNING,
-			IPC_GLB_REPLY_SCLK_ALREADY_RUNNING},
-	{"MCLK already running", IPC_GLB_REPLY_MCLK_ALREADY_RUNNING,
-			IPC_GLB_REPLY_MCLK_ALREADY_RUNNING},
+	{IPC_GLB_REPLY_ERROR_INVALID_PARAM,
+		"DSP invalid parameter", EINVAL},
+	{IPC_GLB_REPLY_UNKNOWN_MSG_TYPE,
+		"DSP unknown message ID", EINVAL},
+	{IPC_GLB_REPLY_OUT_OF_MEMORY,
+		"DSP out of memory", ENOMEM},
+	{IPC_GLB_REPLY_BUSY,
+		"DSP busy", EBUSY},
+	{IPC_GLB_REPLY_PENDING,
+		"DSP reply pending", EBUSY},
+	{IPC_GLB_REPLY_FAILURE,
+		"DSP unknown error", EFAULT},
+	{IPC_GLB_REPLY_INVALID_REQUEST,
+		"DSP unsupported operation", EINVAL},
+	{IPC_GLB_REPLY_INVALID_RESOURCE_ID,
+		"DSP resource not found", EINVAL},
+	{IPC_GLB_REPLY_OUT_OF_MIPS,
+		"DSP no MCPS to complete request", ENOMEM},
+	{IPC_GLB_REPLY_INVALID_RESOURCE_STATE,
+		"DSP resource in invalid state", EINVAL},
+	{IPC_GLB_REPLY_UNAVAILABLE,
+		"DSP requested service/data is unavailable", EINVAL},
 };
 
 static int skl_ipc_set_reply_error_code(struct sst_generic_ipc *ipc, u32 reply)
@@ -670,22 +670,22 @@ static int skl_ipc_set_reply_error_code(struct sst_generic_ipc *ipc, u32 reply)
 	}
 
 	if (i == ARRAY_SIZE(skl_err_map)) {
-		dev_err(ipc->dev, "ipc FW reply: %d FW Error Code: %u\n",
+		dev_err(ipc->dev, "ipc FW reply: %d, FW Error Code: %u\n",
 				reply,
 				ipc->dsp->fw_ops.get_fw_errcode(ipc->dsp));
 		return -EINVAL;
 	}
 
 	if (skl_err_map[i].err < 0)
-		dev_err(ipc->dev, "ipc FW reply: %s FW Error Code: %u\n",
+		dev_err(ipc->dev, "ipc FW reply: %s, FW Error Code: %u\n",
 				skl_err_map[i].msg,
 				ipc->dsp->fw_ops.get_fw_errcode(ipc->dsp));
 	else
-		dev_info(ipc->dev, "ipc FW reply: %s FW Error Code: %u\n",
+		dev_info(ipc->dev, "ipc FW reply: %s, FW Error Code: %u\n",
 				skl_err_map[i].msg,
 				ipc->dsp->fw_ops.get_fw_errcode(ipc->dsp));
 
-	return skl_err_map[i].err;
+	return -(skl_err_map[i].err);
 }
 
 void skl_ipc_process_reply(struct sst_generic_ipc *ipc,
