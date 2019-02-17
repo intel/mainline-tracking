@@ -543,13 +543,16 @@ int mei_cldev_enable(struct mei_cl_device *cldev)
 	}
 
 	if (!mei_cldev_vt_support_check(cldev)) {
-		cl_vtag = mei_cl_vtag_alloc(NULL, 0);
-		if (IS_ERR(cl_vtag)) {
-			ret = -ENOMEM;
-			goto out;
-		}
+		if (!list_first_entry_or_null(&cl->vtag_map,
+					      struct mei_cl_vtag, list)) {
+			cl_vtag = mei_cl_vtag_alloc(NULL, 0);
+			if (IS_ERR(cl_vtag)) {
+				ret = -ENOMEM;
+				goto out;
+			}
 
-		list_add_tail(&cl_vtag->list, &cl->vtag_map);
+			list_add_tail(&cl_vtag->list, &cl->vtag_map);
+		}
 	}
 
 	ret = mei_cl_connect(cl, cldev->me_cl, NULL);
