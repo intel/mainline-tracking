@@ -2577,6 +2577,30 @@ static int soc_pcm_ioctl(struct snd_pcm_substream *substream,
 	return snd_pcm_lib_ioctl(substream, cmd, arg);
 }
 
+static int soc_pcm_get_time_info(struct snd_pcm_substream *substream,
+			struct timespec *system_ts, struct timespec *audio_ts,
+			struct snd_pcm_audio_tstamp_config *audio_tstamp_config,
+			struct snd_pcm_audio_tstamp_report *audio_tstamp_report)
+{
+	struct snd_soc_pcm_runtime *rtd = substream->private_data;
+	struct snd_soc_component *component;
+	struct snd_soc_rtdcom_list *rtdcom;
+
+	for_each_rtdcom(rtd, rtdcom) {
+		component = rtdcom->component;
+
+		if (!component->driver->ops ||
+		    !component->driver->ops->get_time_info)
+			continue;
+
+		return component->driver->ops->get_time_info(substream,
+				system_ts, audio_ts, audio_tstamp_config,
+				audio_tstamp_report);
+	}
+
+	return -ENOSYS;
+}
+
 static int dpcm_run_update_shutdown(struct snd_soc_pcm_runtime *fe, int stream)
 {
 	struct snd_pcm_substream *substream =
@@ -3173,6 +3197,8 @@ int soc_new_pcm(struct snd_soc_pcm_runtime *rtd, int num)
 		rtd->ops.pointer	= soc_pcm_pointer;
 		rtd->ops.ioctl		= soc_pcm_ioctl;
 	}
+
+	rtd->ops.get_time_info = soc_pcm_get_time_info;
 
 	for_each_rtdcom(rtd, rtdcom) {
 		const struct snd_pcm_ops *ops = rtdcom->component->driver->ops;
