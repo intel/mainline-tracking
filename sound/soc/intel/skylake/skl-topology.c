@@ -421,55 +421,6 @@ static void skl_tplg_alloc_pipe_mem(struct skl *skl,
 }
 
 /*
- * Pipeline needs needs DSP CPU resources for computation, this is
- * quantified in MCPS (Million Clocks Per Second) required for module/pipe
- *
- * Each pipelines needs mcps to be allocated. Check if we have mcps for this
- * pipe.
- */
-
-static bool skl_is_pipe_mcps_avail(struct skl *skl,
-				struct skl_module_cfg *mconfig)
-{
-	struct skl_sst *ctx = skl->skl_sst;
-	u8 res_idx = mconfig->res_idx;
-	struct skl_module_res *res = &mconfig->module->resources[res_idx];
-
-	if (skl->resource.mcps + res->cps > skl->resource.max_mcps) {
-		dev_err(ctx->dev,
-			"%s: module_id %d instance %d\n", __func__,
-			mconfig->id.module_id, mconfig->id.instance_id);
-		dev_err(ctx->dev,
-			"exceeds ppl mcps available %d > mem %d\n",
-			skl->resource.max_mcps, skl->resource.mcps);
-		return false;
-	} else {
-		return true;
-	}
-}
-
-static void skl_tplg_alloc_pipe_mcps(struct skl *skl,
-				struct skl_module_cfg *mconfig)
-{
-	u8 res_idx = mconfig->res_idx;
-	struct skl_module_res *res = &mconfig->module->resources[res_idx];
-
-	skl->resource.mcps += res->cps;
-}
-
-/*
- * Free the mcps when tearing down
- */
-static void
-skl_tplg_free_pipe_mcps(struct skl *skl, struct skl_module_cfg *mconfig)
-{
-	u8 res_idx = mconfig->res_idx;
-	struct skl_module_res *res = &mconfig->module->resources[res_idx];
-
-	skl->resource.mcps -= res->cps;
-}
-
-/*
  * Free the memory when tearing down
  */
 static void
@@ -882,10 +833,6 @@ skl_tplg_init_pipe_modules(struct skl *skl, struct skl_pipe *pipe)
 		mconfig->fmt_idx = mconfig->mod_cfg[cfg_idx].fmt_idx;
 		mconfig->res_idx = mconfig->mod_cfg[cfg_idx].res_idx;
 
-		/* check resource available */
-		if (!skl_is_pipe_mcps_avail(skl, mconfig))
-			return -ENOMEM;
-
 		if (mconfig->module->loadable && ctx->dsp->fw_ops.load_mod) {
 			ret = ctx->dsp->fw_ops.load_mod(ctx->dsp,
 				mconfig->id.module_id, mconfig->guid);
@@ -927,7 +874,7 @@ skl_tplg_init_pipe_modules(struct skl *skl, struct skl_pipe *pipe)
 			skl_put_pvt_id(ctx, uuid_mod, &mconfig->id.pvt_id);
 			goto err;
 		}
-		skl_tplg_alloc_pipe_mcps(skl, mconfig);
+
 		ret = skl_tplg_set_module_params(w, ctx);
 		if (ret < 0)
 			goto err;
@@ -1103,10 +1050,6 @@ static int skl_tplg_mixer_dapm_pre_pmu_event(struct snd_soc_dapm_widget *w,
 	if (ret < 0)
 		return ret;
 
-	/* check resource available */
-	if (!skl_is_pipe_mcps_avail(skl, mconfig))
-		return -EBUSY;
-
 	if (!skl_is_pipe_mem_avail(skl, mconfig))
 		return -ENOMEM;
 
@@ -1119,7 +1062,6 @@ static int skl_tplg_mixer_dapm_pre_pmu_event(struct snd_soc_dapm_widget *w,
 		return ret;
 
 	skl_tplg_alloc_pipe_mem(skl, mconfig);
-	skl_tplg_alloc_pipe_mcps(skl, mconfig);
 
 	/* Init all pipe modules from source to sink */
 	ret = skl_tplg_init_pipe_modules(skl, s_pipe);
@@ -1667,7 +1609,6 @@ static int skl_tplg_mixer_dapm_pre_pmd_event(struct snd_soc_dapm_widget *w,
 
 /*
  * in the Post-PMD event of mixer we need to do following:
- *   - Free the mcps used
  *   - Free the mem used
  *   - Unbind the modules within the pipeline
  *   - Delete the pipeline (modules are not required to be explicitly
@@ -1686,7 +1627,6 @@ static int skl_tplg_mixer_dapm_post_pmd_event(struct snd_soc_dapm_widget *w,
 	if (s_pipe->state == SKL_PIPE_INVALID)
 		return -EINVAL;
 
-	skl_tplg_free_pipe_mcps(skl, mconfig);
 	skl_tplg_free_pipe_mem(skl, mconfig);
 
 	list_for_each_entry(w_module, &s_pipe->w_list, node) {
@@ -1721,8 +1661,6 @@ static int skl_tplg_mixer_dapm_post_pmd_event(struct snd_soc_dapm_widget *w,
 	list_for_each_entry(w_module, &s_pipe->w_list, node) {
 		dst_module = w_module->w->priv;
 
-		if (mconfig->m_state >= SKL_MODULE_INIT_DONE)
-			skl_tplg_free_pipe_mcps(skl, dst_module);
 		if (src_module == NULL) {
 			src_module = dst_module;
 			continue;
@@ -1744,7 +1682,6 @@ static int skl_tplg_mixer_dapm_post_pmd_event(struct snd_soc_dapm_widget *w,
 
 /*
  * in the Post-PMD event of PGA we need to do following:
- *   - Free the mcps used
  *   - Stop the pipeline
  *   - In source pipe is connected, unbind with source pipelines
  */
@@ -3943,7 +3880,6 @@ void skl_cleanup_resources(struct skl *skl)
 		return;
 
 	skl->resource.mem = 0;
-	skl->resource.mcps = 0;
 
 	list_for_each_entry(w, &card->widgets, list) {
 		if (is_skl_dsp_widget_type(w, ctx->dev) && w->priv != NULL)
@@ -4920,7 +4856,6 @@ static void skl_tplg_set_pipe_type(struct skl *skl, struct skl_pipe *pipe)
 }
 
 /* This will be read from topology manifest, currently defined here */
-#define SKL_MAX_MCPS 350000000
 #define SKL_FW_MAX_MEM 1000000
 
 /*
@@ -4957,7 +4892,6 @@ int skl_tplg_init(struct snd_soc_component *component, struct hdac_bus *bus)
 		return -EINVAL;
 	}
 
-	skl->resource.max_mcps = SKL_MAX_MCPS;
 	skl->resource.max_mem = SKL_FW_MAX_MEM;
 
 	skl->tplg = fw;
