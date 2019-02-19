@@ -319,6 +319,7 @@ struct skl_event_notify {
 	u32 resource_type;
 	u32 resource_id;
 	u32 event_type;
+	u32 reserved;
 	u32 event_data[SKL_FW_RSRCE_EVNT_DATA_SZ];
 } __packed;
 
