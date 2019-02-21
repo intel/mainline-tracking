@@ -18,7 +18,7 @@
 
 #define BXT_BASEFW_TIMEOUT	3000
 #define BXT_INIT_TIMEOUT	300
-#define BXT_ROM_INIT_TIMEOUT	70
+#define BXT_ROM_INIT_TIMEOUT	100
 #define BXT_IPC_PURGE_FW	0x01004000
 
 #define BXT_ROM_INIT		0x5
@@ -35,7 +35,7 @@
 /* Delay before scheduling D0i3 entry */
 #define BXT_D0I3_DELAY 5000
 
-#define BXT_FW_INIT_RETRY 10
+#define BXT_FW_INIT_RETRY 20
 
 static unsigned int bxt_get_errorcode(struct sst_dsp *ctx)
 {
@@ -217,22 +217,22 @@ static int bxt_load_base_firmware(struct sst_dsp *ctx)
 	for (i = 0; i < BXT_FW_INIT_RETRY; i++) {
 		ret = sst_bxt_prepare_fw(ctx, stripped_fw.data, stripped_fw.size);
 		if (ret < 0) {
-			dev_err(ctx->dev, "Error code=0x%x: FW status=0x%x\n",
+			dev_dbg(ctx->dev,
+				"Iteration %d Core En/ROM load failed: %d\nError code=0x%x: FW status=0x%x\n",
+				i, ret,
 				sst_dsp_shim_read(ctx, BXT_ADSP_ERROR_CODE),
 				sst_dsp_shim_read(ctx, BXT_ADSP_FW_STATUS));
-
-			dev_err(ctx->dev, "Iteration %d Core En/ROM load fail:%d\n", i, ret);
 			continue;
 		}
 		dev_dbg(ctx->dev, "Iteration %d ROM load Success:%d\n", i, ret);
 
 		ret = sst_transfer_fw_host_dma(ctx, ret);
 		if (ret < 0) {
-			dev_err(ctx->dev, "Iteration %d Transfer firmware failed %d\n", i, ret);
-			dev_info(ctx->dev, "Error code=0x%x: FW status=0x%x\n",
+			dev_dbg(ctx->dev,
+				"Iteration %d Transfer firmware failed: %d\nError code=0x%x: FW status=0x%x\n",
+				i, ret,
 				sst_dsp_shim_read(ctx, BXT_ADSP_ERROR_CODE),
 				sst_dsp_shim_read(ctx, BXT_ADSP_FW_STATUS));
-
 			skl_dsp_core_power_down(ctx, SKL_DSP_CORE_MASK(1));
 			skl_dsp_disable_core(ctx, SKL_DSP_CORE0_MASK);
 			continue;
