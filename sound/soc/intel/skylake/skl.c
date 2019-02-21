@@ -42,6 +42,11 @@ MODULE_PARM_DESC(pci_binding, "PCI binding (0=auto, 1=only legacy, 2=only asoc")
 static char *tplg_name;
 module_param(tplg_name, charp, 0444);
 MODULE_PARM_DESC(tplg_name, "Name of topology binary file");
+static bool is_dummy_driver;
+#if IS_ENABLED(CONFIG_SND_SOC_INTEL_SSP_TEST_MACH)
+module_param(is_dummy_driver, bool, 0444);
+MODULE_PARM_DESC(is_dummy_driver, "Enable use of test driver (Default: false)");
+#endif
 
 /*
  * initialize the PCI registers
@@ -556,13 +561,29 @@ static int skl_find_machine(struct skl_dev *skl, void *driver_data)
 	if (!mach) {
 		dev_dbg(bus->dev, "No matching I2S machine driver found\n");
 		mach = skl_find_hda_machine(skl, driver_data);
-		if (!mach) {
+		if (!mach && !is_dummy_driver) {
 			dev_err(bus->dev, "No matching machine driver found\n");
 			return -ENODEV;
 		}
 	}
 
 out:
+#if IS_ENABLED(CONFIG_SND_SOC_INTEL_SSP_TEST_MACH)
+	if (is_dummy_driver) {
+		struct snd_soc_acpi_mach *temp_mach = mach;
+
+		mach = &snd_soc_acpi_intel_ssp_test_machine;
+
+		if (temp_mach)
+			mach->fw_filename = temp_mach->fw_filename;
+
+		pdata = mach->pdata;
+	}
+#endif
+
+	if (!mach)
+		return -ENODEV;
+
 	skl->mach = mach;
 
 	if (pdata) {

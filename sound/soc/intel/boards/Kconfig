@@ -505,6 +505,16 @@ config SND_SOC_INTEL_CNL_RT274_MACH
 
 endif ## SND_SOC_INTEL_CNL
 
+config SND_SOC_INTEL_SSP_TEST_MACH
+	tristate "SSP-TEST mode"
+	depends on MFD_INTEL_LPSS && ACPI
+	help
+	  This adds support for ASoC test machine driver.
+	  This will create a dummy sound card. In order to load test driver
+	  correctly you must also provide the appropriate topology.
+	  Say m if you want to load test driver on demand using module params.
+	  If unsure select "N".
+
 if SND_SOC_INTEL_SKYLAKE_HDAUDIO_CODEC || SND_SOC_SOF_HDA_AUDIO_CODEC
 
 config SND_SOC_INTEL_SKL_HDA_DSP_GENERIC_MACH
