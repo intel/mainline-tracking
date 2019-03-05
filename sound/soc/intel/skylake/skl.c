@@ -888,6 +888,11 @@ static void skl_probe_work(struct work_struct *work)
 	list_for_each_entry(hlink, &bus->hlink_list, list)
 		snd_hdac_ext_bus_link_put(bus, hlink);
 
+	if (!bus->cmd_dma_state) {
+		snd_hdac_bus_init_cmd_io(bus);
+		bus->cmd_dma_state = true;
+	}
+
 	if (IS_ENABLED(CONFIG_SND_SOC_HDAC_HDMI))
 		snd_hdac_display_power(bus, HDA_CODEC_IDX_CONTROLLER, false);
 
