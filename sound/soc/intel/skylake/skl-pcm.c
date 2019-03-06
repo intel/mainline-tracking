@@ -19,6 +19,7 @@
 #include "skl-topology.h"
 #include "skl-sst-dsp.h"
 #include "skl-sst-ipc.h"
+#include "skl-compress.h"
 
 #define HDA_MONO 1
 #define HDA_STEREO 2
@@ -671,6 +672,18 @@ static int skl_link_hw_free(struct snd_pcm_substream *substream,
 	return 0;
 }
 
+static struct snd_compr_ops skl_platform_compr_ops = {
+	.copy		= skl_probe_compr_copy,
+};
+
+static struct snd_soc_cdai_ops skl_probe_compr_ops = {
+	.startup	= skl_probe_compr_open,
+	.shutdown	= skl_probe_compr_free,
+	.set_params	= skl_probe_compr_set_params,
+	.trigger	= skl_probe_compr_trigger,
+	.pointer	= skl_probe_compr_pointer,
+};
+
 static const struct snd_soc_dai_ops skl_pcm_dai_ops = {
 	.startup = skl_pcm_open,
 	.shutdown = skl_pcm_close,
@@ -1069,6 +1082,32 @@ static struct snd_soc_dai_driver skl_platform_dai[] = {
 		.rates = SNDRV_PCM_RATE_8000_192000,
 		.formats = SNDRV_PCM_FMTBIT_S16_LE | SNDRV_PCM_FMTBIT_S24_LE |
 			SNDRV_PCM_FMTBIT_S32_LE,
+	},
+},
+{
+	.name = "Probe Injection0 CPU DAI",
+	.compress_new = snd_soc_new_compress,
+	.cops = &skl_probe_compr_ops,
+	.playback = {
+		.stream_name = "Probe Injection0",
+		.channels_min = 1,
+		.channels_max = 8,
+		.rates = SNDRV_PCM_RATE_48000,
+		.rate_min = 48000,
+		.rate_max = 48000,
+	},
+},
+{
+	.name = "Probe Extraction CPU DAI",
+	.compress_new = snd_soc_new_compress,
+	.cops = &skl_probe_compr_ops,
+	.capture = {
+		.stream_name = "Probe Extraction",
+		.channels_min = 1,
+		.channels_max = 8,
+		.rates = SNDRV_PCM_RATE_48000,
+		.rate_min = 48000,
+		.rate_max = 48000,
 	},
 },
 };
@@ -1529,6 +1568,7 @@ static const struct snd_soc_component_driver skl_component  = {
 	.probe		= skl_platform_soc_probe,
 	.remove		= skl_pcm_remove,
 	.ops		= &skl_platform_ops,
+	.compr_ops	= &skl_platform_compr_ops,
 	.pcm_new	= skl_pcm_new,
 	.pcm_free	= skl_pcm_free,
 	.module_get_upon_open = 1, /* increment refcount when a pcm is opened */
