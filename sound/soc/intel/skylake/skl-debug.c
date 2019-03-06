@@ -28,6 +28,61 @@ struct skl_debug {
 	u8 fw_read_buff[FW_REG_BUF];
 };
 
+/**
+ * strsplit_u32 - Split string into sequence of u32 tokens
+ * @buf:	String to split into tokens.
+ * @delim:	String containing delimiter characters.
+ * @tkns:	Returned u32 sequence pointer.
+ * @num_tkns:	Returned number of tokens obtained.
+ */
+static int
+strsplit_u32(char **buf, const char *delim, u32 **tkns, size_t *num_tkns)
+{
+	char *s;
+	u32 *data, *tmp;
+	size_t count = 0;
+	size_t max_count = 32;
+	int ret = 0;
+
+	*tkns = NULL;
+	*num_tkns = 0;
+	data = kcalloc(max_count, sizeof(*data), GFP_KERNEL);
+	if (!data)
+		return -ENOMEM;
+
+	while ((s = strsep(buf, delim)) != NULL) {
+		ret = kstrtouint(s, 0, (data + count));
+		if (ret)
+			goto exit;
+		if (++count >= max_count) {
+			max_count *= 2;
+			tmp = kcalloc(max_count, sizeof(*data), GFP_KERNEL);
+			if (!tmp) {
+				ret = -ENOMEM;
+				goto exit;
+			}
+
+			memcpy(tmp, data, count * sizeof(*data));
+			kfree(data);
+			data = tmp;
+		}
+	}
+
+	if (!count)
+		goto exit;
+	*tkns = kcalloc(count, sizeof(*data), GFP_KERNEL);
+	if (*tkns == NULL) {
+		ret = -ENOMEM;
+		goto exit;
+	}
+	memcpy(*tkns, data, count * sizeof(*data));
+	*num_tkns = count;
+
+exit:
+	kfree(data);
+	return ret;
+}
+
 static ssize_t skl_print_pins(struct skl_module_pin *m_pin, char *buf,
 				int max_pin, ssize_t size, bool direction)
 {
