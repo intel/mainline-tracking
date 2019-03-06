@@ -77,6 +77,8 @@ static const struct hdac_io_ops hdac_ext_default_io = {
 	.dma_free_pages = hdac_ext_dma_free_pages,
 };
 
+static int idx;
+
 /**
  * snd_hdac_ext_bus_init - initialize a HD-audio extended bus
  * @ebus: the pointer to extended bus object
@@ -93,7 +95,6 @@ int snd_hdac_ext_bus_init(struct hdac_bus *bus, struct device *dev,
 			const struct hdac_ext_bus_ops *ext_ops)
 {
 	int ret;
-	static int idx;
 
 	/* check if io ops are provided, if not load the defaults */
 	if (io_ops == NULL)
@@ -121,6 +122,14 @@ EXPORT_SYMBOL_GPL(snd_hdac_ext_bus_init);
 void snd_hdac_ext_bus_exit(struct hdac_bus *bus)
 {
 	snd_hdac_bus_exit(bus);
+	/* FIXME: this is workaround
+	 * reset index used for bus->idx, because machine drivers expect
+	 * the codec name to be ehdaudio0D2, where 0 is bus->idx
+	 * we only perform reset if there is one used device, if there is more
+	 * all bets are off
+	 */
+	if (idx == 1)
+		idx = 0;
 	WARN_ON(!list_empty(&bus->hlink_list));
 }
 EXPORT_SYMBOL_GPL(snd_hdac_ext_bus_exit);
@@ -140,7 +149,7 @@ static void default_release(struct device *dev)
 int snd_hdac_ext_bus_device_init(struct hdac_bus *bus, int addr,
 					struct hdac_device *hdev)
 {
-	char name[15];
+	char name[31];
 	int ret;
 
 	hdev->bus = bus;
@@ -173,7 +182,6 @@ EXPORT_SYMBOL_GPL(snd_hdac_ext_bus_device_init);
 void snd_hdac_ext_bus_device_exit(struct hdac_device *hdev)
 {
 	snd_hdac_device_exit(hdev);
-	kfree(hdev);
 }
 EXPORT_SYMBOL_GPL(snd_hdac_ext_bus_device_exit);
 

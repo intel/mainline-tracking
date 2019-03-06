@@ -942,6 +942,8 @@ static void soc_remove_component(struct snd_soc_component *component)
 
 	list_del(&component->card_list);
 
+	snd_soc_component_set_jack(component, NULL, NULL);
+
 	if (component->driver->remove)
 		component->driver->remove(component);
 
@@ -2214,22 +2216,26 @@ static int soc_cleanup_card_resources(struct snd_soc_card *card)
 	for_each_card_rtds(card, rtd)
 		flush_delayed_work(&rtd->delayed_work);
 
-	/* free the ALSA card at first; this syncs with pending operations */
-	snd_card_free(card->snd_card);
-
-	/* remove and free each DAI */
-	soc_remove_dai_links(card);
-	soc_remove_pcm_runtimes(card);
+	/* sync pending file operations */
+	snd_card_disconnect_sync(card->snd_card);
 
 	/* remove auxiliary devices */
 	soc_remove_aux_devices(card);
 
-	snd_soc_dapm_free(&card->dapm);
-	soc_cleanup_card_debugfs(card);
+	/* remove and free each DAI */
+	soc_remove_dai_links(card);
 
 	/* remove the card */
 	if (card->remove)
 		card->remove(card);
+
+	snd_soc_dapm_free(&card->dapm);
+	soc_cleanup_card_debugfs(card);
+
+	/* free the ALSA card at last */
+	snd_card_free(card->snd_card);
+
+	soc_remove_pcm_runtimes(card);
 
 	return 0;
 }
@@ -2771,7 +2777,7 @@ int snd_soc_register_card(struct snd_soc_card *card)
 			dev_err(card->dev, "ASoC: failed to init link %s\n",
 				link->name);
 			mutex_unlock(&client_mutex);
-			return ret;
+			goto err;
 		}
 	}
 	mutex_unlock(&client_mutex);
@@ -2791,7 +2797,18 @@ int snd_soc_register_card(struct snd_soc_card *card)
 	mutex_init(&card->mutex);
 	mutex_init(&card->dapm_mutex);
 
-	return snd_soc_bind_card(card);
+	ret = snd_soc_bind_card(card);
+	if (ret)
+		goto err;
+
+	return 0;
+
+err:
+	for_each_card_prelinks(card, i, link)
+		if (link->platform)
+			link->platform = NULL;
+
+	return ret;
 }
 EXPORT_SYMBOL_GPL(snd_soc_register_card);
 
@@ -2886,7 +2903,24 @@ static inline char *fmt_multiple_name(struct device *dev,
 }
 
 /**
- * snd_soc_unregister_dai - Unregister DAIs from the ASoC core
+ * snd_soc_unregister_dai - Unregister dynamically created DAI
+ *
+ * @component: The component for which the DAI should be unregistered
+ * @dai: DAI which should be unregistered
+ */
+void snd_soc_unregister_dai(struct snd_soc_component *component,
+	struct snd_soc_dai *dai)
+{
+	dev_dbg(component->dev, "ASoC: Unregistered DAI '%s'\n",
+		dai->name);
+	list_del(&dai->list);
+	kfree(dai->name);
+	kfree(dai);
+}
+EXPORT_SYMBOL_GPL(snd_soc_unregister_dai);
+
+/**
+ * snd_soc_unregister_dais - Unregister DAIs from the ASoC core
  *
  * @component: The component for which the DAIs should be unregistered
  */
@@ -2894,13 +2928,8 @@ static void snd_soc_unregister_dais(struct snd_soc_component *component)
 {
 	struct snd_soc_dai *dai, *_dai;
 
-	for_each_component_dais_safe(component, dai, _dai) {
-		dev_dbg(component->dev, "ASoC: Unregistered DAI '%s'\n",
-			dai->name);
-		list_del(&dai->list);
-		kfree(dai->name);
-		kfree(dai);
-	}
+	for_each_component_dais_safe(component, dai, _dai)
+		snd_soc_unregister_dai(component, dai);
 }
 
 /* Create a DAI and add it to the component's DAI list */
@@ -3292,8 +3321,6 @@ static int __snd_soc_unregister_component(struct device *dev)
 		if (dev != component->dev)
 			continue;
 
-		snd_soc_tplg_component_remove(component,
-					      SND_SOC_TPLG_INDEX_ALL);
 		snd_soc_component_del_unlocked(component);
 		found = 1;
 		break;

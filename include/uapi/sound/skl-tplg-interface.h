@@ -18,6 +18,11 @@
  */
 #define SKL_CONTROL_TYPE_BYTE_TLV	0x100
 #define SKL_CONTROL_TYPE_MIC_SELECT	0x102
+#define SKL_CONTROL_TYPE_BYTE_PROBE	0x101
+#define SKL_CONTROL_TYPE_MULTI_IO_SELECT	0x103
+#define SKL_CONTROL_TYPE_VOLUME		0x104
+#define SKL_CONTROL_TYPE_RAMP_DURATION	0x105
+#define SKL_CONTROL_TYPE_RAMP_TYPE	0x106
 
 #define HDA_SST_CFG_MAX	900 /* size of copier cfg*/
 #define MAX_IN_QUEUE 8
@@ -77,6 +82,9 @@ enum skl_module_type {
 	SKL_MODULE_TYPE_BASE_OUTFMT,
 	SKL_MODULE_TYPE_KPB,
 	SKL_MODULE_TYPE_MIC_SELECT,
+	SKL_MODULE_TYPE_PROBE,
+	SKL_MODULE_TYPE_ASRC,
+	SKL_MODULE_TYPE_GAIN
 };
 
 enum skl_core_affinity {
@@ -144,12 +152,47 @@ enum skl_module_param_type {
 	SKL_PARAM_BIND
 };
 
+enum skl_probe_param_id_type {
+	SKL_PROBE_INJECT_DMA_ATTACH = 1,
+	SKL_PROBE_INJECT_DMA_DETACH,
+	SKL_PROBE_CONNECT,
+	SKL_PROBE_DISCONNECT
+};
+
+enum skl_probe_purpose {
+	SKL_PROBE_EXTRACT = 0,
+	SKL_PROBE_INJECT,
+	SKL_PROBE_INJECT_REEXTRACT
+};
+
+/* Injector probe states */
+enum skl_probe_state_inj {
+	SKL_PROBE_STATE_INJ_NONE = 1,
+	SKL_PROBE_STATE_INJ_DMA_ATTACHED,
+	SKL_PROBE_STATE_INJ_CONNECTED,
+	SKL_PROBE_STATE_INJ_DISCONNECTED
+};
+
+/* Extractor probe states */
+enum skl_probe_state_ext {
+	SKL_PROBE_STATE_EXT_NONE = 1,
+	SKL_PROBE_STATE_EXT_CONNECTED
+};
+
 struct skl_dfw_algo_data {
 	__u32 set_params:2;
 	__u32 rsvd:30;
 	__u32 param_id;
 	__u32 max;
 	char params[0];
+} __packed;
+
+struct skl_gain_config {
+	u32 channel_id;
+	u32 target_volume;
+	u32 ramp_type;
+	u32 reserved;
+	u64 ramp_duration;
 } __packed;
 
 enum skl_tkn_dir {
