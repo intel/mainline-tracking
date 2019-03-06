@@ -206,10 +206,32 @@ static void skl_dum_set(struct hdac_bus *bus)
 	snd_hdac_chip_updatel(bus, VS_EM2, AZX_VS_EM2_DUM, AZX_VS_EM2_DUM);
 }
 
+static void skl_set_total_bytes_transferred(struct hdac_stream *hstream)
+{
+	int pos, no_of_bytes;
+	unsigned int prev_pos;
+	u64 buffer_size = hstream->cstream->runtime->buffer_size;
+
+	div_u64_rem(hstream->curr_pos, buffer_size, &prev_pos);
+	pos = snd_hdac_stream_get_pos_posbuf(hstream);
+
+	if (pos < prev_pos)
+		no_of_bytes = (buffer_size - prev_pos) +  pos;
+	else
+		no_of_bytes = pos - prev_pos;
+
+	hstream->curr_pos += no_of_bytes;
+}
+
 /* called from IRQ */
 static void skl_stream_update(struct hdac_bus *bus, struct hdac_stream *hstr)
 {
-	snd_pcm_period_elapsed(hstr->substream);
+	if (hstr->substream) {
+		snd_pcm_period_elapsed(hstr->substream);
+	} else if (hstr->cstream) {
+		skl_set_total_bytes_transferred(hstr);
+		snd_compr_fragment_elapsed(hstr->cstream);
+	}
 }
 
 static irqreturn_t skl_interrupt(int irq, void *dev_id)
