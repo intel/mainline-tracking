@@ -1232,3 +1232,103 @@ int skl_get_module_params(struct skl_dev *skl, u32 *params, int size,
 
 	return skl_ipc_get_large_config(&skl->ipc, &msg, &params, &bytes);
 }
+
+int skl_probe_get_dma(struct skl_dev *skl,
+		struct skl_probe_dma **dma, size_t *num_dma)
+{
+	struct skl_ipc_large_config_msg msg = {0};
+	u32 *payload = NULL;
+	size_t bytes = 0;
+	int ret;
+
+	*dma = NULL;
+	*num_dma = 0;
+	msg.module_id = skl_get_module_id(skl, &skl_probe_mod_uuid);
+	msg.instance_id = 0;
+	msg.large_param_id = SKL_PROBE_INJECTION_DMA;
+
+	ret = skl_ipc_get_large_config(&skl->ipc, &msg, &payload, &bytes);
+	if (ret < 0 || !bytes)
+		return ret;
+
+	*dma = (struct skl_probe_dma *)payload;
+	*num_dma = bytes / sizeof(**dma);
+
+	return 0;
+}
+
+int skl_probe_dma_attach(struct skl_dev *skl,
+		struct skl_probe_dma *dma, size_t num_dma)
+{
+	struct skl_ipc_large_config_msg msg = {0};
+
+	msg.module_id = skl_get_module_id(skl, &skl_probe_mod_uuid);
+	msg.instance_id = 0;
+	msg.param_data_size = sizeof(*dma) * num_dma;
+	msg.large_param_id = SKL_PROBE_INJECTION_DMA;
+
+	return skl_ipc_set_large_config(&skl->ipc, &msg, (u32 *)dma);
+}
+
+int skl_probe_dma_detach(struct skl_dev *skl,
+		union skl_connector_node_id *node_id, size_t num_node_id)
+{
+	struct skl_ipc_large_config_msg msg = {0};
+
+	msg.module_id = skl_get_module_id(skl, &skl_probe_mod_uuid);
+	msg.instance_id = 0;
+	msg.param_data_size = sizeof(*node_id) * num_node_id;
+	msg.large_param_id = SKL_PROBE_INJECTION_DMA_DETACH;
+
+	return skl_ipc_set_large_config(&skl->ipc, &msg, (u32 *)node_id);
+}
+
+int skl_probe_get_points(struct skl_dev *skl,
+		struct skl_probe_point_desc **desc, size_t *num_desc)
+{
+	struct skl_ipc_large_config_msg msg = {0};
+	u32 *payload = NULL;
+	size_t bytes = 0;
+	int ret;
+
+	*desc = NULL;
+	*num_desc = 0;
+	msg.module_id = skl_get_module_id(skl, &skl_probe_mod_uuid);
+	msg.instance_id = 0;
+	msg.large_param_id = SKL_PROBE_POINTS;
+
+	ret = skl_ipc_get_large_config(&skl->ipc, &msg, &payload, &bytes);
+	if (ret < 0 || !bytes)
+		return ret;
+
+	*desc = (struct skl_probe_point_desc *)payload;
+	*num_desc = bytes / sizeof(**desc);
+
+	return 0;
+}
+
+int skl_probe_points_connect(struct skl_dev *skl,
+		struct skl_probe_point_desc *desc, size_t num_desc)
+{
+	struct skl_ipc_large_config_msg msg = {0};
+
+	msg.module_id = skl_get_module_id(skl, &skl_probe_mod_uuid);
+	msg.instance_id = 0;
+	msg.param_data_size = sizeof(*desc) * num_desc;
+	msg.large_param_id = SKL_PROBE_POINTS;
+
+	return skl_ipc_set_large_config(&skl->ipc, &msg, (u32 *)desc);
+}
+
+int skl_probe_points_disconnect(struct skl_dev *skl,
+		union skl_probe_point_id *id, size_t num_id)
+{
+	struct skl_ipc_large_config_msg msg = {0};
+
+	msg.module_id = skl_get_module_id(skl, &skl_probe_mod_uuid);
+	msg.instance_id = 0;
+	msg.param_data_size = sizeof(*id) * num_id;
+	msg.large_param_id = SKL_PROBE_POINTS_DISCONNECT;
+
+	return skl_ipc_set_large_config(&skl->ipc, &msg, (u32 *)id);
+}

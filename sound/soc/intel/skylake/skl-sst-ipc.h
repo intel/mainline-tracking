@@ -142,6 +142,50 @@ static const guid_t skl_copier_mod_uuid =
 	GUID_INIT(0x9BA00C83, 0xCA12, 0x4A83, 0x94, 0x3C,
 		0x1F, 0xA2, 0xE8, 0x2F, 0x9D, 0xDA);
 
+static const guid_t skl_probe_mod_uuid =
+	GUID_INIT(0x7CAD0808, 0xAB10, 0xCD23, 0xEF, 0x45,
+		0x12, 0xAB, 0x34, 0xCD, 0x56, 0xEF);
+
+enum skl_probe_runtime_param {
+	SKL_PROBE_INJECTION_DMA = 1,
+	SKL_PROBE_INJECTION_DMA_DETACH,
+	SKL_PROBE_POINTS,
+	SKL_PROBE_POINTS_DISCONNECT,
+};
+
+struct skl_probe_dma {
+	union skl_connector_node_id node_id;
+	unsigned int dma_buffer_size;
+} __packed;
+
+enum skl_probe_type {
+	SKL_PROBE_TYPE_INPUT = 0,
+	SKL_PROBE_TYPE_OUTPUT,
+	SKL_PROBE_TYPE_INTERNAL
+};
+
+union skl_probe_point_id {
+	unsigned int value;
+	struct {
+		unsigned int module_id:16;
+		unsigned int instance_id:8;
+		enum skl_probe_type type:2;
+		unsigned int index:6;
+	} id;
+} __packed;
+
+enum skl_connection_purpose {
+	SKL_CONNECTION_PURPOSE_EXTRACT = 0,
+	SKL_CONNECTION_PURPOSE_INJECT,
+	SKL_CONNECTION_PURPOSE_INJECT_REEXTRACT,
+};
+
+struct skl_probe_point_desc {
+	union skl_probe_point_id id;
+	enum skl_connection_purpose purpose __aligned(4);
+	union skl_connector_node_id node_id;
+} __packed;
+
 enum skl_ipc_pipeline_state {
 	PPL_INVALID_STATE =	0,
 	PPL_UNINITIALIZED =	1,
@@ -414,5 +458,18 @@ void skl_ipc_tx_data_copy(struct ipc_message *msg, char *tx_data,
 
 int skl_ipc_fw_cfg_get(struct sst_generic_ipc *ipc, struct skl_fw_cfg *cfg);
 int skl_ipc_hw_cfg_get(struct sst_generic_ipc *ipc, struct skl_hw_cfg *cfg);
+
+int skl_probe_get_dma(struct skl_dev *skl,
+		struct skl_probe_dma **dma, size_t *num_dma);
+int skl_probe_dma_attach(struct skl_dev *skl,
+		struct skl_probe_dma *dma, size_t num_dma);
+int skl_probe_dma_detach(struct skl_dev *skl,
+		union skl_connector_node_id *node_id, size_t num_node_id);
+int skl_probe_get_points(struct skl_dev *skl,
+		struct skl_probe_point_desc **desc, size_t *num_desc);
+int skl_probe_points_connect(struct skl_dev *skl,
+		struct skl_probe_point_desc *desc, size_t num_desc);
+int skl_probe_points_disconnect(struct skl_dev *skl,
+		union skl_probe_point_id *id, size_t num_id);
 
 #endif /* __SKL_IPC_H */
