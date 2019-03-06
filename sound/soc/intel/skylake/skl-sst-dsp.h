@@ -245,7 +245,10 @@ void skl_sst_dsp_cleanup(struct device *dev, struct skl_dev *skl);
 void bxt_sst_dsp_cleanup(struct device *dev, struct skl_dev *skl);
 
 int snd_skl_parse_manifest(struct sst_dsp *ctx, const struct firmware *fw,
-				unsigned int offset, int index);
+			      unsigned int offset, int index);
+struct skl_module_entry *skl_find_module(struct skl_dev *skl,
+		const guid_t *uuid);
+int skl_get_module_id(struct skl_dev *skl, const guid_t *uuid);
 int skl_get_pvt_id(struct skl_dev *skl, guid_t *uuid_mod, int instance_id);
 int skl_put_pvt_id(struct skl_dev *skl, guid_t *uuid_mod, int *pvt_id);
 int skl_get_pvt_instance_id_map(struct skl_dev *skl,

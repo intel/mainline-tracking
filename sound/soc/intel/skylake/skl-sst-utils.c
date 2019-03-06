@@ -342,6 +342,30 @@ int snd_skl_parse_manifest(struct sst_dsp *ctx, const struct firmware *fw,
 }
 EXPORT_SYMBOL(snd_skl_parse_manifest);
 
+struct skl_module_entry *skl_find_module(struct skl_dev *skl,
+		const guid_t *uuid)
+{
+	struct skl_module_entry *module_entries;
+	int i;
+
+	module_entries = skl->fw_modules_info->module_entry;
+
+	for (i = 0; i < skl->fw_modules_info->count; i++)
+		if (guid_equal(&module_entries[i].uuid, uuid))
+			return &module_entries[i];
+
+	return NULL;
+}
+EXPORT_SYMBOL(skl_find_module);
+
+int skl_get_module_id(struct skl_dev *skl, const guid_t *uuid)
+{
+	struct skl_module_entry *module = skl_find_module(skl, uuid);
+
+	return module ? module->module_id : -ENOENT;
+}
+EXPORT_SYMBOL(skl_get_module_id);
+
 /*
  * some firmware binary contains some extended manifest. This needs
  * to be stripped in that case before we load and use that image.
