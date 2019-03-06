@@ -13,6 +13,7 @@
 #include <linux/pci.h>
 #include <sound/core.h>
 #include <sound/pcm.h>
+#include <uapi/linux/kernel.h>
 #include <uapi/sound/skl-tplg-interface.h>
 #include "skl-sst-dsp.h"
 #include "cnl-sst-dsp.h"
@@ -21,6 +22,8 @@
 #include "../common/sst-dsp.h"
 #include "../common/sst-dsp-priv.h"
 #include "skl-topology.h"
+
+#define INVALID_PIPELINE_ID	0xFF
 
 int skl_alloc_dma_buf(struct device *dev,
 		struct snd_dma_buffer *dmab, size_t size)
@@ -1231,6 +1234,47 @@ int skl_get_module_params(struct skl_dev *skl, u32 *params, int size,
 	msg.large_param_id = param_id;
 
 	return skl_ipc_get_large_config(&skl->ipc, &msg, &params, &bytes);
+}
+
+int skl_probe_init_module(struct skl_dev *skl, size_t buffer_size)
+{
+	struct skl_ipc_init_instance_msg msg = {0};
+	struct skl_probe_mod_cfg cfg = {{0}};
+	union skl_connector_node_id node_id = {0};
+	struct skl_module_entry *m = skl_find_module(skl, &skl_probe_mod_uuid);
+
+	if (skl->extractor) {
+		node_id.node.vindex = skl->extractor->hstream.stream_tag - 1;
+		node_id.node.dma_type = SKL_DMA_HDA_HOST_INPUT_CLASS;
+	} else {
+		node_id = INVALID_NODE_ID;
+	}
+
+	/*
+	 * Probe module uses no cycles, audio data format
+	 * and input and output frame sizes are unused.
+	 */
+	cfg.base_cfg.ibs = 1;
+	cfg.base_cfg.is_pages =
+			DIV_ROUND_UP(m->segments[2].flags.length, PAGE_SIZE);
+	cfg.gtw_cfg.node_id = node_id;
+	cfg.gtw_cfg.dma_buffer_size = buffer_size;
+
+	msg.module_id = m->module_id;
+	msg.instance_id = 0;
+	msg.param_data_size = sizeof(cfg);
+	msg.ppl_instance_id = INVALID_PIPELINE_ID;
+	msg.core_id = 0;
+	msg.domain = 0;
+
+	return skl_ipc_init_instance(&skl->ipc, &msg, &cfg);
+}
+
+int skl_probe_delete_module(struct skl_dev *skl)
+{
+	unsigned int module_id = skl_get_module_id(skl, &skl_probe_mod_uuid);
+
+	return skl_ipc_delete_instance(&skl->ipc, module_id, 0);
 }
 
 int skl_probe_get_dma(struct skl_dev *skl,

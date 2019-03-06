@@ -135,6 +135,10 @@ struct skl_dev {
 
 	/* Callback to update dynamic clock and power gating registers */
 	void (*clock_power_gating)(struct device *dev, bool enable);
+
+	/* probe stream management */
+	struct hdac_ext_stream *extractor;
+	unsigned int num_probe_streams;
 };
 
 #define skl_to_bus(s)  (&(s)->hbus.core)

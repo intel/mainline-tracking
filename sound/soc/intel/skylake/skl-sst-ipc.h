@@ -25,6 +25,9 @@ union skl_connector_node_id {
 	} node;
 };
 
+#define INVALID_NODE_ID \
+	((union skl_connector_node_id) { UINT_MAX })
+
 enum skl_channel_index {
 	SKL_CHANNEL_LEFT = 0,
 	SKL_CHANNEL_RIGHT = 1,
@@ -145,6 +148,16 @@ static const guid_t skl_copier_mod_uuid =
 static const guid_t skl_probe_mod_uuid =
 	GUID_INIT(0x7CAD0808, 0xAB10, 0xCD23, 0xEF, 0x45,
 		0x12, 0xAB, 0x34, 0xCD, 0x56, 0xEF);
+
+struct skl_probe_gtw_cfg {
+	union skl_connector_node_id node_id;
+	u32 dma_buffer_size;
+} __packed;
+
+struct skl_probe_mod_cfg {
+	struct skl_base_cfg base_cfg;
+	struct skl_probe_gtw_cfg gtw_cfg;
+} __packed;
 
 enum skl_probe_runtime_param {
 	SKL_PROBE_INJECTION_DMA = 1,
@@ -459,6 +472,8 @@ void skl_ipc_tx_data_copy(struct ipc_message *msg, char *tx_data,
 int skl_ipc_fw_cfg_get(struct sst_generic_ipc *ipc, struct skl_fw_cfg *cfg);
 int skl_ipc_hw_cfg_get(struct sst_generic_ipc *ipc, struct skl_hw_cfg *cfg);
 
+int skl_probe_init_module(struct skl_dev *skl, size_t buffer_size);
+int skl_probe_delete_module(struct skl_dev *skl);
 int skl_probe_get_dma(struct skl_dev *skl,
 		struct skl_probe_dma **dma, size_t *num_dma);
 int skl_probe_dma_attach(struct skl_dev *skl,
