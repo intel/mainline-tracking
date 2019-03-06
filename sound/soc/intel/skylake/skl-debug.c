@@ -24,6 +24,7 @@ struct skl_debug {
 	struct device *dev;
 
 	struct dentry *fs;
+	struct dentry *ipc;
 	struct dentry *modules;
 	u8 fw_read_buff[FW_REG_BUF];
 };
@@ -268,6 +269,196 @@ static const struct file_operations soft_regs_ctrl_fops = {
 	.llseek = default_llseek,
 };
 
+static ssize_t injection_dma_read(struct file *file,
+		char __user *to, size_t count, loff_t *ppos)
+{
+	struct skl_debug *d = file->private_data;
+	struct skl_probe_dma *dma;
+	size_t num_dma, len = 0;
+	char *buf;
+	int i, ret;
+
+	buf = kzalloc(PAGE_SIZE, GFP_KERNEL);
+	if (!buf)
+		return -ENOMEM;
+
+	ret = skl_probe_get_dma(d->skl, &dma, &num_dma);
+	if (ret < 0)
+		goto exit;
+
+	for (i = 0; i < num_dma; i++) {
+		ret = snprintf(buf + len, PAGE_SIZE - len,
+			"Node id: %#x  DMA buffer size: %d\n",
+			dma[i].node_id.val, dma[i].dma_buffer_size);
+		if (ret < 0)
+			goto free_dma;
+		len += ret;
+	}
+
+	ret = simple_read_from_buffer(to, count, ppos, buf, len);
+free_dma:
+	kfree(dma);
+exit:
+	kfree(buf);
+	return ret;
+}
+
+static const struct file_operations injection_dma_fops = {
+	.open = simple_open,
+	.read = injection_dma_read,
+	.llseek = default_llseek,
+};
+
+static ssize_t ppoints_read(struct file *file,
+		char __user *to, size_t count, loff_t *ppos)
+{
+	struct skl_debug *d = file->private_data;
+	struct skl_probe_point_desc *desc;
+	size_t num_desc, len = 0;
+	char *buf;
+	int i, ret;
+
+	buf = kzalloc(PAGE_SIZE, GFP_KERNEL);
+	if (!buf)
+		return -ENOMEM;
+
+	ret = skl_probe_get_points(d->skl, &desc, &num_desc);
+	if (ret < 0)
+		goto exit;
+
+	for (i = 0; i < num_desc; i++) {
+		ret = snprintf(buf + len, PAGE_SIZE - len,
+			"Id: %#010x  Purpose: %d  Node id: %#x\n",
+			desc[i].id.value, desc[i].purpose, desc[i].node_id.val);
+		if (ret < 0)
+			goto free_desc;
+		len += ret;
+	}
+
+	ret = simple_read_from_buffer(to, count, ppos, buf, len);
+free_desc:
+	kfree(desc);
+exit:
+	kfree(buf);
+	return ret;
+}
+
+static ssize_t ppoints_write(struct file *file,
+		const char __user *from, size_t count, loff_t *ppos)
+{
+	struct skl_debug *d = file->private_data;
+	struct skl_probe_point_desc *desc;
+	char *buf;
+	u32 *tkns;
+	size_t num_tkns;
+	int ret;
+
+	buf = kmalloc(count + 1, GFP_KERNEL);
+	if (!buf)
+		return -ENOMEM;
+
+	ret = simple_write_to_buffer(buf, count, ppos, from, count);
+	if (ret != count) {
+		ret = ret >= 0 ? -EIO : ret;
+		goto exit;
+	}
+
+	buf[count] = '\0';
+	ret = strsplit_u32((char **)&buf, ",", &tkns, &num_tkns);
+	if (ret < 0)
+		goto exit;
+	num_tkns *= sizeof(*tkns);
+	if (!num_tkns || (num_tkns % sizeof(*desc))) {
+		ret = -EINVAL;
+		goto free_tkns;
+	}
+
+	desc = (struct skl_probe_point_desc *)tkns;
+	ret = skl_probe_points_connect(d->skl, desc,
+					num_tkns / sizeof(*desc));
+	if (ret < 0)
+		goto free_tkns;
+
+	ret = count;
+free_tkns:
+	kfree(tkns);
+exit:
+	kfree(buf);
+	return ret;
+}
+
+static const struct file_operations ppoints_fops = {
+	.open = simple_open,
+	.read = ppoints_read,
+	.write = ppoints_write,
+	.llseek = default_llseek,
+};
+
+static ssize_t ppoints_discnt_write(struct file *file,
+		const char __user *from, size_t count, loff_t *ppos)
+{
+	struct skl_debug *d = file->private_data;
+	union skl_probe_point_id *id;
+	char *buf;
+	u32 *tkns;
+	size_t num_tkns;
+	int ret;
+
+	buf = kmalloc(count + 1, GFP_KERNEL);
+	if (!buf)
+		return -ENOMEM;
+
+	ret = simple_write_to_buffer(buf, count, ppos, from, count);
+	if (ret != count) {
+		ret = ret >= 0 ? -EIO : ret;
+		goto exit;
+	}
+
+	buf[count] = '\0';
+	ret = strsplit_u32((char **)&buf, ",", &tkns, &num_tkns);
+	if (ret < 0)
+		goto exit;
+	num_tkns *= sizeof(*tkns);
+	if (!num_tkns || (num_tkns % sizeof(*id))) {
+		ret = -EINVAL;
+		goto free_tkns;
+	}
+
+	id = (union skl_probe_point_id *)tkns;
+	ret = skl_probe_points_disconnect(d->skl, id,
+					num_tkns / sizeof(*id));
+	if (ret < 0)
+		goto free_tkns;
+
+	ret = count;
+free_tkns:
+	kfree(tkns);
+exit:
+	kfree(buf);
+	return ret;
+}
+
+static const struct file_operations ppoints_discnt_fops = {
+	.open = simple_open,
+	.write = ppoints_discnt_write,
+	.llseek = default_llseek,
+};
+
+static int skl_debugfs_init_ipc(struct skl_debug *d)
+{
+	if (!debugfs_create_file("injection_dma", 0444,
+			d->ipc, d, &injection_dma_fops))
+		return -EIO;
+	if (!debugfs_create_file("probe_points", 0644,
+			d->ipc, d, &ppoints_fops))
+		return -EIO;
+	if (!debugfs_create_file("probe_points_disconnect", 0200,
+			d->ipc, d, &ppoints_discnt_fops))
+		return -EIO;
+
+	return 0;
+}
+
 struct skl_debug *skl_debugfs_init(struct skl_dev *skl)
 {
 	struct skl_debug *d;
@@ -281,6 +472,12 @@ struct skl_debug *skl_debugfs_init(struct skl_dev *skl)
 
 	d->skl = skl;
 	d->dev = &skl->pci->dev;
+
+	d->ipc = debugfs_create_dir("ipc", d->fs);
+	if (IS_ERR_OR_NULL(d->ipc))
+		return NULL;
+	if (skl_debugfs_init_ipc(d))
+		return NULL;
 
 	/* now create the module dir */
 	d->modules = debugfs_create_dir("modules", d->fs);
