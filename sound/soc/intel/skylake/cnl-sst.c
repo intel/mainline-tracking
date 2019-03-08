@@ -327,7 +327,7 @@ static int cnl_set_dsp_D3(struct sst_dsp *ctx, unsigned int core_id)
 
 	/* disable interrupts if core 0 */
 	if (core_id == SKL_DSP_CORE0_ID) {
-		skl_ipc_op_int_disable(ctx);
+		cnl_ipc_op_int_disable(ctx);
 		skl_ipc_int_disable(ctx);
 	}
 
