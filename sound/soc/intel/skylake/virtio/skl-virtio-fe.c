@@ -29,6 +29,8 @@
 #include <linux/virtio_config.h>
 #include <linux/dma-mapping.h>
 #include <linux/pci.h>
+#include <uapi/linux/sched/types.h>
+#include <linux/sched.h>
 #include <sound/pcm_params.h>
 
 #include <sound/soc-acpi.h>
@@ -317,10 +319,12 @@ release_lock:
 static void vfe_not_tx_timeout_handler(struct work_struct *work)
 {
 	struct vfe_ipc_msg *msg;
+	struct sched_param param = { .sched_priority = 10};
 	struct snd_skl_vfe *vfe =
 		container_of(work, struct snd_skl_vfe,
 		msg_timeout_work);
 
+	sched_setscheduler(current, SCHED_FIFO, &param);
 	while (!list_empty(&vfe->expired_msg_list)) {
 		msg = list_first_entry(&vfe->expired_msg_list,
 			struct vfe_ipc_msg, list);
@@ -388,9 +392,11 @@ static void vfe_handle_posn(struct work_struct *work)
 {
 	struct vfe_updated_substream *updated_stream_desc;
 	unsigned long irq_flags;
+	struct sched_param param = { .sched_priority = 10};
 	struct snd_skl_vfe *vfe =
 		container_of(work, struct snd_skl_vfe, posn_update_work);
 
+	sched_setscheduler(current, SCHED_FIFO, &param);
 	while (!list_empty(&vfe->updated_streams)) {
 		spin_lock_irqsave(&vfe->updated_streams_lock, irq_flags);
 		updated_stream_desc = list_first_entry(&vfe->updated_streams,
@@ -437,11 +443,12 @@ static void vfe_message_loop(struct work_struct *work)
 	struct virtqueue *vq;
 	unsigned int buflen = 0;
 	struct vfe_kctl_result result;
-
+	struct sched_param param = { .sched_priority = 10};
 	struct snd_skl_vfe *vfe =
 		container_of(work, struct snd_skl_vfe, message_loop_work);
 
 	vq = vfe->ipc_not_rx_vq;
+	sched_setscheduler(current, SCHED_FIFO, &param);
 
 	while ((header = virtqueue_get_buf(vq, &buflen)) != NULL) {
 		switch (header->msg_type) {

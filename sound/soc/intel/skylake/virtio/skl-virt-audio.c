@@ -18,6 +18,8 @@
 #include <linux/file.h>
 #include <linux/slab.h>
 #include <linux/pci.h>
+#include <uapi/linux/sched/types.h>
+#include <linux/sched.h>
 
 #include "skl-virtio-be.h"
 #include "skl-virtio.h"
@@ -51,6 +53,7 @@ static int vskl_vbs_handle_kick(int client_id, unsigned long *ioreqs_map)
 	struct snd_skl_vbe_client *client;
 	int vcpu, handle;
 	struct vskl *vskl = get_virtio_audio();
+	struct sched_param param = { .sched_priority = 10};
 	struct snd_skl_vbe *vbe = &vskl->vbe;
 
 	if (!vskl) {
@@ -58,6 +61,7 @@ static int vskl_vbs_handle_kick(int client_id, unsigned long *ioreqs_map)
 		return -EINVAL;
 	}
 
+	sched_setscheduler(current, SCHED_FIFO, &param);
 	dev_dbg(vskl->dev, "virtio audio kick handling!\n");
 
 	/* get the client this notification is for/from? */
