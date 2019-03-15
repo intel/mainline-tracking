@@ -138,6 +138,10 @@ struct skl_tlv {
 	u8 value[0];
 };
 
+static const guid_t skl_copier_mod_uuid =
+	GUID_INIT(0x9BA00C83, 0xCA12, 0x4A83, 0x94, 0x3C,
+		0x1F, 0xA2, 0xE8, 0x2F, 0x9D, 0xDA);
+
 enum skl_ipc_pipeline_state {
 	PPL_INVALID_STATE =	0,
 	PPL_UNINITIALIZED =	1,
@@ -147,6 +151,10 @@ enum skl_ipc_pipeline_state {
 	PPL_ERROR_STOP =	5,
 	PPL_SAVED =		6,
 	PPL_RESTORED =		7
+};
+
+enum skl_copier_runtime_param {
+	SKL_COPIER_TIMESTAMP_INIT = 1,
 };
 
 struct skl_ipc_dxstate_info {

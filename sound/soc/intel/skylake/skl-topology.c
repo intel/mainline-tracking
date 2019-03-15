@@ -2887,6 +2887,8 @@ static int skl_tplg_widget_load(struct snd_soc_component *cmpnt, int index,
 	if (!mconfig)
 		return -ENOMEM;
 
+	init_completion(&mconfig->ts_completion);
+
 	if (skl->nr_modules == 0) {
 		mconfig->module = devm_kzalloc(bus->dev,
 				sizeof(*mconfig->module), GFP_KERNEL);

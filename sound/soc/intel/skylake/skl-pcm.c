@@ -35,7 +35,8 @@ static const struct snd_pcm_hardware azx_pcm_hw = {
 				 SNDRV_PCM_INFO_SYNC_START |
 				 SNDRV_PCM_INFO_HAS_WALL_CLOCK | /* legacy */
 				 SNDRV_PCM_INFO_HAS_LINK_ATIME |
-				 SNDRV_PCM_INFO_NO_PERIOD_WAKEUP),
+				 SNDRV_PCM_INFO_NO_PERIOD_WAKEUP |
+				 SNDRV_PCM_INFO_HAS_LINK_SYNCHRONIZED_ATIME),
 	.formats =		SNDRV_PCM_FMTBIT_S16_LE |
 				SNDRV_PCM_FMTBIT_S32_LE |
 				SNDRV_PCM_FMTBIT_S24_LE,
@@ -1245,6 +1246,41 @@ static u64 skl_adjust_codec_delay(struct snd_pcm_substream *substream,
 	return (nsec > codec_nsecs) ? nsec - codec_nsecs : 0;
 }
 
+static struct skl_module_cfg *
+skl_find_first_be_mconfig(struct snd_pcm_substream *substream)
+{
+	struct snd_soc_pcm_runtime *rtd = substream->private_data;
+	struct snd_soc_dai *be_dai = NULL;
+	struct snd_soc_dpcm *dpcm;
+	struct snd_pcm_substream *be_substream;
+	struct snd_soc_pcm_runtime *be_rtd;
+	struct skl_module_cfg *mconfig;
+
+	/* find first BE copier for given substream */
+	for_each_dpcm_be(rtd, substream->stream, dpcm) {
+		be_rtd = dpcm->be;
+		be_substream = snd_soc_dpcm_get_substream(be_rtd,
+				substream->stream);
+		be_rtd = snd_pcm_substream_chip(be_substream);
+		be_dai = be_rtd->cpu_dai;
+		break;
+	}
+
+	if (!be_dai) {
+		dev_err(rtd->dev, "%s: Could not find BE DAI\n",
+			__func__);
+		return NULL;
+	}
+
+	mconfig = skl_tplg_be_get_cpr_module(be_dai, substream->stream);
+	if (!mconfig)
+		dev_err(rtd->dev, "%s: Could not find copier in BE\n",
+			__func__);
+
+	return mconfig;
+}
+
+#define SKL_LOCAL_TSCTRL_HHTSE (1 << 7)
 static int skl_get_time_info(struct snd_pcm_substream *substream,
 			struct timespec *system_ts, struct timespec *audio_ts,
 			struct snd_pcm_audio_tstamp_config *audio_tstamp_config,
@@ -1252,7 +1288,9 @@ static int skl_get_time_info(struct snd_pcm_substream *substream,
 {
 	struct hdac_ext_stream *sstream = get_hdac_ext_stream(substream);
 	struct hdac_stream *hstr = hdac_stream(sstream);
+	struct snd_soc_pcm_runtime *rtd = substream->private_data;
 	u64 nsec;
+	int ret = 0;
 
 	if ((substream->runtime->hw.info & SNDRV_PCM_INFO_HAS_LINK_ATIME) &&
 		(audio_tstamp_config->type_requested == SNDRV_PCM_AUDIO_TSTAMP_TYPE_LINK)) {
@@ -1269,12 +1307,46 @@ static int skl_get_time_info(struct snd_pcm_substream *substream,
 		audio_tstamp_report->actual_type = SNDRV_PCM_AUDIO_TSTAMP_TYPE_LINK;
 		audio_tstamp_report->accuracy_report = 1; /* rest of struct is valid */
 		audio_tstamp_report->accuracy = 42; /* 24MHzWallClk == 42ns resolution */
+	} else if ((substream->runtime->hw.info &
+			SNDRV_PCM_INFO_HAS_LINK_SYNCHRONIZED_ATIME) &&
+			(audio_tstamp_config->type_requested ==
+			 SNDRV_PCM_AUDIO_TSTAMP_TYPE_LINK_SYNCHRONIZED)) {
+		struct skl_module_cfg *mconfig =
+					skl_find_first_be_mconfig(substream);
+		u32 local_ts_control = SKL_LOCAL_TSCTRL_HHTSE;
+		struct skl_dev *skl = bus_to_skl(hstr->bus);
 
+		if (!mconfig)
+			return -EINVAL;
+
+		ret = skl_set_module_params(skl, &local_ts_control,
+			sizeof(local_ts_control), SKL_COPIER_TIMESTAMP_INIT,
+			mconfig);
+		if (ret < 0) {
+			dev_err(rtd->dev, "%s: Could not send timestamp init\n",
+				__func__);
+			return ret;
+		}
+
+		ret = wait_for_completion_interruptible_timeout(
+			&mconfig->ts_completion, msecs_to_jiffies(1000));
+		if (ret <= 0) {
+			dev_warn(rtd->dev, "%s: timestamp notification timeout\n",
+				__func__);
+			return ret ? ret : -ETIMEDOUT;
+		}
+		snd_pcm_gettime(substream->runtime, system_ts);
+		audio_tstamp_report->actual_type =
+					audio_tstamp_config->type_requested;
+		/* rest of struct is valid */
+		audio_tstamp_report->accuracy_report = 1;
+		*system_ts = ns_to_timespec(mconfig->ts.local_walclk);
+		*audio_ts = ns_to_timespec(mconfig->ts.time_stamp_cnt);
 	} else {
 		audio_tstamp_report->actual_type = SNDRV_PCM_AUDIO_TSTAMP_TYPE_DEFAULT;
 	}
 
-	return 0;
+	return ret;
 }
 
 static const struct snd_pcm_ops skl_platform_ops = {
