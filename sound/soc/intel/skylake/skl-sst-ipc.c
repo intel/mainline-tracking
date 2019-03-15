@@ -13,6 +13,7 @@
 #include "skl-sst-ipc.h"
 #include "skl-topology.h"
 #include "sound/hdaudio_ext.h"
+#include "skl-topology.h"
 
 
 #define IPC_IXC_STATUS_BITS		24
@@ -278,6 +279,12 @@ enum skl_ipc_module_msg {
 	IPC_MOD_SET_D0IX = 8
 };
 
+struct skl_event_timestamp_notify {
+	u32 module_instance_id;
+	u32 node_id;
+	struct skl_event_timestamp ts;
+} __packed;
+
 void skl_ipc_tx_data_copy(struct ipc_message *msg, char *tx_data,
 		size_t tx_size)
 {
@@ -343,6 +350,36 @@ out:
 
 }
 
+static
+int skl_process_timestamp_notification(struct skl_dev *skl)
+{
+	struct skl_module_cfg *mconfig;
+	struct skl_event_timestamp_notify ts_notif;
+	struct skl_pipeline *ppl;
+	struct skl_pipe_module *m;
+	u32 instance_id;
+	int copier_id = skl_get_module_id(skl, &skl_copier_mod_uuid);
+	int ret = -ENXIO;
+
+	sst_dsp_inbox_read(skl->dsp, &ts_notif, sizeof(ts_notif));
+	instance_id = ts_notif.module_instance_id & IPC_MOD_INSTANCE_ID_MASK;
+	dev_dbg(skl->dev, "%s copier instance:%d\n", __func__, instance_id);
+
+	list_for_each_entry(ppl, &skl->ppl_list, node)
+		list_for_each_entry(m, &ppl->pipe->w_list, node) {
+			mconfig = m->w->priv;
+			if ((mconfig->id.module_id == copier_id) &&
+			    (mconfig->id.pvt_id == instance_id)) {
+				mconfig->ts = ts_notif.ts;
+				complete(&mconfig->ts_completion);
+				ret = 0;
+				break;
+			}
+		}
+
+	return ret;
+}
+
 int skl_ipc_process_notification(struct sst_generic_ipc *ipc,
 		struct skl_ipc_header header)
 {
@@ -377,6 +414,9 @@ int skl_ipc_process_notification(struct sst_generic_ipc *ipc,
 			skl->enable_miscbdcge(ipc->dev, false);
 			skl->miscbdcg_disabled = true;
 			break;
+
+		case IPC_GLB_NOTIFY_TIMESTAMP_CAPTURED:
+			return skl_process_timestamp_notification(skl);
 
 		default:
 			dev_err(ipc->dev, "ipc: Unhandled error msg=%x\n",
