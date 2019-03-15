@@ -13,6 +13,7 @@
 #define __SKL_TOPOLOGY_H__
 
 #include <linux/types.h>
+#include <linux/completion.h>
 
 #include <sound/hdaudio_ext.h>
 #include <sound/soc.h>
@@ -248,6 +249,13 @@ struct skl_module {
 	struct skl_module_iface formats[SKL_MAX_MODULE_FORMATS];
 };
 
+struct skl_event_timestamp {
+	u32 isoffset;
+	u64 local_sample;
+	u64 local_walclk;
+	u64 time_stamp_cnt;
+} __packed;
+
 struct skl_module_cfg {
 	u8 guid[16];
 	struct skl_module_inst_id id;
@@ -286,6 +294,8 @@ struct skl_module_cfg {
 	struct skl_pipe *pipe;
 	struct skl_specific_cfg formats_config;
 	struct skl_pipe_mcfg mod_cfg[SKL_MAX_MODULES_IN_PIPE];
+	struct skl_event_timestamp ts;
+	struct completion ts_completion;
 };
 
 struct skl_algo_data {
