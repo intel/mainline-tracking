@@ -276,7 +276,8 @@ enum skl_ipc_module_msg {
 	IPC_MOD_BIND = 5,
 	IPC_MOD_UNBIND = 6,
 	IPC_MOD_SET_DX = 7,
-	IPC_MOD_SET_D0IX = 8
+	IPC_MOD_SET_D0IX = 8,
+	IPC_MOD_DELETE_INSTANCE = 11
 };
 
 struct skl_event_timestamp_notify {
@@ -1106,6 +1107,27 @@ int skl_ipc_set_d0ix(struct sst_generic_ipc *ipc, struct skl_ipc_d0ix_msg *msg)
 	return ret;
 }
 EXPORT_SYMBOL_GPL(skl_ipc_set_d0ix);
+
+int skl_ipc_delete_instance(struct sst_generic_ipc *ipc,
+		unsigned int module_id, unsigned int instance_id)
+{
+	struct skl_ipc_header hdr = {0};
+	int ret;
+
+	hdr.primary = IPC_MSG_TARGET(IPC_MOD_MSG);
+	hdr.primary |= IPC_MSG_DIR(IPC_MSG_REQUEST);
+	hdr.primary |= IPC_GLB_TYPE(IPC_MOD_DELETE_INSTANCE);
+	hdr.primary |= IPC_MOD_INSTANCE_ID(instance_id);
+	hdr.primary |= IPC_MOD_ID(module_id);
+
+	ret = skl_ipc_tx_message_wait(ipc, *(u64 *)&hdr, NULL, 0,
+		NULL, NULL, 0);
+	if (ret < 0)
+		dev_err(ipc->dev, "ipc: delete instance failed, ret %d\n", ret);
+
+	return ret;
+}
+EXPORT_SYMBOL_GPL(skl_ipc_delete_instance);
 
 int skl_ipc_fw_cfg_get(struct sst_generic_ipc *ipc, struct skl_fw_cfg *cfg)
 {
