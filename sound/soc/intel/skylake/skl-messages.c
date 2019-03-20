@@ -320,6 +320,7 @@ int skl_free_dsp(struct skl_dev *skl)
 
 	skl->dsp_ops->cleanup(bus->dev, skl);
 
+	kfree(skl->hw_cfg.i2s_caps.ctrl_base_addr);
 	kfree(skl->cores.state);
 	kfree(skl->cores.usage_count);
 

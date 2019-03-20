@@ -1189,3 +1189,90 @@ exit:
 	return ret;
 }
 EXPORT_SYMBOL_GPL(skl_ipc_fw_cfg_get);
+
+int skl_ipc_hw_cfg_get(struct sst_generic_ipc *ipc, struct skl_hw_cfg *cfg)
+{
+	struct skl_ipc_large_config_msg msg = {0};
+	struct skl_tlv *tlv;
+	size_t size, bytes = 0, offset = 0;
+	u8 *payload = NULL;
+	int ret;
+
+	msg.module_id = 0;
+	msg.instance_id = 0;
+	msg.large_param_id = SKL_BASEFW_HARDWARE_CONFIG;
+
+	ret = skl_ipc_get_large_config(ipc, &msg, (u32 **)&payload, &bytes);
+	if (ret)
+		goto exit;
+
+	while (offset < bytes) {
+		tlv = (struct skl_tlv *)(payload + offset);
+
+		switch (tlv->type) {
+		case SKL_HW_CFG_CAVS_VER:
+			cfg->cavs_version = *tlv->value;
+			break;
+
+		case SKL_HW_CFG_DSP_CORES:
+			cfg->dsp_cores = *tlv->value;
+			break;
+
+		case SKL_HW_CFG_MEM_PAGE_BYTES:
+			cfg->mem_page_bytes = *tlv->value;
+			break;
+
+		case SKL_HW_CFG_TOTAL_PHYS_MEM_PAGES:
+			cfg->total_phys_mem_pages = *tlv->value;
+			break;
+
+		case SKL_HW_CFG_I2S_CAPS:
+			cfg->i2s_caps.version = tlv->value[0];
+			size = tlv->value[1];
+			cfg->i2s_caps.ctrl_count = size;
+			if (!size)
+				break;
+
+			size *= sizeof(*cfg->i2s_caps.ctrl_base_addr);
+			cfg->i2s_caps.ctrl_base_addr =
+				kmemdup(&tlv->value[2], size, GFP_KERNEL);
+			if (!cfg->i2s_caps.ctrl_base_addr) {
+				ret = -ENOMEM;
+				goto exit;
+			}
+			break;
+
+		case SKL_HW_CFG_GATEWAY_COUNT:
+			cfg->gateway_count = *tlv->value;
+			break;
+
+		case SKL_HW_CFG_HP_EBB_COUNT:
+			cfg->hp_ebb_count = *tlv->value;
+			break;
+
+		case SKL_HW_CFG_LP_EBB_COUNT:
+			cfg->lp_ebb_count = *tlv->value;
+			break;
+
+		case SKL_HW_CFG_EBB_SIZE_BYTES:
+			cfg->ebb_size_bytes = *tlv->value;
+			break;
+
+		case SKL_HW_CFG_GPDMA_CAPS:
+		case SKL_HW_CFG_UAOL_CAPS:
+			break;
+
+		default:
+			dev_info(ipc->dev, "Unrecognized hw param: %d\n",
+				tlv->type);
+			break;
+		}
+
+		offset += sizeof(*tlv) + tlv->length;
+	}
+
+exit:
+	kfree(payload);
+	return ret;
+}
+EXPORT_SYMBOL_GPL(skl_ipc_hw_cfg_get);

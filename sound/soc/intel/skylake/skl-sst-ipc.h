@@ -194,6 +194,7 @@ enum skl_basefw_runtime_param {
 	SKL_BASEFW_ASTATE_TABLE = 4,
 	SKL_BASEFW_DMA_CONTROL = 5,
 	SKL_BASEFW_FIRMWARE_CONFIG = 7,
+	SKL_BASEFW_HARDWARE_CONFIG = 8,
 };
 
 enum skl_fw_cfg_params {
@@ -256,6 +257,50 @@ struct skl_fw_cfg {
 	u32 xtal_freq_hz;
 	u32 uaol_support;
 	u32 power_gating_policy;
+};
+
+enum skl_hw_cfg_params {
+	SKL_HW_CFG_CAVS_VER,
+	SKL_HW_CFG_DSP_CORES,
+	SKL_HW_CFG_MEM_PAGE_BYTES,
+	SKL_HW_CFG_TOTAL_PHYS_MEM_PAGES,
+	SKL_HW_CFG_I2S_CAPS,
+	SKL_HW_CFG_GPDMA_CAPS,
+	SKL_HW_CFG_GATEWAY_COUNT,
+	SKL_HW_CFG_HP_EBB_COUNT,
+	SKL_HW_CFG_LP_EBB_COUNT,
+	SKL_HW_CFG_EBB_SIZE_BYTES,
+	SKL_HW_CFG_UAOL_CAPS
+};
+
+enum skl_cavs_version {
+	SKL_CAVS_VER_1_5 = 0x10005,
+	SKL_CAVS_VER_1_8 = 0x10008,
+};
+
+enum skl_i2s_version {
+	SKL_I2S_VER_15_SKYLAKE   = 0x00000,
+	SKL_I2S_VER_15_BROXTON   = 0x10000,
+	SKL_I2S_VER_15_BROXTON_P = 0x20000,
+	SKL_I2S_VER_18_KBL_CNL   = 0x30000,
+};
+
+struct skl_i2s_caps {
+	enum skl_i2s_version version;
+	u32 ctrl_count;
+	u32 *ctrl_base_addr;
+};
+
+struct skl_hw_cfg {
+	enum skl_cavs_version cavs_version;
+	u32 dsp_cores;
+	u32 mem_page_bytes;
+	u32 total_phys_mem_pages;
+	struct skl_i2s_caps i2s_caps;
+	u32 gateway_count;
+	u32 hp_ebb_count;
+	u32 lp_ebb_count;
+	u32 ebb_size_bytes;
 };
 
 struct skl_ipc_init_instance_msg {
@@ -359,5 +404,6 @@ void skl_ipc_tx_data_copy(struct ipc_message *msg, char *tx_data,
 		size_t tx_size);
 
 int skl_ipc_fw_cfg_get(struct sst_generic_ipc *ipc, struct skl_fw_cfg *cfg);
+int skl_ipc_hw_cfg_get(struct sst_generic_ipc *ipc, struct skl_hw_cfg *cfg);
 
 #endif /* __SKL_IPC_H */
