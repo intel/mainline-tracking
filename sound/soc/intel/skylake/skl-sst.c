@@ -554,30 +554,59 @@ int skl_sst_dsp_init(struct device *dev, void __iomem *mmio_base, int irq,
 }
 EXPORT_SYMBOL_GPL(skl_sst_dsp_init);
 
-int skl_sst_init_fw(struct device *dev, struct skl_dev *skl)
+int skl_sst_init_fw(struct skl_dev *skl)
 {
-	int ret;
 	struct sst_dsp *sst = skl->dsp;
+	struct device *dev = skl->dev;
+	int (*lp_check)(struct sst_dsp *dsp, bool state);
+	int ret;
+
+	lp_check = skl->ipc.ops.check_dsp_lp_on;
+	skl->enable_miscbdcge(dev, false);
+	skl->clock_power_gating(dev, false);
 
 	ret = sst->fw_ops.load_fw(sst);
 	if (ret < 0) {
 		dev_err(dev, "Load base fw failed : %d\n", ret);
-		return ret;
+		goto exit;
+	}
+
+	if (!skl->is_first_boot)
+		goto library_load;
+	/* Disable power check during cfg setup */
+	skl->ipc.ops.check_dsp_lp_on = NULL;
+
+	ret = skl_ipc_fw_cfg_get(&skl->ipc, &skl->fw_cfg);
+	if (ret < 0) {
+		dev_err(dev, "Failed to get fw cfg: %d\n", ret);
+		goto exit;
+	}
+
+	ret = skl_ipc_hw_cfg_get(&skl->ipc, &skl->hw_cfg);
+	if (ret < 0) {
+		dev_err(dev, "Failed to get hw cfg: %d\n", ret);
+		goto exit;
 	}
 
 	skl_dsp_init_core_state(sst);
 
+library_load:
 	if (skl->lib_count > 1) {
 		ret = sst->fw_ops.load_library(sst, skl->lib_info,
 						skl->lib_count);
 		if (ret < 0) {
-			dev_err(dev, "Load Library failed : %x\n", ret);
-			return ret;
+			dev_err(dev, "Load library failed : %x\n", ret);
+			goto exit;
 		}
 	}
-	skl->is_first_boot = false;
 
-	return 0;
+	skl->is_first_boot = false;
+exit:
+	skl->ipc.ops.check_dsp_lp_on = lp_check;
+	skl->enable_miscbdcge(dev, true);
+	skl->clock_power_gating(dev, true);
+
+	return ret;
 }
 EXPORT_SYMBOL_GPL(skl_sst_init_fw);
 

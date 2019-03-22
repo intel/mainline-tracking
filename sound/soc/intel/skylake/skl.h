@@ -160,7 +160,6 @@ struct skl_dsp_ops {
 			int irq, const char *fw_name,
 			struct skl_dsp_loader_ops loader_ops,
 			struct skl_dev **skl_sst);
-	int (*init_fw)(struct device *dev, struct skl_dev *skl);
 	void (*cleanup)(struct device *dev, struct skl_dev *skl);
 };
 
@@ -174,6 +173,7 @@ struct nhlt_specific_cfg *skl_get_ep_blob(struct skl_dev *skl, u32 instance,
 int skl_nhlt_update_topology_bin(struct skl_dev *skl);
 int skl_init_dsp(struct skl_dev *skl);
 int skl_free_dsp(struct skl_dev *skl);
+int skl_sst_init_fw(struct skl_dev *skl);
 int skl_suspend_late_dsp(struct skl_dev *skl);
 int skl_suspend_dsp(struct skl_dev *skl);
 int skl_resume_dsp(struct skl_dev *skl);

@@ -1408,7 +1408,6 @@ static int skl_platform_soc_probe(struct snd_soc_component *component)
 {
 	struct hdac_bus *bus = dev_get_drvdata(component->dev);
 	struct skl_dev *skl = bus_to_skl(bus);
-	const struct skl_dsp_ops *ops;
 	int ret;
 
 	pm_runtime_get_sync(component->dev);
@@ -1424,25 +1423,10 @@ static int skl_platform_soc_probe(struct snd_soc_component *component)
 			return ret;
 		}
 
-		/* load the firmwares, since all is set */
-		ops = skl_get_dsp_ops(skl->pci->device);
-		if (!ops)
-			return -EIO;
-
-		/*
-		 * Disable dynamic clock and power gating during firmware
-		 * and library download
-		 */
-		skl->enable_miscbdcge(component->dev, false);
-		skl->clock_power_gating(component->dev, false);
-
-		ret = ops->init_fw(component->dev, skl);
-		skl->enable_miscbdcge(component->dev, true);
-		skl->clock_power_gating(component->dev, true);
-		if (ret < 0) {
-			dev_err(component->dev, "Failed to boot first fw: %d\n", ret);
+		ret = skl_sst_init_fw(skl);
+		if (ret < 0)
 			return ret;
-		}
+
 		skl_populate_modules(skl);
 		skl->update_d0i3c = skl_update_d0i3c;
 
