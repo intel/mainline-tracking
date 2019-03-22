@@ -452,25 +452,6 @@ int cnl_sst_dsp_init(struct device *dev, void __iomem *mmio_base, int irq,
 }
 EXPORT_SYMBOL_GPL(cnl_sst_dsp_init);
 
-int cnl_sst_init_fw(struct device *dev, struct skl_dev *skl)
-{
-	int ret;
-	struct sst_dsp *sst = skl->dsp;
-
-	ret = skl->dsp->fw_ops.load_fw(sst);
-	if (ret < 0) {
-		dev_err(dev, "load base fw failed: %d", ret);
-		return ret;
-	}
-
-	skl_dsp_init_core_state(sst);
-
-	skl->is_first_boot = false;
-
-	return 0;
-}
-EXPORT_SYMBOL_GPL(cnl_sst_init_fw);
-
 void cnl_sst_dsp_cleanup(struct device *dev, struct skl_dev *skl)
 {
 	if (skl->dsp->fw)
