@@ -588,7 +588,9 @@ int skl_sst_init_fw(struct skl_dev *skl)
 		goto exit;
 	}
 
-	skl_dsp_init_core_state(sst);
+	ret = skl_dsp_init_core_state(sst);
+	if (ret < 0)
+		goto exit;
 
 library_load:
 	if (skl->lib_count > 1) {

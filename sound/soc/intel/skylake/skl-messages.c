@@ -170,56 +170,48 @@ static struct skl_dsp_loader_ops bxt_get_loader_ops(void)
 static const struct skl_dsp_ops dsp_ops[] = {
 	{
 		.id = 0x9d70,
-		.num_cores = 2,
 		.loader_ops = skl_get_loader_ops,
 		.init = skl_sst_dsp_init,
 		.cleanup = skl_sst_dsp_cleanup
 	},
 	{
 		.id = 0x9d71,
-		.num_cores = 2,
 		.loader_ops = skl_get_loader_ops,
 		.init = skl_sst_dsp_init,
 		.cleanup = skl_sst_dsp_cleanup
 	},
 	{
 		.id = 0x5a98,
-		.num_cores = 2,
 		.loader_ops = bxt_get_loader_ops,
 		.init = bxt_sst_dsp_init,
 		.cleanup = bxt_sst_dsp_cleanup
 	},
 	{
 		.id = 0x3198,
-		.num_cores = 2,
 		.loader_ops = bxt_get_loader_ops,
 		.init = bxt_sst_dsp_init,
 		.cleanup = bxt_sst_dsp_cleanup
 	},
 	{
 		.id = 0x9dc8,
-		.num_cores = 4,
 		.loader_ops = bxt_get_loader_ops,
 		.init = cnl_sst_dsp_init,
 		.cleanup = cnl_sst_dsp_cleanup
 	},
 	{
 		.id = 0xa348,
-		.num_cores = 4,
 		.loader_ops = bxt_get_loader_ops,
 		.init = cnl_sst_dsp_init,
 		.cleanup = cnl_sst_dsp_cleanup
 	},
 	{
 		.id = 0x02c8,
-		.num_cores = 4,
 		.loader_ops = bxt_get_loader_ops,
 		.init = cnl_sst_dsp_init,
 		.cleanup = cnl_sst_dsp_cleanup
 	},
 	{
 		.id = 0x06c8,
-		.num_cores = 4,
 		.loader_ops = bxt_get_loader_ops,
 		.init = cnl_sst_dsp_init,
 		.cleanup = cnl_sst_dsp_cleanup
@@ -245,7 +237,6 @@ int skl_init_dsp(struct skl_dev *skl)
 	struct skl_dsp_loader_ops loader_ops;
 	int irq = bus->irq;
 	const struct skl_dsp_ops *ops;
-	struct skl_dsp_cores *cores;
 	int ret;
 
 	/* enable ppcap interrupt */
@@ -274,28 +265,9 @@ int skl_init_dsp(struct skl_dev *skl)
 		goto unmap_mmio;
 
 	skl->dsp_ops = ops;
-	cores = &skl->cores;
-	cores->count = ops->num_cores;
-
-	cores->state = kcalloc(cores->count, sizeof(*cores->state), GFP_KERNEL);
-	if (!cores->state) {
-		ret = -ENOMEM;
-		goto unmap_mmio;
-	}
-
-	cores->usage_count = kcalloc(cores->count, sizeof(*cores->usage_count),
-				     GFP_KERNEL);
-	if (!cores->usage_count) {
-		ret = -ENOMEM;
-		goto free_core_state;
-	}
-
 	dev_dbg(bus->dev, "dsp registration status=%d\n", ret);
 
 	return 0;
-
-free_core_state:
-	kfree(cores->state);
 
 unmap_mmio:
 	iounmap(mmio_base);
