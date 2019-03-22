@@ -44,6 +44,7 @@ void skl_dsp_init_core_state(struct sst_dsp *ctx)
 		skl->cores.usage_count[i] = 0;
 	}
 }
+EXPORT_SYMBOL_GPL(skl_dsp_init_core_state);
 
 /* Get the mask for all enabled cores */
 unsigned int skl_dsp_get_enabled_cores(struct sst_dsp *ctx)
