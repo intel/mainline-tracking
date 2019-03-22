@@ -33,14 +33,12 @@
 /* D0I3C Register fields */
 #define AZX_REG_VS_D0I3C_CIP      0x1 /* Command in progress */
 #define AZX_REG_VS_D0I3C_I3       0x4 /* D0i3 enable */
-#define SKL_MAX_DMACTRL_CFG	18
 #define DMA_CLK_CONTROLS	1
 #define DMA_TRANSMITION_START	2
 #define DMA_TRANSMITION_STOP	3
 
 #define AZX_VS_EM2_DUM			BIT(23)
 #define AZX_REG_VS_EM2_L1SEN		BIT(13)
-#define SKL_MAX_DMACTRL		7
 #define SKL_MAX_DMA_CFG		24
 #define BXT_INSTANCE_ID		0
 #define BXT_BASE_FW_MODULE_ID	0
@@ -90,19 +88,18 @@ struct skl_dmctrl_hdr {
 	u32 ch;
 	u32 data_size;
 	u32 *data;
-} __packed;
+};
 
-struct skl_dmactrl_config {
-	u32 type;
-	u32 size;
+struct skl_dmactrl_node {
 	u32 idx;
-	struct skl_dmctrl_hdr hdr[SKL_MAX_DMACTRL];
-} __packed;
+	struct skl_dmctrl_hdr hdr;
+	struct list_head node;
+};
 
 struct skl_fw_config {
 	struct skl_dma_buff_cfg dmacfg;
 	struct skl_sch_config sch_cfg;
-	struct skl_dmactrl_config dmactrl_cfg;
+	struct list_head dmactrl_list;
 	struct skl_astate_config *astate_cfg;
 };
 

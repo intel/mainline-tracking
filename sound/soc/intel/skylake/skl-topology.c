@@ -3899,12 +3899,31 @@ static int skl_tplg_get_str_tkn(struct device *dev,
 }
 
 static int skl_tplg_mfest_fill_dmactrl(struct device *dev,
-		struct skl_dmactrl_config *dmactrl_cfg,
 		struct snd_soc_tplg_vendor_value_elem *tkn_elem)
 {
+	struct skl_dmactrl_node *hdr_entry;
+	struct skl_dmctrl_hdr *hdr;
+	struct skl_dev *skl = get_skl_ctx(dev);
+	struct list_head *dmactrl_cfg = &skl->cfg.dmactrl_list;
 
-	u32 cfg_idx = dmactrl_cfg->idx;
-	struct skl_dmctrl_hdr *hdr = &dmactrl_cfg->hdr[cfg_idx];
+	// cfg_idx is used like preamble - allocate memory for next entry
+	if (tkn_elem->token == SKL_TKN_U32_DMACTRL_CFG_IDX) {
+
+		hdr_entry = devm_kzalloc(dev, sizeof(*hdr_entry), GFP_KERNEL);
+
+		if (!hdr_entry)
+			return -ENOMEM;
+		list_add(&hdr_entry->node, dmactrl_cfg);
+	} else {
+
+		hdr_entry = list_first_entry_or_null(
+				dmactrl_cfg, typeof(*hdr_entry), node);
+
+		if (!hdr_entry)
+			return -EINVAL;
+	}
+
+	hdr = &hdr_entry->hdr;
 
 	switch (tkn_elem->token) {
 	case SKL_TKN_U32_FMT_CH:
@@ -3932,22 +3951,13 @@ static int skl_tplg_mfest_fill_dmactrl(struct device *dev,
 		break;
 
 	case SKL_TKN_U32_DMACTRL_CFG_IDX:
-		dmactrl_cfg->idx  = tkn_elem->value;
+		hdr_entry->idx = tkn_elem->value;
 		break;
 
 	case SKL_TKN_U32_DMACTRL_CFG_SIZE:
-		if (tkn_elem->value && !hdr->data) {
-			hdr->data = devm_kzalloc(dev,
-				tkn_elem->value, GFP_KERNEL);
-			if (!hdr->data)
-				return -ENOMEM;
-			hdr->data_size = tkn_elem->value;
-			dmactrl_cfg->size = hdr->data_size;
-		} else {
-			hdr->data_size = 0;
-			dev_err(dev, "Invalid dmactrl info \n");
-		}
+		hdr->data_size = tkn_elem->value;
 		break;
+
 	default:
 		dev_err(dev, "Invalid token %d\n", tkn_elem->token);
 		return -EINVAL;
@@ -4255,8 +4265,7 @@ static int skl_tplg_get_int_tkn(struct device *dev,
 			ret = skl_tplg_manifest_fill_fmt(dev, fmt, tkn_elem,
 							 dir, pin_idx);
 		else
-			ret = skl_tplg_mfest_fill_dmactrl(dev, &skl->cfg.dmactrl_cfg,
-					 tkn_elem);
+			ret = skl_tplg_mfest_fill_dmactrl(dev, tkn_elem);
 		if (ret < 0)
 			return ret;
 		break;
@@ -4349,8 +4358,7 @@ static int skl_tplg_get_manifest_data(struct snd_soc_tplg_manifest *manifest,
 {
 	struct snd_soc_tplg_vendor_array *array;
 	int num_blocks, block_size = 0, block_type, off = 0;
-	struct skl_dmctrl_hdr *dmactrl_hdr;
-	int cfg_idx, ret;
+	int ret;
 	char *data;
 
 	/* Read the NUM_DATA_BLOCKS descriptor */
@@ -4396,14 +4404,31 @@ static int skl_tplg_get_manifest_data(struct snd_soc_tplg_manifest *manifest,
 
 			--num_blocks;
 		} else {
-			cfg_idx = skl->cfg.dmactrl_cfg.idx;
-			if (cfg_idx < SKL_MAX_DMACTRL) {
-				dmactrl_hdr = &skl->cfg.dmactrl_cfg.hdr[cfg_idx];
-				if (dmactrl_hdr->data && (dmactrl_hdr->data_size == block_size))
-					memcpy(dmactrl_hdr->data, data, block_size);
-			} else {
-				dev_err(dev, "error block_idx value exceeding %d\n", cfg_idx);
+			struct skl_dmctrl_hdr *hdr;
+			struct skl_dmactrl_node  *hdr_entry = NULL;
+
+			hdr_entry = list_first_entry_or_null(
+					&skl->cfg.dmactrl_list,
+					typeof(*hdr_entry), node);
+
+			if (!hdr_entry) {
+				dev_err(dev, "error no entry for dmactrl_hdr\n");
 				return -EINVAL;
+			}
+			hdr = &hdr_entry->hdr;
+			if (hdr->data_size == block_size) {
+				hdr->data = devm_kmemdup(dev, data,
+						block_size, GFP_KERNEL);
+				if (!hdr->data) {
+					list_del(&hdr_entry->node);
+					devm_kfree(dev, hdr_entry);
+					return -ENOMEM;
+				}
+			} else {
+				dev_err(dev, "error dmactrl cfg_idx=%u data size not matching\n",
+						hdr_entry->idx);
+				list_del(&hdr_entry->node);
+				devm_kfree(dev, hdr_entry);
 			}
 			ret = block_size;
 			--num_blocks;
