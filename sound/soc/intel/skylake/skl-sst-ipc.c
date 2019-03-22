@@ -11,6 +11,7 @@
 #include "skl.h"
 #include "skl-sst-dsp.h"
 #include "skl-sst-ipc.h"
+#include "skl-topology.h"
 #include "sound/hdaudio_ext.h"
 
 
@@ -1067,3 +1068,124 @@ int skl_ipc_set_d0ix(struct sst_generic_ipc *ipc, struct skl_ipc_d0ix_msg *msg)
 	return ret;
 }
 EXPORT_SYMBOL_GPL(skl_ipc_set_d0ix);
+
+int skl_ipc_fw_cfg_get(struct sst_generic_ipc *ipc, struct skl_fw_cfg *cfg)
+{
+	struct skl_ipc_large_config_msg msg = {0};
+	struct skl_tlv *tlv;
+	size_t bytes = 0, offset = 0;
+	u8 *payload = NULL;
+	int ret;
+
+	msg.module_id = 0;
+	msg.instance_id = 0;
+	msg.large_param_id = SKL_BASEFW_FIRMWARE_CONFIG;
+
+	ret = skl_ipc_get_large_config(ipc, &msg, (u32 **)&payload, &bytes);
+	if (ret)
+		goto exit;
+
+	while (offset < bytes) {
+		tlv = (struct skl_tlv *)(payload + offset);
+
+		switch (tlv->type) {
+		case SKL_FW_CFG_FW_VERSION:
+			memcpy(&cfg->fw_version, tlv->value,
+				sizeof(cfg->fw_version));
+			break;
+
+		case SKL_FW_CFG_MEMORY_RECLAIMED:
+			cfg->memory_reclaimed = *tlv->value;
+			break;
+
+		case SKL_FW_CFG_SLOW_CLOCK_FREQ_HZ:
+			cfg->slow_clock_freq_hz = *tlv->value;
+			break;
+
+		case SKL_FW_CFG_FAST_CLOCK_FREQ_HZ:
+			cfg->fast_clock_freq_hz = *tlv->value;
+			break;
+
+		case SKL_FW_CFG_ALH_SUPPORT_LEVEL:
+			cfg->alh_support = *tlv->value;
+			break;
+
+		case SKL_FW_CFG_IPC_DL_MAILBOX_BYTES:
+			cfg->ipc_dl_mailbox_bytes = *tlv->value;
+			break;
+
+		case SKL_FW_CFG_IPC_UL_MAILBOX_BYTES:
+			cfg->ipc_ul_mailbox_bytes = *tlv->value;
+			break;
+
+		case SKL_FW_CFG_TRACE_LOG_BYTES:
+			cfg->trace_log_bytes = *tlv->value;
+			break;
+
+		case SKL_FW_CFG_MAX_PPL_COUNT:
+			cfg->max_ppl_count = *tlv->value;
+			break;
+
+		case SKL_FW_CFG_MAX_ASTATE_COUNT:
+			cfg->max_astate_count = *tlv->value;
+			break;
+
+		case SKL_FW_CFG_MAX_MODULE_PIN_COUNT:
+			cfg->max_module_pin_count = *tlv->value;
+			break;
+
+		case SKL_FW_CFG_MODULES_COUNT:
+			cfg->modules_count = *tlv->value;
+			break;
+
+		case SKL_FW_CFG_MAX_MOD_INST_COUNT:
+			cfg->max_mod_inst_count = *tlv->value;
+			break;
+
+		case SKL_FW_CFG_MAX_LL_TASKS_PER_PRI_COUNT:
+			cfg->max_ll_tasks_per_pri_count = *tlv->value;
+			break;
+
+		case SKL_FW_CFG_LL_PRI_COUNT:
+			cfg->ll_pri_count = *tlv->value;
+			break;
+
+		case SKL_FW_CFG_MAX_DP_TASKS_COUNT:
+			cfg->max_dp_tasks_count = *tlv->value;
+			break;
+
+		case SKL_FW_CFG_MAX_LIBS_COUNT:
+			cfg->max_libs_count = *tlv->value;
+			break;
+
+		case SKL_FW_CFG_XTAL_FREQ_HZ:
+			cfg->xtal_freq_hz = *tlv->value;
+			break;
+
+		case SKL_FW_CFG_UAOL_SUPPORT:
+			cfg->uaol_support = *tlv->value;
+			break;
+
+		case SKL_FW_CFG_POWER_GATING_POLICY:
+			cfg->power_gating_policy = *tlv->value;
+			break;
+
+		case SKL_FW_CFG_DMA_BUFFER_CONFIG:
+		case SKL_FW_CFG_SCHEDULER_CONFIG:
+		case SKL_FW_CFG_CLOCKS_CONFIG:
+			break;
+
+		default:
+			dev_info(ipc->dev, "Unrecognized fw param: %d\n",
+				tlv->type);
+			break;
+		}
+
+		offset += sizeof(*tlv) + tlv->length;
+	}
+
+exit:
+	kfree(payload);
+	return ret;
+}
+EXPORT_SYMBOL_GPL(skl_ipc_fw_cfg_get);

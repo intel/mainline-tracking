@@ -109,6 +109,7 @@ struct skl_dev {
 
 	/* Populate module information */
 	struct list_head module_list;
+	struct skl_fw_cfg fw_cfg;
 
 	/* Is firmware loaded */
 	bool fw_loaded;

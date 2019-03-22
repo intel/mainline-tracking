@@ -132,6 +132,12 @@ struct skl_base_outfmt_cfg {
 	struct skl_audio_data_format out_fmt;
 } __packed;
 
+struct skl_tlv {
+	u32 type;
+	u32 length;
+	u8 value[0];
+};
+
 enum skl_ipc_pipeline_state {
 	PPL_INVALID_STATE =	0,
 	PPL_UNINITIALIZED =	1,
@@ -187,6 +193,69 @@ struct skl_lib_info {
 enum skl_basefw_runtime_param {
 	SKL_BASEFW_ASTATE_TABLE = 4,
 	SKL_BASEFW_DMA_CONTROL = 5,
+	SKL_BASEFW_FIRMWARE_CONFIG = 7,
+};
+
+enum skl_fw_cfg_params {
+	SKL_FW_CFG_FW_VERSION = 0,
+	SKL_FW_CFG_MEMORY_RECLAIMED,
+	SKL_FW_CFG_SLOW_CLOCK_FREQ_HZ,
+	SKL_FW_CFG_FAST_CLOCK_FREQ_HZ,
+	SKL_FW_CFG_DMA_BUFFER_CONFIG,
+	SKL_FW_CFG_ALH_SUPPORT_LEVEL,
+	SKL_FW_CFG_IPC_DL_MAILBOX_BYTES,
+	SKL_FW_CFG_IPC_UL_MAILBOX_BYTES,
+	SKL_FW_CFG_TRACE_LOG_BYTES,
+	SKL_FW_CFG_MAX_PPL_COUNT,
+	SKL_FW_CFG_MAX_ASTATE_COUNT,
+	SKL_FW_CFG_MAX_MODULE_PIN_COUNT,
+	SKL_FW_CFG_MODULES_COUNT,
+	SKL_FW_CFG_MAX_MOD_INST_COUNT,
+	SKL_FW_CFG_MAX_LL_TASKS_PER_PRI_COUNT,
+	SKL_FW_CFG_LL_PRI_COUNT,
+	SKL_FW_CFG_MAX_DP_TASKS_COUNT,
+	SKL_FW_CFG_MAX_LIBS_COUNT,
+	SKL_FW_CFG_SCHEDULER_CONFIG,
+	SKL_FW_CFG_XTAL_FREQ_HZ,
+	SKL_FW_CFG_CLOCKS_CONFIG,
+	SKL_FW_CFG_UAOL_SUPPORT,
+	SKL_FW_CFG_POWER_GATING_POLICY,
+	SKL_FW_CFG_ASSERT_MODE,
+};
+
+struct skl_fw_version {
+	u16 major;
+	u16 minor;
+	u16 hotfix;
+	u16 build;
+};
+
+enum skl_alh_support_level {
+	ALH_NO_SUPPORT = 0x00000,
+	ALH_CAVS_1_8_CNL = 0x10000,
+};
+
+struct skl_fw_cfg {
+	struct skl_fw_version fw_version;
+	u32 memory_reclaimed;
+	u32 slow_clock_freq_hz;
+	u32 fast_clock_freq_hz;
+	enum skl_alh_support_level alh_support;
+	u32 ipc_dl_mailbox_bytes;
+	u32 ipc_ul_mailbox_bytes;
+	u32 trace_log_bytes;
+	u32 max_ppl_count;
+	u32 max_astate_count;
+	u32 max_module_pin_count;
+	u32 modules_count;
+	u32 max_mod_inst_count;
+	u32 max_ll_tasks_per_pri_count;
+	u32 ll_pri_count;
+	u32 max_dp_tasks_count;
+	u32 max_libs_count;
+	u32 xtal_freq_hz;
+	u32 uaol_support;
+	u32 power_gating_policy;
 };
 
 struct skl_ipc_init_instance_msg {
@@ -288,4 +357,7 @@ int skl_ipc_process_notification(struct sst_generic_ipc *ipc,
 		struct skl_ipc_header header);
 void skl_ipc_tx_data_copy(struct ipc_message *msg, char *tx_data,
 		size_t tx_size);
+
+int skl_ipc_fw_cfg_get(struct sst_generic_ipc *ipc, struct skl_fw_cfg *cfg);
+
 #endif /* __SKL_IPC_H */
