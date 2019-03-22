@@ -644,14 +644,7 @@ int skl_ipc_tx_message_wait(struct sst_generic_ipc *ipc, u64 header,
 		rx_data, rx_bytes);
 
 	if (ret == -ETIMEDOUT && skl->is_first_boot) {
-		skl->enable_miscbdcge(ipc->dev, false);
-		skl->clock_power_gating(ipc->dev, false);
-
-		ret = skl->dsp_ops->init_fw(ipc->dev, skl);
-
-		skl->enable_miscbdcge(ipc->dev, true);
-		skl->clock_power_gating(ipc->dev, true);
-
+		ret = skl_sst_init_fw(skl);
 		dev_warn(ipc->dev, "Recover from IPC timeout: %d\n", ret);
 	}
 
