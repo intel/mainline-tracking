@@ -8,7 +8,7 @@
  * ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
  */
 #include <sound/pcm.h>
-
+#include <linux/slab.h>
 #include "../common/sst-dsp.h"
 #include "../common/sst-ipc.h"
 #include "../common/sst-dsp-priv.h"
@@ -31,18 +31,33 @@ void skl_dsp_set_state_locked(struct sst_dsp *ctx, int state)
  * successful first boot. Hence core 0 will be running and other cores
  * will be reset
  */
-void skl_dsp_init_core_state(struct sst_dsp *ctx)
+int skl_dsp_init_core_state(struct sst_dsp *ctx)
 {
 	struct skl_dev *skl = ctx->thread_context;
+	struct skl_dsp_cores *cores = &skl->cores;
 	int i;
 
-	skl->cores.state[SKL_DSP_CORE0_ID] = SKL_DSP_RUNNING;
-	skl->cores.usage_count[SKL_DSP_CORE0_ID] = 1;
+	cores->count = skl->hw_cfg.dsp_cores;
+	cores->state = kcalloc(cores->count,
+			sizeof(*cores->state), GFP_KERNEL);
+	if (!cores->state)
+		return -ENOMEM;
 
-	for (i = SKL_DSP_CORE0_ID + 1; i < skl->cores.count; i++) {
-		skl->cores.state[i] = SKL_DSP_RESET;
-		skl->cores.usage_count[i] = 0;
+	cores->usage_count = kcalloc(cores->count,
+			sizeof(*cores->usage_count), GFP_KERNEL);
+	if (!cores->usage_count) {
+		kfree(cores->state);
+		return -ENOMEM;
 	}
+
+	cores->state[SKL_DSP_CORE0_ID] = SKL_DSP_RUNNING;
+	cores->usage_count[SKL_DSP_CORE0_ID] = 1;
+
+	for (i = SKL_DSP_CORE0_ID + 1; i < cores->count; i++) {
+		cores->state[i] = SKL_DSP_RESET;
+		cores->usage_count[i] = 0;
+	}
+	return 0;
 }
 EXPORT_SYMBOL_GPL(skl_dsp_init_core_state);
 
