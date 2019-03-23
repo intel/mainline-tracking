@@ -619,19 +619,6 @@ int skl_ipc_init(struct device *dev, struct skl_dev *skl)
 	return 0;
 }
 
-void skl_ipc_free(struct sst_generic_ipc *ipc)
-{
-	/* Disable IPC DONE interrupt */
-	sst_dsp_shim_update_bits(ipc->dsp, SKL_ADSP_REG_HIPCCTL,
-		SKL_ADSP_REG_HIPCCTL_DONE, 0);
-
-	/* Disable IPC BUSY interrupt */
-	sst_dsp_shim_update_bits(ipc->dsp, SKL_ADSP_REG_HIPCCTL,
-		SKL_ADSP_REG_HIPCCTL_BUSY, 0);
-
-	sst_ipc_fini(ipc);
-}
-
 int skl_ipc_tx_message_wait(struct sst_generic_ipc *ipc, u64 header,
 		void *tx_data, size_t tx_bytes, u64 *reply,
 		void *rx_data, size_t rx_bytes)
