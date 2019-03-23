@@ -612,17 +612,21 @@ exit:
 }
 EXPORT_SYMBOL_GPL(skl_sst_init_fw);
 
-void skl_sst_dsp_cleanup(struct device *dev, struct skl_dev *skl)
+void skl_sst_dsp_cleanup(struct skl_dev *skl)
 {
+	struct sst_dsp *dsp = skl->dsp;
 
-	if (skl->dsp->fw)
-		release_firmware(skl->dsp->fw);
-	skl_clear_module_table(skl->dsp);
+	skl_release_library(skl->lib_info, skl->lib_count);
+	if (dsp->fw)
+		release_firmware(dsp->fw);
+	skl_clear_module_table(dsp);
+
 	list_del_init(&skl->module_list);
-	skl->dsp->ops->free(skl->dsp);
-	if (skl->boot_complete) {
-		skl->dsp->cl_dev.ops.cl_cleanup_controller(skl->dsp);
-		skl_cldma_int_disable(skl->dsp);
+	dsp->ops->free(dsp);
+
+	if (skl->boot_complete && dsp->cl_dev.bufsize) {
+		dsp->cl_dev.ops.cl_cleanup_controller(dsp);
+		skl_cldma_int_disable(dsp);
 	}
 }
 EXPORT_SYMBOL_GPL(skl_sst_dsp_cleanup);

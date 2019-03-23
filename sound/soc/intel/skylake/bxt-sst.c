@@ -592,16 +592,5 @@ int bxt_sst_dsp_init(struct device *dev, void __iomem *mmio_base, int irq,
 }
 EXPORT_SYMBOL_GPL(bxt_sst_dsp_init);
 
-void bxt_sst_dsp_cleanup(struct device *dev, struct skl_dev *skl)
-{
-
-	skl_release_library(skl->lib_info, skl->lib_count);
-	if (skl->dsp->fw)
-		release_firmware(skl->dsp->fw);
-	list_del_init(&skl->module_list);
-	skl->dsp->ops->free(skl->dsp);
-}
-EXPORT_SYMBOL_GPL(bxt_sst_dsp_cleanup);
-
 MODULE_LICENSE("GPL v2");
 MODULE_DESCRIPTION("Intel Broxton IPC driver");

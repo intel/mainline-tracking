@@ -159,7 +159,6 @@ struct skl_dsp_ops {
 			int irq, const char *fw_name,
 			struct skl_dsp_loader_ops loader_ops,
 			struct skl_dev **skl_sst);
-	void (*cleanup)(struct device *dev, struct skl_dev *skl);
 };
 
 int skl_platform_unregister(struct device *dev);
@@ -173,6 +172,7 @@ int skl_nhlt_update_topology_bin(struct skl_dev *skl);
 int skl_init_dsp(struct skl_dev *skl);
 int skl_free_dsp(struct skl_dev *skl);
 int skl_sst_init_fw(struct skl_dev *skl);
+void skl_sst_dsp_cleanup(struct skl_dev *skl);
 int skl_suspend_late_dsp(struct skl_dev *skl);
 int skl_suspend_dsp(struct skl_dev *skl);
 int skl_resume_dsp(struct skl_dev *skl);
