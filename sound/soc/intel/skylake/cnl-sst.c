@@ -469,7 +469,6 @@ void cnl_sst_dsp_cleanup(struct device *dev, struct skl_dev *skl)
 		release_firmware(skl->dsp->fw);
 
 	list_del_init(&skl->module_list);
-	cnl_ipc_free(&skl->ipc);
 
 	skl->dsp->ops->free(skl->dsp);
 }

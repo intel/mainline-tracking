@@ -619,7 +619,6 @@ void skl_sst_dsp_cleanup(struct device *dev, struct skl_dev *skl)
 		release_firmware(skl->dsp->fw);
 	skl_clear_module_table(skl->dsp);
 	list_del_init(&skl->module_list);
-	skl_ipc_free(&skl->ipc);
 	skl->dsp->ops->free(skl->dsp);
 	if (skl->boot_complete) {
 		skl->dsp->cl_dev.ops.cl_cleanup_controller(skl->dsp);

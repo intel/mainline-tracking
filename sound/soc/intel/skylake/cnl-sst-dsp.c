@@ -14,9 +14,9 @@
  */
 #include <linux/device.h>
 #include "../common/sst-dsp.h"
-#include "../common/sst-ipc.h"
 #include "../common/sst-dsp-priv.h"
 #include "cnl-sst-dsp.h"
+#include "skl.h"
 
 /* various timeout values */
 #define CNL_DSP_PU_TO		50
@@ -209,10 +209,13 @@ irqreturn_t cnl_dsp_sst_interrupt(int irq, void *dev_id)
 
 void cnl_dsp_free(struct sst_dsp *dsp)
 {
+	struct skl_dev *skl = dsp->thread_context;
+
+	cnl_ipc_op_int_disable(dsp);
+	sst_ipc_fini(&skl->ipc);
 	cnl_ipc_int_disable(dsp);
 
 	free_irq(dsp->irq, dsp);
-	cnl_ipc_op_int_disable(dsp);
 	cnl_dsp_disable_core(dsp, SKL_DSP_CORE0_MASK);
 }
 EXPORT_SYMBOL_GPL(cnl_dsp_free);
@@ -259,8 +262,3 @@ bool cnl_ipc_int_status(struct sst_dsp *ctx)
 							CNL_ADSPIS_IPC;
 }
 
-void cnl_ipc_free(struct sst_generic_ipc *ipc)
-{
-	cnl_ipc_op_int_disable(ipc->dsp);
-	sst_ipc_fini(ipc);
-}

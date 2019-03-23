@@ -620,19 +620,6 @@ int skl_ipc_init(struct device *dev, struct skl_dev *skl)
 	return 0;
 }
 
-void skl_ipc_free(struct sst_generic_ipc *ipc)
-{
-	/* Disable IPC DONE interrupt */
-	sst_dsp_shim_update_bits(ipc->dsp, SKL_ADSP_REG_HIPCCTL,
-		SKL_ADSP_REG_HIPCCTL_DONE, 0);
-
-	/* Disable IPC BUSY interrupt */
-	sst_dsp_shim_update_bits(ipc->dsp, SKL_ADSP_REG_HIPCCTL,
-		SKL_ADSP_REG_HIPCCTL_BUSY, 0);
-
-	sst_ipc_fini(ipc);
-}
-
 int skl_ipc_create_pipeline(struct sst_generic_ipc *ipc,
 		u16 ppl_mem_size, u8 ppl_type, u8 instance_id, u8 lp_mode)
 {
