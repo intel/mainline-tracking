@@ -599,7 +599,8 @@ void bxt_sst_dsp_cleanup(struct device *dev, struct skl_dev *skl)
 	if (skl->dsp->fw)
 		release_firmware(skl->dsp->fw);
 	list_del_init(&skl->module_list);
-	skl_ipc_free(&skl->ipc);
+	skl_ipc_op_int_disable(skl->dsp);
+	sst_ipc_fini(&skl->ipc);
 	skl->dsp->ops->free(skl->dsp);
 }
 EXPORT_SYMBOL_GPL(bxt_sst_dsp_cleanup);
