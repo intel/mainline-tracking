@@ -463,10 +463,13 @@ int skl_dsp_acquire_irq(struct sst_dsp *sst)
 
 void skl_dsp_free(struct sst_dsp *dsp)
 {
+	struct skl_dev *skl = dsp->thread_context;
+
+	skl_ipc_op_int_disable(dsp);
+	sst_ipc_fini(&skl->ipc);
 	skl_ipc_int_disable(dsp);
 
 	free_irq(dsp->irq, dsp);
-	skl_ipc_op_int_disable(dsp);
 	skl_dsp_disable_core(dsp, SKL_DSP_CORE0_MASK);
 }
 EXPORT_SYMBOL_GPL(skl_dsp_free);
