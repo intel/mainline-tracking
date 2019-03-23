@@ -161,7 +161,6 @@ struct skl_dsp_ops {
 			int irq, const char *fw_name,
 			struct skl_dsp_loader_ops loader_ops,
 			struct skl_dev **skl_sst);
-	void (*cleanup)(struct device *dev, struct skl_dev *skl);
 };
 
 int skl_platform_unregister(struct device *dev);
