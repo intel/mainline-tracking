@@ -185,37 +185,31 @@ static const struct skl_dsp_ops dsp_ops[] = {
 		.id = 0x9d70,
 		.loader_ops = skl_get_loader_ops,
 		.init = skl_sst_dsp_init,
-		.cleanup = skl_sst_dsp_cleanup
 	},
 	{
 		.id = 0x9d71,
 		.loader_ops = skl_get_loader_ops,
 		.init = skl_sst_dsp_init,
-		.cleanup = skl_sst_dsp_cleanup
 	},
 	{
 		.id = 0x5a98,
 		.loader_ops = bxt_get_loader_ops,
 		.init = bxt_sst_dsp_init,
-		.cleanup = bxt_sst_dsp_cleanup
 	},
 	{
 		.id = 0x3198,
 		.loader_ops = bxt_get_loader_ops,
 		.init = bxt_sst_dsp_init,
-		.cleanup = bxt_sst_dsp_cleanup
 	},
 	{
 		.id = 0x9dc8,
 		.loader_ops = bxt_get_loader_ops,
 		.init = cnl_sst_dsp_init,
-		.cleanup = cnl_sst_dsp_cleanup
 	},
 	{
 		.id = 0xa348,
 		.loader_ops = bxt_get_loader_ops,
 		.init = cnl_sst_dsp_init,
-		.cleanup = cnl_sst_dsp_cleanup
 	},
 	{
 		.id = 0x02c8,
@@ -297,7 +291,7 @@ int skl_free_dsp(struct skl_dev *skl)
 	/* disable  ppcap interrupt */
 	snd_hdac_ext_bus_ppcap_int_enable(bus, false);
 
-	skl->dsp_ops->cleanup(bus->dev, skl);
+	skl_sst_dsp_cleanup(skl);
 
 	kfree(skl->cores.state);
 	kfree(skl->cores.usage_count);
