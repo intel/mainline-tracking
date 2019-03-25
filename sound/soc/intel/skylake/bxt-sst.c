@@ -20,8 +20,10 @@
 #include <linux/firmware.h>
 #include <linux/device.h>
 
+#include "skl.h"
 #include "../common/sst-dsp.h"
 #include "../common/sst-dsp-priv.h"
+#include "skl-sst-dsp.h"
 #include "skl-sst-ipc.h"
 
 #define BXT_BASEFW_TIMEOUT	3000
