@@ -378,6 +378,11 @@ SND_SOC_DAILINK_DEF(idisp3_codec,
 	DAILINK_COMP_ARRAY(COMP_CODEC("ehdaudio0D2",
 				      "intel-hdmi-hifi3")));
 
+SND_SOC_DAILINK_DEF(probe_pb,
+	DAILINK_COMP_ARRAY(COMP_CPU("Probe Injection0 CPU DAI")));
+SND_SOC_DAILINK_DEF(probe_cp,
+	DAILINK_COMP_ARRAY(COMP_CPU("Probe Extraction CPU DAI")));
+
 SND_SOC_DAILINK_DEF(platform,
 	DAILINK_COMP_ARRAY(COMP_PLATFORM("0000:00:0e.0")));
 
@@ -515,6 +520,21 @@ static struct snd_soc_dai_link broxton_rt298_dais[] = {
 		.dpcm_playback = 1,
 		.no_pcm = 1,
 		SND_SOC_DAILINK_REG(idisp3_pin, idisp3_codec, platform),
+	},
+	/* Probe DAI links */
+	{
+		.name = "Compress Probe Playback",
+		.init = NULL,
+		.ignore_suspend = 1,
+		.nonatomic = 1,
+		SND_SOC_DAILINK_REG(probe_pb, dummy, platform),
+	},
+	{
+		.name = "Compress Probe Capture",
+		.init = NULL,
+		.ignore_suspend = 1,
+		.nonatomic = 1,
+		SND_SOC_DAILINK_REG(probe_cp, dummy, platform),
 	},
 };
 
