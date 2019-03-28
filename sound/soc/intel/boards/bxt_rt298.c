@@ -497,6 +497,29 @@ static struct snd_soc_dai_link broxton_rt298_dais[] = {
 		.dpcm_playback = 1,
 		.no_pcm = 1,
 	},
+	/* Probe DAI links */
+	{
+		.name = "Compress Probe Playback",
+		.stream_name = "Probe Playback",
+		.cpu_dai_name = "Probe Injection0 CPU DAI",
+		.codec_name = "snd-soc-dummy",
+		.codec_dai_name = "snd-soc-dummy-dai",
+		.platform_name = "0000:00:0e.0",
+		.init = NULL,
+		.ignore_suspend = 1,
+		.nonatomic = 1,
+	},
+	{
+		.name = "Compress Probe Capture",
+		.stream_name = "Probe Capture",
+		.cpu_dai_name = "Probe Extraction CPU DAI",
+		.codec_name = "snd-soc-dummy",
+		.codec_dai_name = "snd-soc-dummy-dai",
+		.platform_name = "0000:00:0e.0",
+		.init = NULL,
+		.ignore_suspend = 1,
+		.nonatomic = 1,
+	},
 };
 
 #define NAME_SIZE	32
