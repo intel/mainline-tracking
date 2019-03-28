@@ -564,6 +564,7 @@ static int skl_find_machine(struct skl *skl, void *driver_data)
 		}
 	}
 
+out:
 	skl->mach = mach;
 	skl->fw_name = mach->fw_filename;
 
