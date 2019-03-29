@@ -382,10 +382,10 @@ static void remove_mixer(struct snd_soc_component *comp,
 	if (dobj->ops && dobj->ops->control_unload)
 		dobj->ops->control_unload(comp, dobj);
 
-	if (sm->dobj.control.kcontrol->tlv.p)
-		p = sm->dobj.control.kcontrol->tlv.p;
-	snd_ctl_remove(card, sm->dobj.control.kcontrol);
-	list_del(&sm->dobj.list);
+	if (dobj->control.kcontrol->tlv.p)
+		p = dobj->control.kcontrol->tlv.p;
+	snd_ctl_remove(card, dobj->control.kcontrol);
+	list_del(&dobj->list);
 	kfree(sm);
 	kfree(p);
 }
@@ -404,12 +404,13 @@ static void remove_enum(struct snd_soc_component *comp,
 	if (dobj->ops && dobj->ops->control_unload)
 		dobj->ops->control_unload(comp, dobj);
 
-	snd_ctl_remove(card, se->dobj.control.kcontrol);
-	list_del(&se->dobj.list);
+	snd_ctl_remove(card, dobj->control.kcontrol);
+	list_del(&dobj->list);
 
-	kfree(se->dobj.control.dvalues);
+	kfree(dobj->control.dvalues);
 	for (i = 0; i < se->items; i++)
-		kfree(se->dobj.control.dtexts[i]);
+		kfree(dobj->control.dtexts[i]);
+	kfree(dobj->control.dtexts);
 	kfree(se);
 }
 
@@ -427,8 +428,8 @@ static void remove_bytes(struct snd_soc_component *comp,
 	if (dobj->ops && dobj->ops->control_unload)
 		dobj->ops->control_unload(comp, dobj);
 
-	snd_ctl_remove(card, sb->dobj.control.kcontrol);
-	list_del(&sb->dobj.list);
+	snd_ctl_remove(card, dobj->control.kcontrol);
+	list_del(&dobj->list);
 	kfree(sb);
 }
 
@@ -464,9 +465,10 @@ static void remove_widget(struct snd_soc_component *comp,
 
 			snd_ctl_remove(card, kcontrol);
 
-			kfree(se->dobj.control.dvalues);
+			kfree(dobj->control.dvalues);
 			for (j = 0; j < se->items; j++)
-				kfree(se->dobj.control.dtexts[j]);
+				kfree(dobj->control.dtexts[j]);
+			kfree(dobj->control.dtexts);
 
 			kfree(se);
 			kfree(w->kcontrol_news[i].name);
@@ -493,6 +495,8 @@ static void remove_widget(struct snd_soc_component *comp,
 free_news:
 	kfree(w->kcontrol_news);
 
+	list_del(&dobj->list);
+
 	/* widget w is freed by soc-dapm.c */
 }
 
@@ -510,9 +514,13 @@ static void remove_dai(struct snd_soc_component *comp,
 	if (dobj->ops && dobj->ops->dai_unload)
 		dobj->ops->dai_unload(comp, dobj);
 
-	list_for_each_entry(dai, &comp->dai_list, list)
-		if (dai->driver == dai_drv)
+	for_each_component_dais(comp, dai) {
+		if (dai->driver == dai_drv) {
 			dai->driver = NULL;
+			snd_soc_unregister_dai(comp, dai);
+			break;
+		}
+	}
 
 	kfree(dai_drv->name);
 	list_del(&dobj->list);
@@ -533,7 +541,6 @@ static void remove_link(struct snd_soc_component *comp,
 		dobj->ops->link_unload(comp, dobj);
 
 	kfree(link->name);
-	kfree(link->stream_name);
 	kfree(link->cpu_dai_name);
 
 	list_del(&dobj->list);
@@ -1364,6 +1371,7 @@ err_se:
 		kfree(se->dobj.control.dvalues);
 		for (j = 0; j < ec->items; j++)
 			kfree(se->dobj.control.dtexts[j]);
+		kfree(se->dobj.control.dtexts);
 
 		kfree(se);
 		kfree(kc[i].name);
@@ -1475,15 +1483,8 @@ static int soc_tplg_dapm_widget_create(struct soc_tplg *tplg,
 	if (template.id < 0)
 		return template.id;
 
-	/* strings are allocated here, but used and freed by the widget */
-	template.name = kstrdup(w->name, GFP_KERNEL);
-	if (!template.name)
-		return -ENOMEM;
-	template.sname = kstrdup(w->sname, GFP_KERNEL);
-	if (!template.sname) {
-		ret = -ENOMEM;
-		goto err;
-	}
+	template.name = w->name;
+	template.sname = w->sname;
 	template.reg = w->reg;
 	template.shift = w->shift;
 	template.mask = w->mask;
@@ -1589,9 +1590,6 @@ ready_err:
 	snd_soc_tplg_widget_remove(widget);
 	snd_soc_dapm_free_widget(widget);
 hdr_err:
-	kfree(template.sname);
-err:
-	kfree(template.name);
 	return ret;
 }
 
@@ -1646,10 +1644,11 @@ static int soc_tplg_dapm_complete(struct soc_tplg *tplg)
 	return 0;
 }
 
-static void set_stream_info(struct snd_soc_pcm_stream *stream,
-	struct snd_soc_tplg_stream_caps *caps)
+static void set_stream_info(struct soc_tplg *tplg,
+			    struct snd_soc_pcm_stream *stream,
+			    struct snd_soc_tplg_stream_caps *caps)
 {
-	stream->stream_name = kstrdup(caps->name, GFP_KERNEL);
+	stream->stream_name = devm_kstrdup(tplg->dev, caps->name, GFP_KERNEL);
 	stream->channels_min = caps->channels_min;
 	stream->channels_max = caps->channels_max;
 	stream->rates = caps->rates;
@@ -1696,13 +1695,13 @@ static int soc_tplg_dai_create(struct soc_tplg *tplg,
 	if (pcm->playback) {
 		stream = &dai_drv->playback;
 		caps = &pcm->caps[SND_SOC_TPLG_STREAM_PLAYBACK];
-		set_stream_info(stream, caps);
+		set_stream_info(tplg, stream, caps);
 	}
 
 	if (pcm->capture) {
 		stream = &dai_drv->capture;
 		caps = &pcm->caps[SND_SOC_TPLG_STREAM_CAPTURE];
-		set_stream_info(stream, caps);
+		set_stream_info(tplg, stream, caps);
 	}
 
 	if (pcm->compress)
@@ -2196,13 +2195,13 @@ static int soc_tplg_dai_config(struct soc_tplg *tplg,
 	if (d->playback) {
 		stream = &dai_drv->playback;
 		caps = &d->caps[SND_SOC_TPLG_STREAM_PLAYBACK];
-		set_stream_info(stream, caps);
+		set_stream_info(tplg, stream, caps);
 	}
 
 	if (d->capture) {
 		stream = &dai_drv->capture;
 		caps = &d->caps[SND_SOC_TPLG_STREAM_CAPTURE];
-		set_stream_info(stream, caps);
+		set_stream_info(tplg, stream, caps);
 	}
 
 	if (d->flag_mask)
