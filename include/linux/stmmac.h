@@ -200,5 +200,6 @@ struct plat_stmmacenet_data {
 	u32 ctov;
 	u32 tils;
 	bool has_safety_feat;
+	bool is_hfpga;
 };
 #endif
