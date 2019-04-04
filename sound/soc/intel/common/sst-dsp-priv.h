@@ -73,6 +73,8 @@ struct sst_addr {
 	void __iomem *shim;
 	void __iomem *pci_cfg;
 	void __iomem *fw_ext;
+	void __iomem *sram0;
+	void __iomem *sram2;
 };
 
 /*

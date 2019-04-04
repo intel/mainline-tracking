@@ -544,6 +544,8 @@ static int skl_sst_init(struct sst_dsp *sst, struct sst_pdata *pdata)
 		return -ENXIO;
 	sst->addr.lpe = mmio;
 	sst->addr.shim = mmio;
+	sst->addr.sram0 = (mmio + SKL_ADSP_SRAM0_BASE);
+	sst->addr.sram2 = (mmio + SKL_ADSP_SRAM2_BASE);
 
 	sst_dsp_mailbox_init(sst,
 		(SKL_ADSP_SRAM0_BASE + SKL_FW_REGS_SIZE), SKL_MAILBOX_SIZE,
