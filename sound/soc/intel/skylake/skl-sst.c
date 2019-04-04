@@ -22,9 +22,6 @@
 #define SKL_BASEFW_TIMEOUT	300
 #define SKL_INIT_TIMEOUT	1000
 
-/* Intel HD Audio SRAM Window 0*/
-#define SKL_ADSP_SRAM0_BASE	0x8000
-
 /* Firmware status window */
 #define SKL_ADSP_FW_STATUS	SKL_ADSP_SRAM0_BASE
 #define SKL_ADSP_ERROR_CODE	(SKL_ADSP_FW_STATUS + 0x4)
