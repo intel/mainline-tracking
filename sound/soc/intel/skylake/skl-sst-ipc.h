@@ -583,6 +583,47 @@ struct icl_log_state_info {
 	u32 logs_priorities_mask[0];
 } __packed;
 
+struct bxt_log_buffer_layout {
+	u32 read_ptr;
+	u32 write_ptr;
+	u8 buffer[0];
+} __packed;
+
+union icl_memwnd2_slot_type {
+	u32 val;
+	struct {
+		u32 resource_id:8;
+		u32 type:24;
+	};
+};
+
+struct icl_memwnd2_desc {
+	u32 resource_id;
+	union icl_memwnd2_slot_type slot_id;
+	u32 vma;
+} __packed;
+
+#define ICL_SLOT_UNUSED \
+	((union icl_memwnd2_slot_type) { 0x00000000U })
+#define ICL_SLOT_CRITICAL_LOG \
+	((union icl_memwnd2_slot_type) { 0x54524300U })
+#define ICL_SLOT_DEBUG_LOG \
+	((union icl_memwnd2_slot_type) { 0x474f4c00U })
+#define ICL_SLOT_GDB_STUB \
+	((union icl_memwnd2_slot_type) { 0x42444700U })
+#define ICL_SLOT_BROKEN \
+	((union icl_memwnd2_slot_type) { 0x44414544U })
+
+#define ICL_MEMWND2_SLOTS_COUNT	15
+
+struct icl_memwnd2 {
+	union {
+		struct icl_memwnd2_desc slot_desc[ICL_MEMWND2_SLOTS_COUNT];
+		u8 rsvd[PAGE_SIZE];
+	};
+	u8 slot_array[ICL_MEMWND2_SLOTS_COUNT][PAGE_SIZE];
+} __packed;
+
 struct skl_notify_kctrl_info {
 	struct list_head list;
 	u32 notify_id;
@@ -718,5 +759,21 @@ int bxt_enable_logs(struct sst_dsp *dsp, enum skl_log_enable enable,
 unsigned int
 skl_kfifo_fromio_locked(struct kfifo *fifo, const void __iomem *src,
 		unsigned int len, spinlock_t *lock);
+
+#define skl_log_buffer_size(s) \
+({ \
+	struct skl_dev *__skl = (s); \
+	__skl->fw_cfg.trace_log_bytes / __skl->hw_cfg.dsp_cores; \
+})
+
+#define bxt_log_payload_size(s) \
+	(skl_log_buffer_size(s) - sizeof(struct bxt_log_buffer_layout))
+
+int skl_log_buffer_offset(struct sst_dsp *dsp, u32 core);
+
+#define FW_REGS_SZ	PAGE_SIZE
+
+void skl_copy_from_sram2(struct skl_dev *skl, void __iomem *addr);
+int bxt_log_buffer_status(struct sst_dsp *dsp, struct skl_notify_msg notif);
 
 #endif /* __SKL_IPC_H */

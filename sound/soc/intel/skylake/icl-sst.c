@@ -36,3 +36,26 @@ icl_enable_logs(struct sst_dsp *dsp, enum skl_log_enable enable,
 	kfree(info);
 	return ret;
 }
+
+static int icl_slot_offset(struct skl_dev *skl,
+		union icl_memwnd2_slot_type slot_type)
+{
+	struct icl_memwnd2_desc desc[ICL_MEMWND2_SLOTS_COUNT];
+	int i;
+
+	memcpy_fromio(&desc, skl->dsp->addr.sram2, sizeof(desc));
+
+	for (i = 0; i < ICL_MEMWND2_SLOTS_COUNT; i++)
+		if (desc[i].slot_id.val == slot_type.val)
+			return offsetof(struct icl_memwnd2, slot_array) +
+				skl_log_buffer_offset(skl->dsp, i);
+	return -ENXIO;
+}
+
+__maybe_unused static int icl_log_buffer_offset(struct sst_dsp *dsp, u32 core)
+{
+	union icl_memwnd2_slot_type slot_type = ICL_SLOT_DEBUG_LOG;
+
+	slot_type.resource_id = core;
+	return icl_slot_offset(dsp->thread_context, slot_type);
+}

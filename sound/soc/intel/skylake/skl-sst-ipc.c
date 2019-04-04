@@ -473,6 +473,7 @@ int skl_ipc_process_notification(struct sst_generic_ipc *ipc,
 		struct skl_ipc_header header)
 {
 	struct skl_dev *skl = container_of(ipc, struct skl_dev, ipc);
+	struct skl_notify_msg notif = *(struct skl_notify_msg *)&header;
 	int ret;
 
 	if (IPC_GLB_NOTIFY_MSG_TYPE(header.primary)) {
@@ -484,6 +485,10 @@ int skl_ipc_process_notification(struct sst_generic_ipc *ipc,
 
 		case IPC_GLB_NOTIFY_RESOURCE_EVENT:
 			skl_parse_resource_event(skl, header);
+			break;
+
+		case IPC_GLB_NOTIFY_LOG_BUFFER_STATUS:
+			skl->dsp->fw_ops.log_buffer_status(skl->dsp, notif);
 			break;
 
 		case IPC_GLB_NOTIFY_FW_READY:
@@ -1480,4 +1485,36 @@ skl_kfifo_fromio_locked(struct kfifo *fifo, const void __iomem *src,
 	spin_unlock_irqrestore(lock, flags);
 
 	return len;
+}
+
+static void copy_from_sram2(struct skl_dev *skl, void __iomem *addr,
+		struct bxt_log_buffer_layout layout)
+{
+	struct kfifo *fifo = &skl->trace_fifo;
+	spinlock_t *lock = &skl->trace_lock;
+	void __iomem *buf;
+
+	if (!kfifo_initialized(fifo))
+		/* consume the logs regardless of consumer presence */
+		goto update_read_ptr;
+	buf = addr + sizeof(layout);
+
+	if (layout.read_ptr > layout.write_ptr) {
+		skl_kfifo_fromio_locked(fifo, buf + layout.read_ptr,
+			bxt_log_payload_size(skl) - layout.read_ptr, lock);
+		layout.read_ptr = 0;
+	}
+	skl_kfifo_fromio_locked(fifo, buf + layout.read_ptr,
+		layout.write_ptr - layout.read_ptr, lock);
+
+update_read_ptr:
+	writel(layout.write_ptr, addr);
+}
+
+void skl_copy_from_sram2(struct skl_dev *skl, void __iomem *addr)
+{
+	struct bxt_log_buffer_layout layout;
+
+	memcpy_fromio(&layout, addr, sizeof(layout));
+	copy_from_sram2(skl, addr, layout);
 }

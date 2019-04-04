@@ -12,6 +12,7 @@
 #ifndef __SOUND_SOC_SKL_H
 #define __SOUND_SOC_SKL_H
 
+#include <linux/kfifo.h>
 #include <linux/pci.h>
 #include <sound/hda_register.h>
 #include <sound/hdaudio_ext.h>
@@ -197,6 +198,9 @@ struct skl_dev {
 	/* probe stream management */
 	struct hdac_ext_stream *extractor;
 	unsigned int num_probe_streams;
+	/* firmware logging */
+	struct kfifo trace_fifo;
+	spinlock_t trace_lock;
 };
 
 #define skl_to_bus(s)  (&(s)->hbus.core)

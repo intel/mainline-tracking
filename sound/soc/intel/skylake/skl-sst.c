@@ -28,6 +28,9 @@
 
 #define SKL_NUM_MODULES		1
 
+/* fw DbgLogWp registers */
+#define FW_REGS_DBG_LOG_WP(core) (0x30 + 0x4 * core)
+
 static bool skl_check_fw_status(struct sst_dsp *ctx, u32 status)
 {
 	u32 cur_sts;
@@ -520,6 +523,33 @@ static int skl_enable_logs(struct sst_dsp *dsp, enum skl_log_enable enable,
 	return ret;
 }
 
+int skl_log_buffer_offset(struct sst_dsp *dsp, u32 core)
+{
+	return core * skl_log_buffer_size(dsp->thread_context);
+}
+
+static int
+skl_log_buffer_status(struct sst_dsp *dsp, struct skl_notify_msg notif)
+{
+	struct skl_dev *skl = dsp->thread_context;
+	void __iomem *buf;
+	u32 size, write, offset;
+
+	if (!kfifo_initialized(&skl->trace_fifo))
+		return 0;
+	size = skl_log_buffer_size(skl) / 2;
+	write = readl(dsp->addr.sram0 + FW_REGS_DBG_LOG_WP(notif.log.core));
+	/* determine buffer half */
+	offset = (write < size) ? size : 0;
+
+	buf = dsp->addr.sram2 +
+		dsp->fw_ops.log_buffer_offset(dsp, notif.log.core) + offset;
+	skl_kfifo_fromio_locked(&skl->trace_fifo, buf, size, &skl->trace_lock);
+	wake_up(&skl->trace_waitq);
+
+	return 0;
+}
+
 static const struct skl_dsp_fw_ops skl_fw_ops = {
 	.set_state_D0 = skl_set_dsp_D0,
 	.set_state_D3 = skl_set_dsp_D3,
@@ -529,6 +559,8 @@ static const struct skl_dsp_fw_ops skl_fw_ops = {
 	.load_mod = skl_load_module,
 	.unload_mod = skl_unload_module,
 	.enable_logs = skl_enable_logs,
+	.log_buffer_offset = skl_log_buffer_offset,
+	.log_buffer_status = skl_log_buffer_status,
 };
 
 static int skl_sst_init(struct sst_dsp *sst, struct sst_pdata *pdata)

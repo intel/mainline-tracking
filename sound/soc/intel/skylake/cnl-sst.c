@@ -355,6 +355,8 @@ static const struct skl_dsp_fw_ops cnl_fw_ops = {
 	.get_fw_errcode = cnl_get_errno,
 	.load_library = bxt_load_library,
 	.enable_logs = bxt_enable_logs,
+	.log_buffer_offset = skl_log_buffer_offset,
+	.log_buffer_status = bxt_log_buffer_status,
 };
 
 #define CNL_IPC_GLB_NOTIFY_RSP_SHIFT	29
