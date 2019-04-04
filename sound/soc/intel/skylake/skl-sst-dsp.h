@@ -53,8 +53,11 @@ enum skl_log_enable;
 #define SKL_INSTANCE_ID			0
 #define SKL_BASE_FW_MODULE_ID		0
 
-/* Intel HD Audio SRAM Window 1 */
+/* Intel HD Audio SRAM windows base addresses */
+#define SKL_ADSP_SRAM0_BASE		0x8000
 #define SKL_ADSP_SRAM1_BASE		0xA000
+#define BXT_ADSP_SRAM0_BASE		0x80000
+#define BXT_ADSP_SRAM1_BASE		0xA0000
 
 #define SKL_ADSP_MMIO_LEN		0x10000
 

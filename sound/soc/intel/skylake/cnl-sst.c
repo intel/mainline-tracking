@@ -36,10 +36,8 @@
 #define CNL_INIT_TIMEOUT	300
 #define CNL_BASEFW_TIMEOUT	3000
 
-#define CNL_ADSP_SRAM0_BASE	0x80000
-
 /* Firmware status window */
-#define CNL_ADSP_FW_STATUS	CNL_ADSP_SRAM0_BASE
+#define CNL_ADSP_FW_STATUS	BXT_ADSP_SRAM0_BASE
 #define CNL_ADSP_ERROR_CODE	(CNL_ADSP_FW_STATUS + 0x4)
 
 #define CNL_INSTANCE_ID		0
@@ -497,8 +495,8 @@ static int cnl_sst_init(struct sst_dsp *sst, struct sst_pdata *pdata)
 	sst->addr.shim = mmio;
 
 	sst_dsp_mailbox_init(sst,
-		(CNL_ADSP_SRAM0_BASE + SKL_FW_REGS_SIZE), SKL_MAILBOX_SIZE,
-		CNL_ADSP_SRAM1_BASE, SKL_MAILBOX_SIZE);
+		(BXT_ADSP_SRAM0_BASE + SKL_FW_REGS_SIZE), SKL_MAILBOX_SIZE,
+		BXT_ADSP_SRAM1_BASE, SKL_MAILBOX_SIZE);
 
 	ret = cnl_ipc_init(cnl->dev, cnl);
 	if (ret) {

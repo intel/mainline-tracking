@@ -47,9 +47,6 @@ struct sst_generic_ipc;
 /* CNL HIPCT */
 #define CNL_ADSP_REG_HIPCT_BUSY		BIT(31)
 
-/* Intel HD Audio SRAM Window 1 */
-#define CNL_ADSP_SRAM1_BASE		0xa0000
-
 #define CNL_ADSP_MMIO_LEN		0x10000
 
 #define CNL_FW_STS_MASK			0xf
