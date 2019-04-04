@@ -63,7 +63,6 @@ err:
 	kfree(ctx);
 	tee_device_put(teedev);
 	return ERR_PTR(rc);
-
 }
 
 void teedev_ctx_get(struct tee_context *ctx)
@@ -1049,6 +1048,7 @@ int tee_client_cancel_req(struct tee_context *ctx,
 	return ctx->teedev->desc->ops->cancel_req(ctx, arg->cancel_id,
 						  arg->session);
 }
+EXPORT_SYMBOL_GPL(tee_client_cancel_req);
 
 static int tee_client_device_match(struct device *dev,
 				   struct device_driver *drv)
