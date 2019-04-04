@@ -290,6 +290,7 @@ enum skl_basefw_runtime_param {
 	PERF_MEASUREMENTS_STATE = 17,
 	GLOBAL_PERF_DATA = 18,
 	L2_CACHE_INFO = 19,
+	SYSTEM_TIME = 20,
 };
 
 enum skl_fw_cfg_params {
@@ -397,6 +398,11 @@ struct skl_hw_cfg {
 	u32 lp_ebb_count;
 	u32 ebb_size_bytes;
 };
+
+struct skl_sys_time {
+	u32 val_l;
+	u32 val_u;
+} __packed;
 
 struct skl_notify_kctrl_info {
 	struct list_head list;
@@ -526,5 +532,7 @@ int skl_probe_points_disconnect(struct skl_dev *skl,
 		union skl_probe_point_id *id, size_t num_id);
 
 int skl_notify_tplg_change(struct skl_dev *skl, int type);
+
+int skl_system_time_set(struct sst_generic_ipc *ipc);
 
 #endif /* __SKL_IPC_H */
