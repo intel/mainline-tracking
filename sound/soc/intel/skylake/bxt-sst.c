@@ -622,6 +622,8 @@ int bxt_sst_dsp_init(struct device *dev, void __iomem *mmio_base, int irq,
 	sst->addr.shim = mmio_base;
 	sst->addr.sram0_base = BXT_ADSP_SRAM0_BASE;
 	sst->addr.sram1_base = BXT_ADSP_SRAM1_BASE;
+	sst->addr.sram0 = (mmio_base + BXT_ADSP_SRAM0_BASE);
+	sst->addr.sram2 = (mmio_base + BXT_ADSP_SRAM2_BASE);
 	sst->addr.w0_stat_sz = SKL_ADSP_W0_STAT_SZ;
 	sst->addr.w0_up_sz = SKL_ADSP_W0_UP_SZ;
 
