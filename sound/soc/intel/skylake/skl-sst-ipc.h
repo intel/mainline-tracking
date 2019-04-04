@@ -275,6 +275,7 @@ enum skl_basefw_runtime_param {
 	SKL_BASEFW_DMA_CONTROL = 5,
 	SKL_BASEFW_FIRMWARE_CONFIG = 7,
 	SKL_BASEFW_HARDWARE_CONFIG = 8,
+	SKL_BASEFW_SYSTEM_TIME = 20,
 };
 
 enum skl_fw_cfg_params {
@@ -382,6 +383,11 @@ struct skl_hw_cfg {
 	u32 lp_ebb_count;
 	u32 ebb_size_bytes;
 };
+
+struct skl_sys_time {
+	u32 val_l;
+	u32 val_u;
+} __packed;
 
 struct skl_notify_kctrl_info {
 	struct list_head list;
@@ -509,5 +515,6 @@ int skl_probe_points_connect(struct skl_dev *skl,
 		struct skl_probe_point_desc *desc, size_t num_desc);
 int skl_probe_points_disconnect(struct skl_dev *skl,
 		union skl_probe_point_id *id, size_t num_id);
+int skl_system_time_set(struct sst_generic_ipc *ipc);
 
 #endif /* __SKL_IPC_H */

@@ -1581,3 +1581,21 @@ int skl_probe_points_disconnect(struct skl_dev *skl,
 
 	return skl_ipc_set_large_config(&skl->ipc, &msg, (u32 *)id);
 }
+
+int skl_system_time_set(struct sst_generic_ipc *ipc)
+{
+	struct skl_ipc_large_config_msg msg = {0};
+	struct skl_sys_time sys_time;
+	u64 us;
+
+	/* firmware expects UTC time in micro seconds */
+	us = ktime_to_us(ktime_get());
+	sys_time.val_l = us & UINT_MAX;
+	sys_time.val_u = us >> 32;
+
+	msg.large_param_id = SKL_BASEFW_SYSTEM_TIME;
+	msg.param_data_size = sizeof(sys_time);
+
+	return skl_ipc_set_large_config(ipc, &msg, (u32 *)&sys_time);
+}
+EXPORT_SYMBOL_GPL(skl_system_time_set);
