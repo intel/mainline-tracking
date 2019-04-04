@@ -19,6 +19,7 @@ struct sst_dsp;
 struct sst_dsp_device;
 struct skl_lib_info;
 struct skl_dev;
+struct skl_notify_msg;
 enum skl_log_enable;
 
 /* Intel HD Audio General DSP Registers */
@@ -159,6 +160,9 @@ struct skl_dsp_fw_ops {
 	int (*enable_logs)(struct sst_dsp *dsp, enum skl_log_enable enable,
 		u32 aging_period, u32 fifo_full_period,
 		unsigned long resource_mask, u32 *priorities);
+	int (*log_buffer_offset)(struct sst_dsp *dsp, u32 core);
+	int (*log_buffer_status)(struct sst_dsp *dsp,
+		struct skl_notify_msg notif);
 };
 
 struct skl_dsp_loader_ops {
