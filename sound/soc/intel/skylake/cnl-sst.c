@@ -36,10 +36,8 @@
 #define CNL_INIT_TIMEOUT	300
 #define CNL_BASEFW_TIMEOUT	3000
 
-#define CNL_ADSP_SRAM0_BASE	0x80000
-
 /* Firmware status window */
-#define CNL_ADSP_FW_STATUS	CNL_ADSP_SRAM0_BASE
+#define CNL_ADSP_FW_STATUS	BXT_ADSP_SRAM0_BASE
 #define CNL_ADSP_ERROR_CODE	(CNL_ADSP_FW_STATUS + 0x4)
 
 #define CNL_INSTANCE_ID		0
@@ -515,13 +513,13 @@ int cnl_sst_dsp_init(struct device *dev, void __iomem *mmio_base, int irq,
 	sst->fw_ops = cnl_fw_ops;
 	sst->addr.lpe = mmio_base;
 	sst->addr.shim = mmio_base;
-	sst->addr.sram0_base = CNL_ADSP_SRAM0_BASE;
-	sst->addr.sram1_base = CNL_ADSP_SRAM1_BASE;
+	sst->addr.sram0_base = BXT_ADSP_SRAM0_BASE;
+	sst->addr.sram1_base = BXT_ADSP_SRAM1_BASE;
 	sst->addr.w0_stat_sz = CNL_ADSP_W0_STAT_SZ;
 	sst->addr.w0_up_sz = CNL_ADSP_W0_UP_SZ;
 
-	sst_dsp_mailbox_init(sst, (CNL_ADSP_SRAM0_BASE + CNL_ADSP_W0_STAT_SZ),
-			     CNL_ADSP_W0_UP_SZ, CNL_ADSP_SRAM1_BASE,
+	sst_dsp_mailbox_init(sst, (BXT_ADSP_SRAM0_BASE + CNL_ADSP_W0_STAT_SZ),
+			     CNL_ADSP_W0_UP_SZ, BXT_ADSP_SRAM1_BASE,
 			     CNL_ADSP_W1_SZ);
 
 	ret = cnl_ipc_init(dev, cnl);
