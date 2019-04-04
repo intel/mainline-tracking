@@ -449,6 +449,7 @@ int skl_sst_ctx_init(struct device *dev, int irq, const char *fw_name,
 	skl->dev = dev;
 	skl_dev->thread_context = skl;
 	INIT_LIST_HEAD(&skl->module_list);
+	spin_lock_init(&skl->trace_lock);
 	skl->dsp = skl_dsp_ctx_init(dev, skl_dev, irq);
 	if (!skl->dsp) {
 		dev_err(skl->dev, "%s: no device\n", __func__);
