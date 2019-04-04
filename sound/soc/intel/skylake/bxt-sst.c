@@ -576,6 +576,20 @@ int bxt_enable_logs(struct sst_dsp *dsp, enum skl_log_enable enable,
 	return ret;
 }
 
+int bxt_log_buffer_status(struct sst_dsp *dsp, struct skl_notify_msg notif)
+{
+	struct skl_dev *skl = dsp->thread_context;
+	int ret;
+
+	ret = dsp->fw_ops.log_buffer_offset(dsp, notif.log.core);
+	if (ret < 0)
+		return ret;
+
+	skl_copy_from_sram2(skl, dsp->addr.sram2 + ret);
+	wake_up(&skl->trace_waitq);
+	return 0;
+}
+
 static const struct skl_dsp_fw_ops bxt_fw_ops = {
 	.set_state_D0 = bxt_set_dsp_D0,
 	.set_state_D3 = bxt_set_dsp_D3,
@@ -585,6 +599,8 @@ static const struct skl_dsp_fw_ops bxt_fw_ops = {
 	.get_fw_errcode = bxt_get_errorcode,
 	.load_library = bxt_load_library,
 	.enable_logs = bxt_enable_logs,
+	.log_buffer_offset = skl_log_buffer_offset,
+	.log_buffer_status = bxt_log_buffer_status,
 };
 
 static struct sst_ops skl_ops = {
