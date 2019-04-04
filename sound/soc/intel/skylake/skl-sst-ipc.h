@@ -273,6 +273,7 @@ struct skl_lib_info {
 enum skl_basefw_runtime_param {
 	SKL_BASEFW_ASTATE_TABLE = 4,
 	SKL_BASEFW_DMA_CONTROL = 5,
+	SKL_BASEFW_ENABLE_LOGS = 6,
 	SKL_BASEFW_FIRMWARE_CONFIG = 7,
 	SKL_BASEFW_HARDWARE_CONFIG = 8,
 	SKL_BASEFW_SYSTEM_TIME = 20,
@@ -387,6 +388,60 @@ struct skl_hw_cfg {
 struct skl_sys_time {
 	u32 val_l;
 	u32 val_u;
+} __packed;
+
+enum skl_log_enable {
+	SKL_LOG_DISABLE = 0,
+	SKL_LOG_ENABLE = 1
+};
+
+enum skl_log_priority {
+	SKL_LOG_CRITICAL = 1,
+	SKL_LOG_HIGH,
+	SKL_LOG_MEDIUM,
+	SKL_LOG_LOW,
+	SKL_LOG_VERBOSE
+};
+
+enum icl_log_priority {
+	ICL_LOG_CRITICAL = 0,
+	ICL_LOG_HIGH,
+	ICL_LOG_MEDIUM,
+	ICL_LOG_LOW,
+	ICL_LOG_VERBOSE
+};
+
+enum icl_log_source {
+	ICL_LOG_INFRA = 0,
+	ICL_LOG_HAL,
+	ICL_LOG_MODULE,
+	ICL_LOG_AUDIO,
+	ICL_LOG_SENSING,
+	ICL_LOG_ULP_INFRA
+};
+
+struct skl_log_state {
+	enum skl_log_enable enable __aligned(4);
+	enum skl_log_priority min_priority __aligned(4);
+} __packed;
+
+struct skl_log_state_info {
+	u32 core_mask;
+	struct skl_log_state logs_core[0];
+} __packed;
+
+struct bxt_log_state_info {
+	u32 aging_timer_period;
+	u32 fifo_full_timer_period;
+	u32 core_mask;
+	struct skl_log_state logs_core[0];
+} __packed;
+
+struct icl_log_state_info {
+	u32 aging_timer_period;
+	u32 fifo_full_timer_period;
+	enum skl_log_enable enable __aligned(4);
+	u32 logs_priorities_mask[0];
 } __packed;
 
 struct skl_notify_kctrl_info {
@@ -516,5 +571,9 @@ int skl_probe_points_connect(struct skl_dev *skl,
 int skl_probe_points_disconnect(struct skl_dev *skl,
 		union skl_probe_point_id *id, size_t num_id);
 int skl_system_time_set(struct sst_generic_ipc *ipc);
+int skl_enable_logs_set(struct sst_generic_ipc *ipc, u32 *info, size_t size);
+int bxt_enable_logs(struct sst_dsp *dsp, enum skl_log_enable enable,
+		u32 aging_period, u32 fifo_full_period,
+		unsigned long resource_mask, u32 *priorities);
 
 #endif /* __SKL_IPC_H */

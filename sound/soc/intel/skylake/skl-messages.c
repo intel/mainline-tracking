@@ -1599,3 +1599,14 @@ int skl_system_time_set(struct sst_generic_ipc *ipc)
 	return skl_ipc_set_large_config(ipc, &msg, (u32 *)&sys_time);
 }
 EXPORT_SYMBOL_GPL(skl_system_time_set);
+
+int skl_enable_logs_set(struct sst_generic_ipc *ipc, u32 *info, size_t size)
+{
+	struct skl_ipc_large_config_msg msg = {0};
+
+	msg.param_data_size = size;
+	msg.large_param_id = SKL_BASEFW_ENABLE_LOGS;
+
+	return skl_ipc_set_large_config(ipc, &msg, info);
+}
+EXPORT_SYMBOL_GPL(skl_enable_logs_set);

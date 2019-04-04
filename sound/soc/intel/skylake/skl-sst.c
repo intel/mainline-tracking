@@ -13,6 +13,7 @@
 #include <linux/device.h>
 #include <linux/err.h>
 #include <linux/uuid.h>
+#include <linux/slab.h>
 #include "../common/sst-dsp.h"
 #include "../common/sst-dsp-priv.h"
 #include "../common/sst-ipc.h"
@@ -493,6 +494,35 @@ static void skl_clear_module_table(struct sst_dsp *ctx)
 	}
 }
 
+static int skl_enable_logs(struct sst_dsp *dsp, enum skl_log_enable enable,
+		u32 aging_period, u32 fifo_full_period,
+		unsigned long resource_mask, u32 *priorities)
+{
+	struct skl_dev *skl = dsp->thread_context;
+	struct skl_log_state_info *info;
+	u32 size, num_cores = skl->hw_cfg.dsp_cores;
+	int ret, i;
+
+	size = struct_size(info, logs_core, num_cores);
+	info = kzalloc(size, GFP_KERNEL);
+	if (!info)
+		return -ENOMEM;
+
+	info->core_mask = resource_mask;
+	if (enable)
+		for_each_set_bit(i, &resource_mask, GENMASK(num_cores, 0)) {
+			info->logs_core[i].enable = enable;
+			info->logs_core[i].min_priority = *priorities++;
+		}
+	else
+		for_each_set_bit(i, &resource_mask, GENMASK(num_cores, 0))
+			info->logs_core[i].enable = enable;
+
+	ret = skl_enable_logs_set(&skl->ipc, (u32 *)info, size);
+	kfree(info);
+	return ret;
+}
+
 static const struct skl_dsp_fw_ops skl_fw_ops = {
 	.set_state_D0 = skl_set_dsp_D0,
 	.set_state_D3 = skl_set_dsp_D3,
@@ -501,6 +531,7 @@ static const struct skl_dsp_fw_ops skl_fw_ops = {
 	.load_library = skl_load_library,
 	.load_mod = skl_load_module,
 	.unload_mod = skl_unload_module,
+	.enable_logs = skl_enable_logs,
 };
 
 static int skl_sst_init(struct sst_dsp *sst, struct sst_pdata *pdata)
