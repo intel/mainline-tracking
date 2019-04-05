@@ -61,3 +61,5 @@ obj-$(CONFIG_OCXL)		+= ocxl/
 obj-y				+= cardreader/
 obj-$(CONFIG_PVPANIC)   	+= pvpanic.o
 obj-$(CONFIG_HABANA_AI)		+= habanalabs/
+obj-$(CONFIG_UID_CPUTIME)	+= uid_cputime.o
+obj-$(CONFIG_UID_SYS_STATS)	+= uid_sys_stats.o

@@ -400,6 +400,12 @@ void dm_set_mdptr(struct mapped_device *md, void *ptr);
 void *dm_get_mdptr(struct mapped_device *md);
 
 /*
+ * Export the device via the ioctl interface (uses mdptr).
+ */
+int dm_ioctl_export(struct mapped_device *md, const char *name,
+		    const char *uuid);
+
+/*
  * A device can still be used while suspended, but I/O is deferred.
  */
 int dm_suspend(struct mapped_device *md, unsigned suspend_flags);
@@ -435,6 +441,13 @@ int __init dm_early_create(struct dm_ioctl *dmi,
 			   char **target_params_array);
 
 struct queue_limits *dm_get_queue_limits(struct mapped_device *md);
+
+void dm_lock_md_type(struct mapped_device *md);
+void dm_unlock_md_type(struct mapped_device *md);
+void dm_set_md_type(struct mapped_device *md, unsigned type);
+unsigned dm_get_md_type(struct mapped_device *md);
+int dm_setup_md_queue(struct mapped_device *md, struct dm_table *t);
+unsigned dm_table_get_type(struct dm_table *t);
 
 /*
  * Geometry functions.
@@ -523,6 +536,11 @@ struct dm_table *dm_swap_table(struct mapped_device *md,
  * A wrapper around vmalloc.
  */
 void *dm_vcalloc(unsigned long nmemb, unsigned long elem_size);
+
+/*
+ * Helper function to parse DM arguments
+ */
+int dm_split_args(int *argc, char ***argvp, char *input);
 
 /*-----------------------------------------------------------------
  * Macros.
