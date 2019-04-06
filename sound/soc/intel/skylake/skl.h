@@ -201,6 +201,7 @@ struct skl_dev {
 	/* firmware logging */
 	struct kfifo trace_fifo;
 	spinlock_t trace_lock;
+	wait_queue_head_t trace_waitq;
 };
 
 #define skl_to_bus(s)  (&(s)->hbus.core)

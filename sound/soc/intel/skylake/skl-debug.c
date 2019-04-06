@@ -5,6 +5,7 @@
  *  Copyright (C) 2016-17 Intel Corp
  */
 
+#include <linux/sched/signal.h>
 #include <linux/pci.h>
 #include <linux/debugfs.h>
 #include <uapi/sound/skl-tplg-interface.h>
@@ -461,6 +462,78 @@ static const struct file_operations ppoints_discnt_fops = {
 	.llseek = default_llseek,
 };
 
+static int trace_open(struct inode *inode, struct file *file)
+{
+	struct skl_debug *d = inode->i_private;
+	struct skl_dev *skl = d->skl;
+	int ret;
+
+	ret = kfifo_alloc(&skl->trace_fifo, PAGE_SIZE, GFP_KERNEL);
+	if (ret < 0)
+		return ret;
+
+	pm_runtime_get_sync(skl->dev);
+
+	ret = skl_system_time_set(&skl->ipc);
+	if (ret < 0)
+		goto err;
+
+	file->private_data = d;
+	return 0;
+
+err:
+	kfifo_free(&skl->trace_fifo);
+	pm_runtime_mark_last_busy(skl->dev);
+	pm_runtime_put_autosuspend(skl->dev);
+
+	return ret;
+}
+
+static ssize_t trace_read(struct file *file,
+		char __user *to, size_t count, loff_t *ppos)
+{
+	struct skl_debug *d = file->private_data;
+	struct skl_dev *skl = d->skl;
+	struct kfifo *fifo = &skl->trace_fifo;
+	unsigned int copied;
+
+	count = kfifo_len(fifo);
+	if (!count) {
+		DEFINE_WAIT(wait);
+
+		prepare_to_wait(&skl->trace_waitq, &wait, TASK_INTERRUPTIBLE);
+		if (!signal_pending(current))
+			schedule();
+		finish_wait(&skl->trace_waitq, &wait);
+
+		count = kfifo_len(fifo);
+	}
+
+	if (kfifo_to_user(fifo, to, count, &copied))
+		return -EFAULT;
+	*ppos += count;
+	return count;
+}
+
+static int trace_release(struct inode *inode, struct file *file)
+{
+	struct skl_debug *d = file->private_data;
+	struct skl_dev *skl = d->skl;
+
+	kfifo_free(&skl->trace_fifo);
+	pm_runtime_mark_last_busy(skl->dev);
+	pm_runtime_put_autosuspend(skl->dev);
+
+	return 0;
+}
+
+static const struct file_operations trace_fops = {
+	.open = trace_open,
+	.read = trace_read,
+	.llseek = default_llseek,
+	.release = trace_release,
+};
+
 static int skl_debugfs_init_ipc(struct skl_debug *d)
 {
 	if (!debugfs_create_file("injection_dma", 0444,
@@ -471,6 +544,9 @@ static int skl_debugfs_init_ipc(struct skl_debug *d)
 		return -EIO;
 	if (!debugfs_create_file("probe_points_disconnect", 0200,
 			d->ipc, d, &ppoints_discnt_fops))
+		return -EIO;
+	if (!debugfs_create_file("trace", 0444,
+			d->ipc, d, &trace_fops))
 		return -EIO;
 
 	return 0;
