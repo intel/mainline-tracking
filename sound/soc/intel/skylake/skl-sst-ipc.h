@@ -15,6 +15,7 @@
 
 #define	SKL_EVENT_GLB_MODULE_NOTIFICATION	12
 
+struct kfifo;
 struct sst_dsp;
 struct sst_generic_ipc;
 
@@ -713,5 +714,9 @@ int skl_enable_logs_set(struct sst_generic_ipc *ipc, u32 *info, size_t size);
 int bxt_enable_logs(struct sst_dsp *dsp, enum skl_log_enable enable,
 		u32 aging_period, u32 fifo_full_period,
 		unsigned long resource_mask, u32 *priorities);
+
+unsigned int
+skl_kfifo_fromio_locked(struct kfifo *fifo, const void __iomem *src,
+		unsigned int len, spinlock_t *lock);
 
 #endif /* __SKL_IPC_H */
