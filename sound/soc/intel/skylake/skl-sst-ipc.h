@@ -297,6 +297,7 @@ enum skl_ipc_notification_type {
 	IPC_GLB_NOTIFY_TIMESTAMP_CAPTURED = 7,
 	IPC_GLB_NOTIFY_FW_READY = 8,
 	IPC_GLB_NOTIFY_FW_AUD_CLASS_RESULT = 9,
+	IPC_GLB_NOTIFY_EXCEPTION_CAUGHT = 10,
 	IPC_GLB_MODULE_NOTIFICATION = 12,
 };
 
@@ -331,7 +332,7 @@ struct skl_notify_msg {
 		u32 sv_score:16;
 		struct {
 			u32 core_id:2;
-			u32 stack_size:16;
+			u32 stack_dump_size:16;
 		};
 		struct {
 			u32 rsvd:30;
@@ -589,41 +590,6 @@ struct bxt_log_buffer_layout {
 	u8 buffer[0];
 } __packed;
 
-union icl_memwnd2_slot_type {
-	u32 val;
-	struct {
-		u32 resource_id:8;
-		u32 type:24;
-	};
-};
-
-struct icl_memwnd2_desc {
-	u32 resource_id;
-	union icl_memwnd2_slot_type slot_id;
-	u32 vma;
-} __packed;
-
-#define ICL_SLOT_UNUSED \
-	((union icl_memwnd2_slot_type) { 0x00000000U })
-#define ICL_SLOT_CRITICAL_LOG \
-	((union icl_memwnd2_slot_type) { 0x54524300U })
-#define ICL_SLOT_DEBUG_LOG \
-	((union icl_memwnd2_slot_type) { 0x474f4c00U })
-#define ICL_SLOT_GDB_STUB \
-	((union icl_memwnd2_slot_type) { 0x42444700U })
-#define ICL_SLOT_BROKEN \
-	((union icl_memwnd2_slot_type) { 0x44414544U })
-
-#define ICL_MEMWND2_SLOTS_COUNT	15
-
-struct icl_memwnd2 {
-	union {
-		struct icl_memwnd2_desc slot_desc[ICL_MEMWND2_SLOTS_COUNT];
-		u8 rsvd[PAGE_SIZE];
-	};
-	u8 slot_array[ICL_MEMWND2_SLOTS_COUNT][PAGE_SIZE];
-} __packed;
-
 struct skl_notify_kctrl_info {
 	struct list_head list;
 	u32 notify_id;
@@ -756,24 +722,25 @@ int bxt_enable_logs(struct sst_dsp *dsp, enum skl_log_enable enable,
 		u32 aging_period, u32 fifo_full_period,
 		unsigned long resource_mask, u32 *priorities);
 
-unsigned int
-skl_kfifo_fromio_locked(struct kfifo *fifo, const void __iomem *src,
+unsigned int skl_log_buffer_offset(struct sst_dsp *dsp, u32 core);
+unsigned int __kfifo_fromio_locked(struct kfifo *fifo,
+		const void __iomem *src,
 		unsigned int len, spinlock_t *lock);
+int bxt_log_buffer_status(struct sst_dsp *dsp, struct skl_notify_msg notif);
 
-#define skl_log_buffer_size(s) \
+#define skl_log_buffer_size(dsp) \
 ({ \
-	struct skl_dev *__skl = (s); \
+	struct skl_dev *__skl = (dsp->thread_context); \
 	__skl->fw_cfg.trace_log_bytes / __skl->hw_cfg.dsp_cores; \
 })
 
-#define bxt_log_payload_size(s) \
-	(skl_log_buffer_size(s) - sizeof(struct bxt_log_buffer_layout))
+#define skl_log_buffer_addr(dsp, core) \
+	(dsp->addr.sram2 + dsp->fw_ops.log_buffer_offset(dsp, core))
 
-int skl_log_buffer_offset(struct sst_dsp *dsp, u32 core);
+#define bxt_log_payload_size(dsp) \
+	(skl_log_buffer_size(dsp) - sizeof(struct bxt_log_buffer_layout))
 
-#define FW_REGS_SZ	PAGE_SIZE
-
-void skl_copy_from_sram2(struct skl_dev *skl, void __iomem *addr);
-int bxt_log_buffer_status(struct sst_dsp *dsp, struct skl_notify_msg notif);
+#define bxt_log_payload_addr(addr) \
+	(addr + sizeof(struct bxt_log_buffer_layout))
 
 #endif /* __SKL_IPC_H */

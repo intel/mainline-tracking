@@ -569,14 +569,34 @@ int bxt_enable_logs(struct sst_dsp *dsp, enum skl_log_enable enable,
 int bxt_log_buffer_status(struct sst_dsp *dsp, struct skl_notify_msg notif)
 {
 	struct skl_dev *skl = dsp->thread_context;
-	int ret;
+	struct bxt_log_buffer_layout layout;
+	void __iomem *addr, *buf;
 
-	ret = dsp->fw_ops.log_buffer_offset(dsp, notif.log.core);
-	if (ret < 0)
-		return ret;
+	addr = skl_log_buffer_addr(dsp, notif.log.core);
+	memcpy_fromio(&layout, addr, sizeof(layout));
 
-	skl_copy_from_sram2(skl, dsp->addr.sram2 + ret);
+	if (!kfifo_initialized(&skl->trace_fifo))
+		/* consume the logs regardless of consumer presence */
+		goto update_read_ptr;
+
+	buf = bxt_log_payload_addr(addr);
+
+	if (layout.read_ptr > layout.write_ptr) {
+		__kfifo_fromio_locked(&skl->trace_fifo,
+			buf + layout.read_ptr,
+			bxt_log_payload_size(dsp) - layout.read_ptr,
+			&skl->trace_lock);
+		layout.read_ptr = 0;
+	}
+	__kfifo_fromio_locked(&skl->trace_fifo,
+		buf + layout.read_ptr,
+		layout.write_ptr - layout.read_ptr,
+		&skl->trace_lock);
+
 	wake_up(&skl->trace_waitq);
+
+update_read_ptr:
+	writel(layout.write_ptr, addr);
 	return 0;
 }
 

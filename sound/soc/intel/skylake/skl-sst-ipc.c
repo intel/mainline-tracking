@@ -4,6 +4,7 @@
  *
  * Copyright (C) 2014-15, Intel Corporation.
  */
+#include <linux/devcoredump.h>
 #include <linux/device.h>
 #include <linux/kfifo.h>
 #include "../common/sst-dsp.h"
@@ -469,6 +470,9 @@ skl_parse_resource_event(struct skl_dev *skl, struct skl_ipc_header header)
 			&notify, sizeof(struct skl_event_notify), false);
 }
 
+static int
+skl_exception_caught(struct sst_dsp *dsp, struct skl_notify_msg notif);
+
 int skl_ipc_process_notification(struct sst_generic_ipc *ipc,
 		struct skl_ipc_header header)
 {
@@ -507,6 +511,12 @@ int skl_ipc_process_notification(struct sst_generic_ipc *ipc,
 			 */
 			skl->enable_miscbdcge(ipc->dev, false);
 			skl->miscbdcg_disabled = true;
+			break;
+
+		case IPC_GLB_NOTIFY_EXCEPTION_CAUGHT:
+			dev_err(ipc->dev, "Core %d exception caught\n",
+				notif.core_id);
+			skl_exception_caught(skl->dsp, notif);
 			break;
 
 		case IPC_GLB_NOTIFY_TIMESTAMP_CAPTURED:
@@ -1465,8 +1475,8 @@ exit:
 }
 EXPORT_SYMBOL_GPL(skl_ipc_hw_cfg_get);
 
-unsigned int
-skl_kfifo_fromio_locked(struct kfifo *fifo, const void __iomem *src,
+unsigned int __kfifo_fromio_locked(struct kfifo *fifo,
+		const void __iomem *src,
 		unsigned int len, spinlock_t *lock)
 {
 	struct __kfifo *__fifo = &fifo->kfifo;
@@ -1487,34 +1497,78 @@ skl_kfifo_fromio_locked(struct kfifo *fifo, const void __iomem *src,
 	return len;
 }
 
-static void copy_from_sram2(struct skl_dev *skl, void __iomem *addr,
-		struct bxt_log_buffer_layout layout)
+static int bxt_wait_log_entry(struct sst_dsp *dsp,
+		u32 core, struct bxt_log_buffer_layout *layout)
 {
-	struct kfifo *fifo = &skl->trace_fifo;
-	spinlock_t *lock = &skl->trace_lock;
-	void __iomem *buf;
+	void __iomem *addr;
+	unsigned long timeout;
 
-	if (!kfifo_initialized(fifo))
-		/* consume the logs regardless of consumer presence */
-		goto update_read_ptr;
-	buf = addr + sizeof(layout);
+	addr = skl_log_buffer_addr(dsp, core);
+	timeout = jiffies + msecs_to_jiffies(10);
 
-	if (layout.read_ptr > layout.write_ptr) {
-		skl_kfifo_fromio_locked(fifo, buf + layout.read_ptr,
-			bxt_log_payload_size(skl) - layout.read_ptr, lock);
-		layout.read_ptr = 0;
-	}
-	skl_kfifo_fromio_locked(fifo, buf + layout.read_ptr,
-		layout.write_ptr - layout.read_ptr, lock);
+	do {
+		memcpy_fromio(layout, addr, sizeof(*layout));
+		if (layout->read_ptr != layout->write_ptr)
+			return 0;
+		usleep_range(500, 1000);
+	} while (!time_after(jiffies, timeout));
 
-update_read_ptr:
-	writel(layout.write_ptr, addr);
+	return -ETIMEDOUT;
 }
 
-void skl_copy_from_sram2(struct skl_dev *skl, void __iomem *addr)
+#define FW_REGS_SIZE	PAGE_SIZE
+/* reads log header and tests its type */
+#define bxt_is_entry_stackdump(addr) ((readl(addr) >> 30) & 0x1)
+
+static int
+skl_exception_caught(struct sst_dsp *dsp, struct skl_notify_msg notif)
 {
 	struct bxt_log_buffer_layout layout;
+	void __iomem *addr, *buf;
+	size_t dump_size;
+	u16 offset = 0;
+	u8 *dump, *pos;
 
+	dump_size = FW_REGS_SIZE + notif.stack_dump_size;
+	dump = vzalloc(dump_size);
+	if (!dump)
+		return -ENOMEM;
+	memcpy_fromio(dump, dsp->addr.sram0, FW_REGS_SIZE);
+
+	if (!notif.stack_dump_size)
+		goto exit;
+	/* DSP awaits remaining logs to be gathered before dumping stack */
+	addr = skl_log_buffer_addr(dsp, notif.core_id);
+	buf = bxt_log_payload_addr(addr);
 	memcpy_fromio(&layout, addr, sizeof(layout));
-	copy_from_sram2(skl, addr, layout);
+	if (!bxt_is_entry_stackdump(buf + layout.read_ptr)) {
+		notif.log.core = notif.core_id;
+		dsp->fw_ops.log_buffer_status(dsp, notif);
+	}
+
+	pos = dump + FW_REGS_SIZE;
+	/* gather the stack */
+	do {
+		u32 count;
+
+		if (bxt_wait_log_entry(dsp, notif.core_id, &layout))
+			break;
+
+		if (layout.read_ptr > layout.write_ptr) {
+			count = bxt_log_payload_size(dsp) - layout.read_ptr;
+			memcpy_fromio(pos + offset, buf + layout.read_ptr, count);
+			layout.read_ptr = 0;
+			offset += count;
+		}
+		count = layout.write_ptr - layout.read_ptr;
+		memcpy_fromio(pos + offset, buf + layout.read_ptr, count);
+		offset += count;
+
+		/* update read pointer */
+		writel(layout.write_ptr, addr);
+	} while (offset < notif.stack_dump_size);
+
+exit:
+	dev_coredumpv(dsp->dev, dump, dump_size, GFP_KERNEL);
+	return 0;
 }
