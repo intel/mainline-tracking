@@ -523,9 +523,9 @@ static int skl_enable_logs(struct sst_dsp *dsp, enum skl_log_enable enable,
 	return ret;
 }
 
-int skl_log_buffer_offset(struct sst_dsp *dsp, u32 core)
+unsigned int skl_log_buffer_offset(struct sst_dsp *dsp, u32 core)
 {
-	return core * skl_log_buffer_size(dsp->thread_context);
+	return core * skl_log_buffer_size(dsp);
 }
 
 static int
@@ -533,18 +533,17 @@ skl_log_buffer_status(struct sst_dsp *dsp, struct skl_notify_msg notif)
 {
 	struct skl_dev *skl = dsp->thread_context;
 	void __iomem *buf;
-	u32 size, write, offset;
+	u16 size, write, offset;
 
 	if (!kfifo_initialized(&skl->trace_fifo))
 		return 0;
-	size = skl_log_buffer_size(skl) / 2;
+	size = skl_log_buffer_size(dsp) / 2;
 	write = readl(dsp->addr.sram0 + FW_REGS_DBG_LOG_WP(notif.log.core));
 	/* determine buffer half */
 	offset = (write < size) ? size : 0;
 
-	buf = dsp->addr.sram2 +
-		dsp->fw_ops.log_buffer_offset(dsp, notif.log.core) + offset;
-	skl_kfifo_fromio_locked(&skl->trace_fifo, buf, size, &skl->trace_lock);
+	buf = skl_log_buffer_addr(dsp, notif.log.core) + offset;
+	__kfifo_fromio_locked(&skl->trace_fifo, buf, size, &skl->trace_lock);
 	wake_up(&skl->trace_waitq);
 
 	return 0;
