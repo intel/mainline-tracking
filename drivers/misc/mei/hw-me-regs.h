@@ -90,6 +90,8 @@
 
 #define MEI_DEV_ID_ICP_LP     0x34E0  /* Ice Lake Point LP */
 
+#define MEI_DEV_ID_JSP_P      0x38E0  /* Jasper Point - testing only (REMOVE) */
+
 #define MEI_DEV_ID_TGP_LP     0xA0E0  /* Tiger Lake Point LP */
 #define MEI_DEV_ID_TGP_K      0x42E0  /* Tiger Lake Point K */
 #define MEI_DEV_ID_TGP_H      0x43E0  /* Tiger Lake Point H */
