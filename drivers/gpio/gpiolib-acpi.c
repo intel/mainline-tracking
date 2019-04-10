@@ -664,6 +664,7 @@ static int acpi_populate_gpio_lookup(struct acpi_resource *ares, void *data)
 		lookup->desc = acpi_get_gpiod(agpio->resource_source.string_ptr,
 					      agpio->pin_table[pin_index]);
 		lookup->info.pin_config = agpio->pin_config;
+		lookup->info.debounce = agpio->debounce_timeout;
 		lookup->info.gpioint = gpioint;
 
 		/*
@@ -959,6 +960,10 @@ int acpi_dev_gpio_irq_get(struct acpi_device *adev, int index)
 			snprintf(label, sizeof(label), "GpioInt() %d", index);
 			ret = gpiod_configure_flags(desc, label, lflags, dflags);
 			if (ret < 0)
+				return ret;
+
+			ret = gpiod_set_debounce(desc, info.debounce);
+			if (ret)
 				return ret;
 
 			irq_flags = acpi_dev_get_irq_type(info.triggering,
