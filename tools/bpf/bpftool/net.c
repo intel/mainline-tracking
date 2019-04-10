@@ -362,7 +362,7 @@ static int netlink_get_link(int sock, unsigned int nl_pid,
 			    dump_link_nlmsg, cookie);
 }
 
-static int dump_link_nlmsg(void *cookie, void *msg, struct nlattr **tb)
+int xdp_dump_link_nlmsg(void *cookie, void *msg, struct nlattr **tb)
 {
 	struct bpf_netdev_t *netinfo = cookie;
 	struct ifinfomsg *ifinfo = msg;
@@ -937,7 +937,7 @@ static int do_show(int argc, char **argv)
 		jsonw_start_array(json_wtr);
 	NET_START_OBJECT;
 	NET_START_ARRAY("xdp", "%s:\n");
-	ret = netlink_get_link(sock, nl_pid, dump_link_nlmsg, &dev_array);
+	ret = netlink_get_link(sock, nl_pid, xdp_dump_link_nlmsg, &dev_array);
 	NET_END_ARRAY("\n");
 
 	if (!ret) {
@@ -984,7 +984,7 @@ static int do_help(int argc, char **argv)
 	}
 
 	fprintf(stderr,
-		"Usage: %1$s %2$s { show | list } [dev <devname>]\n"
+		"Usage: %1$s %2$s { show | list | xdp } [dev <devname>]\n"
 		"       %1$s %2$s attach ATTACH_TYPE PROG dev <devname> [ overwrite ]\n"
 		"       %1$s %2$s detach ATTACH_TYPE dev <devname>\n"
 		"       %1$s %2$s help\n"
@@ -1011,6 +1011,7 @@ static const struct cmd cmds[] = {
 	{ "list",	do_show },
 	{ "attach",	do_attach },
 	{ "detach",	do_detach },
+	{ "xdp",	do_xdp },
 	{ "help",	do_help },
 	{ 0 }
 };
