@@ -41,19 +41,30 @@
 /* D0I3C Register fields */
 #define AZX_REG_VS_D0I3C_CIP      0x1 /* Command in progress */
 #define AZX_REG_VS_D0I3C_I3       0x4 /* D0i3 enable */
-#define SKL_MAX_DMACTRL_CFG	18
 #define DMA_CLK_CONTROLS	1
 #define DMA_TRANSMITION_START	2
 #define DMA_TRANSMITION_STOP	3
+#define AZX_EM2_DUM_MASK		(1 << 23)
 
 #define AZX_REG_VS_EM2_L1SEN		BIT(13)
+#define SKL_MAX_DMA_CFG		24
+#define BXT_INSTANCE_ID		0
+#define BXT_BASE_FW_MODULE_ID	0
 
-struct skl_dsp_resource {
-	u32 max_mcps;
-	u32 max_mem;
-	u32 mcps;
-	u32 mem;
-};
+struct skl;
+
+#if IS_ENABLED(CONFIG_SND_SOC_INTEL_SKYLAKE_VIRTIO_BE)
+int skl_virt_device_register(struct skl *skl);
+void skl_virt_device_unregister(struct skl *skl);
+#else
+static inline int skl_virt_device_register(struct skl *skl)
+{
+	return 0;
+}
+static inline void skl_virt_device_unregister(struct skl *skl)
+{
+}
+#endif
 
 struct skl_debug;
 
@@ -67,8 +78,54 @@ struct skl_astate_config {
 	struct skl_astate_param astate_table[0];
 };
 
+struct skl_dma_config {
+	u32 min_size;
+	u32 max_size;
+} __packed;
+
+struct skl_dma_buff_cfg {
+	u32 type;
+	u32 size;
+	struct skl_dma_config dma_cfg[SKL_MAX_DMA_CFG];
+} __packed;
+
+struct skl_sch_config {
+	u32 type;
+	u32 length;
+	u32 sys_tick_mul;
+	u32 sys_tick_div;
+	u32 sys_tick_ll_src;
+	u32 sys_tick_cfg_len;
+	u32 sys_tick_cfg;
+};
+
+struct skl_dmctrl_hdr {
+	u32 vbus_id;
+	u32 freq;
+	u32 tdm_slot;
+	u32 fmt;
+	u32 direction;
+	u32 ch;
+	u32 data_size;
+	u32 *data;
+};
+
+struct skl_dmactrl_node {
+	u32 idx;
+	struct skl_dmctrl_hdr hdr;
+	struct list_head node;
+};
+
 struct skl_fw_config {
+	struct skl_dma_buff_cfg dmacfg;
+	struct skl_sch_config sch_cfg;
+	struct list_head dmactrl_list;
 	struct skl_astate_config *astate_cfg;
+};
+
+struct ep_group_cnt {
+	int cnt;
+	int *vbus_id;
 };
 
 struct skl {
@@ -79,13 +136,14 @@ struct skl {
 	struct platform_device *dmic_dev;
 	struct platform_device *i2s_dev;
 	struct platform_device *clk_dev;
+	struct platform_device *virt_dev;
 	struct snd_soc_component *component;
 	struct snd_soc_dai_driver *dais;
 
+	unsigned int nhlt_version;
 	struct nhlt_acpi_table *nhlt; /* nhlt ptr */
 	struct skl_sst *skl_sst; /* sst skl ctx */
 
-	struct skl_dsp_resource resource;
 	struct list_head ppl_list;
 	struct list_head bind_list;
 
@@ -104,6 +162,14 @@ struct skl {
 	bool use_tplg_pcm;
 	struct skl_fw_config cfg;
 	struct snd_soc_acpi_mach *mach;
+	bool nhlt_override;
+	bool mod_set_get_status;
+	struct ep_group_cnt grp_cnt;
+};
+
+struct skl_virt_pdata {
+	struct skl *skl;
+	void *private_data;
 };
 
 #define skl_to_bus(s)  (&(s)->hbus.core)
@@ -120,6 +186,10 @@ struct skl_dma_params {
 
 struct skl_machine_pdata {
 	bool use_tplg_pcm; /* use dais and dai links from topology */
+	int *imr_alloc;
+	bool dummy_codec;
+	const u8 *dummy_dais;
+	u8 num_dummy_dais;
 };
 
 struct skl_dsp_ops {
@@ -137,11 +207,16 @@ struct skl_dsp_ops {
 int skl_platform_unregister(struct device *dev);
 int skl_platform_register(struct device *dev);
 
+int skl_get_nhlt_version(struct device *dev);
+void skl_nhlt_get_ep_cnt(struct skl *skl, int link_type);
 struct nhlt_acpi_table *skl_nhlt_init(struct device *dev);
 void skl_nhlt_free(struct nhlt_acpi_table *addr);
 struct nhlt_specific_cfg *skl_get_ep_blob(struct skl *skl, u32 instance,
 					u8 link_type, u8 s_fmt, u8 no_ch,
 					u32 s_rate, u8 dirn, u8 dev_type);
+struct nhlt_specific_cfg *
+skl_get_nhlt_specific_cfg(struct skl *skl, u32 instance, u8 link_type,
+		u8 s_fmt, u8 num_ch, u32 s_rate, u8 dir, u8 dev_type);
 
 int skl_get_dmic_geo(struct skl *skl);
 int skl_nhlt_update_topology_bin(struct skl *skl);
@@ -162,11 +237,24 @@ int skl_dsp_set_dma_control(struct skl_sst *ctx, u32 *caps,
 
 struct skl_module_cfg;
 
+int skl_pcm_new(struct snd_soc_pcm_runtime *rtd);
+void skl_pcm_free(struct snd_pcm *pcm);
+int skl_platform_component_register(struct device *dev,
+	const struct snd_soc_component_driver *component_drv);
+int skl_platform_soc_probe(struct snd_soc_component *component);
+int skl_platform_open(struct snd_pcm_substream *substream);
+int skl_platform_pcm_trigger(struct snd_pcm_substream *substream,
+	int cmd);
+
 #ifdef CONFIG_DEBUG_FS
 struct skl_debug *skl_debugfs_init(struct skl *skl);
 void skl_debug_init_module(struct skl_debug *d,
 			struct snd_soc_dapm_widget *w,
 			struct skl_module_cfg *mconfig);
+struct nhlt_specific_cfg
+*skl_nhlt_get_debugfs_blob(struct skl_debug *d, u8 link_type, u32 instance,
+			u8 stream);
+void skl_dbg_event(struct skl_sst *ctx, int type);
 #else
 static inline struct skl_debug *skl_debugfs_init(struct skl *skl)
 {
@@ -176,6 +264,15 @@ static inline void skl_debug_init_module(struct skl_debug *d,
 					 struct snd_soc_dapm_widget *w,
 					 struct skl_module_cfg *mconfig)
 {}
+static inline struct nhlt_specific_cfg
+*skl_nhlt_get_debugfs_blob(struct skl_debug *d, u8 link_type, u32 instance,
+			u8 stream)
+{
+	return NULL;
+}
+static inline void skl_dbg_event(struct skl_sst *ctx, int type)
+{
+}
 #endif
 
 #endif /* __SOUND_SOC_SKL_H */
