@@ -456,7 +456,7 @@ skl_parse_resource_event(struct skl_dev *skl, struct skl_ipc_header header)
 			"Frequency drift exceeded limit in SRE: %x\n",
 					header.primary);
 		break;
-	case SKL_INVALID_RESORUCE_EVENT_TYPE:
+	case SKL_INVALID_RESOURCE_EVENT_TYPE:
 		dev_err(sst->dev, "Invalid type: %x\n", header.primary);
 		break;
 	default:
