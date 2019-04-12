@@ -23,6 +23,7 @@
 #define FW_REG_BUF	PAGE_SIZE
 #define FW_REG_SIZE	0x60
 #define MAX_SSP 	6
+#define DISABLE_TIMERS	UINT_MAX
 
 struct nhlt_blob {
 	size_t size;
@@ -46,6 +47,8 @@ struct skl_debug {
 	struct nhlt_blob ssp_blob[2*MAX_SSP];
 	struct nhlt_blob dmic_blob;
 	struct skl_pipe_event_data data;
+	u32 aging_timer_period;
+	u32 fifo_full_timer_period;
 };
 
 /**
@@ -534,6 +537,96 @@ static const struct file_operations trace_fops = {
 	.release = trace_release,
 };
 
+static ssize_t trace_enable_write(struct file *file,
+		const char __user *from, size_t count, loff_t *ppos)
+{
+	struct skl_debug *d = file->private_data;
+	struct sst_dsp *dsp = d->skl->dsp;
+	char *buf;
+	u32 *tkns;
+	size_t num_tkns;
+	int ret;
+
+	buf = kmalloc(count + 1, GFP_KERNEL);
+	if (!buf)
+		return -ENOMEM;
+
+	ret = simple_write_to_buffer(buf, count, ppos, from, count);
+	if (ret != count) {
+		ret = ret >= 0 ? -EIO : ret;
+		goto exit;
+	}
+
+	buf[count] = '\0';
+	ret = strsplit_u32((char **)&buf, ",", &tkns, &num_tkns);
+	if (ret < 0)
+		goto exit;
+	if (!num_tkns || num_tkns < (hweight_long(*tkns) + 1)) {
+		ret = -EINVAL;
+		goto free_tkns;
+	}
+
+	ret = dsp->fw_ops.enable_logs(dsp, SKL_LOG_ENABLE,
+			d->aging_timer_period, d->fifo_full_timer_period,
+			*tkns, tkns + 1);
+	if (ret < 0)
+		goto free_tkns;
+
+	ret = count;
+free_tkns:
+	kfree(tkns);
+exit:
+	kfree(buf);
+	return ret;
+}
+
+static const struct file_operations trace_enable_fops = {
+	.open = simple_open,
+	.write = trace_enable_write,
+	.llseek = default_llseek,
+};
+
+static ssize_t trace_disable_write(struct file *file,
+		const char __user *from, size_t count, loff_t *ppos)
+{
+	struct skl_debug *d = file->private_data;
+	struct sst_dsp *dsp = d->skl->dsp;
+	char *buf;
+	unsigned long mask;
+	int ret;
+
+	buf = kmalloc(count + 1, GFP_KERNEL);
+	if (!buf)
+		return -ENOMEM;
+
+	ret = simple_write_to_buffer(buf, count, ppos, from, count);
+	if (ret != count) {
+		ret = ret >= 0 ? -EIO : ret;
+		goto exit;
+	}
+
+	buf[count] = '\0';
+	ret = kstrtoul(buf, 0, &mask);
+	if (ret < 0)
+		goto exit;
+
+	ret = dsp->fw_ops.enable_logs(dsp, SKL_LOG_DISABLE,
+			DISABLE_TIMERS, DISABLE_TIMERS, mask, NULL);
+	if (ret < 0)
+		goto exit;
+
+	ret = count;
+exit:
+	kfree(buf);
+	return ret;
+}
+
+static const struct file_operations trace_disable_fops = {
+	.open = simple_open,
+	.write = trace_disable_write,
+	.llseek = default_llseek,
+};
+
 static int skl_debugfs_init_ipc(struct skl_debug *d)
 {
 	if (!debugfs_create_file("injection_dma", 0444,
@@ -548,6 +641,22 @@ static int skl_debugfs_init_ipc(struct skl_debug *d)
 	if (!debugfs_create_file("trace", 0444,
 			d->ipc, d, &trace_fops))
 		return -EIO;
+	if (!debugfs_create_file("trace_enable", 0200,
+			d->ipc, d, &trace_enable_fops))
+		return -EIO;
+	if (!debugfs_create_file("trace_disable", 0200,
+			d->ipc, d, &trace_disable_fops))
+		return -EIO;
+	if (!debugfs_create_u32("trace_aging_period", 0644,
+			d->ipc, &d->aging_timer_period))
+		return -EIO;
+	if (!debugfs_create_u32("trace_fifo_full_period", 0644,
+			d->ipc, &d->fifo_full_timer_period))
+		return -EIO;
+
+	/* Initialize timer periods with recommended defaults */
+	d->aging_timer_period = 10;
+	d->fifo_full_timer_period = 10;
 
 	return 0;
 }
