@@ -12,6 +12,7 @@
 #include "../common/sst-dsp.h"
 #include "../common/sst-dsp-priv.h"
 #include "skl-sst-ipc.h"
+#include "skl.h"
 
 
 #define UUID_STR_SIZE 37
@@ -105,12 +106,12 @@ static int skl_get_pvtid_map(struct uuid_module *module, int instance_id)
 	return -EINVAL;
 }
 
-int skl_get_pvt_instance_id_map(struct skl_sst *ctx,
+int skl_get_pvt_instance_id_map(struct skl_dev *skl,
 				int module_id, int instance_id)
 {
 	struct uuid_module *module;
 
-	list_for_each_entry(module, &ctx->uuid_list, list) {
+	list_for_each_entry(module, &skl->uuid_list, list) {
 		if (module->id == module_id)
 			return skl_get_pvtid_map(module, instance_id);
 	}
@@ -169,19 +170,19 @@ static inline int skl_pvtid_128(struct uuid_module *module)
 /**
  * skl_get_pvt_id: generate a private id for use as module id
  *
- * @ctx: driver context
+ * @skl: driver context
  * @uuid_mod: module's uuid
  * @instance_id: module's instance id
  *
  * This generates a 128 bit private unique id for a module TYPE so that
  * module instance is unique
  */
-int skl_get_pvt_id(struct skl_sst *ctx, uuid_le *uuid_mod, int instance_id)
+int skl_get_pvt_id(struct skl_dev *skl, uuid_le *uuid_mod, int instance_id)
 {
 	struct uuid_module *module;
 	int pvt_id;
 
-	list_for_each_entry(module, &ctx->uuid_list, list) {
+	list_for_each_entry(module, &skl->uuid_list, list) {
 		if (uuid_le_cmp(*uuid_mod, module->uuid) == 0) {
 
 			pvt_id = skl_pvtid_128(module);
@@ -200,18 +201,18 @@ EXPORT_SYMBOL_GPL(skl_get_pvt_id);
 /**
  * skl_put_pvt_id: free up the private id allocated
  *
- * @ctx: driver context
+ * @skl: driver context
  * @uuid_mod: module's uuid
  * @pvt_id: module pvt id
  *
  * This frees a 128 bit private unique id previously generated
  */
-int skl_put_pvt_id(struct skl_sst *ctx, uuid_le *uuid_mod, int *pvt_id)
+int skl_put_pvt_id(struct skl_dev *skl, uuid_le *uuid_mod, int *pvt_id)
 {
 	int i;
 	struct uuid_module *module;
 
-	list_for_each_entry(module, &ctx->uuid_list, list) {
+	list_for_each_entry(module, &skl->uuid_list, list) {
 		if (uuid_le_cmp(*uuid_mod, module->uuid) == 0) {
 
 			if (*pvt_id != 0)
@@ -241,7 +242,7 @@ int snd_skl_parse_uuids(struct sst_dsp *ctx, const struct firmware *fw,
 	int i, num_entry, size;
 	uuid_le *uuid_bin;
 	const char *buf;
-	struct skl_sst *skl = ctx->thread_context;
+	struct skl_dev *skl = ctx->thread_context;
 	struct uuid_module *module;
 	struct firmware stripped_fw;
 	unsigned int safe_file;
@@ -326,11 +327,11 @@ free_uuid_list:
 	return ret;
 }
 
-void skl_freeup_uuid_list(struct skl_sst *ctx)
+void skl_freeup_uuid_list(struct skl_dev *skl)
 {
 	struct uuid_module *uuid, *_uuid;
 
-	list_for_each_entry_safe(uuid, _uuid, &ctx->uuid_list, list) {
+	list_for_each_entry_safe(uuid, _uuid, &skl->uuid_list, list) {
 		list_del(&uuid->list);
 		kfree(uuid);
 	}
@@ -364,15 +365,12 @@ int skl_dsp_strip_extended_manifest(struct firmware *fw)
 }
 
 int skl_sst_ctx_init(struct device *dev, int irq, const char *fw_name,
-	struct skl_dsp_loader_ops dsp_ops, struct skl_sst **dsp,
+	struct skl_dsp_loader_ops dsp_ops, struct skl_dev **dsp,
 	struct sst_dsp_device *skl_dev)
 {
-	struct skl_sst *skl;
+	struct skl_dev *skl = *dsp;
 	struct sst_dsp *sst;
 
-	skl = devm_kzalloc(dev, sizeof(*skl), GFP_KERNEL);
-	if (skl == NULL)
-		return -ENOMEM;
 
 	skl->dev = dev;
 	skl_dev->thread_context = skl;
@@ -390,13 +388,11 @@ int skl_sst_ctx_init(struct device *dev, int irq, const char *fw_name,
 	INIT_LIST_HEAD(&sst->module_list);
 
 	skl->is_first_boot = true;
-	if (dsp)
-		*dsp = skl;
 
 	return 0;
 }
 
-int skl_prepare_lib_load(struct skl_sst *skl, struct skl_lib_info *linfo,
+int skl_prepare_lib_load(struct skl_dev *skl, struct skl_lib_info *linfo,
 		struct firmware *stripped_fw,
 		unsigned int hdr_offset, int index)
 {
