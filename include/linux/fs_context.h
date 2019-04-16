@@ -90,6 +90,8 @@ struct fs_context {
 	enum fs_context_purpose	purpose:8;
 	bool			need_free:1;	/* Need to call ops->free() */
 	bool			global:1;	/* Goes into &init_user_ns */
+	struct vfsmount	*mnt;
+	struct mount	*mnt_parent;
 };
 
 struct fs_context_operations {
