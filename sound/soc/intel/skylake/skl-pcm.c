@@ -1836,11 +1836,6 @@ static int skl_platform_soc_probe(struct snd_soc_component *component)
 			return ret;
 		}
 
-		if (!skl->is_first_boot) {
-			dev_err(component->dev, "DSP reports first boot done!!!\n");
-			return -EIO;
-		}
-
 		ret = skl_sst_init_fw(skl);
 		if (ret < 0)
 			return ret;
