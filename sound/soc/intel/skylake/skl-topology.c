@@ -4683,5 +4683,6 @@ void skl_tplg_exit(struct snd_soc_component *component, struct hdac_bus *bus)
 	/* clean up topology */
 	snd_soc_tplg_component_remove(component, SND_SOC_TPLG_INDEX_ALL);
 
+	skl_delete_notify_kctl_list(skl);
 	release_firmware(skl->tplg);
 }
