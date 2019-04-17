@@ -1867,6 +1867,8 @@ static void skl_pcm_remove(struct snd_soc_component *component)
 	struct hdac_bus *bus = dev_get_drvdata(component->dev);
 	struct skl_dev *skl = bus_to_skl(bus);
 
+	skl_module_sysfs_exit(skl);
+
 	skl_tplg_exit(component, bus);
 
 	skl_debugfs_exit(skl);
