@@ -1224,8 +1224,6 @@ static void skl_remove(struct pci_dev *pci)
 	struct skl_dev *skl = bus_to_skl(bus);
 
 	cancel_work_sync(&skl->probe_work);
-	skl_delete_notify_kctl_list(skl);
-	release_firmware(skl->tplg);
 	pm_runtime_get_noresume(&pci->dev);
 
 	/* codec removal, invoke bus_device_remove */
