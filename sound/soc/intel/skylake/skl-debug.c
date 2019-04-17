@@ -1035,6 +1035,7 @@ void skl_debugfs_exit(struct skl_dev *skl)
 {
 	struct skl_debug *d = skl->debugfs;
 
+	skl_exit_nhlt(d);
 	debugfs_remove_recursive(d->fs);
 
 	d = NULL;
