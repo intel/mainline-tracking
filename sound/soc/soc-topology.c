@@ -1473,11 +1473,11 @@ err_se:
 	for (; i >= 0; i--) {
 		/* free values and texts */
 		se = (struct soc_enum *)kc[i].private_value;
+		if (!se)
+			continue;
 
-		if (se) {
-			soc_tplg_denum_remove_values(se);
-			soc_tplg_denum_remove_texts(se);
-		}
+		soc_tplg_denum_remove_values(se);
+		soc_tplg_denum_remove_texts(se);
 
 		kfree(se);
 		kfree(kc[i].name);
