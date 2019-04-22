@@ -23,6 +23,9 @@ struct sst_dsp;
 struct skl_sst;
 struct sst_generic_ipc;
 
+#define	SKL_EVENT_GLB_MODULE_NOTIFICATION	12
+#define	SKL_TPLG_CHG_NOTIFY	3
+
 enum skl_ipc_pipeline_state {
 	PPL_INVALID_STATE =	0,
 	PPL_UNINITIALIZED =	1,
@@ -50,6 +53,13 @@ struct skl_dsp_cores {
 	int *usage_count;
 };
 
+struct skl_module_notify {
+	u32 unique_id;
+	u32 event_id;
+	u32 event_data_size;
+	u32 event_data[0];
+} __packed;
+
 /**
  * skl_d0i3_data: skl D0i3 counters data struct
  *
@@ -74,6 +84,16 @@ struct skl_lib_info {
 	char name[SKL_LIB_NAME_LENGTH];
 	const struct firmware *fw;
 };
+
+struct skl_notify_kctrl_info {
+	struct list_head list;
+	u32 notify_id;
+	struct snd_kcontrol *notify_kctl;
+};
+
+struct skl;
+struct hdac_stream;
+struct hdac_bus;
 
 struct skl_sst {
 	struct device *dev;
@@ -115,12 +135,25 @@ struct skl_sst {
 	/* Callback to update D0i3C register */
 	void (*update_d0i3c)(struct device *dev, bool enable);
 
+	struct skl_dsp_notify_ops notify_ops;
+
 	struct skl_d0i3_data d0i3;
 
 	const struct skl_dsp_ops *dsp_ops;
 
 	/* Callback to update dynamic clock and power gating registers */
 	void (*clock_power_gating)(struct device *dev, bool enable);
+
+	void (*hda_irq_ack)(struct hdac_bus *bus, struct hdac_stream *hstr);
+
+	int (*request_tplg)(struct skl *skl, const struct firmware **fw);
+
+	/* sysfs for module info */
+	struct skl_sysfs_tree *sysfs_tree;
+
+	struct list_head notify_kctls;
+
+	struct list_head tplg_domains;
 };
 
 struct skl_ipc_init_instance_msg {
@@ -163,6 +196,8 @@ struct skl_ipc_d0ix_msg {
 
 irqreturn_t skl_dsp_irq_thread_handler(int irq, void *context);
 
+int skl_ipc_tx_message_wait(struct sst_generic_ipc *ipc, u64 header,
+	void *tx_data, size_t tx_bytes, void *rx_data, size_t *rx_bytes);
 int skl_ipc_create_pipeline(struct sst_generic_ipc *sst_ipc,
 		u16 ppl_mem_size, u8 ppl_type, u8 instance_id, u8 lp_mode);
 
@@ -195,7 +230,8 @@ int skl_ipc_set_large_config(struct sst_generic_ipc *ipc,
 		struct skl_ipc_large_config_msg *msg, u32 *param);
 
 int skl_ipc_get_large_config(struct sst_generic_ipc *ipc,
-		struct skl_ipc_large_config_msg *msg, u32 *param);
+		struct skl_ipc_large_config_msg *msg, u32 *param,
+		u32 *txparam, u32 tx_bytes, size_t *rx_bytes);
 
 int skl_sst_ipc_load_library(struct sst_generic_ipc *ipc,
 			u8 dma_id, u8 table_id, bool wait);
@@ -221,4 +257,8 @@ int skl_ipc_process_notification(struct sst_generic_ipc *ipc,
 		struct skl_ipc_header header);
 void skl_ipc_tx_data_copy(struct ipc_message *msg, char *tx_data,
 		size_t tx_size);
+
+int skl_notify_tplg_change(struct skl_sst *ctx, int type);
+void skl_ipc_set_fw_cfg(struct sst_generic_ipc *ipc, u8 instance_id,
+			u16 module_id, u32 *data);
 #endif /* __SKL_IPC_H */

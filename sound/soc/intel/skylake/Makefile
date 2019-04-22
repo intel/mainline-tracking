@@ -19,3 +19,6 @@ obj-$(CONFIG_SND_SOC_INTEL_SKYLAKE) += snd-soc-skl-ipc.o
 snd-soc-skl-ssp-clk-objs := skl-ssp-clk.o
 
 obj-$(CONFIG_SND_SOC_INTEL_SKYLAKE_SSP_CLK) += snd-soc-skl-ssp-clk.o
+
+obj-$(CONFIG_SND_SOC_INTEL_SKYLAKE_VIRTIO_FE) += virtio/
+obj-$(CONFIG_SND_SOC_INTEL_SKYLAKE_VIRTIO_BE) += virtio/
