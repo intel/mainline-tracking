@@ -16,16 +16,12 @@
 
 #include <sound/hdaudio_ext.h>
 #include <sound/soc.h>
-#include <uapi/sound/skl-tplg-interface.h>
 #include "skl.h"
 
 #define BITS_PER_BYTE 8
 #define MAX_TS_GROUPS 8
 #define MAX_DMIC_TS_GROUPS 4
 #define MAX_FIXED_DMIC_PARAMS_SIZE 727
-
-/* Maximum number of coefficients up down mixer module */
-#define UP_DOWN_MIXER_MAX_COEFF		8
 
 #define MODULE_MAX_IN_PINS	8
 #define MODULE_MAX_OUT_PINS	8
@@ -42,45 +38,6 @@
 #define SKL_MAX_MODULE_FORMATS		32
 #define SKL_MAX_MODULE_RESOURCES	32
 
-enum skl_channel_index {
-	SKL_CHANNEL_LEFT = 0,
-	SKL_CHANNEL_RIGHT = 1,
-	SKL_CHANNEL_CENTER = 2,
-	SKL_CHANNEL_LEFT_SURROUND = 3,
-	SKL_CHANNEL_CENTER_SURROUND = 3,
-	SKL_CHANNEL_RIGHT_SURROUND = 4,
-	SKL_CHANNEL_LFE = 7,
-	SKL_CHANNEL_INVALID = 0xF,
-};
-
-enum skl_bitdepth {
-	SKL_DEPTH_8BIT = 8,
-	SKL_DEPTH_16BIT = 16,
-	SKL_DEPTH_24BIT = 24,
-	SKL_DEPTH_32BIT = 32,
-	SKL_DEPTH_INVALID
-};
-
-
-enum skl_s_freq {
-	SKL_FS_8000 = 8000,
-	SKL_FS_11025 = 11025,
-	SKL_FS_12000 = 12000,
-	SKL_FS_16000 = 16000,
-	SKL_FS_22050 = 22050,
-	SKL_FS_24000 = 24000,
-	SKL_FS_32000 = 32000,
-	SKL_FS_44100 = 44100,
-	SKL_FS_48000 = 48000,
-	SKL_FS_64000 = 64000,
-	SKL_FS_88200 = 88200,
-	SKL_FS_96000 = 96000,
-	SKL_FS_128000 = 128000,
-	SKL_FS_176400 = 176400,
-	SKL_FS_192000 = 192000,
-	SKL_FS_INVALID
-};
-
 enum skl_widget_type {
 	SKL_WIDGET_VMIXER = 1,
 	SKL_WIDGET_MIXER = 2,
@@ -88,76 +45,10 @@ enum skl_widget_type {
 	SKL_WIDGET_MUX = 4
 };
 
-struct skl_audio_data_format {
-	enum skl_s_freq s_freq;
-	enum skl_bitdepth bit_depth;
-	u32 channel_map;
-	enum skl_ch_cfg ch_cfg;
-	enum skl_interleaving interleaving;
-	u8 number_of_channels;
-	u8 valid_bit_depth;
-	u8 sample_type;
-	u8 reserved[1];
-} __packed;
-
-struct skl_base_cfg {
-	u32 cpc;
-	u32 ibs;
-	u32 obs;
-	u32 is_pages;
-	struct skl_audio_data_format audio_fmt;
-};
-
-struct skl_cpr_gtw_cfg {
-	u32 node_id;
-	u32 dma_buffer_size;
-	u32 config_length;
-	/* not mandatory; required only for DMIC/I2S */
-	u32 config_data[1];
-} __packed;
-
 struct skl_dma_control {
 	u32 node_id;
 	u32 config_length;
 	u32 config_data[0];
-} __packed;
-
-struct skl_cpr_cfg {
-	struct skl_base_cfg base_cfg;
-	struct skl_audio_data_format out_fmt;
-	u32 cpr_feature_mask;
-	struct skl_cpr_gtw_cfg gtw_cfg;
-} __packed;
-
-struct skl_cpr_pin_fmt {
-	u32 sink_id;
-	struct skl_audio_data_format src_fmt;
-	struct skl_audio_data_format dst_fmt;
-} __packed;
-
-struct skl_src_module_cfg {
-	struct skl_base_cfg base_cfg;
-	enum skl_s_freq src_cfg;
-} __packed;
-
-struct skl_up_down_mixer_cfg {
-	struct skl_base_cfg base_cfg;
-	enum skl_ch_cfg out_ch_cfg;
-	/* This should be set to 1 if user coefficients are required */
-	u32 coeff_sel;
-	/* Pass the user coeff in this array */
-	s32 coeff[UP_DOWN_MIXER_MAX_COEFF];
-	u32 ch_map;
-} __packed;
-
-struct skl_algo_cfg {
-	struct skl_base_cfg  base_cfg;
-	char params[0];
-} __packed;
-
-struct skl_base_outfmt_cfg {
-	struct skl_base_cfg base_cfg;
-	struct skl_audio_data_format out_fmt;
 } __packed;
 
 enum skl_dma_type {
@@ -178,15 +69,6 @@ union skl_ssp_dma_node {
 		u8 time_slot_index:4;
 		u8 i2s_instance:4;
 	} dma_node;
-};
-
-union skl_connector_node_id {
-	u32 val;
-	struct {
-		u32 vindex:8;
-		u32 dma_type:4;
-		u32 rsvd:20;
-	} node;
 };
 
 struct skl_module_fmt {
