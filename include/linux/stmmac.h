@@ -134,6 +134,7 @@ struct stmmac_txq_cfg {
 struct plat_stmmacenet_data {
 	int bus_id;
 	int phy_addr;
+	int intel_adhoc_addr;
 	int xpcs_phy_addr;
 	int interface;
 	struct stmmac_mdio_bus_data *mdio_bus_data;
@@ -176,6 +177,7 @@ struct plat_stmmacenet_data {
 	struct stmmac_axi *axi;
 	int has_gmac4;
 	bool has_xpcs;
+	int has_serdes;
 	int pcs_mode;
 	bool has_sun8i;
 	bool tso_en;
