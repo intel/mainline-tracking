@@ -119,6 +119,8 @@ static int ehl_common_data(struct pci_dev *pdev,
 	plat->clk_csr = 5;
 	plat->has_gmac = 0;
 	plat->has_gmac4 = 1;
+	/* intel specific adhoc (mdio) address for serdes & etc */
+	plat->intel_adhoc_addr = 0x15;
 	plat->xpcs_phy_addr = 0x16;
 	plat->pcs_mode = AN_CTRL_PCS_MD_C37_SGMII;
 	plat->force_sf_dma_mode = 0;
@@ -208,6 +210,7 @@ static int ehl_sgmii1g_data(struct pci_dev *pdev,
 
 	plat->interface = PHY_INTERFACE_MODE_SGMII;
 	plat->has_xpcs = 1;
+	plat->has_serdes = 1;
 
 	return 0;
 }
