@@ -135,7 +135,7 @@ struct held_lock {
 	unsigned int check:1;       /* see lock_acquire() comment */
 	unsigned int hardirqs_off:1;
 	unsigned int pin_count:12;					/* 32 bits */
-	unsigned int references;
+	unsigned int references:31;
 };
 
 /*
