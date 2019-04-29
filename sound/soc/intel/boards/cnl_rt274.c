@@ -408,6 +408,8 @@ static int snd_cnl_rt274_mc_probe(struct platform_device *pdev)
 
 static const struct platform_device_id cnl_board_ids[] = {
 	{ .name = "cnl_rt274" },
+	{ .name = "icl_rt274" },
+	{ .name = "tgl_rt274" },
 	{ }
 };
 
@@ -425,3 +427,5 @@ module_platform_driver(snd_cnl_rt274_driver);
 MODULE_AUTHOR("Guneshwor Singh <guneshwor.o.singh@intel.com>");
 MODULE_LICENSE("GPL v2");
 MODULE_ALIAS("platform:cnl_rt274");
+MODULE_ALIAS("platform:icl_rt274");
+MODULE_ALIAS("platform:tgl_rt274");
