@@ -270,6 +270,8 @@ static struct fs_context *alloc_fs_context(struct file_system_type *fs_type,
 	fc->fs_type	= get_filesystem(fs_type);
 	fc->cred	= get_current_cred();
 	fc->net_ns	= get_net(current->nsproxy->net_ns);
+	fc->mnt         = NULL;
+	fc->mnt_parent	= NULL;
 
 	switch (purpose) {
 	case FS_CONTEXT_FOR_MOUNT:
@@ -581,8 +583,14 @@ static int legacy_get_tree(struct fs_context *fc)
 	struct super_block *sb;
 	struct dentry *root;
 
-	root = fc->fs_type->mount(fc->fs_type, fc->sb_flags,
+	if (fc->mnt){
+		root = fc->fs_type->mount2(fc->mnt, fc->fs_type, fc->sb_flags,
 				      fc->source, ctx->legacy_data);
+	}else{
+		root = fc->fs_type->mount(fc->fs_type, fc->sb_flags,
+				      fc->source, ctx->legacy_data);
+	}
+
 	if (IS_ERR(root))
 		return PTR_ERR(root);
 
@@ -604,8 +612,16 @@ static int legacy_reconfigure(struct fs_context *fc)
 	if (!sb->s_op->remount_fs)
 		return 0;
 
-	return sb->s_op->remount_fs(sb, &fc->sb_flags,
+	if (fc->mnt && !sb->s_op->remount_fs2)
+		return 0;
+
+	if (fc->mnt){
+		return sb->s_op->remount_fs2(fc->mnt, sb, &fc->sb_flags,
 				    ctx ? ctx->legacy_data : NULL);
+	}else{
+		return sb->s_op->remount_fs(sb, &fc->sb_flags,
+				    ctx ? ctx->legacy_data : NULL);
+	}
 }
 
 const struct fs_context_operations legacy_fs_context_ops = {
