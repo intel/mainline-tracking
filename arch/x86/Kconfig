@@ -1977,6 +1977,8 @@ config X86_IBT
 	def_bool n
 	depends on X86_SHADOW_STACK
 	depends on $(cc-option,-fcf-protection)
+	select ARCH_USE_GNU_PROPERTY
+	select ARCH_BINFMT_ELF_STATE
 	help
 	  Indirect Branch Tracking (IBT) provides protection against
 	  CALL-/JMP-oriented programming attacks.  It is active when
