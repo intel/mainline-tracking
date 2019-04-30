@@ -29,6 +29,11 @@
 #include "../common/sst-dsp.h"
 #include "../common/sst-dsp-priv.h"
 #include "skl-topology.h"
+#include "virtio/skl-virtio.h"
+
+#define ASRC_MODE_UPLINK	2
+#define ASRC_MODE_DOWNLINK	1
+#define SKL_ENABLE_ALL_CHANNELS  0xffffffff
 
 static int skl_alloc_dma_buf(struct device *dev,
 		struct snd_dma_buffer *dmab, size_t size)
@@ -66,24 +71,6 @@ void skl_dsp_set_astate_cfg(struct skl_sst *ctx, u32 cnt, void *data)
 	skl_ipc_set_large_config(&ctx->ipc, &msg, data);
 }
 
-#define NOTIFICATION_PARAM_ID 3
-#define NOTIFICATION_MASK 0xf
-
-/* disable notfication for underruns/overruns from firmware module */
-void skl_dsp_enable_notification(struct skl_sst *ctx, bool enable)
-{
-	struct notification_mask mask;
-	struct skl_ipc_large_config_msg	msg = {0};
-
-	mask.notify = NOTIFICATION_MASK;
-	mask.enable = enable;
-
-	msg.large_param_id = NOTIFICATION_PARAM_ID;
-	msg.param_data_size = sizeof(mask);
-
-	skl_ipc_set_large_config(&ctx->ipc, &msg, (u32 *)&mask);
-}
-
 static int skl_dsp_setup_spib(struct device *dev, unsigned int size,
 				int stream_tag, int enable)
 {
@@ -106,7 +93,9 @@ static int skl_dsp_setup_spib(struct device *dev, unsigned int size,
 }
 
 static int skl_dsp_prepare(struct device *dev, unsigned int format,
-			unsigned int size, struct snd_dma_buffer *dmab)
+						unsigned int size,
+						struct snd_dma_buffer *dmab,
+						int direction)
 {
 	struct hdac_bus *bus = dev_get_drvdata(dev);
 	struct hdac_ext_stream *estream;
@@ -118,7 +107,8 @@ static int skl_dsp_prepare(struct device *dev, unsigned int format,
 		return -ENODEV;
 
 	memset(&substream, 0, sizeof(substream));
-	substream.stream = SNDRV_PCM_STREAM_PLAYBACK;
+
+	substream.stream = direction;
 
 	estream = snd_hdac_ext_stream_assign(bus, &substream,
 					HDAC_EXT_STREAM_TYPE_HOST);
@@ -137,7 +127,8 @@ static int skl_dsp_prepare(struct device *dev, unsigned int format,
 	return stream->stream_tag;
 }
 
-static int skl_dsp_trigger(struct device *dev, bool start, int stream_tag)
+static int skl_dsp_trigger(struct device *dev, bool start, int stream_tag,
+							int direction)
 {
 	struct hdac_bus *bus = dev_get_drvdata(dev);
 	struct hdac_stream *stream;
@@ -145,8 +136,7 @@ static int skl_dsp_trigger(struct device *dev, bool start, int stream_tag)
 	if (!bus)
 		return -ENODEV;
 
-	stream = snd_hdac_get_stream(bus,
-		SNDRV_PCM_STREAM_PLAYBACK, stream_tag);
+	stream = snd_hdac_get_stream(bus, direction, stream_tag);
 	if (!stream)
 		return -EINVAL;
 
@@ -155,8 +145,8 @@ static int skl_dsp_trigger(struct device *dev, bool start, int stream_tag)
 	return 0;
 }
 
-static int skl_dsp_cleanup(struct device *dev,
-		struct snd_dma_buffer *dmab, int stream_tag)
+static int skl_dsp_cleanup(struct device *dev, struct snd_dma_buffer *dmab,
+				int stream_tag, int direction)
 {
 	struct hdac_bus *bus = dev_get_drvdata(dev);
 	struct hdac_stream *stream;
@@ -165,8 +155,7 @@ static int skl_dsp_cleanup(struct device *dev,
 	if (!bus)
 		return -ENODEV;
 
-	stream = snd_hdac_get_stream(bus,
-		SNDRV_PCM_STREAM_PLAYBACK, stream_tag);
+	stream = snd_hdac_get_stream(bus, direction, stream_tag);
 	if (!stream)
 		return -EINVAL;
 
@@ -228,7 +217,7 @@ static const struct skl_dsp_ops dsp_ops[] = {
 		.num_cores = 2,
 		.loader_ops = bxt_get_loader_ops,
 		.init = bxt_sst_dsp_init,
-		.init_fw = bxt_sst_init_fw,
+		.init_fw = skl_sst_init_fw,
 		.cleanup = bxt_sst_dsp_cleanup
 	},
 	{
@@ -236,7 +225,7 @@ static const struct skl_dsp_ops dsp_ops[] = {
 		.num_cores = 2,
 		.loader_ops = bxt_get_loader_ops,
 		.init = bxt_sst_dsp_init,
-		.init_fw = bxt_sst_init_fw,
+		.init_fw = skl_sst_init_fw,
 		.cleanup = bxt_sst_dsp_cleanup
 	},
 	{
@@ -244,7 +233,7 @@ static const struct skl_dsp_ops dsp_ops[] = {
 		.num_cores = 4,
 		.loader_ops = bxt_get_loader_ops,
 		.init = cnl_sst_dsp_init,
-		.init_fw = cnl_sst_init_fw,
+		.init_fw = skl_sst_init_fw,
 		.cleanup = cnl_sst_dsp_cleanup
 	},
 	{
@@ -252,9 +241,27 @@ static const struct skl_dsp_ops dsp_ops[] = {
 		.num_cores = 4,
 		.loader_ops = bxt_get_loader_ops,
 		.init = cnl_sst_dsp_init,
-		.init_fw = cnl_sst_init_fw,
+		.init_fw = skl_sst_init_fw,
 		.cleanup = cnl_sst_dsp_cleanup
 	},
+	{
+		.id = 0x34c8,
+		.num_cores = 4,
+		.loader_ops = bxt_get_loader_ops,
+		.init = cnl_sst_dsp_init,
+		.init_fw = skl_sst_init_fw,
+		.cleanup = cnl_sst_dsp_cleanup
+	},
+#if IS_ENABLED(CONFIG_SND_SOC_INTEL_SKYLAKE_VIRTIO_FE)
+	{
+		.id = 0x8063,
+		.num_cores = 2,
+		.loader_ops = bxt_get_loader_ops,
+		.init = vfe_sst_dsp_init,
+		.init_fw = vfe_sst_init_fw,
+		.cleanup = vfe_sst_dsp_cleanup
+	},
+#endif
 };
 
 const struct skl_dsp_ops *skl_get_dsp_ops(int pci_id)
@@ -268,6 +275,7 @@ const struct skl_dsp_ops *skl_get_dsp_ops(int pci_id)
 
 	return NULL;
 }
+EXPORT_SYMBOL(skl_get_dsp_ops);
 
 int skl_init_dsp(struct skl *skl)
 {
@@ -323,6 +331,10 @@ int skl_init_dsp(struct skl *skl)
 
 	dev_dbg(bus->dev, "dsp registration status=%d\n", ret);
 
+	INIT_LIST_HEAD(&skl->skl_sst->notify_kctls);
+	INIT_LIST_HEAD(&skl->skl_sst->tplg_domains);
+	INIT_LIST_HEAD(&skl->cfg.dmactrl_list);
+
 	return 0;
 
 free_core_state:
@@ -342,6 +354,7 @@ int skl_free_dsp(struct skl *skl)
 	/* disable  ppcap interrupt */
 	snd_hdac_ext_bus_ppcap_int_enable(bus, false);
 
+	skl_module_sysfs_exit(skl->skl_sst);
 	ctx->dsp_ops->cleanup(bus->dev, ctx);
 
 	kfree(ctx->cores.state);
@@ -432,12 +445,14 @@ int skl_resume_dsp(struct skl *skl)
 	if (ret < 0)
 		return ret;
 
-	skl_dsp_enable_notification(skl->skl_sst, false);
-
 	if (skl->cfg.astate_cfg != NULL) {
 		skl_dsp_set_astate_cfg(skl->skl_sst, skl->cfg.astate_cfg->count,
 					skl->cfg.astate_cfg);
 	}
+
+	/* Set the FW config info from topology */
+	skl_tplg_fw_cfg_set(skl);
+
 	return ret;
 }
 
@@ -493,7 +508,7 @@ static void skl_set_base_module_format(struct skl_sst *ctx,
 
 	base_cfg->audio_fmt.interleaving = format->interleaving_style;
 
-	base_cfg->cps = res->cps;
+	base_cfg->cpc = res->cpc;
 	base_cfg->ibs = res->ibs;
 	base_cfg->obs = res->obs;
 	base_cfg->is_pages = res->is_pages;
@@ -506,15 +521,15 @@ static void skl_set_base_module_format(struct skl_sst *ctx,
 static void skl_copy_copier_caps(struct skl_module_cfg *mconfig,
 				struct skl_cpr_cfg *cpr_mconfig)
 {
-	if (mconfig->formats_config.caps_size == 0)
+	if (mconfig->formats_config[SKL_PARAM_INIT].caps_size == 0)
 		return;
 
 	memcpy(cpr_mconfig->gtw_cfg.config_data,
-			mconfig->formats_config.caps,
-			mconfig->formats_config.caps_size);
+			mconfig->formats_config[SKL_PARAM_INIT].caps,
+			mconfig->formats_config[SKL_PARAM_INIT].caps_size);
 
 	cpr_mconfig->gtw_cfg.config_length =
-			(mconfig->formats_config.caps_size) / 4;
+			(mconfig->formats_config[SKL_PARAM_INIT].caps_size) / 4;
 }
 
 #define SKL_NON_GATEWAY_CPR_NODE_ID 0xFFFFFFFF
@@ -681,9 +696,95 @@ int skl_dsp_set_dma_control(struct skl_sst *ctx, u32 *caps,
 	err = skl_ipc_set_large_config(&ctx->ipc, &msg, (u32 *)dma_ctrl);
 
 	kfree(dma_ctrl);
+
 	return err;
 }
 EXPORT_SYMBOL_GPL(skl_dsp_set_dma_control);
+
+static u32 skl_prepare_i2s_node_id(u32 instance, u8 dev_type,
+				u32 dir, u32 time_slot)
+{
+	union skl_connector_node_id node_id = {0};
+	union skl_ssp_dma_node ssp_node  = {0};
+
+	node_id.node.dma_type = (dir == SNDRV_PCM_STREAM_PLAYBACK) ?
+					SKL_DMA_I2S_LINK_OUTPUT_CLASS :
+					SKL_DMA_I2S_LINK_INPUT_CLASS;
+	ssp_node.dma_node.time_slot_index = time_slot;
+	ssp_node.dma_node.i2s_instance = instance;
+	node_id.node.vindex = ssp_node.val;
+
+	return node_id.val;
+}
+
+int skl_dsp_set_dma_clk_controls(struct skl_sst *ctx)
+{
+	struct nhlt_specific_cfg *cfg = NULL;
+	struct skl *skl = get_skl_ctx(ctx->dev);
+	struct skl_dmctrl_hdr *hdr;
+	struct skl_dmactrl_node *dmactrl;
+	u8 *dma_ctrl_config;
+	void *i2s_config = NULL;
+	u32 i2s_config_size, node_id;
+	int ret = 0;
+
+	list_for_each_entry_reverse(dmactrl,
+			&skl->cfg.dmactrl_list, node) {
+		hdr = &dmactrl->hdr;
+
+		/* get nhlt specific config info */
+		cfg = skl_get_nhlt_specific_cfg(skl, hdr->vbus_id,
+					NHLT_LINK_SSP, hdr->fmt,
+					hdr->ch, hdr->freq,
+					hdr->direction, NHLT_DEVICE_I2S);
+		if (!cfg || !hdr->data_size) {
+			dev_warn(ctx->dev,
+				"Failed to get NHLT config: dma_cfg_idx=%u vbusi_id=%u ch=%d fmt=%u s_rate=%u\n",
+				dmactrl->idx, hdr->vbus_id,
+				hdr->ch, hdr->fmt, hdr->freq);
+				continue;
+		}
+		print_hex_dump(KERN_DEBUG, "NHLT blob Info:",
+				DUMP_PREFIX_OFFSET, 8, 4,
+				cfg->caps, cfg->size, false);
+
+		i2s_config_size = cfg->size + hdr->data_size;
+		i2s_config = kzalloc(i2s_config_size, GFP_KERNEL);
+		if (!i2s_config)
+			return -ENOMEM;
+
+		/* copy blob */
+		memcpy(i2s_config, cfg->caps, cfg->size);
+
+		/* copy additional dma controls informatioin */
+		dma_ctrl_config = (u8 *)i2s_config + cfg->size;
+		memcpy(dma_ctrl_config, hdr->data, hdr->data_size);
+
+		print_hex_dump(KERN_DEBUG, "Blob + DMA Control Info:",
+				DUMP_PREFIX_OFFSET, 8, 4,
+				i2s_config, i2s_config_size, false);
+
+		/* get node id */
+		node_id = skl_prepare_i2s_node_id(hdr->vbus_id,
+						SKL_DEVICE_I2S,
+						hdr->direction,
+						hdr->tdm_slot);
+
+		ret = skl_dsp_set_dma_control(ctx, (u32 *)i2s_config,
+						i2s_config_size, node_id);
+
+		kfree(i2s_config);
+
+		if (ret < 0)
+			dev_err(ctx->dev,
+				"Failed to set dma_clk_cfg, errno[%d]: dma_cfg_idx=%u vbusi_id=%u ch=%d fmt=%u s_rate=%u\n",
+				ret, dmactrl->idx, hdr->vbus_id,
+				hdr->ch, hdr->fmt, hdr->freq);
+
+	}
+
+	return 0;
+}
 
 static void skl_setup_out_format(struct skl_sst *ctx,
 			struct skl_module_cfg *mconfig,
@@ -707,6 +808,22 @@ static void skl_setup_out_format(struct skl_sst *ctx,
 		out_fmt->number_of_channels, format->s_freq, format->bit_depth);
 }
 
+static int skl_set_gain_format(struct skl_sst *ctx,
+			struct skl_module_cfg *mconfig,
+			struct skl_gain_module_config *gain_mconfig)
+{
+	struct skl_gain_data *gain_fmt = mconfig->gain_data;
+
+	skl_set_base_module_format(ctx, mconfig,
+			(struct skl_base_cfg *)gain_mconfig);
+	gain_mconfig->gain_cfg.channel_id = SKL_ENABLE_ALL_CHANNELS;
+	gain_mconfig->gain_cfg.target_volume = gain_fmt->volume[0];
+	gain_mconfig->gain_cfg.ramp_type = gain_fmt->ramp_type;
+	gain_mconfig->gain_cfg.ramp_duration = gain_fmt->ramp_duration;
+
+	return 0;
+}
+
 /*
  * DSP needs SRC module for frequency conversion, SRC takes base module
  * configuration and the target frequency as extra parameter passed as src
@@ -724,6 +841,14 @@ static void skl_set_src_format(struct skl_sst *ctx,
 		(struct skl_base_cfg *)src_mconfig);
 
 	src_mconfig->src_cfg = fmt->s_freq;
+
+	if (mconfig->m_type == SKL_MODULE_TYPE_ASRC) {
+		if (mconfig->pipe->p_params->stream ==
+				SNDRV_PCM_STREAM_PLAYBACK)
+			src_mconfig->mode = ASRC_MODE_DOWNLINK;
+		else
+			src_mconfig->mode = ASRC_MODE_UPLINK;
+	}
 }
 
 /*
@@ -778,12 +903,12 @@ static void skl_set_algo_format(struct skl_sst *ctx,
 
 	skl_set_base_module_format(ctx, mconfig, base_cfg);
 
-	if (mconfig->formats_config.caps_size == 0)
+	if (mconfig->formats_config[SKL_PARAM_INIT].caps_size == 0)
 		return;
 
 	memcpy(algo_mcfg->params,
-			mconfig->formats_config.caps,
-			mconfig->formats_config.caps_size);
+			mconfig->formats_config[SKL_PARAM_INIT].caps,
+			mconfig->formats_config[SKL_PARAM_INIT].caps_size);
 
 }
 
@@ -810,14 +935,16 @@ static u16 skl_get_module_param_size(struct skl_sst *ctx,
 			struct skl_module_cfg *mconfig)
 {
 	u16 param_size;
+	struct skl_module_iface *m_intf;
 
 	switch (mconfig->m_type) {
 	case SKL_MODULE_TYPE_COPIER:
 		param_size = sizeof(struct skl_cpr_cfg);
-		param_size += mconfig->formats_config.caps_size;
+		param_size += mconfig->formats_config[SKL_PARAM_INIT].caps_size;
 		return param_size;
 
 	case SKL_MODULE_TYPE_SRCINT:
+	case SKL_MODULE_TYPE_ASRC:
 		return sizeof(struct skl_src_module_cfg);
 
 	case SKL_MODULE_TYPE_UPDWMIX:
@@ -825,13 +952,20 @@ static u16 skl_get_module_param_size(struct skl_sst *ctx,
 
 	case SKL_MODULE_TYPE_ALGO:
 		param_size = sizeof(struct skl_base_cfg);
-		param_size += mconfig->formats_config.caps_size;
+		param_size += mconfig->formats_config[SKL_PARAM_INIT].caps_size;
 		return param_size;
 
 	case SKL_MODULE_TYPE_BASE_OUTFMT:
 	case SKL_MODULE_TYPE_MIC_SELECT:
 	case SKL_MODULE_TYPE_KPB:
 		return sizeof(struct skl_base_outfmt_cfg);
+
+	case SKL_MODULE_TYPE_GAIN:
+		m_intf = &mconfig->module->formats[mconfig->fmt_idx];
+		param_size = sizeof(struct skl_base_cfg);
+		param_size += sizeof(struct skl_gain_config)
+			* m_intf->outputs[0].fmt.channels;
+		return param_size;
 
 	default:
 		/*
@@ -872,6 +1006,7 @@ static int skl_set_module_format(struct skl_sst *ctx,
 		break;
 
 	case SKL_MODULE_TYPE_SRCINT:
+	case SKL_MODULE_TYPE_ASRC:
 		skl_set_src_format(ctx, module_config, *param_data);
 		break;
 
@@ -889,14 +1024,19 @@ static int skl_set_module_format(struct skl_sst *ctx,
 		skl_set_base_outfmt_format(ctx, module_config, *param_data);
 		break;
 
+	case SKL_MODULE_TYPE_GAIN:
+		skl_set_gain_format(ctx, module_config, *param_data);
+		break;
+
 	default:
 		skl_set_base_module_format(ctx, module_config, *param_data);
 		break;
 
 	}
 
-	dev_dbg(ctx->dev, "Module type=%d config size: %d bytes\n",
-			module_config->id.module_id, param_size);
+	dev_dbg(ctx->dev, "Module type=%d id=%d config size: %d bytes\n",
+			module_config->m_type, module_config->id.module_id,
+			param_size);
 	print_hex_dump_debug("Module params:", DUMP_PREFIX_OFFSET, 8, 4,
 			*param_data, param_size, false);
 	return 0;
@@ -1127,6 +1267,70 @@ static void fill_pin_params(struct skl_audio_data_format *pin_fmt,
 
 #define CPR_SINK_FMT_PARAM_ID 2
 
+static struct
+skl_module_fmt *skl_get_pin_format(struct skl_module_cfg *mconfig,
+				   u8 pin_direction, u8 pin_idx)
+{
+	struct skl_module *module = mconfig->module;
+	int fmt_idx = mconfig->fmt_idx;
+	struct skl_module_iface *intf;
+	struct skl_module_fmt *pin_fmt;
+
+	intf = &module->formats[fmt_idx];
+
+	if (pin_direction == SKL_INPUT_PIN)
+		pin_fmt = &intf->inputs[pin_idx].fmt;
+	else
+		pin_fmt = &intf->outputs[pin_idx].fmt;
+
+	return pin_fmt;
+}
+
+/*
+ * This function checks for source module and destination module format
+ * mismatch
+ */
+static void skl_module_format_mismatch_detection(struct skl_sst *ctx,
+					struct skl_module_cfg *src_mcfg,
+					struct skl_module_cfg *dst_mcfg,
+					int src_index, int dst_index)
+{
+	struct skl_module_fmt *src_fmt, *dst_fmt;
+
+	src_fmt = skl_get_pin_format(src_mcfg, SKL_OUTPUT_PIN, src_index);
+	dst_fmt = skl_get_pin_format(dst_mcfg, SKL_INPUT_PIN, dst_index);
+
+	if(memcmp(src_fmt, dst_fmt, sizeof(*src_fmt))) {
+		dev_warn(ctx->dev, "#### src and dst format mismatch: ####\n");
+		dev_warn(ctx->dev, "pipe=%d src module_id=%d src instance_id=%d\n",
+					src_mcfg->pipe->ppl_id,
+					src_mcfg->id.module_id,
+					src_mcfg->id.pvt_id);
+
+		dev_warn(ctx->dev, "pipe=%d dst module_id=%d dst instance_id=%d\n",
+					dst_mcfg->pipe->ppl_id,
+					dst_mcfg->id.module_id,
+					dst_mcfg->id.pvt_id);
+
+		dev_warn(ctx->dev, "channels: src=%d dst=%d\n",
+				src_fmt->channels, dst_fmt->channels);
+		dev_warn(ctx->dev, "s_freq: src=%d dst=%d\n",
+				src_fmt->s_freq, dst_fmt->s_freq);
+		dev_warn(ctx->dev, "bit_depth: src=%d dst=%d\n",
+				src_fmt->bit_depth, dst_fmt->bit_depth);
+		dev_warn(ctx->dev, "valid_bit_depth: src=%d dst=%d\n",
+				src_fmt->valid_bit_depth, dst_fmt->valid_bit_depth);
+		dev_warn(ctx->dev, "ch_cfg: src=%d dst=%d\n",
+				src_fmt->ch_cfg, dst_fmt->ch_cfg);
+		dev_warn(ctx->dev, "interleaving_style: src=%d dst=%d\n",
+				src_fmt->interleaving_style, dst_fmt->interleaving_style);
+		dev_warn(ctx->dev, "sample_type: src=%d dst=%d\n",
+				src_fmt->sample_type, dst_fmt->sample_type);
+		dev_warn(ctx->dev, "ch_map: src=0x%08x dst=0x%08x\n",
+				src_fmt->ch_map, dst_fmt->ch_map);
+	}
+}
+
 /*
  * Once a module is instantiated it need to be 'bind' with other modules in
  * the pipeline. For binding we need to find the module pins which are bind
@@ -1193,6 +1397,9 @@ int skl_bind_modules(struct skl_sst *ctx,
 	dev_dbg(ctx->dev, "src queue = %d dst queue =%d\n",
 			 msg.src_queue, msg.dst_queue);
 
+	skl_module_format_mismatch_detection(ctx, src_mcfg, dst_mcfg,
+						src_index, dst_index);
+
 	msg.module_id = src_mcfg->id.module_id;
 	msg.instance_id = src_mcfg->id.pvt_id;
 	msg.dst_module_id = dst_mcfg->id.module_id;
@@ -1244,13 +1451,16 @@ int skl_create_pipeline(struct skl_sst *ctx, struct skl_pipe *pipe)
 	}
 
 	pipe->state = SKL_PIPE_CREATED;
+	skl_dbg_event(ctx, pipe->state);
 
 	return 0;
 }
 
 /*
  * A pipeline needs to be deleted on cleanup. If a pipeline is running, then
- * pause the pipeline first and then delete it
+ * pause the pipeline first and then delete it. There is also case in which
+ * pipeline needs to be reset before deletion, so always reset as it doesn't
+ * change anything in other cases.
  * The pipe delete is done by sending delete pipeline IPC. DSP will stop the
  * DMA engines and releases resources
  */
@@ -1259,6 +1469,10 @@ int skl_delete_pipe(struct skl_sst *ctx, struct skl_pipe *pipe)
 	int ret;
 
 	dev_dbg(ctx->dev, "%s: pipe = %d\n", __func__, pipe->ppl_id);
+
+	/* If pipe was not created in FW, do not try to delete it */
+	if (pipe->state < SKL_PIPE_CREATED)
+		return 0;
 
 	/* If pipe is started, do stop the pipe in FW. */
 	if (pipe->state >= SKL_PIPE_STARTED) {
@@ -1271,9 +1485,14 @@ int skl_delete_pipe(struct skl_sst *ctx, struct skl_pipe *pipe)
 		pipe->state = SKL_PIPE_PAUSED;
 	}
 
-	/* If pipe was not created in FW, do not try to delete it */
-	if (pipe->state < SKL_PIPE_CREATED)
-		return 0;
+	/* reset pipe state before deletion */
+	ret = skl_set_pipe_state(ctx, pipe, PPL_RESET);
+	if (ret < 0) {
+		dev_err(ctx->dev, "Failed to reset pipe ret=%d\n", ret);
+		return ret;
+	}
+
+	pipe->state = SKL_PIPE_RESET;
 
 	ret = skl_ipc_delete_pipeline(&ctx->ipc, pipe->ppl_id);
 	if (ret < 0) {
@@ -1282,6 +1501,11 @@ int skl_delete_pipe(struct skl_sst *ctx, struct skl_pipe *pipe)
 	}
 
 	pipe->state = SKL_PIPE_INVALID;
+	skl_dbg_event(ctx, pipe->state);
+	ret = skl_notify_tplg_change(ctx, SKL_TPLG_CHG_NOTIFY_PIPELINE_DELETE);
+	if (ret < 0)
+		dev_warn(ctx->dev,
+			"update of topology event delete pipe failed\n");
 
 	return ret;
 }
@@ -1317,6 +1541,10 @@ int skl_run_pipe(struct skl_sst *ctx, struct skl_pipe *pipe)
 	}
 
 	pipe->state = SKL_PIPE_STARTED;
+	ret = skl_notify_tplg_change(ctx, SKL_TPLG_CHG_NOTIFY_PIPELINE_START);
+	if (ret < 0)
+		dev_warn(ctx->dev,
+			"update of topology event run pipe failed\n");
 
 	return 0;
 }
@@ -1393,5 +1621,6 @@ int skl_get_module_params(struct skl_sst *ctx, u32 *params, int size,
 	msg.param_data_size = size;
 	msg.large_param_id = param_id;
 
-	return skl_ipc_get_large_config(&ctx->ipc, &msg, params);
+	return skl_ipc_get_large_config(&ctx->ipc, &msg, params, NULL,
+			0, NULL);
 }
