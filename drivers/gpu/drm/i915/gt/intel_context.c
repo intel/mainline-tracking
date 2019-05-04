@@ -117,6 +117,7 @@ intel_context_init(struct intel_context *ce,
 	ce->ops = engine->cops;
 	ce->saturated = 0;
 	ce->sseu = engine->sseu;
+	ce->saturated = 0;
 
 	INIT_LIST_HEAD(&ce->signal_link);
 	INIT_LIST_HEAD(&ce->signals);
@@ -159,6 +160,7 @@ void intel_context_enter_engine(struct intel_context *ce)
 
 void intel_context_exit_engine(struct intel_context *ce)
 {
+	ce->saturated = 0;
 	intel_engine_pm_put(ce->engine);
 }
 
