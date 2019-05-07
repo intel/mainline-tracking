@@ -85,7 +85,7 @@ static void read_cache_pages_invalidate_pages(struct address_space *mapping,
  * Returns: %0 on success, error return by @filler otherwise
  */
 int read_cache_pages(struct address_space *mapping, struct list_head *pages,
-			int (*filler)(void *, struct page *), void *data)
+			int (*filler)(struct file *, struct page *), void *data)
 {
 	struct page *page;
 	int ret = 0;
