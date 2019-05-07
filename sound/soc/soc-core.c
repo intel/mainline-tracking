@@ -2801,7 +2801,7 @@ int snd_soc_register_card(struct snd_soc_card *card)
 			dev_err(card->dev, "ASoC: failed to init link %s\n",
 				link->name);
 			mutex_unlock(&client_mutex);
-			return ret;
+			goto err;
 		}
 	}
 	mutex_unlock(&client_mutex);
@@ -2822,7 +2822,18 @@ int snd_soc_register_card(struct snd_soc_card *card)
 	mutex_init(&card->dapm_mutex);
 	spin_lock_init(&card->dpcm_lock);
 
-	return snd_soc_bind_card(card);
+	ret = snd_soc_bind_card(card);
+	if (ret)
+		goto err;
+
+	return 0;
+
+err:
+	for_each_card_prelinks(card, i, link)
+		if (link->platforms)
+			link->platforms = NULL;
+
+	return ret;
 }
 EXPORT_SYMBOL_GPL(snd_soc_register_card);
 
