@@ -236,7 +236,7 @@ source "security/apparmor/Kconfig"
 source "security/loadpin/Kconfig"
 source "security/yama/Kconfig"
 source "security/safesetid/Kconfig"
-
+source "security/keystore/Kconfig"
 source "security/integrity/Kconfig"
 
 choice
