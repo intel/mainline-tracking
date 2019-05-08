@@ -953,52 +953,52 @@ int skl_ipc_set_large_config(struct sst_generic_ipc *ipc,
 EXPORT_SYMBOL_GPL(skl_ipc_set_large_config);
 
 int skl_ipc_get_large_config(struct sst_generic_ipc *ipc,
-		struct skl_ipc_large_config_msg *msg, u32 *param)
+		struct skl_ipc_large_config_msg *msg, u32 **payload,
+		struct skl_tlv *tlv, size_t *bytes)
 {
 	struct skl_ipc_header header = {0};
-	u64 *reply, *ipc_header = (u64 *)(&header);
-	int ret = 0;
-	size_t sz_remaining, rx_size, data_offset;
+	u64 reply;
+	u8 *buf, *nbuf;
+	size_t size;
+	int ret, i;
+
+	*payload = NULL;
+	if (tlv) {
+		for (i = size = 0; i * sizeof(*tlv) < *bytes; i++)
+			size += tlv[i].length;
+		/* For now, restrict payload to single inbox frame */
+		if (size > SKL_ADSP_W0_UP_SZ)
+			return -E2BIG;
+	}
+	buf = kzalloc(SKL_ADSP_W1_SZ, GFP_KERNEL);
+	if (!buf)
+		return -ENOMEM;
 
 	header.primary = IPC_MSG_TARGET(IPC_MOD_MSG);
 	header.primary |= IPC_MSG_DIR(IPC_MSG_REQUEST);
 	header.primary |= IPC_GLB_TYPE(IPC_MOD_LARGE_CONFIG_GET);
 	header.primary |= IPC_MOD_INSTANCE_ID(msg->instance_id);
 	header.primary |= IPC_MOD_ID(msg->module_id);
-
-	header.extension = IPC_DATA_OFFSET_SZ(msg->param_data_size);
+	header.extension = IPC_DATA_OFFSET_SZ(SKL_ADSP_W1_SZ);
 	header.extension |= IPC_LARGE_PARAM_ID(msg->large_param_id);
 	header.extension |= IPC_FINAL_BLOCK(1);
 	header.extension |= IPC_INITIAL_BLOCK(1);
 
-	sz_remaining = msg->param_data_size;
-	data_offset = 0;
-
-	while (sz_remaining != 0) {
-		rx_size = sz_remaining > SKL_ADSP_W1_SZ
-				? SKL_ADSP_W1_SZ : sz_remaining;
-		if (rx_size == sz_remaining)
-			header.extension |= IPC_FINAL_BLOCK(1);
-
-		ret = sst_ipc_tx_message_wait(ipc, *ipc_header, NULL, 0,
-				NULL, ((char *)param) + data_offset,
-				msg->param_data_size);
-		if (ret < 0) {
-			dev_err(ipc->dev,
-				"ipc: get large config fail, err: %d\n", ret);
-			return ret;
-		}
-		sz_remaining -= rx_size;
-		data_offset = msg->param_data_size - sz_remaining;
-
-		/* clear the fields */
-		header.extension &= IPC_INITIAL_BLOCK_CLEAR;
-		header.extension &= IPC_DATA_OFFSET_SZ_CLEAR;
-		/* fill the fields */
-		header.extension |= IPC_INITIAL_BLOCK(1);
-		header.extension |= IPC_DATA_OFFSET_SZ(data_offset);
+	ret = sst_ipc_tx_message_wait(ipc, *(u64 *)(&header),
+			tlv, tlv ? *bytes : 0, &reply,
+			buf, SKL_ADSP_W1_SZ);
+	if (ret < 0) {
+		dev_err(ipc->dev, "ipc: get large config fail, err: %d\n", ret);
+		return ret;
 	}
 
+	size = (reply >> 32) & IPC_DATA_OFFSET_SZ_MASK;
+	nbuf = krealloc(buf, size, GFP_KERNEL);
+	if (ZERO_OR_NULL_PTR(nbuf))
+		return -ENOMEM;
+
+	*payload = (u32 *)nbuf;
+	*bytes = size;
 	return ret;
 }
 EXPORT_SYMBOL_GPL(skl_ipc_get_large_config);
