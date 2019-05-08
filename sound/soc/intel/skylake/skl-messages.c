@@ -1354,11 +1354,19 @@ int skl_get_module_params(struct skl_dev *skl, u32 *params, int size,
 			  u32 param_id, struct skl_module_cfg *mcfg)
 {
 	struct skl_ipc_large_config_msg msg;
+	u32 *payload;
+	size_t bytes, sz = size;
+	int ret;
 
 	msg.module_id = mcfg->id.module_id;
 	msg.instance_id = mcfg->id.pvt_id;
 	msg.param_data_size = size;
 	msg.large_param_id = param_id;
 
-	return skl_ipc_get_large_config(&skl->ipc, &msg, params);
+	ret = skl_ipc_get_large_config(&skl->ipc, &msg, &payload, NULL, &bytes);
+	if (!ret) {
+		memcpy(params, payload, min(sz, bytes));
+		kfree(payload);
+	}
+	return ret;
 }
