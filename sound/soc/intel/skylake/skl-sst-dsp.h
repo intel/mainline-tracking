@@ -166,6 +166,17 @@ struct skl_dsp_loader_ops {
 				 int stream_tag);
 };
 
+struct adsp_module_config {
+	u32 par[4];		/* module parameters */
+	u32 is_bytes;		/* actual size of instance .bss (bytes) */
+	u32 cps;		/* cycles per second */
+	u32 ibs;		/* input buffer size (bytes) */
+	u32 obs;		/* output buffer size (bytes) */
+	u32 module_flags;	/* flags, res for future use */
+	u32 cpc;		/* cycles per single run */
+	u32 obls;		/* output block size, res for future use */
+} __packed;
+
 #define MAX_INSTANCE_BUFF 2
 
 struct uuid_module {
@@ -175,6 +186,8 @@ struct uuid_module {
 	int max_instance;
 	u64 pvt_id[MAX_INSTANCE_BUFF];
 	int *instance_id;
+	struct adsp_module_config *configs;
+	int num_configs;
 
 	struct list_head list;
 };
