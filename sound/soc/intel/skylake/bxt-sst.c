@@ -195,9 +195,9 @@ static int bxt_load_base_firmware(struct sst_dsp *ctx)
 		}
 	}
 
-	/* prase uuids on first boot */
 	if (skl->is_first_boot) {
-		ret = snd_skl_parse_uuids(ctx, ctx->fw, BXT_ADSP_FW_BIN_HDR_OFFSET, 0);
+		ret = snd_skl_parse_manifest(ctx, ctx->fw,
+						BXT_ADSP_FW_BIN_HDR_OFFSET, 0);
 		if (ret < 0)
 			goto sst_load_base_firmware_failed;
 	}
@@ -624,7 +624,7 @@ void bxt_sst_dsp_cleanup(struct device *dev, struct skl_dev *skl)
 	skl_release_library(skl->lib_info, skl->lib_count);
 	if (skl->dsp->fw)
 		release_firmware(skl->dsp->fw);
-	skl_freeup_uuid_list(skl);
+	list_del_init(&skl->module_list);
 	skl_ipc_free(&skl->ipc);
 	skl->dsp->ops->free(skl->dsp);
 }

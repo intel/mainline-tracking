@@ -119,10 +119,9 @@ static int cnl_load_base_firmware(struct sst_dsp *ctx)
 		}
 	}
 
-	/* parse uuids if first boot */
 	if (cnl->is_first_boot) {
-		ret = snd_skl_parse_uuids(ctx, ctx->fw,
-					  CNL_ADSP_FW_HDR_OFFSET, 0);
+		ret = snd_skl_parse_manifest(ctx, ctx->fw,
+						CNL_ADSP_FW_HDR_OFFSET, 0);
 		if (ret < 0)
 			goto cnl_load_base_firmware_failed;
 	}
@@ -477,7 +476,7 @@ void cnl_sst_dsp_cleanup(struct device *dev, struct skl_dev *skl)
 	if (skl->dsp->fw)
 		release_firmware(skl->dsp->fw);
 
-	skl_freeup_uuid_list(skl);
+	list_del_init(&skl->module_list);
 	cnl_ipc_free(&skl->ipc);
 
 	skl->dsp->ops->free(skl->dsp);
