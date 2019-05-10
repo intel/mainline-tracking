@@ -103,7 +103,7 @@ int skl_get_pvt_instance_id_map(struct skl_dev *skl,
 {
 	struct uuid_module *module;
 
-	list_for_each_entry(module, &skl->uuid_list, list) {
+	list_for_each_entry(module, &skl->module_list, list) {
 		if (module->id == module_id)
 			return skl_get_pvtid_map(module, instance_id);
 	}
@@ -174,9 +174,8 @@ int skl_get_pvt_id(struct skl_dev *skl, guid_t *uuid_mod, int instance_id)
 	struct uuid_module *module;
 	int pvt_id;
 
-	list_for_each_entry(module, &skl->uuid_list, list) {
+	list_for_each_entry(module, &skl->module_list, list) {
 		if (guid_equal(uuid_mod, &module->uuid)) {
-
 			pvt_id = skl_pvtid_128(module);
 			if (pvt_id >= 0) {
 				module->instance_id[pvt_id] = instance_id;
@@ -204,9 +203,8 @@ int skl_put_pvt_id(struct skl_dev *skl, guid_t *uuid_mod, int *pvt_id)
 	int i;
 	struct uuid_module *module;
 
-	list_for_each_entry(module, &skl->uuid_list, list) {
+	list_for_each_entry(module, &skl->module_list, list) {
 		if (guid_equal(uuid_mod, &module->uuid)) {
-
 			if (*pvt_id != 0)
 				i = (*pvt_id) / 64;
 			else
@@ -226,7 +224,7 @@ EXPORT_SYMBOL_GPL(skl_put_pvt_id);
  * Parse the firmware binary to get the UUID, module id
  * and loadable flags
  */
-int snd_skl_parse_uuids(struct sst_dsp *ctx, const struct firmware *fw,
+int snd_skl_parse_manifest(struct sst_dsp *ctx, const struct firmware *fw,
 			unsigned int offset, int index)
 {
 	struct adsp_fw_hdr *adsp_hdr;
@@ -237,7 +235,6 @@ int snd_skl_parse_uuids(struct sst_dsp *ctx, const struct firmware *fw,
 	struct uuid_module *module;
 	struct firmware stripped_fw;
 	unsigned int safe_file;
-	int ret = 0;
 
 	/* Get the FW pointer to derive ADSP header */
 	stripped_fw.data = fw->data;
@@ -255,15 +252,10 @@ int snd_skl_parse_uuids(struct sst_dsp *ctx, const struct firmware *fw,
 	}
 
 	adsp_hdr = (struct adsp_fw_hdr *)(buf + offset);
-
-	/* check 1st module entry is in file */
-	safe_file += adsp_hdr->len + sizeof(*mod_entry);
-	if (stripped_fw.size <= safe_file) {
-		dev_err(ctx->dev, "Small fw file size, No module entry\n");
+	if (adsp_hdr->len != sizeof(*adsp_hdr)) {
+		dev_err(ctx->dev, "Header corrupted or unsupported FW version\n");
 		return -EINVAL;
 	}
-
-	mod_entry = (struct adsp_module_entry *)(buf + offset + adsp_hdr->len);
 
 	num_entry = adsp_hdr->num_modules;
 
@@ -274,6 +266,8 @@ int snd_skl_parse_uuids(struct sst_dsp *ctx, const struct firmware *fw,
 		return -EINVAL;
 	}
 
+	mod_entry = (struct adsp_module_entry *)
+		(buf + offset + adsp_hdr->len);
 
 	/*
 	 * Read the UUID(GUID) from FW Manifest.
@@ -284,10 +278,10 @@ int snd_skl_parse_uuids(struct sst_dsp *ctx, const struct firmware *fw,
 	 */
 
 	for (i = 0; i < num_entry; i++, mod_entry++) {
-		module = kzalloc(sizeof(*module), GFP_KERNEL);
+		module = devm_kzalloc(ctx->dev, sizeof(*module), GFP_KERNEL);
 		if (!module) {
-			ret = -ENOMEM;
-			goto free_uuid_list;
+			list_del_init(&skl->module_list);
+			return -ENOMEM;
 		}
 
 		guid_copy(&module->uuid, (guid_t *)&mod_entry->uuid);
@@ -298,11 +292,11 @@ int snd_skl_parse_uuids(struct sst_dsp *ctx, const struct firmware *fw,
 		size = sizeof(int) * mod_entry->instance_max_count;
 		module->instance_id = devm_kzalloc(ctx->dev, size, GFP_KERNEL);
 		if (!module->instance_id) {
-			ret = -ENOMEM;
-			goto free_uuid_list;
+			list_del_init(&skl->module_list);
+			return -ENOMEM;
 		}
 
-		list_add_tail(&module->list, &skl->uuid_list);
+		list_add_tail(&module->list, &skl->module_list);
 
 		dev_dbg(ctx->dev,
 			"Adding uuid :%pUL   mod id: %d  Loadable: %d\n",
@@ -310,21 +304,8 @@ int snd_skl_parse_uuids(struct sst_dsp *ctx, const struct firmware *fw,
 	}
 
 	return 0;
-
-free_uuid_list:
-	skl_freeup_uuid_list(skl);
-	return ret;
 }
-
-void skl_freeup_uuid_list(struct skl_dev *skl)
-{
-	struct uuid_module *uuid, *_uuid;
-
-	list_for_each_entry_safe(uuid, _uuid, &skl->uuid_list, list) {
-		list_del(&uuid->list);
-		kfree(uuid);
-	}
-}
+EXPORT_SYMBOL(snd_skl_parse_manifest);
 
 /*
  * some firmware binary contains some extended manifest. This needs
@@ -362,7 +343,7 @@ int skl_sst_ctx_init(struct device *dev, int irq, const char *fw_name,
 
 	skl->dev = dev;
 	skl_dev->thread_context = skl;
-	INIT_LIST_HEAD(&skl->uuid_list);
+	INIT_LIST_HEAD(&skl->module_list);
 	skl->dsp = skl_dsp_ctx_init(dev, skl_dev, irq);
 	if (!skl->dsp) {
 		dev_err(skl->dev, "%s: no device\n", __func__);
@@ -398,7 +379,8 @@ int skl_prepare_lib_load(struct skl_dev *skl, struct skl_lib_info *linfo,
 	}
 
 	if (skl->is_first_boot) {
-		ret = snd_skl_parse_uuids(dsp, linfo->fw, hdr_offset, index);
+		ret = snd_skl_parse_manifest(dsp, linfo->fw, hdr_offset,
+						index);
 		if (ret < 0)
 			return ret;
 	}
