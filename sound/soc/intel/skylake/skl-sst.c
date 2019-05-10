@@ -81,11 +81,11 @@ static int skl_load_base_firmware(struct sst_dsp *ctx)
 		}
 	}
 
-	/* prase uuids on first boot */
 	if (skl->is_first_boot) {
-		ret = snd_skl_parse_uuids(ctx, ctx->fw, SKL_ADSP_FW_BIN_HDR_OFFSET, 0);
+		ret = snd_skl_parse_manifest(ctx, ctx->fw,
+						SKL_ADSP_FW_BIN_HDR_OFFSET, 0);
 		if (ret < 0) {
-			dev_err(ctx->dev, "UUID parsing err: %d\n", ret);
+			dev_err(ctx->dev, "Manifest parsing err: %d\n", ret);
 			release_firmware(ctx->fw);
 			skl_dsp_disable_core(ctx, SKL_DSP_CORE0_MASK);
 			return ret;
@@ -587,7 +587,7 @@ void skl_sst_dsp_cleanup(struct device *dev, struct skl_dev *skl)
 	if (skl->dsp->fw)
 		release_firmware(skl->dsp->fw);
 	skl_clear_module_table(skl->dsp);
-	skl_freeup_uuid_list(skl);
+	list_del_init(&skl->module_list);
 	skl_ipc_free(&skl->ipc);
 	skl->dsp->ops->free(skl->dsp);
 	if (skl->boot_complete) {

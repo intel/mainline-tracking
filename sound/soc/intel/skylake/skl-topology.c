@@ -801,7 +801,7 @@ static int skl_get_module_id(struct skl_dev *skl, guid_t *uuid)
 {
 	struct uuid_module *module;
 
-	list_for_each_entry(module, &skl->uuid_list, list) {
+	list_for_each_entry(module, &skl->module_list, list) {
 		if (guid_equal(uuid, &module->uuid))
 			return module->id;
 	}

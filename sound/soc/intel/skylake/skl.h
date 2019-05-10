@@ -108,7 +108,7 @@ struct skl_dev {
 	bool miscbdcg_disabled;
 
 	/* Populate module information */
-	struct list_head uuid_list;
+	struct list_head module_list;
 
 	/* Is firmware loaded */
 	bool fw_loaded;
