@@ -231,13 +231,12 @@ int bxt_sst_init_fw(struct device *dev, struct skl_dev *skl);
 void skl_sst_dsp_cleanup(struct device *dev, struct skl_dev *skl);
 void bxt_sst_dsp_cleanup(struct device *dev, struct skl_dev *skl);
 
-int snd_skl_parse_uuids(struct sst_dsp *ctx, const struct firmware *fw,
+int snd_skl_parse_manifest(struct sst_dsp *ctx, const struct firmware *fw,
 				unsigned int offset, int index);
 int skl_get_pvt_id(struct skl_dev *skl, guid_t *uuid_mod, int instance_id);
 int skl_put_pvt_id(struct skl_dev *skl, guid_t *uuid_mod, int *pvt_id);
 int skl_get_pvt_instance_id_map(struct skl_dev *skl,
 				int module_id, int instance_id);
-void skl_freeup_uuid_list(struct skl_dev *skl);
 
 int skl_dsp_strip_extended_manifest(struct firmware *fw);
 
