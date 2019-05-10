@@ -235,6 +235,7 @@ int snd_skl_parse_manifest(struct sst_dsp *ctx, const struct firmware *fw,
 	struct uuid_module *module;
 	struct firmware stripped_fw;
 	unsigned int safe_file;
+	struct adsp_module_config *mod_configs;
 
 	/* Get the FW pointer to derive ADSP header */
 	stripped_fw.data = fw->data;
@@ -268,13 +269,24 @@ int snd_skl_parse_manifest(struct sst_dsp *ctx, const struct firmware *fw,
 
 	mod_entry = (struct adsp_module_entry *)
 		(buf + offset + adsp_hdr->len);
+	mod_configs = (struct adsp_module_config *)
+		(buf + safe_file);
 
 	/*
-	 * Read the UUID(GUID) from FW Manifest.
+	 * Read modules data from FW Manifest.
 	 *
 	 * The 16 byte UUID format is: XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXX
-	 * Populate the UUID table to store module_id and loadable flags
-	 * for the module.
+	 * Populate the table to store module_id, loadable flags and
+	 * configurations array for the module.
+	 *
+	 * Manifest structure:
+	 * header
+	 * N * module entry (N specified in header)
+	 * M * module configuration
+	 *
+	 * Each module entry can have 0 or more configurations. Configurations
+	 * are linked to entries by offset and counter stored in entry
+	 * (offset + conter <= M).
 	 */
 
 	for (i = 0; i < num_entry; i++, mod_entry++) {
@@ -294,6 +306,24 @@ int snd_skl_parse_manifest(struct sst_dsp *ctx, const struct firmware *fw,
 		if (!module->instance_id) {
 			list_del_init(&skl->module_list);
 			return -ENOMEM;
+		}
+
+		if (mod_entry->cfg_count) {
+			size = sizeof(*mod_configs) * (mod_entry->cfg_offset
+				+ mod_entry->cfg_count);
+			if (stripped_fw.size <= safe_file + size) {
+				dev_err(ctx->dev, "Small fw file size, no space for module cfgs\n");
+				return -EINVAL;
+			}
+			module->num_configs = mod_entry->cfg_count;
+			size = sizeof(*mod_configs) * mod_entry->cfg_count;
+			module->configs = devm_kmemdup(ctx->dev,
+					&mod_configs[mod_entry->cfg_offset],
+					size, GFP_KERNEL);
+			if (!module->configs) {
+				list_del_init(&skl->module_list);
+				return -ENOMEM;
+			}
 		}
 
 		list_add_tail(&module->list, &skl->module_list);
