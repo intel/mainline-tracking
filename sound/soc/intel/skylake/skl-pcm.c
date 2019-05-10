@@ -1328,12 +1328,12 @@ static int skl_get_module_info(struct skl_dev *skl, struct skl_module_cfg *mconf
 
 	uuid_mod = (uuid_le *)mconfig->guid;
 
-	if (list_empty(&skl->uuid_list)) {
+	if (list_empty(&skl->module_list)) {
 		dev_err(skl->dev, "Module list is empty\n");
 		return -EIO;
 	}
 
-	list_for_each_entry(module, &skl->uuid_list, list) {
+	list_for_each_entry(module, &skl->module_list, list) {
 		if (uuid_le_cmp(*uuid_mod, module->uuid) == 0) {
 			mconfig->id.module_id = module->id;
 			if (mconfig->module)
@@ -1360,7 +1360,7 @@ static int skl_get_module_info(struct skl_dev *skl, struct skl_module_cfg *mconf
 	if (skl->nr_modules && ret)
 		return ret;
 
-	list_for_each_entry(module, &skl->uuid_list, list) {
+	list_for_each_entry(module, &skl->module_list, list) {
 		for (i = 0; i < MAX_IN_QUEUE; i++) {
 			pin_id = &mconfig->m_in_pin[i].id;
 			if (!uuid_le_cmp(pin_id->mod_uuid, module->uuid))
