@@ -746,7 +746,7 @@ static void phy_error(struct phy_device *phydev)
  * phy_disable_interrupts - Disable the PHY interrupts from the PHY side
  * @phydev: target phy_device struct
  */
-static int phy_disable_interrupts(struct phy_device *phydev)
+int phy_disable_interrupts(struct phy_device *phydev)
 {
 	int err;
 
@@ -758,6 +758,7 @@ static int phy_disable_interrupts(struct phy_device *phydev)
 	/* Clear the interrupt */
 	return phy_clear_interrupt(phydev);
 }
+EXPORT_SYMBOL(phy_disable_interrupts);
 
 /**
  * phy_interrupt - PHY interrupt handler
@@ -794,7 +795,7 @@ phy_err:
  * phy_enable_interrupts - Enable the interrupts from the PHY side
  * @phydev: target phy_device struct
  */
-static int phy_enable_interrupts(struct phy_device *phydev)
+int phy_enable_interrupts(struct phy_device *phydev)
 {
 	int err = phy_clear_interrupt(phydev);
 
@@ -803,6 +804,7 @@ static int phy_enable_interrupts(struct phy_device *phydev)
 
 	return phy_config_interrupt(phydev, PHY_INTERRUPT_ENABLED);
 }
+EXPORT_SYMBOL(phy_enable_interrupts);
 
 /**
  * phy_request_interrupt - request and enable interrupt for a PHY device
