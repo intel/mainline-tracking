@@ -516,6 +516,15 @@ config SND_SOC_INTEL_EHL_RT5660_MACH
 	  Say Y or m if you have such a device. This is a recommended option.
 	  If unsure select "N".
 
+config SND_SOC_INTEL_EHL_RT5660_FPGA
+	tristate "RT5660 on IP FPGA"
+	depends on SND_SOC_INTEL_EHL_RT5660_MACH
+	help
+	 This option will be reverded after power on.
+	 It's only for testing purposes.
+	 Select this option if testing RT5660 on IP FPGA
+	 If unsure select "N".
+
 config SND_SOC_INTEL_SSP_TEST_MACH
 	tristate "SSP-TEST mode"
 	depends on MFD_INTEL_LPSS && ACPI

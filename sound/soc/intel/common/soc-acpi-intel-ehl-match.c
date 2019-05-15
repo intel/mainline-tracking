@@ -10,11 +10,25 @@
 #include <sound/soc-acpi-intel-match.h>
 #include "../skylake/skl.h"
 
+static int imr_alloc = 1;
+
+static struct skl_machine_pdata ehl_pdata_fpga = {
+	.use_tplg_pcm = true,
+	.imr_alloc = &imr_alloc,
+};
+
 static struct skl_machine_pdata ehl_pdata = {
 	.use_tplg_pcm = true,
 };
 
 struct snd_soc_acpi_mach snd_soc_acpi_intel_ehl_machines[] = {
+
+	{
+		.id = "INT34C2", /* Using KBL RVP with IP FPGA */
+		.drv_name = "ehl_rt5660",
+		.fw_filename = "intel/dsp_fw_ehl.bin",
+		.pdata = &ehl_pdata_fpga,
+	},
 
 	{
 		.id = "INTC1027", /* EHL board */
