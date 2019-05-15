@@ -177,35 +177,44 @@ static const struct snd_soc_ops ehl_rt5660_fe_ops = {
 	.startup = ehl_fe_startup,
 };
 
+#if IS_ENABLED(CONFIG_SND_SOC_INTEL_EHL_RT5660_FPGA)
+static const char pname[] = "0000:02:1f.3";
+static const char cname[] = "i2c-INT34C2:00";
+#else
 static const char pname[] = "0000:00:1f.3";
 static const char cname[] = "i2c-INTC1027:00"; /* EHL Board */
+#endif
+
+SND_SOC_DAILINK_DEF(ssp0_pin,
+	DAILINK_COMP_ARRAY(COMP_CPU("SSP0 Pin")));
+
+SND_SOC_DAILINK_DEF(rt5660_codec,
+	DAILINK_COMP_ARRAY(COMP_CODEC(cname, RT5660_CODEC_DAI)));
+
+SND_SOC_DAILINK_DEF(platform,
+	DAILINK_COMP_ARRAY(COMP_PLATFORM(pname)));
 
 static struct snd_soc_dai_link ehl_rt5660_msic_dailink[] = {
-
 	/* back ends */
 	{
-		/* SSP0 - Codec */
 		.name = "SSP0-Codec",
 		.id = 0,
-		.cpu_dai_name = "SSP0 Pin",
-		.codec_name = cname,
-		.codec_dai_name = RT5660_CODEC_DAI,
-		.platform_name = pname,
-		.be_hw_params_fixup = ehl_be_fixup,
+		.init = NULL,
 		.no_pcm = 1,
 		.dai_fmt = SND_SOC_DAIFMT_I2S |
 			SND_SOC_DAIFMT_NB_NF | SND_SOC_DAIFMT_CBS_CFS,
 		.dpcm_playback = 1,
 		.dpcm_capture = 1,
-		.init = NULL,
 		.ops = &ehl_rt5660_ops,
+		.be_hw_params_fixup = ehl_be_fixup,
+		SND_SOC_DAILINK_REG(ssp0_pin, rt5660_codec, platform),
 	},
 };
 
 static int
 ehl_add_dai_link(struct snd_soc_card *card, struct snd_soc_dai_link *link)
 {
-	link->platform_name = pname;
+	link->platforms->name = pname;
 	link->nonatomic = 1;
 
 	return 0;
