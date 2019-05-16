@@ -39,6 +39,9 @@ Optional properties:
 
 - resets : Phandle of the GPU reset line.
 
+- #cooling-cells: Refer to Documentation/devicetree/bindings/thermal/thermal.txt
+  for details.
+
 Vendor-specific bindings
 ------------------------
 
@@ -65,6 +68,7 @@ gpu@ffa30000 {
 	mali-supply = <&vdd_gpu>;
 	operating-points-v2 = <&gpu_opp_table>;
 	power-domains = <&power RK3288_PD_GPU>;
+	#cooling-cells = <2>;
 };
 
 gpu_opp_table: opp_table0 {
