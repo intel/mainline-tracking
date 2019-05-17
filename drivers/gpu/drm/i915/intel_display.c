@@ -13397,7 +13397,7 @@ static int intel_atomic_check(struct drm_device *dev,
 
 	ret = drm_atomic_helper_check_modeset(dev, &state->base);
 	if (ret)
-		return ret;
+		goto fail;
 
 	for_each_oldnew_intel_crtc_in_state(state, crtc, old_crtc_state,
 					    new_crtc_state, i) {
@@ -13410,12 +13410,8 @@ static int intel_atomic_check(struct drm_device *dev,
 		}
 
 		ret = intel_modeset_pipe_config(new_crtc_state);
-		if (ret == -EDEADLK)
-			return ret;
-		if (ret) {
-			intel_dump_pipe_config(new_crtc_state, "[failed]");
-			return ret;
-		}
+		if (ret)
+			goto fail;
 
 		intel_crtc_check_fastset(old_crtc_state, new_crtc_state);
 
@@ -13425,32 +13421,32 @@ static int intel_atomic_check(struct drm_device *dev,
 
 	ret = drm_dp_mst_atomic_check(&state->base);
 	if (ret)
-		return ret;
+		goto fail;
 
 	if (any_ms) {
 		ret = intel_modeset_checks(state);
 		if (ret)
-			return ret;
+			goto fail;
 	} else {
 		state->cdclk.logical = dev_priv->cdclk.logical;
 	}
 
 	ret = icl_add_linked_planes(state);
 	if (ret)
-		return ret;
+		goto fail;
 
 	ret = drm_atomic_helper_check_planes(dev, &state->base);
 	if (ret)
-		return ret;
+		goto fail;
 
 	intel_fbc_choose_crtc(dev_priv, state);
 	ret = calc_watermark_data(state);
 	if (ret)
-		return ret;
+		goto fail;
 
 	ret = intel_bw_atomic_check(state);
 	if (ret)
-		return ret;
+		goto fail;
 
 	for_each_oldnew_intel_crtc_in_state(state, crtc, old_crtc_state,
 					    new_crtc_state, i) {
@@ -13464,6 +13460,20 @@ static int intel_atomic_check(struct drm_device *dev,
 	}
 
 	return 0;
+
+ fail:
+	if (ret == -EDEADLK)
+		return ret;
+
+	/*
+	 * FIXME would probably be nice to know which crtc specifically
+	 * caused the failure, in cases where we can pinpoint it.
+	 */
+	for_each_oldnew_intel_crtc_in_state(state, crtc, old_crtc_state,
+					    new_crtc_state, i)
+		intel_dump_pipe_config(new_crtc_state, "[failed]");
+
+	return ret;
 }
 
 static int intel_atomic_prepare_commit(struct drm_device *dev,
