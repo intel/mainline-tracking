@@ -11,7 +11,7 @@
 #include <linux/kref.h>
 #include <linux/mm_types.h>
 
-#include <drm/drmP.h>
+#include <drm/drm_device.h>
 
 #include "psb_reg.h"
 #include "psb_intel_drv.h"
