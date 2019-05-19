@@ -7,6 +7,7 @@
  */
 #include <drm/drmP.h>
 #include <drm/drm.h>
+#include <drm/drm_dp_helper.h>
 
 #include "psb_drv.h"
 #include "psb_intel_drv.h"

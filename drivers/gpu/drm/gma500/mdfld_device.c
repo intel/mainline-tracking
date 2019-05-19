@@ -5,6 +5,8 @@
  *
  **************************************************************************/
 
+#include <linux/delay.h>
+
 #include "psb_drv.h"
 #include "mid_bios.h"
 #include "mdfld_output.h"
