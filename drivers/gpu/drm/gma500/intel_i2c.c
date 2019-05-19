@@ -5,6 +5,7 @@
  * Authors:
  *	Eric Anholt <eric@anholt.net>
  */
+
 #include <linux/delay.h>
 #include <linux/export.h>
 #include <linux/i2c-algo-bit.h>
