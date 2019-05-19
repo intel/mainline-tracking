@@ -10,7 +10,7 @@
 #include <linux/dmi.h>
 #include <drm/drmP.h>
 #include <drm/drm.h>
-#include <drm/gma_drm.h>
+
 #include "psb_drv.h"
 #include "psb_reg.h"
 #include "psb_intel_reg.h"
