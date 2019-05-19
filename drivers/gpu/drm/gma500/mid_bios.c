@@ -13,7 +13,7 @@
 
 #include <drm/drmP.h>
 #include <drm/drm.h>
-#include <drm/gma_drm.h>
+
 #include "psb_drv.h"
 #include "mid_bios.h"
 
