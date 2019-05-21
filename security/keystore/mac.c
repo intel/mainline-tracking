@@ -146,7 +146,6 @@ int keystore_sha256_block(const void *data, unsigned int size,
 	}
 
 	sdesc->tfm = tfm;
-	sdesc->flags = CRYPTO_TFM_REQ_MAY_SLEEP;
 
 	crypto_shash_init(sdesc);
 	crypto_shash_update(sdesc, data, size);

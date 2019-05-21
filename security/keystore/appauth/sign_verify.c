@@ -86,7 +86,6 @@ static int calc_hash_tfm(struct appauth_digest *hash,
 	shash->tfm = tfm;
 	if (!shash->tfm)
 		return -EFAULT;
-	shash->flags = 0;
 
 	hash->len = crypto_shash_digestsize(tfm);
 
