@@ -86,7 +86,6 @@ static int appauth_calc_file_hash_tfm(struct file *file,
 	shash->tfm = tfm;
 	if (!shash->tfm)
 		return -EFAULT;
-	shash->flags = 0;
 
 	hash->len = crypto_shash_digestsize(tfm);
 

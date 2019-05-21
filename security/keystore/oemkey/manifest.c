@@ -206,7 +206,6 @@ static int sha256_digest(const void *data, uint32_t size,
 	}
 
 	sdesc->tfm = tfm;
-	sdesc->flags = CRYPTO_TFM_REQ_MAY_SLEEP;
 
 	crypto_shash_init(sdesc);
 	crypto_shash_update(sdesc, data, size);
