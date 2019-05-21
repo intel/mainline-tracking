@@ -111,7 +111,7 @@ EXPORT_SYMBOL_GPL(analogix_dp_psr_enabled);
 
 int analogix_dp_enable_psr(struct analogix_dp_device *dp)
 {
-	struct edp_vsc_psr psr_vsc;
+	struct dp_sdp psr_vsc;
 
 	if (!dp->psr_enable)
 		return 0;
@@ -123,8 +123,8 @@ int analogix_dp_enable_psr(struct analogix_dp_device *dp)
 	psr_vsc.sdp_header.HB2 = 0x2;
 	psr_vsc.sdp_header.HB3 = 0x8;
 
-	psr_vsc.DB0 = 0;
-	psr_vsc.DB1 = EDP_VSC_PSR_STATE_ACTIVE | EDP_VSC_PSR_CRC_VALUES_VALID;
+	psr_vsc.db[0] = 0;
+	psr_vsc.db[1] = EDP_VSC_PSR_STATE_ACTIVE | EDP_VSC_PSR_CRC_VALUES_VALID;
 
 	return analogix_dp_send_psr_spd(dp, &psr_vsc, true);
 }
@@ -132,7 +132,7 @@ EXPORT_SYMBOL_GPL(analogix_dp_enable_psr);
 
 int analogix_dp_disable_psr(struct analogix_dp_device *dp)
 {
-	struct edp_vsc_psr psr_vsc;
+	struct dp_sdp psr_vsc;
 	int ret;
 
 	if (!dp->psr_enable)
@@ -145,8 +145,8 @@ int analogix_dp_disable_psr(struct analogix_dp_device *dp)
 	psr_vsc.sdp_header.HB2 = 0x2;
 	psr_vsc.sdp_header.HB3 = 0x8;
 
-	psr_vsc.DB0 = 0;
-	psr_vsc.DB1 = 0;
+	psr_vsc.db[0] = 0;
+	psr_vsc.db[1] = 0;
 
 	ret = drm_dp_dpcd_writeb(&dp->aux, DP_SET_POWER, DP_SET_POWER_D0);
 	if (ret != 1) {
