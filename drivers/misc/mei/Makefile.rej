@@ -1,0 +1,6 @@
+diff a/drivers/misc/mei/Makefile b/drivers/misc/mei/Makefile	(rejected hunks)
+@@ -29,3 +29,4 @@ mei-$(CONFIG_EVENT_TRACING) += mei-trace.o
+ CFLAGS_mei-trace.o = -I$(src)
+ 
+ obj-$(CONFIG_INTEL_MEI_HDCP) += hdcp/
++obj-$(CONFIG_INTEL_MEI_DAL) += dal/
