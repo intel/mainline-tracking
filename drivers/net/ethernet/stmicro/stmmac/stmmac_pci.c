@@ -9,6 +9,7 @@
   Author: Giuseppe Cavallaro <peppe.cavallaro@st.com>
 *******************************************************************************/
 
+#include <linux/clk-provider.h>
 #include <linux/pci.h>
 #include <linux/dmi.h>
 
@@ -179,6 +180,22 @@ static int ehl_common_data(struct pci_dev *pdev,
 	plat->axi->axi_blen[0] = 4;
 	plat->axi->axi_blen[1] = 8;
 	plat->axi->axi_blen[2] = 16;
+
+	/* Set PTP clock rate & PTP max adj for EHL as 200MHz */
+	plat->clk_ptp_rate = 200000000;
+	plat->ptp_max_adj = plat->clk_ptp_rate;
+
+	/* Set system clock */
+	clk_unregister_fixed_rate(plat->stmmac_clk);
+	plat->stmmac_clk = clk_register_fixed_rate(&pdev->dev,
+						   "stmmac-clk", NULL, 0,
+						   plat->clk_ptp_rate);
+
+	if (IS_ERR(plat->stmmac_clk)) {
+		dev_warn(&pdev->dev, "Fail to register stmmac-clk\n");
+		plat->stmmac_clk = NULL;
+	}
+	clk_prepare_enable(plat->stmmac_clk);
 
 	/* Set default value for multicast hash bins */
 	plat->multicast_filter_bins = HASH_TABLE_SIZE;
