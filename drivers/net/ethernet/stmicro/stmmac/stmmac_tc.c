@@ -7,9 +7,12 @@
 #include <net/pkt_cls.h>
 #include <net/tc_act/tc_gact.h>
 #include "common.h"
+#include "dw_tsn_lib.h"
 #include "dwmac4.h"
 #include "dwmac5.h"
 #include "stmmac.h"
+
+#define ONE_SEC_IN_NANOSEC 1000000000ULL
 
 static void tc_fill_all_pass_entry(struct stmmac_tc_entry *entry)
 {
@@ -349,8 +352,101 @@ static int tc_setup_cbs(struct stmmac_priv *priv,
 	return 0;
 }
 
+static int tc_setup_taprio(struct stmmac_priv *priv,
+			   struct tc_taprio_qopt_offload *qopt)
+{
+	u64 time_extension = qopt->cycle_time_extension;
+	u64 base_time = ktime_to_ns(qopt->base_time);
+	u64 cycle_time = qopt->cycle_time;
+	struct est_gcrr egcrr;
+	u32 extension_ns;
+	u32 extension_s;
+	u32 cycle_ns;
+	u32 cycle_s;
+	u32 base_ns;
+	u32 base_s;
+	int ret;
+	int i;
+
+	if (qopt->enable) {
+		stmmac_set_est_enable(priv, priv->ioaddr, 1);
+		dev_info(priv->device, "taprio: EST enabled\n");
+	} else {
+		stmmac_set_est_enable(priv, priv->ioaddr, 0);
+		dev_info(priv->device, "taprio: EST disabled\n");
+		return 0;
+	}
+
+	dev_dbg(priv->device, "taprio: time_extension %lld, base_time %lld, cycle_time %lld\n",
+			qopt->cycle_time_extension, qopt->base_time, qopt->cycle_time);
+
+	for (i = 0; i < qopt->num_entries; i++) {
+		struct est_gc_entry sgce;
+
+		sgce.gates = qopt->entries[i].gate_mask;
+		sgce.ti_nsec = qopt->entries[i].interval;
+
+		/* cycle_time will be sum of all time interval
+		 * of the entries in the schedule if the
+		 * cycle_time is not provided
+		 */
+		if (!qopt->cycle_time)
+			cycle_time += qopt->entries[i].interval;
+
+		dev_dbg(priv->device, "taprio: gates 0x%x, ti_ns %d, cycle_ns %d\n",
+			 sgce.gates, sgce.ti_nsec, cycle_ns);
+
+		ret = stmmac_set_est_gce(priv, priv->ioaddr, &sgce, i, 0, 0);
+
+		if (ret) {
+			dev_err(priv->device,
+				"taprio: fail to program GC entry(%d).\n", i);
+
+			return ret;
+		}
+	}
+
+	ret = stmmac_set_est_gcrr_llr(priv, priv->ioaddr,
+				      qopt->num_entries,
+				      0, 0);
+	if (ret) {
+		dev_err(priv->device,
+			"taprio: fail to program GC into HW\n");
+	}
+
+	/* set est_info */
+	base_ns = do_div(base_time, ONE_SEC_IN_NANOSEC);
+	base_s = base_time;
+	dev_dbg(priv->device, "taprio: base_s %d, base_ns %d\n",
+			base_s, base_ns);
+
+	cycle_ns = do_div(cycle_time, ONE_SEC_IN_NANOSEC);
+	cycle_s = cycle_time;
+	dev_dbg(priv->device, "taprio: cycle_s %d, cycle_ns %d\n",
+			cycle_s, cycle_ns);
+
+	extension_ns = do_div(time_extension, ONE_SEC_IN_NANOSEC);
+	extension_s = time_extension;
+	dev_dbg(priv->device, "taprio: extension_s %d, extension_ns %d\n",
+			extension_s, extension_ns);
+
+	if (extension_s) {
+		dev_err(priv->device, "taprio: extension in seconds not supported.\n");
+		return -EINVAL;
+	}
+
+	egcrr.cycle_sec = cycle_s;
+	egcrr.cycle_nsec = cycle_ns;
+	egcrr.base_sec = base_s;
+	egcrr.base_nsec = base_ns;
+	egcrr.ter_nsec = extension_ns;
+
+	return stmmac_set_est_gcrr_times(priv, priv->ioaddr, &egcrr, 0, 0);
+}
+
 const struct stmmac_tc_ops dwmac510_tc_ops = {
 	.init = tc_init,
 	.setup_cls_u32 = tc_setup_cls_u32,
 	.setup_cbs = tc_setup_cbs,
+	.setup_taprio = tc_setup_taprio,
 };

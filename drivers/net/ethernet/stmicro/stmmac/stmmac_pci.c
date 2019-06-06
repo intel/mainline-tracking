@@ -126,6 +126,7 @@ static int ehl_common_data(struct pci_dev *pdev,
 	plat->pcs_mode = AN_CTRL_PCS_MD_C37_SGMII;
 	plat->force_sf_dma_mode = 0;
 	plat->tso_en = 1;
+	plat->tsn_est_en = 1;
 
 	plat->rx_queues_to_use = 8;
 	plat->tx_queues_to_use = 8;
