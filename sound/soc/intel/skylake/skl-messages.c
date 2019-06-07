@@ -1571,6 +1571,11 @@ int skl_probe_init_module(struct skl_dev *skl, size_t buffer_size)
 	union skl_connector_node_id node_id = {0};
 	struct uuid_module *m = skl_find_module(skl, &skl_probe_mod_uuid);
 
+	if (!m) {
+		dev_err(skl->dev, "Module not found\n");
+		return -ENOENT;
+	}
+
 	if (skl->extractor) {
 		node_id.node.vindex = skl->extractor->hstream.stream_tag - 1;
 		node_id.node.dma_type = SKL_DMA_HDA_HOST_INPUT_CLASS;
