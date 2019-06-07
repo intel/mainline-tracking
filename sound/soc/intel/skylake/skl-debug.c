@@ -504,6 +504,10 @@ struct nhlt_specific_cfg
 *skl_nhlt_get_debugfs_blob(struct skl_debug *d, u8 link_type, u32 instance,
 		u8 stream)
 {
+	if (!d) {
+		dev_err(d->dev, "NHLT debugfs is not initialized\n");
+		return NULL;
+	}
 	switch (link_type) {
 	case NHLT_LINK_DMIC:
 		return d->dmic_blob.cfg;
