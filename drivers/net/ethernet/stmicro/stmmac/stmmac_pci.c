@@ -436,12 +436,27 @@ static int stmmac_pci_probe(struct pci_dev *pdev,
 	if (ret)
 		return ret;
 
-	pci_enable_msi(pdev);
-
 	memset(&res, 0, sizeof(res));
 	res.addr = pcim_iomap_table(pdev)[i];
-	res.wol_irq = pdev->irq;
-	res.irq = pdev->irq;
+
+	ret = pci_alloc_irq_vectors(pdev, 1, STMMAC_MAX_MSI_COUNT, PCI_IRQ_MSI);
+
+	if (ret > 1) {
+		dev_info(&pdev->dev, "%s: Multi-MSI with %d vectors\n",
+			 __func__, ret);
+		/* MAC MSI vector offset at 29 */
+		res.irq = pci_irq_vector(pdev, 29);
+	} else if (ret == 1) {
+		dev_info(&pdev->dev, "%s: Single MSI\n",
+			 __func__);
+		res.irq = pci_irq_vector(pdev, 0);
+	} else {
+		dev_info(&pdev->dev, "%s: Fall back to legacy IRQ\n",
+			 __func__);
+		res.irq = pdev->irq;
+	}
+
+	res.wol_irq = res.irq;
 	res.xpcs_irq = 0;
 
 	return stmmac_dvr_probe(&pdev->dev, plat, &res);
@@ -459,6 +474,7 @@ static void stmmac_pci_remove(struct pci_dev *pdev)
 	int i;
 
 	stmmac_dvr_remove(&pdev->dev);
+	pci_free_irq_vectors(pdev);
 
 	for (i = 0; i <= PCI_STD_RESOURCE_END; i++) {
 		if (pci_resource_len(pdev, i) == 0)
