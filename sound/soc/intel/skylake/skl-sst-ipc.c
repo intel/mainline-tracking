@@ -1254,6 +1254,7 @@ int skl_ipc_get_large_config(struct sst_generic_ipc *ipc,
 			tlv, tlv ? *bytes : 0, &reply,
 			buf, SKL_ADSP_W1_SZ);
 	if (ret < 0) {
+		kfree(buf);
 		dev_err(ipc->dev, "ipc: get large config fail, err: %d\n", ret);
 		return ret;
 	}
