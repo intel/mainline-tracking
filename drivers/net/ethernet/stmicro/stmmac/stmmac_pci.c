@@ -119,6 +119,7 @@ static int intel_common_data(struct pci_dev *pdev,
 	plat->clk_trail_n = 2;
 	plat->has_gmac = 0;
 	plat->has_gmac4 = 1;
+	plat->has_safety_feat = 0;
 	/* intel specific adhoc (mdio) address for serdes & etc */
 	plat->intel_adhoc_addr = 0x15;
 	plat->xpcs_phy_addr = 0x16;
