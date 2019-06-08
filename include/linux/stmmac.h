@@ -192,5 +192,6 @@ struct plat_stmmacenet_data {
 	unsigned int ptov;
 	unsigned int ctov;
 	unsigned int tils;
+	bool has_safety_feat;
 };
 #endif
