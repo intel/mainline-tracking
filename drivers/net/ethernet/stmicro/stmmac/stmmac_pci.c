@@ -110,13 +110,11 @@ static const struct stmmac_pci_info stmmac_pci_info = {
 	.setup = stmmac_default_data,
 };
 
-static int ehl_common_data(struct pci_dev *pdev,
+static int intel_common_data(struct pci_dev *pdev,
 			   struct plat_stmmacenet_data *plat)
 {
 	int i;
 
-	plat->bus_id = 1;
-	plat->phy_addr = 0;
 	plat->clk_csr = 5;
 	plat->has_gmac = 0;
 	plat->has_gmac4 = 1;
@@ -127,9 +125,6 @@ static int ehl_common_data(struct pci_dev *pdev,
 	plat->force_sf_dma_mode = 0;
 	plat->tso_en = 1;
 	plat->tsn_est_en = 1;
-
-	plat->rx_queues_to_use = 8;
-	plat->tx_queues_to_use = 8;
 	plat->rx_sched_algorithm = MTL_RX_ALGORITHM_SP;
 
 	for (i = 0; i < plat->rx_queues_to_use; i++) {
@@ -149,6 +144,10 @@ static int ehl_common_data(struct pci_dev *pdev,
 		/* Disable Priority config by default */
 		plat->tx_queues_cfg[i].use_prio = false;
 	}
+
+	/* FIFO size is 4096 bytes for 1 tx/rx queue */
+	plat->tx_fifo_size = plat->tx_queues_to_use * 4096;
+	plat->rx_fifo_size = plat->rx_queues_to_use * 4096;
 
 	plat->tx_sched_algorithm = MTL_TX_ALGORITHM_WRR;
 	plat->tx_queues_cfg[0].weight = 0x09;
@@ -207,30 +206,28 @@ static int ehl_common_data(struct pci_dev *pdev,
 	/* Set the maxmtu to a default of JUMBO_LEN */
 	plat->maxmtu = JUMBO_LEN;
 
-	/* Set 32KB fifo size as the advertised fifo size in
-	 * the HW features is not the same as the HW implementation
-	 */
-	plat->tx_fifo_size = 32768;
-	plat->rx_fifo_size = 32768;
-
 	return 0;
+}
+
+static int ehl_default_data(struct pci_dev *pdev,
+			    struct plat_stmmacenet_data *plat)
+{
+	plat->bus_id = 1;
+	plat->phy_addr = 0;
+	plat->rx_queues_to_use = 8;
+	plat->tx_queues_to_use = 8;
+
+	return intel_common_data(pdev, plat);
 }
 
 static int ehl_sgmii1g_data(struct pci_dev *pdev,
 			    struct plat_stmmacenet_data *plat)
 {
-	int ret;
-
-	/* Set common default data first */
-	ret = ehl_common_data(pdev, plat);
-	if (ret)
-		return ret;
-
 	plat->interface = PHY_INTERFACE_MODE_SGMII;
 	plat->has_xpcs = 1;
 	plat->has_serdes = 1;
 
-	return 0;
+	return ehl_default_data(pdev, plat);
 }
 
 static struct stmmac_pci_info ehl_sgmii1g_pci_info = {
