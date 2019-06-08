@@ -156,6 +156,7 @@ static int intel_mgbe_common_data(struct pci_dev *pdev,
 	plat->clk_trail_n = 2;
 	plat->has_gmac = 0;
 	plat->has_gmac4 = 1;
+	plat->has_safety_feat = 0;
 	plat->force_sf_dma_mode = 0;
 	plat->tso_en = 1;
 	plat->tsn_est_en = 1;
