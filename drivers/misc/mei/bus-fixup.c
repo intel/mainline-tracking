@@ -64,18 +64,6 @@ static void blacklist(struct mei_cl_device *cldev)
 	cldev->do_match = 0;
 }
 
-/**
- * whitelist - forcefully whitelist client
- *
- * @cldev: me clients device
- */
-static void whitelist(struct mei_cl_device *cldev)
-{
-	dev_dbg(&cldev->dev, "running hook %s\n", __func__);
-
-	cldev->do_match = 1;
-}
-
 #define OSTYPE_LINUX    2
 struct mei_os_ver {
 	__le16 build;
@@ -465,6 +453,19 @@ out:
 	dev_dbg(bus->dev, "end of fixup match = %d\n", cldev->do_match);
 }
 
+/**
+ * vm_support - enable on bus clients with vm support
+ *
+ * @cldev: me clients device
+ */
+static void vm_support(struct mei_cl_device *cldev)
+{
+	dev_dbg(&cldev->dev, "running hook %s\n", __func__);
+
+	if (cldev->me_cl->props.vm_supported == 1)
+		cldev->do_match = 1;
+}
+
 #define MEI_FIXUP(_uuid, _hook) { _uuid, _hook }
 
 static struct mei_fixup {
@@ -477,7 +478,7 @@ static struct mei_fixup {
 	MEI_FIXUP(MEI_UUID_NFC_HCI, mei_nfc),
 	MEI_FIXUP(MEI_UUID_WD, mei_wd),
 	MEI_FIXUP(MEI_UUID_MKHIF_FIX, mei_mkhi_fix),
-	MEI_FIXUP(MEI_UUID_HDCP, whitelist),
+	MEI_FIXUP(MEI_UUID_ANY, vm_support),
 };
 
 /**
