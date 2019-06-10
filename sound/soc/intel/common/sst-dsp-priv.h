@@ -308,11 +308,11 @@ struct sst_dsp {
 	/* To allocate CL dma buffers */
 	struct skl_dsp_loader_ops dsp_ops;
 	struct skl_dsp_fw_ops fw_ops;
-	int sst_state;
 	struct skl_cl_dev cl_dev;
 	u32 intr_status;
 	const struct firmware *fw;
 	struct snd_dma_buffer dmab;
+	struct snd_dma_buffer imr_buf;
 };
 
 /* Size optimised DRAM/IRAM memcpy */
