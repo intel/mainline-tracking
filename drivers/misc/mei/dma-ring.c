@@ -1,6 +1,6 @@
-// SPDX-License-Identifier: GPL-2.0
+// SPDX-License-Identifier: BSD-3-Clause OR GPL-2.0
 /*
- * Copyright(c) 2016-2018 Intel Corporation. All rights reserved.
+ * Copyright(c) 2016 - 2018 Intel Corporation. All rights reserved.
  */
 #include <linux/dma-mapping.h>
 #include <linux/mei.h>
@@ -8,15 +8,15 @@
 #include "mei_dev.h"
 
 /**
- * mei_dmam_dscr_alloc() - allocate a managed coherent buffer
+ * mei_dmam_dscr_alloc - allocate a managed coherent buffer
  *     for the dma descriptor
+ *
  * @dev: mei_device
  * @dscr: dma descriptor
  *
- * Return:
- * * 0       - on success or zero allocation request
- * * -EINVAL - if size is not power of 2
- * * -ENOMEM - of allocation has failed
+ * Return: 0 on success or zero allocation request
+ *         -EINVAL if size is not power of 2
+ *         -ENOMEM of allocation has failed
  */
 static int mei_dmam_dscr_alloc(struct mei_device *dev,
 			       struct mei_dma_dscr *dscr)
@@ -39,8 +39,9 @@ static int mei_dmam_dscr_alloc(struct mei_device *dev,
 }
 
 /**
- * mei_dmam_dscr_free() - free a managed coherent buffer
+ * mei_dmam_dscr_free - free a managed coherent buffer
  *     from the dma descriptor
+ *
  * @dev: mei_device
  * @dscr: dma descriptor
  */
@@ -55,7 +56,8 @@ static void mei_dmam_dscr_free(struct mei_device *dev,
 }
 
 /**
- * mei_dmam_ring_free() - free dma ring buffers
+ * mei_dmam_ring_free - free dma ring buffers
+ *
  * @dev: mei device
  */
 void mei_dmam_ring_free(struct mei_device *dev)
@@ -67,7 +69,8 @@ void mei_dmam_ring_free(struct mei_device *dev)
 }
 
 /**
- * mei_dmam_ring_alloc() - allocate dma ring buffers
+ * mei_dmam_ring_alloc - allocate dma ring buffers
+ *
  * @dev: mei device
  *
  * Return: -ENOMEM on allocation failure 0 otherwise
@@ -88,7 +91,8 @@ err:
 }
 
 /**
- * mei_dma_ring_is_allocated() - check if dma ring is allocated
+ * mei_dma_ring_is_allocated - check if dma ring is allocated
+ *
  * @dev: mei device
  *
  * Return: true if dma ring is allocated
@@ -105,7 +109,8 @@ struct hbm_dma_ring_ctrl *mei_dma_ring_ctrl(struct mei_device *dev)
 }
 
 /**
- * mei_dma_ring_reset() - reset the dma control block
+ * mei_dma_ring_reset - reset the dma control block
+ *
  * @dev: mei device
  */
 void mei_dma_ring_reset(struct mei_device *dev)
@@ -119,7 +124,8 @@ void mei_dma_ring_reset(struct mei_device *dev)
 }
 
 /**
- * mei_dma_copy_from() - copy from dma ring into buffer
+ * mei_dma_ring_reset - copy from dma ring into buffer
+ *
  * @dev: mei device
  * @buf: data buffer
  * @offset: offset in slots.
@@ -139,7 +145,8 @@ static size_t mei_dma_copy_from(struct mei_device *dev, unsigned char *buf,
 }
 
 /**
- * mei_dma_copy_to() - copy to a buffer to the dma ring
+ * mei_dma_copy_to - copy to a buffer to the dma ring
+ *
  * @dev: mei device
  * @buf: data buffer
  * @offset: offset in slots.
@@ -159,7 +166,8 @@ static size_t mei_dma_copy_to(struct mei_device *dev, unsigned char *buf,
 }
 
 /**
- * mei_dma_ring_read() - read data from the ring
+ * mei_dma_ring_read - read data from the ring
+ *
  * @dev: mei device
  * @buf: buffer to read into: may be NULL in case of droping the data.
  * @len: length to read.
@@ -205,7 +213,8 @@ static inline u32 mei_dma_ring_hbuf_depth(struct mei_device *dev)
 }
 
 /**
- * mei_dma_ring_empty_slots() - calaculate number of empty slots in dma ring
+ * mei_dma_ring_empty_slots - calaculate number of empty slots in dma ring
+ *
  * @dev: mei_device
  *
  * Return: number of empty slots
@@ -267,3 +276,4 @@ void mei_dma_ring_write(struct mei_device *dev, unsigned char *buf, u32 len)
 
 	WRITE_ONCE(ctrl->hbuf_wr_idx, ctrl->hbuf_wr_idx + slots);
 }
+
