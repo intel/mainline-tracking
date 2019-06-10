@@ -715,9 +715,9 @@ out:
  * We only need to convert from xdr once so future lookups are much simpler
  */
 static
-int nfs_readdir_filler(void *data, struct page* page)
+int nfs_readdir_filler(struct file *file, struct page* page)
 {
-	nfs_readdir_descriptor_t *desc = data;
+	nfs_readdir_descriptor_t *desc = (nfs_readdir_descriptor_t *)file;
 	struct inode	*inode = file_inode(desc->file);
 	int ret;
 
