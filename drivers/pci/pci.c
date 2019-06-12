@@ -1025,15 +1025,11 @@ static void __pci_start_power_transition(struct pci_dev *dev, pci_power_t state)
 	if (state == PCI_D0) {
 		pci_platform_power_transition(dev, PCI_D0);
 		/*
-		 * Mandatory power management transition delays, see
-		 * PCI Express Base Specification Revision 2.0 Section
-		 * 6.6.1: Conventional Reset.  Do not delay for
-		 * devices powered on/off by corresponding bridge,
-		 * because have already delayed for the bridge.
+		 * Mandatory power management transition delays are handled
+		 * in pci_pm_runtime_resume() of the corresponding
+		 * downstream/root port.
 		 */
 		if (dev->runtime_d3cold) {
-			if (dev->d3cold_delay && !dev->imm_ready)
-				msleep(dev->d3cold_delay);
 			/*
 			 * When powering on a bridge from D3cold, the
 			 * whole hierarchy may be powered on into
@@ -4607,14 +4603,17 @@ static int pci_pm_reset(struct pci_dev *dev, int probe)
 
 	return pci_dev_wait(dev, "PM D3->D0", PCIE_RESET_READY_POLL_MS);
 }
+
 /**
- * pcie_wait_for_link - Wait until link is active or inactive
+ * pcie_wait_for_link_delay - Wait until link is active or inactive
  * @pdev: Bridge device
  * @active: waiting for active or inactive?
+ * @delay: Delay to wait after link has become active (in ms)
  *
  * Use this to wait till link becomes active or inactive.
  */
-bool pcie_wait_for_link(struct pci_dev *pdev, bool active)
+static bool pcie_wait_for_link_delay(struct pci_dev *pdev, bool active,
+				     int delay)
 {
 	int timeout = 1000;
 	bool ret;
@@ -4651,11 +4650,88 @@ bool pcie_wait_for_link(struct pci_dev *pdev, bool active)
 		timeout -= 10;
 	}
 	if (active && ret)
-		msleep(100);
+		msleep(delay);
 	else if (ret != active)
 		pci_info(pdev, "Data Link Layer Link Active not %s in 1000 msec\n",
 			active ? "set" : "cleared");
 	return ret == active;
+}
+
+/**
+ * pcie_wait_for_link - Wait until link is active or inactive
+ * @pdev: Bridge device
+ * @active: waiting for active or inactive?
+ *
+ * Use this to wait till link becomes active or inactive.
+ */
+bool pcie_wait_for_link(struct pci_dev *pdev, bool active)
+{
+	return pcie_wait_for_link_delay(pdev, active, 100);
+}
+
+static int pcie_get_downstream_delay(struct pci_bus *bus)
+{
+	struct pci_dev *pdev;
+	int min_delay = 100;
+	int max_delay = 0;
+
+	list_for_each_entry(pdev, &bus->devices, bus_list) {
+		if (pdev->imm_ready)
+			min_delay = 0;
+		else if (pdev->d3cold_delay < min_delay)
+			min_delay = pdev->d3cold_delay;
+		if (pdev->d3cold_delay > max_delay)
+			max_delay = pdev->d3cold_delay;
+	}
+
+	return max(min_delay, max_delay);
+}
+
+/**
+ * pcie_wait_downstream_accessible - Wait downstream component to be accessible
+ * @pdev: PCIe port whose downstream component is waited
+ *
+ * Handle delays according to PCIe 4.0 section 6.6.1 before configuration
+ * access to the downstream component is permitted. If the port does not
+ * have any devices connected, does nothing.
+ *
+ * This is needed if the hierarchy below @pdev went through reset (after
+ * exit from D3cold back to D0unitialized).
+ */
+void pcie_wait_downstream_accessible(struct pci_dev *pdev)
+{
+	int delay;
+
+	if (pci_pcie_type(pdev) != PCI_EXP_TYPE_ROOT_PORT &&
+	    pci_pcie_type(pdev) != PCI_EXP_TYPE_DOWNSTREAM)
+		return;
+
+	if (pci_dev_is_disconnected(pdev))
+		return;
+
+	if (!pdev->subordinate || list_empty(&pdev->subordinate->devices) ||
+	    !pdev->bridge_d3)
+		return;
+
+	delay = pcie_get_downstream_delay(pdev->subordinate);
+	if (!delay)
+		return;
+
+	/*
+	 * If downstream port does not support speeds greater than 5 GT/s
+	 * need to wait 100ms. For higher speeds (gen3) we need to wait
+	 * first for the data link layer to become active.
+	 */
+	if (pcie_get_speed_cap(pdev) <= PCIE_SPEED_5_0GT) {
+		dev_dbg(&pdev->dev, "waiting downstream link for %d ms\n",
+			delay);
+		msleep(delay);
+	} else {
+		dev_dbg(&pdev->dev,
+			"waiting downstream link for %d ms after activation\n",
+			delay);
+		pcie_wait_for_link_delay(pdev, true, delay);
+	}
 }
 
 void pci_reset_secondary_bus(struct pci_dev *dev)
