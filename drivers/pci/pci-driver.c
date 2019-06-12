@@ -918,6 +918,7 @@ static int pci_pm_resume_noirq(struct device *dev)
 {
 	struct pci_dev *pci_dev = to_pci_dev(dev);
 	struct device_driver *drv = dev->driver;
+	pci_power_t state = pci_dev->current_state;
 	int error = 0;
 
 	if (dev_pm_may_skip_resume(dev))
@@ -946,6 +947,15 @@ static int pci_pm_resume_noirq(struct device *dev)
 		return pci_legacy_resume_early(dev);
 
 	pcie_pme_root_status_cleanup(pci_dev);
+
+	/*
+	 * If resume involves firmware assume it takes care of any delays
+	 * for now. For suspend-to-idle case we need to do that here before
+	 * resuming PCIe port services to keep pciehp from tearing down the
+	 * downstream devices too early.
+	 */
+	if (state == PCI_D3cold && pm_suspend_no_platform())
+		pcie_wait_downstream_accessible(pci_dev);
 
 	if (drv && drv->pm && drv->pm->resume_noirq)
 		error = drv->pm->resume_noirq(dev);
@@ -1329,6 +1339,7 @@ static int pci_pm_runtime_resume(struct device *dev)
 	int rc = 0;
 	struct pci_dev *pci_dev = to_pci_dev(dev);
 	const struct dev_pm_ops *pm = dev->driver ? dev->driver->pm : NULL;
+	pci_power_t state = pci_dev->current_state;
 
 	/*
 	 * Restoring config space is necessary even if the device is not bound
@@ -1343,6 +1354,14 @@ static int pci_pm_runtime_resume(struct device *dev)
 	pci_fixup_device(pci_fixup_resume_early, pci_dev);
 	pci_enable_wake(pci_dev, PCI_D0, false);
 	pci_fixup_device(pci_fixup_resume, pci_dev);
+
+	/*
+	 * If the hierarcy went into D3cold wait for the link to be
+	 * reactivated before resuming PCIe port services to keep pciehp
+	 * from tearing down the downstream devices too early.
+	 */
+	if (state == PCI_D3cold)
+		pcie_wait_downstream_accessible(pci_dev);
 
 	if (pm && pm->runtime_resume)
 		rc = pm->runtime_resume(dev);
