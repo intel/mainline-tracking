@@ -2609,6 +2609,19 @@ static int stmmac_hw_setup(struct net_device *dev, bool init_ptp)
 	/* Setup for TSN capability */
 	dwmac_tsn_setup(priv->ioaddr);
 
+	/* Set TSN HW tunable */
+	if (priv->plat->ptov)
+		stmmac_set_tsn_hwtunable(priv, priv->ioaddr, TSN_HWTUNA_TX_EST_PTOV,
+					 &priv->plat->ptov);
+
+	if (priv->plat->ctov)
+		stmmac_set_tsn_hwtunable(priv, priv->ioaddr, TSN_HWTUNA_TX_EST_CTOV,
+					 &priv->plat->ctov);
+
+	if (priv->plat->tils)
+		stmmac_set_tsn_hwtunable(priv, priv->ioaddr, TSN_HWTUNA_TX_EST_TILS,
+					 &priv->plat->tils);
+
 	return 0;
 }
 
