@@ -217,6 +217,11 @@ static int ehl_default_data(struct pci_dev *pdev,
 	plat->rx_queues_to_use = 8;
 	plat->tx_queues_to_use = 8;
 
+	/* TSN HW tunable data */
+	plat->ctov = 0;
+	plat->ptov = 0;
+	plat->tils = 0;
+
 	return intel_common_data(pdev, plat);
 }
 
@@ -241,6 +246,11 @@ static int tgl_default_data(struct pci_dev *pdev,
 	plat->phy_addr = 0;
 	plat->rx_queues_to_use = 6;
 	plat->tx_queues_to_use = 4;
+
+	/* TSN HW tunable data */
+	plat->ctov = 0;
+	plat->ptov = 0;
+	plat->tils = 0;
 
 	return intel_common_data(pdev, plat);
 }
