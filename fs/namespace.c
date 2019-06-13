@@ -2565,6 +2565,12 @@ static int do_remount(struct path *path, int ms_flags, int sb_flags,
 		return PTR_ERR(fc);
 
 	err = parse_monolithic_mount_data(fc, data);
+
+	if (fc->fs_type->alloc_mnt_data && mnt) {
+	    fc->mnt = &mnt->mnt;
+	    fc->mnt_parent = mnt;
+	}
+
 	if (!err) {
 		down_write(&sb->s_umount);
 		err = -EPERM;
