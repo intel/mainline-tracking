@@ -393,6 +393,36 @@ struct stmmac_ops {
 #define stmmac_flex_pps_config(__priv, __args...) \
 	stmmac_do_callback(__priv, mac, flex_pps_config, __args)
 
+/* Helpers for DW xPCS */
+struct stmmac_xpcs_ops {
+	void (*xpcs_init)(struct net_device *ndev, int pcs_mode);
+	void (*xpcs_ctrl_ane)(struct net_device *ndev, bool ane, bool loopback);
+	void (*xpcs_get_adv_lp)(struct net_device *ndev, struct rgmii_adv *adv,
+				int pcs_mode);
+	int (*xpcs_irq_status)(struct net_device *ndev,
+			       struct stmmac_extra_stats *x, int pcs_mode);
+};
+
+#define stmmac_xpcs_init(__priv, __args...) \
+	stmmac_do_void_callback(__priv, xpcs, xpcs_init, __args)
+#define stmmac_xpcs_ctrl_ane(__priv, __args...) \
+	stmmac_do_void_callback(__priv, xpcs, xpcs_ctrl_ane, __args)
+#define stmmac_xpcs_get_adv_lp(__priv, __args...) \
+	stmmac_do_void_callback(__priv, xpcs, xpcs_get_adv_lp, __args)
+#define stmmac_xpcs_irq_status(__priv, __args...) \
+	stmmac_do_callback(__priv, xpcs, xpcs_irq_status, __args)
+
+/* Helpers for serdes */
+struct stmmac_serdes_ops {
+	int (*serdes_powerup)(struct net_device *ndev);
+	int (*serdes_powerdown)(struct net_device *ndev);
+};
+
+#define stmmac_serdes_powerup(__priv, __args...) \
+	stmmac_do_callback(__priv, serdes, serdes_powerup, __args)
+#define stmmac_serdes_powerdown(__priv, __args...) \
+	stmmac_do_callback(__priv, serdes, serdes_powerdown, __args)
+
 /* PTP and HW Timer helpers */
 struct stmmac_hwtimestamp {
 	void (*config_hw_tstamping) (void __iomem *ioaddr, u32 data);
@@ -470,6 +500,8 @@ struct stmmac_regs_off {
 };
 
 extern const struct stmmac_ops dwmac100_ops;
+extern const struct stmmac_xpcs_ops xpcs_ops;
+extern const struct stmmac_serdes_ops intel_serdes_ops;
 extern const struct stmmac_dma_ops dwmac100_dma_ops;
 extern const struct stmmac_ops dwmac1000_ops;
 extern const struct stmmac_dma_ops dwmac1000_dma_ops;
@@ -478,6 +510,7 @@ extern const struct stmmac_dma_ops dwmac4_dma_ops;
 extern const struct stmmac_ops dwmac410_ops;
 extern const struct stmmac_dma_ops dwmac410_dma_ops;
 extern const struct stmmac_ops dwmac510_ops;
+extern const struct stmmac_ops dwmac510_xpcs_ops;
 extern const struct stmmac_tc_ops dwmac510_tc_ops;
 extern const struct stmmac_ops dwxgmac210_ops;
 extern const struct stmmac_dma_ops dwxgmac210_dma_ops;
