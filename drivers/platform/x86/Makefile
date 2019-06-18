@@ -98,3 +98,10 @@ obj-$(CONFIG_INTEL_MRFLD_PWRBTN)	+= intel_mrfld_pwrbtn.o
 obj-$(CONFIG_I2C_MULTI_INSTANTIATE)	+= i2c-multi-instantiate.o
 obj-$(CONFIG_INTEL_ATOMISP2_PM)	+= intel_atomisp2_pm.o
 obj-$(CONFIG_PCENGINES_APU2)	+= pcengines-apuv2.o
+
+# sep and socwatch drivers
+obj-$(CONFIG_INTEL_SOCPERF)     += socperf/
+obj-$(CONFIG_INTEL_SOCWATCH)    += socwatch/ socperf/
+obj-$(CONFIG_INTEL_SOCWATCH_HV) += socwatchhv/
+obj-$(CONFIG_INTEL_SEP)         += sepdk/ socperf/
+
