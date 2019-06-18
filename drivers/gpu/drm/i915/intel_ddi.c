@@ -29,16 +29,23 @@
 
 #include "i915_drv.h"
 #include "intel_audio.h"
+#include "intel_combo_phy.h"
 #include "intel_connector.h"
 #include "intel_ddi.h"
 #include "intel_dp.h"
+#include "intel_dp_link_training.h"
+#include "intel_dpio_phy.h"
 #include "intel_drv.h"
 #include "intel_dsi.h"
+#include "intel_fifo_underrun.h"
+#include "intel_gmbus.h"
 #include "intel_hdcp.h"
 #include "intel_hdmi.h"
+#include "intel_hotplug.h"
 #include "intel_lspcon.h"
 #include "intel_panel.h"
 #include "intel_psr.h"
+#include "intel_vdsc.h"
 
 struct ddi_buf_trans {
 	u32 trans1;	/* balance leg enable, de-emph level */
@@ -608,7 +615,7 @@ skl_get_buf_trans_dp(struct drm_i915_private *dev_priv, int *n_entries)
 static const struct ddi_buf_trans *
 kbl_get_buf_trans_dp(struct drm_i915_private *dev_priv, int *n_entries)
 {
-	if (IS_KBL_ULX(dev_priv) || IS_AML_ULX(dev_priv)) {
+	if (IS_KBL_ULX(dev_priv) || IS_CFL_ULX(dev_priv)) {
 		*n_entries = ARRAY_SIZE(kbl_y_ddi_translations_dp);
 		return kbl_y_ddi_translations_dp;
 	} else if (IS_KBL_ULT(dev_priv) || IS_CFL_ULT(dev_priv)) {
@@ -624,7 +631,8 @@ static const struct ddi_buf_trans *
 skl_get_buf_trans_edp(struct drm_i915_private *dev_priv, int *n_entries)
 {
 	if (dev_priv->vbt.edp.low_vswing) {
-		if (IS_SKL_ULX(dev_priv) || IS_KBL_ULX(dev_priv) || IS_AML_ULX(dev_priv)) {
+		if (IS_SKL_ULX(dev_priv) || IS_KBL_ULX(dev_priv) ||
+		    IS_CFL_ULX(dev_priv)) {
 			*n_entries = ARRAY_SIZE(skl_y_ddi_translations_edp);
 			return skl_y_ddi_translations_edp;
 		} else if (IS_SKL_ULT(dev_priv) || IS_KBL_ULT(dev_priv) ||
@@ -646,7 +654,8 @@ skl_get_buf_trans_edp(struct drm_i915_private *dev_priv, int *n_entries)
 static const struct ddi_buf_trans *
 skl_get_buf_trans_hdmi(struct drm_i915_private *dev_priv, int *n_entries)
 {
-	if (IS_SKL_ULX(dev_priv) || IS_KBL_ULX(dev_priv) || IS_AML_ULX(dev_priv)) {
+	if (IS_SKL_ULX(dev_priv) || IS_KBL_ULX(dev_priv) ||
+	    IS_CFL_ULX(dev_priv)) {
 		*n_entries = ARRAY_SIZE(skl_y_ddi_translations_hdmi);
 		return skl_y_ddi_translations_hdmi;
 	} else {
@@ -1214,19 +1223,30 @@ intel_ddi_get_crtc_encoder(struct intel_crtc *crtc)
 	return ret;
 }
 
-#define LC_FREQ 2700
-
 static int hsw_ddi_calc_wrpll_link(struct drm_i915_private *dev_priv,
 				   i915_reg_t reg)
 {
-	int refclk = LC_FREQ;
+	int refclk;
 	int n, p, r;
 	u32 wrpll;
 
 	wrpll = I915_READ(reg);
-	switch (wrpll & WRPLL_PLL_REF_MASK) {
-	case WRPLL_PLL_SSC:
-	case WRPLL_PLL_NON_SSC:
+	switch (wrpll & WRPLL_REF_MASK) {
+	case WRPLL_REF_SPECIAL_HSW:
+		/*
+		 * muxed-SSC for BDW.
+		 * non-SSC for non-ULT HSW. Check FUSE_STRAP3
+		 * for the non-SSC reference frequency.
+		 */
+		if (IS_HASWELL(dev_priv) && !IS_HSW_ULT(dev_priv)) {
+			if (I915_READ(FUSE_STRAP3) & HSW_REF_CLK_SELECT)
+				refclk = 24;
+			else
+				refclk = 135;
+			break;
+		}
+		/* fall through */
+	case WRPLL_REF_PCH_SSC:
 		/*
 		 * We could calculate spread here, but our checking
 		 * code only cares about 5% accuracy, and spread is a max of
@@ -1234,11 +1254,11 @@ static int hsw_ddi_calc_wrpll_link(struct drm_i915_private *dev_priv,
 		 */
 		refclk = 135;
 		break;
-	case WRPLL_PLL_LCPLL:
-		refclk = LC_FREQ;
+	case WRPLL_REF_LCPLL:
+		refclk = 2700;
 		break;
 	default:
-		WARN(1, "bad wrpll refclk\n");
+		MISSING_CASE(wrpll);
 		return 0;
 	}
 
@@ -1450,7 +1470,8 @@ static void ddi_dotclock_get(struct intel_crtc_state *pipe_config)
 	else
 		dotclock = pipe_config->port_clock;
 
-	if (pipe_config->output_format == INTEL_OUTPUT_FORMAT_YCBCR420)
+	if (pipe_config->output_format == INTEL_OUTPUT_FORMAT_YCBCR420 &&
+	    !intel_crtc_has_dp_encoder(pipe_config))
 		dotclock *= 2;
 
 	if (pipe_config->pixel_multiplier)
@@ -1605,12 +1626,12 @@ static void hsw_ddi_clock_get(struct intel_encoder *encoder,
 		link_clock = hsw_ddi_calc_wrpll_link(dev_priv, WRPLL_CTL(1));
 		break;
 	case PORT_CLK_SEL_SPLL:
-		pll = I915_READ(SPLL_CTL) & SPLL_PLL_FREQ_MASK;
-		if (pll == SPLL_PLL_FREQ_810MHz)
+		pll = I915_READ(SPLL_CTL) & SPLL_FREQ_MASK;
+		if (pll == SPLL_FREQ_810MHz)
 			link_clock = 81000;
-		else if (pll == SPLL_PLL_FREQ_1350MHz)
+		else if (pll == SPLL_FREQ_1350MHz)
 			link_clock = 135000;
-		else if (pll == SPLL_PLL_FREQ_2700MHz)
+		else if (pll == SPLL_FREQ_2700MHz)
 			link_clock = 270000;
 		else {
 			WARN(1, "bad spll freq\n");
@@ -1710,6 +1731,14 @@ void intel_ddi_set_pipe_settings(const struct intel_crtc_state *crtc_state)
 	 */
 	if (crtc_state->output_format == INTEL_OUTPUT_FORMAT_YCBCR444)
 		temp |= TRANS_MSA_SAMPLING_444 | TRANS_MSA_CLRSP_YCBCR;
+	/*
+	 * As per DP 1.4a spec section 2.2.4.3 [MSA Field for Indication
+	 * of Color Encoding Format and Content Color Gamut] while sending
+	 * YCBCR 420 signals we should program MSA MISC1 fields which
+	 * indicate VSC SDP for the Pixel Encoding/Colorimetry Format.
+	 */
+	if (crtc_state->output_format == INTEL_OUTPUT_FORMAT_YCBCR420)
+		temp |= TRANS_MSA_USE_VSC_SDP;
 	I915_WRITE(TRANS_MSA_MISC(cpu_transcoder), temp);
 }
 
@@ -1772,9 +1801,7 @@ void intel_ddi_enable_transcoder_func(const struct intel_crtc_state *crtc_state)
 			 * eDP when not using the panel fitter, and when not
 			 * using motion blur mitigation (which we don't
 			 * support). */
-			if (IS_HASWELL(dev_priv) &&
-			    (crtc_state->pch_pfit.enabled ||
-			     crtc_state->pch_pfit.force_thru))
+			if (crtc_state->pch_pfit.force_thru)
 				temp |= TRANS_DDI_EDP_INPUT_A_ONOFF;
 			else
 				temp |= TRANS_DDI_EDP_INPUT_A_ON;
@@ -3111,6 +3138,15 @@ static void intel_ddi_pre_enable_dp(struct intel_encoder *encoder,
 	else
 		intel_prepare_dp_ddi_buffers(encoder, crtc_state);
 
+	if (intel_port_is_combophy(dev_priv, port)) {
+		bool lane_reversal =
+			dig_port->saved_port_bits & DDI_BUF_PORT_REVERSAL;
+
+		intel_combo_phy_power_up_lanes(dev_priv, port, false,
+					       crtc_state->lane_count,
+					       lane_reversal);
+	}
+
 	intel_ddi_init_dp_buf_reg(encoder);
 	if (!is_mst)
 		intel_dp_sink_dpms(intel_dp, DRM_MODE_DPMS_ON);
@@ -3375,6 +3411,7 @@ static void intel_enable_ddi_dp(struct intel_encoder *encoder,
 
 	intel_edp_backlight_on(crtc_state, conn_state);
 	intel_psr_enable(intel_dp, crtc_state);
+	intel_dp_ycbcr_420_enable(intel_dp, crtc_state);
 	intel_edp_drrs_enable(intel_dp, crtc_state);
 
 	if (crtc_state->has_audio)
@@ -3626,7 +3663,7 @@ intel_ddi_post_pll_disable(struct intel_encoder *encoder,
 						  intel_ddi_main_link_aux_domain(dig_port));
 }
 
-void intel_ddi_prepare_link_retrain(struct intel_dp *intel_dp)
+static void intel_ddi_prepare_link_retrain(struct intel_dp *intel_dp)
 {
 	struct intel_digital_port *intel_dig_port = dp_to_dig_port(intel_dp);
 	struct drm_i915_private *dev_priv =
@@ -3820,6 +3857,9 @@ void intel_ddi_get_config(struct intel_encoder *encoder,
 	intel_read_infoframe(encoder, pipe_config,
 			     HDMI_INFOFRAME_TYPE_VENDOR,
 			     &pipe_config->infoframes.hdmi);
+	intel_read_infoframe(encoder, pipe_config,
+			     HDMI_INFOFRAME_TYPE_DRM,
+			     &pipe_config->infoframes.drm);
 }
 
 static enum intel_output_type
@@ -3844,6 +3884,7 @@ static int intel_ddi_compute_config(struct intel_encoder *encoder,
 				    struct intel_crtc_state *pipe_config,
 				    struct drm_connector_state *conn_state)
 {
+	struct intel_crtc *crtc = to_intel_crtc(pipe_config->base.crtc);
 	struct drm_i915_private *dev_priv = to_i915(encoder->base.dev);
 	enum port port = encoder->port;
 	int ret;
@@ -3858,6 +3899,12 @@ static int intel_ddi_compute_config(struct intel_encoder *encoder,
 	if (ret)
 		return ret;
 
+	if (IS_HASWELL(dev_priv) && crtc->pipe == PIPE_A &&
+	    pipe_config->cpu_transcoder == TRANSCODER_EDP)
+		pipe_config->pch_pfit.force_thru =
+			pipe_config->pch_pfit.enabled ||
+			pipe_config->crc_enabled;
+
 	if (IS_GEN9_LP(dev_priv))
 		pipe_config->lane_lat_optim_mask =
 			bxt_ddi_phy_calc_lane_lat_optim_mask(pipe_config->lane_count);
@@ -3865,7 +3912,6 @@ static int intel_ddi_compute_config(struct intel_encoder *encoder,
 	intel_ddi_compute_min_voltage_level(dev_priv, pipe_config);
 
 	return 0;
-
 }
 
 static void intel_ddi_encoder_suspend(struct intel_encoder *encoder)
@@ -3925,6 +3971,9 @@ intel_ddi_init_dp_connector(struct intel_digital_port *intel_dig_port)
 		return NULL;
 
 	intel_dig_port->dp.output_reg = DDI_BUF_CTL(port);
+	intel_dig_port->dp.prepare_link_retrain =
+		intel_ddi_prepare_link_retrain;
+
 	if (!intel_dp_init_connector(intel_dig_port, connector)) {
 		kfree(connector);
 		return NULL;

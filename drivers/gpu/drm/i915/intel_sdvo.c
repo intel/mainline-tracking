@@ -37,9 +37,13 @@
 #include <drm/i915_drm.h>
 
 #include "i915_drv.h"
+#include "intel_atomic.h"
 #include "intel_connector.h"
 #include "intel_drv.h"
+#include "intel_fifo_underrun.h"
+#include "intel_gmbus.h"
 #include "intel_hdmi.h"
+#include "intel_hotplug.h"
 #include "intel_panel.h"
 #include "intel_sdvo.h"
 #include "intel_sdvo_regs.h"
@@ -518,6 +522,7 @@ static bool intel_sdvo_read_response(struct intel_sdvo *intel_sdvo,
 #define BUF_LEN 256
 	char buffer[BUF_LEN];
 
+	buffer[0] = '\0';
 
 	/*
 	 * The documentation states that all commands will be
@@ -581,7 +586,8 @@ static bool intel_sdvo_read_response(struct intel_sdvo *intel_sdvo,
 	return true;
 
 log_fail:
-	DRM_DEBUG_KMS("%s: R: ... failed\n", SDVO_NAME(intel_sdvo));
+	DRM_DEBUG_KMS("%s: R: ... failed %s\n",
+		      SDVO_NAME(intel_sdvo), buffer);
 	return false;
 }
 
@@ -976,6 +982,9 @@ static bool intel_sdvo_write_infoframe(struct intel_sdvo *intel_sdvo,
 	DRM_DEBUG_KMS("writing sdvo hbuf: %i, hbuf_size %i, hbuf_size: %i\n",
 		      if_index, length, hbuf_size);
 
+	if (hbuf_size < length)
+		return false;
+
 	for (i = 0; i < hbuf_size; i += 8) {
 		memset(tmp, 0, 8);
 		if (i < length)
@@ -1008,6 +1017,11 @@ static ssize_t intel_sdvo_read_infoframe(struct intel_sdvo *intel_sdvo,
 	if (av_split < if_index)
 		return 0;
 
+	if (!intel_sdvo_set_value(intel_sdvo,
+				  SDVO_CMD_SET_HBUF_INDEX,
+				  set_buf_index, 2))
+		return -ENXIO;
+
 	if (!intel_sdvo_get_value(intel_sdvo,
 				  SDVO_CMD_GET_HBUF_TXRATE,
 				  &tx_rate, 1))
@@ -1015,11 +1029,6 @@ static ssize_t intel_sdvo_read_infoframe(struct intel_sdvo *intel_sdvo,
 
 	if (tx_rate == SDVO_HBUF_TX_DISABLED)
 		return 0;
-
-	if (!intel_sdvo_set_value(intel_sdvo,
-				  SDVO_CMD_SET_HBUF_INDEX,
-				  set_buf_index, 2))
-		return -ENXIO;
 
 	if (!intel_sdvo_get_value(intel_sdvo, SDVO_CMD_GET_HBUF_INFO,
 				  &hbuf_size, 1))
@@ -1099,7 +1108,7 @@ static bool intel_sdvo_set_avi_infoframe(struct intel_sdvo *intel_sdvo,
 
 	return intel_sdvo_write_infoframe(intel_sdvo, SDVO_HBUF_INDEX_AVI_IF,
 					  SDVO_HBUF_TX_VSYNC,
-					  sdvo_data, sizeof(sdvo_data));
+					  sdvo_data, len);
 }
 
 static void intel_sdvo_get_avi_infoframe(struct intel_sdvo *intel_sdvo,
@@ -1125,7 +1134,7 @@ static void intel_sdvo_get_avi_infoframe(struct intel_sdvo *intel_sdvo,
 	crtc_state->infoframes.enable |=
 		intel_hdmi_infoframe_enable(HDMI_INFOFRAME_TYPE_AVI);
 
-	ret = hdmi_infoframe_unpack(frame, sdvo_data, sizeof(sdvo_data));
+	ret = hdmi_infoframe_unpack(frame, sdvo_data, len);
 	if (ret) {
 		DRM_DEBUG_KMS("Failed to unpack AVI infoframe\n");
 		return;

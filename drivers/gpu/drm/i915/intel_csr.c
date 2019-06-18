@@ -273,7 +273,7 @@ void intel_csr_load_program(struct drm_i915_private *dev_priv)
 	}
 
 	fw_size = dev_priv->csr.dmc_fw_size;
-	assert_rpm_wakelock_held(dev_priv);
+	assert_rpm_wakelock_held(&dev_priv->runtime_pm);
 
 	preempt_disable();
 
@@ -547,8 +547,6 @@ void intel_csr_ucode_init(struct drm_i915_private *dev_priv)
 
 	if (csr->fw_path == NULL) {
 		DRM_DEBUG_KMS("No known CSR firmware for platform, disabling runtime PM\n");
-		WARN_ON(!IS_ALPHA_SUPPORT(INTEL_INFO(dev_priv)));
-
 		return;
 	}
 

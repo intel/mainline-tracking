@@ -25,13 +25,17 @@
  *
  * Derived from Xorg ddx, xf86-video-intel, src/i830_video.c
  */
-#include <drm/i915_drm.h>
+
 #include <drm/drm_fourcc.h>
+#include <drm/i915_drm.h>
+
+#include "gem/i915_gem_pm.h"
 
 #include "i915_drv.h"
 #include "i915_reg.h"
 #include "intel_drv.h"
 #include "intel_frontbuffer.h"
+#include "intel_overlay.h"
 
 /* Limits for overlay size. According to intel doc, the real limits are:
  * Y width: 4095, UV width (planar): 2047, Y height: 2047,
@@ -235,10 +239,9 @@ static int intel_overlay_do_wait_request(struct intel_overlay *overlay,
 
 static struct i915_request *alloc_request(struct intel_overlay *overlay)
 {
-	struct drm_i915_private *dev_priv = overlay->i915;
-	struct intel_engine_cs *engine = dev_priv->engine[RCS0];
+	struct intel_engine_cs *engine = overlay->i915->engine[RCS0];
 
-	return i915_request_alloc(engine, dev_priv->kernel_context);
+	return i915_request_create(engine->kernel_context);
 }
 
 /* overlay needs to be disable in OCMD reg */
@@ -762,8 +765,10 @@ static int intel_overlay_do_put_image(struct intel_overlay *overlay,
 
 	atomic_inc(&dev_priv->gpu_error.pending_fb_pin);
 
+	i915_gem_object_lock(new_bo);
 	vma = i915_gem_object_pin_to_display_plane(new_bo,
 						   0, NULL, PIN_MAPPABLE);
+	i915_gem_object_unlock(new_bo);
 	if (IS_ERR(vma)) {
 		ret = PTR_ERR(vma);
 		goto out_pin_section;
@@ -1302,15 +1307,20 @@ out_unlock:
 
 static int get_registers(struct intel_overlay *overlay, bool use_phys)
 {
+	struct drm_i915_private *i915 = overlay->i915;
 	struct drm_i915_gem_object *obj;
 	struct i915_vma *vma;
 	int err;
 
-	obj = i915_gem_object_create_stolen(overlay->i915, PAGE_SIZE);
+	mutex_lock(&i915->drm.struct_mutex);
+
+	obj = i915_gem_object_create_stolen(i915, PAGE_SIZE);
 	if (obj == NULL)
-		obj = i915_gem_object_create_internal(overlay->i915, PAGE_SIZE);
-	if (IS_ERR(obj))
-		return PTR_ERR(obj);
+		obj = i915_gem_object_create_internal(i915, PAGE_SIZE);
+	if (IS_ERR(obj)) {
+		err = PTR_ERR(obj);
+		goto err_unlock;
+	}
 
 	vma = i915_gem_object_ggtt_pin(obj, NULL, 0, 0, PIN_MAPPABLE);
 	if (IS_ERR(vma)) {
@@ -1331,10 +1341,13 @@ static int get_registers(struct intel_overlay *overlay, bool use_phys)
 	}
 
 	overlay->reg_bo = obj;
+	mutex_unlock(&i915->drm.struct_mutex);
 	return 0;
 
 err_put_bo:
 	i915_gem_object_put(obj);
+err_unlock:
+	mutex_unlock(&i915->drm.struct_mutex);
 	return err;
 }
 
@@ -1360,17 +1373,9 @@ void intel_overlay_setup(struct drm_i915_private *dev_priv)
 
 	INIT_ACTIVE_REQUEST(&overlay->last_flip);
 
-	mutex_lock(&dev_priv->drm.struct_mutex);
-
 	ret = get_registers(overlay, OVERLAY_NEEDS_PHYSICAL(dev_priv));
 	if (ret)
 		goto out_free;
-
-	ret = i915_gem_object_set_to_gtt_domain(overlay->reg_bo, true);
-	if (ret)
-		goto out_reg_bo;
-
-	mutex_unlock(&dev_priv->drm.struct_mutex);
 
 	memset_io(overlay->regs, 0, sizeof(struct overlay_registers));
 	update_polyphase_filter(overlay->regs);
@@ -1380,10 +1385,7 @@ void intel_overlay_setup(struct drm_i915_private *dev_priv)
 	DRM_INFO("Initialized overlay support.\n");
 	return;
 
-out_reg_bo:
-	i915_gem_object_put(overlay->reg_bo);
 out_free:
-	mutex_unlock(&dev_priv->drm.struct_mutex);
 	kfree(overlay);
 }
 
