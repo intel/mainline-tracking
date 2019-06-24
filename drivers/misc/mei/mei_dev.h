@@ -290,6 +290,8 @@ struct mei_hw_ops {
 	void (*hw_config)(struct mei_device *dev);
 
 	int (*fw_status)(struct mei_device *dev, struct mei_fw_status *fw_sts);
+	u32 (*trc_status)(struct mei_device *dev);
+
 	enum mei_pg_state (*pg_state)(struct mei_device *dev);
 	bool (*pg_in_transition)(struct mei_device *dev);
 	bool (*pg_is_enabled)(struct mei_device *dev);
@@ -705,6 +707,13 @@ static inline void mei_read_slots(struct mei_device *dev,
 static inline int mei_count_full_read_slots(struct mei_device *dev)
 {
 	return dev->ops->rdbuf_full_slots(dev);
+}
+
+static inline u32 mei_trc_status(struct mei_device *dev)
+{
+	if (dev->ops->trc_status)
+		return dev->ops->trc_status(dev);
+	return 0;
 }
 
 static inline int mei_fw_status(struct mei_device *dev,
