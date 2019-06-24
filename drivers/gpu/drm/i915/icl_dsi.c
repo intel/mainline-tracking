@@ -28,6 +28,8 @@
 #include <drm/drm_atomic_helper.h>
 #include <drm/drm_mipi_dsi.h>
 
+#include "intel_atomic.h"
+#include "intel_combo_phy.h"
 #include "intel_connector.h"
 #include "intel_ddi.h"
 #include "intel_dsi.h"
@@ -363,30 +365,10 @@ static void gen11_dsi_power_up_lanes(struct intel_encoder *encoder)
 	struct drm_i915_private *dev_priv = to_i915(encoder->base.dev);
 	struct intel_dsi *intel_dsi = enc_to_intel_dsi(&encoder->base);
 	enum port port;
-	u32 tmp;
-	u32 lane_mask;
 
-	switch (intel_dsi->lane_count) {
-	case 1:
-		lane_mask = PWR_DOWN_LN_3_1_0;
-		break;
-	case 2:
-		lane_mask = PWR_DOWN_LN_3_1;
-		break;
-	case 3:
-		lane_mask = PWR_DOWN_LN_3;
-		break;
-	case 4:
-	default:
-		lane_mask = PWR_UP_ALL_LANES;
-		break;
-	}
-
-	for_each_dsi_port(port, intel_dsi->ports) {
-		tmp = I915_READ(ICL_PORT_CL_DW10(port));
-		tmp &= ~PWR_DOWN_LN_MASK;
-		I915_WRITE(ICL_PORT_CL_DW10(port), tmp | lane_mask);
-	}
+	for_each_dsi_port(port, intel_dsi->ports)
+		intel_combo_phy_power_up_lanes(dev_priv, port, true,
+					       intel_dsi->lane_count, false);
 }
 
 static void gen11_dsi_config_phy_lanes_sequence(struct intel_encoder *encoder)
@@ -1193,17 +1175,51 @@ static void gen11_dsi_disable(struct intel_encoder *encoder,
 	gen11_dsi_disable_io_power(encoder);
 }
 
+static void gen11_dsi_get_timings(struct intel_encoder *encoder,
+				  struct intel_crtc_state *pipe_config)
+{
+	struct intel_dsi *intel_dsi = enc_to_intel_dsi(&encoder->base);
+	struct drm_display_mode *adjusted_mode =
+					&pipe_config->base.adjusted_mode;
+
+	if (intel_dsi->dual_link) {
+		adjusted_mode->crtc_hdisplay *= 2;
+		if (intel_dsi->dual_link == DSI_DUAL_LINK_FRONT_BACK)
+			adjusted_mode->crtc_hdisplay -=
+						intel_dsi->pixel_overlap;
+		adjusted_mode->crtc_htotal *= 2;
+	}
+	adjusted_mode->crtc_hblank_start = adjusted_mode->crtc_hdisplay;
+	adjusted_mode->crtc_hblank_end = adjusted_mode->crtc_htotal;
+
+	if (intel_dsi->operation_mode == INTEL_DSI_VIDEO_MODE) {
+		if (intel_dsi->dual_link) {
+			adjusted_mode->crtc_hsync_start *= 2;
+			adjusted_mode->crtc_hsync_end *= 2;
+		}
+	}
+	adjusted_mode->crtc_vblank_start = adjusted_mode->crtc_vdisplay;
+	adjusted_mode->crtc_vblank_end = adjusted_mode->crtc_vtotal;
+}
+
 static void gen11_dsi_get_config(struct intel_encoder *encoder,
 				 struct intel_crtc_state *pipe_config)
 {
 	struct drm_i915_private *dev_priv = to_i915(encoder->base.dev);
+	struct intel_crtc *crtc = to_intel_crtc(pipe_config->base.crtc);
 	struct intel_dsi *intel_dsi = enc_to_intel_dsi(&encoder->base);
 
 	/* FIXME: adapt icl_ddi_clock_get() for DSI and use that? */
 	pipe_config->port_clock =
 		cnl_calc_wrpll_link(dev_priv, &pipe_config->dpll_hw_state);
+
 	pipe_config->base.adjusted_mode.crtc_clock = intel_dsi->pclk;
+	if (intel_dsi->dual_link)
+		pipe_config->base.adjusted_mode.crtc_clock *= 2;
+
+	gen11_dsi_get_timings(encoder, pipe_config);
 	pipe_config->output_types |= BIT(INTEL_OUTPUT_DSI);
+	pipe_config->pipe_bpp = bdw_get_pipemisc_bpp(crtc);
 }
 
 static int gen11_dsi_compute_config(struct intel_encoder *encoder,
@@ -1219,6 +1235,7 @@ static int gen11_dsi_compute_config(struct intel_encoder *encoder,
 	struct drm_display_mode *adjusted_mode =
 					&pipe_config->base.adjusted_mode;
 
+	pipe_config->output_format = INTEL_OUTPUT_FORMAT_RGB;
 	intel_fixed_panel_mode(fixed_mode, adjusted_mode);
 	intel_pch_panel_fitting(crtc, pipe_config, conn_state->scaling_mode);
 
@@ -1363,6 +1380,113 @@ static const struct mipi_dsi_host_ops gen11_dsi_host_ops = {
 	.transfer = gen11_dsi_host_transfer,
 };
 
+#define ICL_PREPARE_CNT_MAX	0x7
+#define ICL_CLK_ZERO_CNT_MAX	0xf
+#define ICL_TRAIL_CNT_MAX	0x7
+#define ICL_TCLK_PRE_CNT_MAX	0x3
+#define ICL_TCLK_POST_CNT_MAX	0x7
+#define ICL_HS_ZERO_CNT_MAX	0xf
+#define ICL_EXIT_ZERO_CNT_MAX	0x7
+
+static void icl_dphy_param_init(struct intel_dsi *intel_dsi)
+{
+	struct drm_device *dev = intel_dsi->base.base.dev;
+	struct drm_i915_private *dev_priv = to_i915(dev);
+	struct mipi_config *mipi_config = dev_priv->vbt.dsi.config;
+	u32 tlpx_ns;
+	u32 prepare_cnt, exit_zero_cnt, clk_zero_cnt, trail_cnt;
+	u32 ths_prepare_ns, tclk_trail_ns;
+	u32 hs_zero_cnt;
+	u32 tclk_pre_cnt, tclk_post_cnt;
+
+	tlpx_ns = intel_dsi_tlpx_ns(intel_dsi);
+
+	tclk_trail_ns = max(mipi_config->tclk_trail, mipi_config->ths_trail);
+	ths_prepare_ns = max(mipi_config->ths_prepare,
+			     mipi_config->tclk_prepare);
+
+	/*
+	 * prepare cnt in escape clocks
+	 * this field represents a hexadecimal value with a precision
+	 * of 1.2 – i.e. the most significant bit is the integer
+	 * and the least significant 2 bits are fraction bits.
+	 * so, the field can represent a range of 0.25 to 1.75
+	 */
+	prepare_cnt = DIV_ROUND_UP(ths_prepare_ns * 4, tlpx_ns);
+	if (prepare_cnt > ICL_PREPARE_CNT_MAX) {
+		DRM_DEBUG_KMS("prepare_cnt out of range (%d)\n", prepare_cnt);
+		prepare_cnt = ICL_PREPARE_CNT_MAX;
+	}
+
+	/* clk zero count in escape clocks */
+	clk_zero_cnt = DIV_ROUND_UP(mipi_config->tclk_prepare_clkzero -
+				    ths_prepare_ns, tlpx_ns);
+	if (clk_zero_cnt > ICL_CLK_ZERO_CNT_MAX) {
+		DRM_DEBUG_KMS("clk_zero_cnt out of range (%d)\n", clk_zero_cnt);
+		clk_zero_cnt = ICL_CLK_ZERO_CNT_MAX;
+	}
+
+	/* trail cnt in escape clocks*/
+	trail_cnt = DIV_ROUND_UP(tclk_trail_ns, tlpx_ns);
+	if (trail_cnt > ICL_TRAIL_CNT_MAX) {
+		DRM_DEBUG_KMS("trail_cnt out of range (%d)\n", trail_cnt);
+		trail_cnt = ICL_TRAIL_CNT_MAX;
+	}
+
+	/* tclk pre count in escape clocks */
+	tclk_pre_cnt = DIV_ROUND_UP(mipi_config->tclk_pre, tlpx_ns);
+	if (tclk_pre_cnt > ICL_TCLK_PRE_CNT_MAX) {
+		DRM_DEBUG_KMS("tclk_pre_cnt out of range (%d)\n", tclk_pre_cnt);
+		tclk_pre_cnt = ICL_TCLK_PRE_CNT_MAX;
+	}
+
+	/* tclk post count in escape clocks */
+	tclk_post_cnt = DIV_ROUND_UP(mipi_config->tclk_post, tlpx_ns);
+	if (tclk_post_cnt > ICL_TCLK_POST_CNT_MAX) {
+		DRM_DEBUG_KMS("tclk_post_cnt out of range (%d)\n", tclk_post_cnt);
+		tclk_post_cnt = ICL_TCLK_POST_CNT_MAX;
+	}
+
+	/* hs zero cnt in escape clocks */
+	hs_zero_cnt = DIV_ROUND_UP(mipi_config->ths_prepare_hszero -
+				   ths_prepare_ns, tlpx_ns);
+	if (hs_zero_cnt > ICL_HS_ZERO_CNT_MAX) {
+		DRM_DEBUG_KMS("hs_zero_cnt out of range (%d)\n", hs_zero_cnt);
+		hs_zero_cnt = ICL_HS_ZERO_CNT_MAX;
+	}
+
+	/* hs exit zero cnt in escape clocks */
+	exit_zero_cnt = DIV_ROUND_UP(mipi_config->ths_exit, tlpx_ns);
+	if (exit_zero_cnt > ICL_EXIT_ZERO_CNT_MAX) {
+		DRM_DEBUG_KMS("exit_zero_cnt out of range (%d)\n", exit_zero_cnt);
+		exit_zero_cnt = ICL_EXIT_ZERO_CNT_MAX;
+	}
+
+	/* clock lane dphy timings */
+	intel_dsi->dphy_reg = (CLK_PREPARE_OVERRIDE |
+			       CLK_PREPARE(prepare_cnt) |
+			       CLK_ZERO_OVERRIDE |
+			       CLK_ZERO(clk_zero_cnt) |
+			       CLK_PRE_OVERRIDE |
+			       CLK_PRE(tclk_pre_cnt) |
+			       CLK_POST_OVERRIDE |
+			       CLK_POST(tclk_post_cnt) |
+			       CLK_TRAIL_OVERRIDE |
+			       CLK_TRAIL(trail_cnt));
+
+	/* data lanes dphy timings */
+	intel_dsi->dphy_data_lane_reg = (HS_PREPARE_OVERRIDE |
+					 HS_PREPARE(prepare_cnt) |
+					 HS_ZERO_OVERRIDE |
+					 HS_ZERO(hs_zero_cnt) |
+					 HS_TRAIL_OVERRIDE |
+					 HS_TRAIL(trail_cnt) |
+					 HS_EXIT_OVERRIDE |
+					 HS_EXIT(exit_zero_cnt));
+
+	intel_dsi_log_params(intel_dsi);
+}
+
 void icl_dsi_init(struct drm_i915_private *dev_priv)
 {
 	struct drm_device *dev = &dev_priv->drm;
@@ -1455,6 +1579,7 @@ void icl_dsi_init(struct drm_i915_private *dev_priv)
 		goto err;
 	}
 
+	icl_dphy_param_init(intel_dsi);
 	return;
 
 err:

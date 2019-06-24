@@ -25,6 +25,10 @@
 #ifndef _INTEL_DPLL_MGR_H_
 #define _INTEL_DPLL_MGR_H_
 
+#include <linux/types.h>
+
+#include "intel_display.h"
+
 /*FIXME: Move this to a more appropriate place. */
 #define abs_diff(a, b) ({			\
 	typeof(a) __a = (a);			\
@@ -32,13 +36,13 @@
 	(void) (&__a == &__b);			\
 	__a > __b ? (__a - __b) : (__b - __a); })
 
+struct drm_atomic_state;
+struct drm_device;
 struct drm_i915_private;
 struct intel_crtc;
 struct intel_crtc_state;
 struct intel_encoder;
-
 struct intel_shared_dpll;
-struct intel_dpll_mgr;
 
 /**
  * enum intel_dpll_id - possible DPLL ids
@@ -289,7 +293,7 @@ struct intel_shared_dpll {
 	/**
 	 * @state:
 	 *
-	 * Store the state for the pll, including the its hw state
+	 * Store the state for the pll, including its hw state
 	 * and CRTCs using it.
 	 */
 	struct intel_shared_dpll_state state;
@@ -339,7 +343,7 @@ void intel_shared_dpll_swap_state(struct drm_atomic_state *state);
 void intel_shared_dpll_init(struct drm_device *dev);
 
 void intel_dpll_dump_hw_state(struct drm_i915_private *dev_priv,
-			      struct intel_dpll_hw_state *hw_state);
+			      const struct intel_dpll_hw_state *hw_state);
 int cnl_hdmi_pll_ref_clock(struct drm_i915_private *dev_priv);
 enum intel_dpll_id icl_tc_port_to_pll_id(enum tc_port tc_port);
 bool intel_dpll_is_combophy(enum intel_dpll_id id);

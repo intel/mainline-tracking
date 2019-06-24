@@ -21,6 +21,8 @@
  * DEALINGS IN THE SOFTWARE.
  */
 
+#include "intel_dpio_phy.h"
+#include "intel_dpll_mgr.h"
 #include "intel_drv.h"
 
 /**
@@ -349,7 +351,7 @@ static bool ibx_pch_dpll_get_hw_state(struct drm_i915_private *dev_priv,
 	u32 val;
 
 	wakeref = intel_display_power_get_if_enabled(dev_priv,
-						     POWER_DOMAIN_PLLS);
+						     POWER_DOMAIN_DISPLAY_CORE);
 	if (!wakeref)
 		return false;
 
@@ -358,7 +360,7 @@ static bool ibx_pch_dpll_get_hw_state(struct drm_i915_private *dev_priv,
 	hw_state->fp0 = I915_READ(PCH_FP0(id));
 	hw_state->fp1 = I915_READ(PCH_FP1(id));
 
-	intel_display_power_put(dev_priv, POWER_DOMAIN_PLLS, wakeref);
+	intel_display_power_put(dev_priv, POWER_DOMAIN_DISPLAY_CORE, wakeref);
 
 	return val & DPLL_VCO_ENABLE;
 }
@@ -452,7 +454,7 @@ ibx_get_dpll(struct intel_crtc_state *crtc_state,
 }
 
 static void ibx_dump_hw_state(struct drm_i915_private *dev_priv,
-			      struct intel_dpll_hw_state *hw_state)
+			      const struct intel_dpll_hw_state *hw_state)
 {
 	DRM_DEBUG_KMS("dpll_hw_state: dpll: 0x%x, dpll_md: 0x%x, "
 		      "fp0: 0x%x, fp1: 0x%x\n",
@@ -517,14 +519,14 @@ static bool hsw_ddi_wrpll_get_hw_state(struct drm_i915_private *dev_priv,
 	u32 val;
 
 	wakeref = intel_display_power_get_if_enabled(dev_priv,
-						     POWER_DOMAIN_PLLS);
+						     POWER_DOMAIN_DISPLAY_CORE);
 	if (!wakeref)
 		return false;
 
 	val = I915_READ(WRPLL_CTL(id));
 	hw_state->wrpll = val;
 
-	intel_display_power_put(dev_priv, POWER_DOMAIN_PLLS, wakeref);
+	intel_display_power_put(dev_priv, POWER_DOMAIN_DISPLAY_CORE, wakeref);
 
 	return val & WRPLL_PLL_ENABLE;
 }
@@ -537,14 +539,14 @@ static bool hsw_ddi_spll_get_hw_state(struct drm_i915_private *dev_priv,
 	u32 val;
 
 	wakeref = intel_display_power_get_if_enabled(dev_priv,
-						     POWER_DOMAIN_PLLS);
+						     POWER_DOMAIN_DISPLAY_CORE);
 	if (!wakeref)
 		return false;
 
 	val = I915_READ(SPLL_CTL);
 	hw_state->spll = val;
 
-	intel_display_power_put(dev_priv, POWER_DOMAIN_PLLS, wakeref);
+	intel_display_power_put(dev_priv, POWER_DOMAIN_DISPLAY_CORE, wakeref);
 
 	return val & SPLL_PLL_ENABLE;
 }
@@ -773,7 +775,7 @@ static struct intel_shared_dpll *hsw_ddi_hdmi_get_dpll(struct intel_crtc_state *
 
 	hsw_ddi_calculate_wrpll(crtc_state->port_clock * 1000, &r2, &n2, &p);
 
-	val = WRPLL_PLL_ENABLE | WRPLL_PLL_LCPLL |
+	val = WRPLL_PLL_ENABLE | WRPLL_REF_LCPLL |
 	      WRPLL_DIVIDER_REFERENCE(r2) | WRPLL_DIVIDER_FEEDBACK(n2) |
 	      WRPLL_DIVIDER_POST(p);
 
@@ -837,7 +839,7 @@ hsw_get_dpll(struct intel_crtc_state *crtc_state,
 			return NULL;
 
 		crtc_state->dpll_hw_state.spll =
-			SPLL_PLL_ENABLE | SPLL_PLL_FREQ_1350MHz | SPLL_PLL_SSC;
+			SPLL_PLL_ENABLE | SPLL_FREQ_1350MHz | SPLL_REF_MUXED_SSC;
 
 		pll = intel_find_shared_dpll(crtc_state,
 					     DPLL_ID_SPLL, DPLL_ID_SPLL);
@@ -854,7 +856,7 @@ hsw_get_dpll(struct intel_crtc_state *crtc_state,
 }
 
 static void hsw_dump_hw_state(struct drm_i915_private *dev_priv,
-			      struct intel_dpll_hw_state *hw_state)
+			      const struct intel_dpll_hw_state *hw_state)
 {
 	DRM_DEBUG_KMS("dpll_hw_state: wrpll: 0x%x spll: 0x%x\n",
 		      hw_state->wrpll, hw_state->spll);
@@ -1002,7 +1004,7 @@ static bool skl_ddi_pll_get_hw_state(struct drm_i915_private *dev_priv,
 	bool ret;
 
 	wakeref = intel_display_power_get_if_enabled(dev_priv,
-						     POWER_DOMAIN_PLLS);
+						     POWER_DOMAIN_DISPLAY_CORE);
 	if (!wakeref)
 		return false;
 
@@ -1023,7 +1025,7 @@ static bool skl_ddi_pll_get_hw_state(struct drm_i915_private *dev_priv,
 	ret = true;
 
 out:
-	intel_display_power_put(dev_priv, POWER_DOMAIN_PLLS, wakeref);
+	intel_display_power_put(dev_priv, POWER_DOMAIN_DISPLAY_CORE, wakeref);
 
 	return ret;
 }
@@ -1039,7 +1041,7 @@ static bool skl_ddi_dpll0_get_hw_state(struct drm_i915_private *dev_priv,
 	bool ret;
 
 	wakeref = intel_display_power_get_if_enabled(dev_priv,
-						     POWER_DOMAIN_PLLS);
+						     POWER_DOMAIN_DISPLAY_CORE);
 	if (!wakeref)
 		return false;
 
@@ -1056,7 +1058,7 @@ static bool skl_ddi_dpll0_get_hw_state(struct drm_i915_private *dev_priv,
 	ret = true;
 
 out:
-	intel_display_power_put(dev_priv, POWER_DOMAIN_PLLS, wakeref);
+	intel_display_power_put(dev_priv, POWER_DOMAIN_DISPLAY_CORE, wakeref);
 
 	return ret;
 }
@@ -1423,7 +1425,7 @@ skl_get_dpll(struct intel_crtc_state *crtc_state,
 }
 
 static void skl_dump_hw_state(struct drm_i915_private *dev_priv,
-			      struct intel_dpll_hw_state *hw_state)
+			      const struct intel_dpll_hw_state *hw_state)
 {
 	DRM_DEBUG_KMS("dpll_hw_state: "
 		      "ctrl1: 0x%x, cfgcr1: 0x%x, cfgcr2: 0x%x\n",
@@ -1600,7 +1602,7 @@ static bool bxt_ddi_pll_get_hw_state(struct drm_i915_private *dev_priv,
 	bxt_port_to_phy_channel(dev_priv, port, &phy, &ch);
 
 	wakeref = intel_display_power_get_if_enabled(dev_priv,
-						     POWER_DOMAIN_PLLS);
+						     POWER_DOMAIN_DISPLAY_CORE);
 	if (!wakeref)
 		return false;
 
@@ -1658,7 +1660,7 @@ static bool bxt_ddi_pll_get_hw_state(struct drm_i915_private *dev_priv,
 	ret = true;
 
 out:
-	intel_display_power_put(dev_priv, POWER_DOMAIN_PLLS, wakeref);
+	intel_display_power_put(dev_priv, POWER_DOMAIN_DISPLAY_CORE, wakeref);
 
 	return ret;
 }
@@ -1855,7 +1857,7 @@ bxt_get_dpll(struct intel_crtc_state *crtc_state,
 }
 
 static void bxt_dump_hw_state(struct drm_i915_private *dev_priv,
-			      struct intel_dpll_hw_state *hw_state)
+			      const struct intel_dpll_hw_state *hw_state)
 {
 	DRM_DEBUG_KMS("dpll_hw_state: ebb0: 0x%x, ebb4: 0x%x,"
 		      "pll0: 0x%x, pll1: 0x%x, pll2: 0x%x, pll3: 0x%x, "
@@ -1879,27 +1881,6 @@ static const struct intel_shared_dpll_funcs bxt_ddi_pll_funcs = {
 	.get_hw_state = bxt_ddi_pll_get_hw_state,
 };
 
-static void intel_ddi_pll_init(struct drm_device *dev)
-{
-	struct drm_i915_private *dev_priv = to_i915(dev);
-
-	if (INTEL_GEN(dev_priv) < 9) {
-		u32 val = I915_READ(LCPLL_CTL);
-
-		/*
-		 * The LCPLL register should be turned on by the BIOS. For now
-		 * let's just check its state and print errors in case
-		 * something is wrong.  Don't even try to turn it on.
-		 */
-
-		if (val & LCPLL_CD_SOURCE_FCLK)
-			DRM_ERROR("CDCLK source is not LCPLL\n");
-
-		if (val & LCPLL_PLL_DISABLE)
-			DRM_ERROR("LCPLL is disabled\n");
-	}
-}
-
 struct intel_dpll_mgr {
 	const struct dpll_info *dpll_info;
 
@@ -1907,7 +1888,7 @@ struct intel_dpll_mgr {
 					      struct intel_encoder *encoder);
 
 	void (*dump_hw_state)(struct drm_i915_private *dev_priv,
-			      struct intel_dpll_hw_state *hw_state);
+			      const struct intel_dpll_hw_state *hw_state);
 };
 
 static const struct dpll_info pch_plls[] = {
@@ -2106,7 +2087,7 @@ static bool cnl_ddi_pll_get_hw_state(struct drm_i915_private *dev_priv,
 	bool ret;
 
 	wakeref = intel_display_power_get_if_enabled(dev_priv,
-						     POWER_DOMAIN_PLLS);
+						     POWER_DOMAIN_DISPLAY_CORE);
 	if (!wakeref)
 		return false;
 
@@ -2126,7 +2107,7 @@ static bool cnl_ddi_pll_get_hw_state(struct drm_i915_private *dev_priv,
 	ret = true;
 
 out:
-	intel_display_power_put(dev_priv, POWER_DOMAIN_PLLS, wakeref);
+	intel_display_power_put(dev_priv, POWER_DOMAIN_DISPLAY_CORE, wakeref);
 
 	return ret;
 }
@@ -2390,7 +2371,7 @@ cnl_get_dpll(struct intel_crtc_state *crtc_state,
 }
 
 static void cnl_dump_hw_state(struct drm_i915_private *dev_priv,
-			      struct intel_dpll_hw_state *hw_state)
+			      const struct intel_dpll_hw_state *hw_state)
 {
 	DRM_DEBUG_KMS("dpll_hw_state: "
 		      "cfgcr0: 0x%x, cfgcr1: 0x%x\n",
@@ -2741,11 +2722,11 @@ static bool icl_calc_mg_pll_state(struct intel_crtc_state *crtc_state)
 	}
 
 	if (use_ssc) {
-		tmp = (u64)dco_khz * 47 * 32;
+		tmp = mul_u32_u32(dco_khz, 47 * 32);
 		do_div(tmp, refclk_khz * m1div * 10000);
 		ssc_stepsize = tmp;
 
-		tmp = (u64)dco_khz * 1000;
+		tmp = mul_u32_u32(dco_khz, 1000);
 		ssc_steplen = DIV_ROUND_UP_ULL(tmp, 32 * 2 * 32);
 	} else {
 		ssc_stepsize = 0;
@@ -2881,7 +2862,7 @@ static bool mg_pll_get_hw_state(struct drm_i915_private *dev_priv,
 	u32 val;
 
 	wakeref = intel_display_power_get_if_enabled(dev_priv,
-						     POWER_DOMAIN_PLLS);
+						     POWER_DOMAIN_DISPLAY_CORE);
 	if (!wakeref)
 		return false;
 
@@ -2928,7 +2909,7 @@ static bool mg_pll_get_hw_state(struct drm_i915_private *dev_priv,
 
 	ret = true;
 out:
-	intel_display_power_put(dev_priv, POWER_DOMAIN_PLLS, wakeref);
+	intel_display_power_put(dev_priv, POWER_DOMAIN_DISPLAY_CORE, wakeref);
 	return ret;
 }
 
@@ -2943,7 +2924,7 @@ static bool icl_pll_get_hw_state(struct drm_i915_private *dev_priv,
 	u32 val;
 
 	wakeref = intel_display_power_get_if_enabled(dev_priv,
-						     POWER_DOMAIN_PLLS);
+						     POWER_DOMAIN_DISPLAY_CORE);
 	if (!wakeref)
 		return false;
 
@@ -2956,7 +2937,7 @@ static bool icl_pll_get_hw_state(struct drm_i915_private *dev_priv,
 
 	ret = true;
 out:
-	intel_display_power_put(dev_priv, POWER_DOMAIN_PLLS, wakeref);
+	intel_display_power_put(dev_priv, POWER_DOMAIN_DISPLAY_CORE, wakeref);
 	return ret;
 }
 
@@ -3190,7 +3171,7 @@ static void mg_pll_disable(struct drm_i915_private *dev_priv,
 }
 
 static void icl_dump_hw_state(struct drm_i915_private *dev_priv,
-			      struct intel_dpll_hw_state *hw_state)
+			      const struct intel_dpll_hw_state *hw_state)
 {
 	DRM_DEBUG_KMS("dpll_hw_state: cfgcr0: 0x%x, cfgcr1: 0x%x, "
 		      "mg_refclkin_ctl: 0x%x, hg_clktop2_coreclkctl1: 0x%x, "
@@ -3303,10 +3284,6 @@ void intel_shared_dpll_init(struct drm_device *dev)
 	mutex_init(&dev_priv->dpll_lock);
 
 	BUG_ON(dev_priv->num_shared_dpll > I915_NUM_PLLS);
-
-	/* FIXME: Move this to a more suitable place */
-	if (HAS_DDI(dev_priv))
-		intel_ddi_pll_init(dev);
 }
 
 /**
@@ -3364,7 +3341,7 @@ void intel_release_shared_dpll(struct intel_shared_dpll *dpll,
  * Write the relevant values in @hw_state to dmesg using DRM_DEBUG_KMS.
  */
 void intel_dpll_dump_hw_state(struct drm_i915_private *dev_priv,
-			      struct intel_dpll_hw_state *hw_state)
+			      const struct intel_dpll_hw_state *hw_state)
 {
 	if (dev_priv->dpll_mgr) {
 		dev_priv->dpll_mgr->dump_hw_state(dev_priv, hw_state);

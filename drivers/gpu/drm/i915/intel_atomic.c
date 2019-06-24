@@ -34,6 +34,7 @@
 #include <drm/drm_fourcc.h>
 #include <drm/drm_plane_helper.h>
 
+#include "intel_atomic.h"
 #include "intel_drv.h"
 #include "intel_hdcp.h"
 #include "intel_sprite.h"
@@ -104,6 +105,16 @@ int intel_digital_connector_atomic_set_property(struct drm_connector *connector,
 	return -EINVAL;
 }
 
+static bool blob_equal(const struct drm_property_blob *a,
+		       const struct drm_property_blob *b)
+{
+	if (a && b)
+		return a->length == b->length &&
+			!memcmp(a->data, b->data, a->length);
+
+	return !a == !b;
+}
+
 int intel_digital_connector_atomic_check(struct drm_connector *conn,
 					 struct drm_connector_state *new_state)
 {
@@ -131,7 +142,9 @@ int intel_digital_connector_atomic_check(struct drm_connector *conn,
 	    new_conn_state->base.colorspace != old_conn_state->base.colorspace ||
 	    new_conn_state->base.picture_aspect_ratio != old_conn_state->base.picture_aspect_ratio ||
 	    new_conn_state->base.content_type != old_conn_state->base.content_type ||
-	    new_conn_state->base.scaling_mode != old_conn_state->base.scaling_mode)
+	    new_conn_state->base.scaling_mode != old_conn_state->base.scaling_mode ||
+	    !blob_equal(new_conn_state->base.hdr_output_metadata,
+			old_conn_state->base.hdr_output_metadata))
 		crtc_state->mode_changed = true;
 
 	return 0;
@@ -410,4 +423,16 @@ void intel_atomic_state_clear(struct drm_atomic_state *s)
 	struct intel_atomic_state *state = to_intel_atomic_state(s);
 	drm_atomic_state_default_clear(&state->base);
 	state->dpll_set = state->modeset = false;
+}
+
+struct intel_crtc_state *
+intel_atomic_get_crtc_state(struct drm_atomic_state *state,
+			    struct intel_crtc *crtc)
+{
+	struct drm_crtc_state *crtc_state;
+	crtc_state = drm_atomic_get_crtc_state(state, &crtc->base);
+	if (IS_ERR(crtc_state))
+		return ERR_CAST(crtc_state);
+
+	return to_intel_crtc_state(crtc_state);
 }

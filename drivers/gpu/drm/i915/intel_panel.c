@@ -35,7 +35,9 @@
 #include <linux/pwm.h>
 
 #include "intel_connector.h"
+#include "intel_dp_aux_backlight.h"
 #include "intel_drv.h"
+#include "intel_dsi_dcs_backlight.h"
 #include "intel_panel.h"
 
 #define CRC_PMIC_PWM_PERIOD_NS	21333
@@ -1286,7 +1288,7 @@ static int intel_backlight_device_get_brightness(struct backlight_device *bd)
 	intel_wakeref_t wakeref;
 	int ret = 0;
 
-	with_intel_runtime_pm(dev_priv, wakeref) {
+	with_intel_runtime_pm(&dev_priv->runtime_pm, wakeref) {
 		u32 hw_level;
 
 		drm_modeset_lock(&dev->mode_config.connection_mutex, NULL);
