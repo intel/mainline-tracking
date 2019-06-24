@@ -25,7 +25,7 @@
 /*
  * MEI Version
  */
-#define HBM_MINOR_VERSION                   1
+#define HBM_MINOR_VERSION                   2
 #define HBM_MAJOR_VERSION                   2
 
 /*
@@ -76,6 +76,18 @@
 #define HBM_MINOR_VERSION_DR               1
 #define HBM_MAJOR_VERSION_DR               2
 
+/*
+ * MEI version with vm tag support
+ */
+#define HBM_MINOR_VERSION_VM               2
+#define HBM_MAJOR_VERSION_VM               2
+
+/*
+ * MEI version with capabilities message support
+ */
+#define HBM_MINOR_VERSION_CAP              2
+#define HBM_MAJOR_VERSION_CAP              2
+
 /* Host bus message command opcode */
 #define MEI_HBM_CMD_OP_MSK                  0x7f
 /* Host bus message command RESPONSE */
@@ -120,6 +132,9 @@
 
 #define MEI_HBM_DMA_SETUP_REQ_CMD           0x12
 #define MEI_HBM_DMA_SETUP_RES_CMD           0x92
+
+#define MEI_HBM_CAPABILITIES_REQ_CMD        0x13
+#define MEI_HBM_CAPABILITIES_RES_CMD        0x93
 
 /*
  * MEI Stop Reason
@@ -187,12 +202,24 @@ enum  mei_cl_disconnect_status {
 };
 
 /**
+ * struct mei_msg_extd_hdr - mei extended header
+ *
+ * @vtag: virtual tag.
+ * @reserved: reserved.
+ */
+struct mei_msg_extd_hdr {
+	u8 vtag;
+	u8 reserved[3];
+} __packed;
+
+/**
  * struct mei_msg_hdr - MEI BUS Interface Section
  *
  * @me_addr: device address
  * @host_addr: host address
  * @length: message length
  * @reserved: reserved
+ * @extended: message has extended header
  * @dma_ring: message is on dma ring
  * @internal: message is internal
  * @msg_complete: last packet of the message
@@ -202,14 +229,15 @@ struct mei_msg_hdr {
 	u32 me_addr:8;
 	u32 host_addr:8;
 	u32 length:9;
-	u32 reserved:4;
+	u32 reserved:3;
+	u32 extended:1;
 	u32 dma_ring:1;
 	u32 internal:1;
 	u32 msg_complete:1;
 	u32 extension[0];
 } __packed;
 
-#define MEI_MSG_HDR_MAX 2
+#define MEI_MSG_HDR_MAX 3
 
 struct mei_bus_message {
 	u8 hbm_cmd;
@@ -302,7 +330,8 @@ struct mei_client_properties {
 	u8 max_number_of_connections;
 	u8 fixed_address;
 	u8 single_recv_buf:1;
-	u8 reserved:7;
+	u8 vm_supported:1;
+	u8 reserved:6;
 	u32 max_msg_length;
 } __packed;
 
@@ -528,6 +557,18 @@ struct hbm_dma_ring_ctrl {
 	u32 reserved3;
 	u32 dbuf_rd_idx;
 	u32 reserved4;
+} __packed;
+
+#define HBM_CAP_VM BIT(0)
+
+struct hbm_capability_request {
+	u8 hbm_cmd;
+	u8 capability_requested[3];
+} __packed;
+
+struct hbm_capability_response {
+	u8 hbm_cmd;
+	u8 capability_granted[3];
 } __packed;
 
 #endif
