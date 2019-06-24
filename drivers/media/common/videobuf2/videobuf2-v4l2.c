@@ -480,7 +480,8 @@ static void __fill_v4l2_buffer(struct vb2_buffer *vb, void *pb)
 	b->timecode = vbuf->timecode;
 	b->sequence = vbuf->sequence;
 	b->reserved2 = 0;
-	b->request_fd = 0;
+	/* Use reserved to save vc_id, delete request_fd which is not used currently */
+	b->reserved = vbuf->reserved;
 
 	if (q->is_multiplanar) {
 		/*
