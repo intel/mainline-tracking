@@ -176,6 +176,19 @@ static struct work_struct ecclog_work;
 #define DID_ICL_SKU11	0x4589
 #define DID_ICL_SKU12	0x458d
 
+/* Compute die IDs for Elkhart Lake with IBECC */
+#define DID_EHL_SKU5	0x4514
+#define DID_EHL_SKU6	0x4528
+#define DID_EHL_SKU7	0x452a
+#define DID_EHL_SKU8	0x4516
+#define DID_EHL_SKU9	0x452c
+#define DID_EHL_SKU10	0x452e
+#define DID_EHL_SKU11	0x4532
+#define DID_EHL_SKU12	0x4518
+#define DID_EHL_SKU13	0x451a
+#define DID_EHL_SKU14	0x4534
+#define DID_EHL_SKU15	0x4536
+
 static bool icl_ibecc_available(struct pci_dev *pdev)
 {
 	u32 v;
@@ -185,6 +198,16 @@ static bool icl_ibecc_available(struct pci_dev *pdev)
 
 	return !(IGEN6_CAPID_C_IBECC & v) &&
 		(boot_cpu_data.x86_stepping >= 1);
+}
+
+static bool ehl_ibecc_available(struct pci_dev *pdev)
+{
+	u32 v;
+
+	if (pci_read_config_dword(pdev, IGEN6_CAPID_C_OFF, &v))
+		return false;
+
+	return !!(IGEN6_CAPID_C_IBECC & v);
 }
 
 static u64 icl_eaddr_to_saddr(u64 eaddr)
@@ -214,11 +237,30 @@ static struct res_config icl_cfg = {
 	.eaddr_to_iaddr  = icl_eaddr_to_iaddr,
 };
 
+static struct res_config ehl_cfg = {
+	.num_imc	 = 1,
+	.ibecc_base	 = 0xdc00,
+	.ibecc_available = ehl_ibecc_available,
+	.eaddr_to_saddr  = icl_eaddr_to_saddr,
+	.eaddr_to_iaddr  = icl_eaddr_to_iaddr,
+};
+
 static const struct pci_device_id igen6_pci_tbl[] = {
 	{ PCI_VDEVICE(INTEL, DID_ICL_SKU8), (kernel_ulong_t)&icl_cfg },
 	{ PCI_VDEVICE(INTEL, DID_ICL_SKU10), (kernel_ulong_t)&icl_cfg },
 	{ PCI_VDEVICE(INTEL, DID_ICL_SKU11), (kernel_ulong_t)&icl_cfg },
 	{ PCI_VDEVICE(INTEL, DID_ICL_SKU12), (kernel_ulong_t)&icl_cfg },
+	{ PCI_VDEVICE(INTEL, DID_EHL_SKU5), (kernel_ulong_t)&ehl_cfg },
+	{ PCI_VDEVICE(INTEL, DID_EHL_SKU6), (kernel_ulong_t)&ehl_cfg },
+	{ PCI_VDEVICE(INTEL, DID_EHL_SKU7), (kernel_ulong_t)&ehl_cfg },
+	{ PCI_VDEVICE(INTEL, DID_EHL_SKU8), (kernel_ulong_t)&ehl_cfg },
+	{ PCI_VDEVICE(INTEL, DID_EHL_SKU9), (kernel_ulong_t)&ehl_cfg },
+	{ PCI_VDEVICE(INTEL, DID_EHL_SKU10), (kernel_ulong_t)&ehl_cfg },
+	{ PCI_VDEVICE(INTEL, DID_EHL_SKU11), (kernel_ulong_t)&ehl_cfg },
+	{ PCI_VDEVICE(INTEL, DID_EHL_SKU12), (kernel_ulong_t)&ehl_cfg },
+	{ PCI_VDEVICE(INTEL, DID_EHL_SKU13), (kernel_ulong_t)&ehl_cfg },
+	{ PCI_VDEVICE(INTEL, DID_EHL_SKU14), (kernel_ulong_t)&ehl_cfg },
+	{ PCI_VDEVICE(INTEL, DID_EHL_SKU15), (kernel_ulong_t)&ehl_cfg },
 	{ },
 };
 MODULE_DEVICE_TABLE(pci, igen6_pci_tbl);
