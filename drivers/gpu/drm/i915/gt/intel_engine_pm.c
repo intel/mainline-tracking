@@ -142,4 +142,3 @@ void intel_engine_init__pm(struct intel_engine_cs *engine)
 {
 	intel_wakeref_init(&engine->wakeref);
 }
-
