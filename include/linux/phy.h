@@ -193,6 +193,8 @@ static inline const char *phy_modes(phy_interface_t interface)
 /* Or MII_ADDR_C45 into regnum for read/write on mii_bus to enable the 21 bit
    IEEE 802.3ae clause 45 addressing mode used by 10GIGE phy chips. */
 #define MII_ADDR_C45 (1<<30)
+#define MII_DEVADDR_C45_SHIFT	16
+#define MII_REGADDR_C45_MASK	GENMASK(15, 0)
 
 struct device;
 struct phylink;
@@ -245,6 +247,10 @@ struct mii_bus {
 	int reset_delay_us;
 	/* RESET GPIO descriptor pointer */
 	struct gpio_desc *reset_gpiod;
+	/* Hint for kernel to scan the bus with C45 mode.
+	 * Some PHYs will not respond with C22.
+	 */
+	bool c45_scan;
 };
 #define to_mii_bus(d) container_of(d, struct mii_bus, dev)
 

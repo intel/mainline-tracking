@@ -24,9 +24,15 @@
 struct stmmac_resources {
 	void __iomem *addr;
 	const char *mac;
+	int irq;
+	int rx_irq[MTL_MAX_RX_QUEUES];
+	int tx_irq[MTL_MAX_TX_QUEUES];
+	int mac_irq;
 	int wol_irq;
 	int lpi_irq;
-	int irq;
+	int sfty_ue_irq;
+	int sfty_ce_irq;
+	int xpcs_irq;
 };
 
 struct stmmac_tx_info {
@@ -127,6 +133,9 @@ struct stmmac_priv {
 	struct mac_device_info *hw;
 	int (*hwif_quirks)(struct stmmac_priv *priv);
 	struct mutex lock;
+	spinlock_t dma_chan_status_lock; /* dma status register */
+	spinlock_t dma_intr_enable_lock; /* dma intr enable register */
+	spinlock_t dma_operation_lock; /* dma operation register */
 
 	/* RX Queue */
 	struct stmmac_rx_queue rx_queue[MTL_MAX_RX_QUEUES];
@@ -158,6 +167,7 @@ struct stmmac_priv {
 	int clk_csr;
 	struct timer_list eee_ctrl_timer;
 	int lpi_irq;
+	int xpcs_irq;
 	int eee_enabled;
 	int eee_active;
 	int tx_lpi_timer;
@@ -176,6 +186,11 @@ struct stmmac_priv {
 	spinlock_t ptp_lock;
 	void __iomem *mmcaddr;
 	void __iomem *ptpaddr;
+	int mac_irq;
+	int sfty_ue_irq;
+	int sfty_ce_irq;
+	int rx_irq[MTL_MAX_RX_QUEUES];
+	int tx_irq[MTL_MAX_TX_QUEUES];
 
 #ifdef CONFIG_DEBUG_FS
 	struct dentry *dbgfs_dir;
