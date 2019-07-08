@@ -7,15 +7,18 @@
 #ifndef __I915_SELFTESTS_IGT_SPINNER_H__
 #define __I915_SELFTESTS_IGT_SPINNER_H__
 
-#include "../i915_selftest.h"
+#include "gem/i915_gem_context.h"
+#include "gt/intel_engine.h"
 
-#include "../i915_drv.h"
-#include "../i915_request.h"
-#include "../intel_ringbuffer.h"
-#include "../i915_gem_context.h"
+#include "i915_drv.h"
+#include "i915_request.h"
+#include "i915_selftest.h"
+
+struct intel_gt;
 
 struct igt_spinner {
 	struct drm_i915_private *i915;
+	struct intel_gt *gt;
 	struct drm_i915_gem_object *hws;
 	struct drm_i915_gem_object *obj;
 	u32 *batch;

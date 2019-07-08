@@ -35,6 +35,8 @@
 #include "i915_utils.h"
 #include "i915_vma.h"
 
+struct __guc_ads_blob;
+
 struct guc_preempt_work {
 	struct work_struct work;
 	struct intel_engine_cs *engine;
@@ -55,10 +57,18 @@ struct intel_guc {
 
 	/* intel_guc_recv interrupt related state */
 	spinlock_t irq_lock;
-	bool interrupts_enabled;
 	unsigned int msg_enabled_mask;
 
+	struct {
+		bool enabled;
+		void (*reset)(struct drm_i915_private *i915);
+		void (*enable)(struct drm_i915_private *i915);
+		void (*disable)(struct drm_i915_private *i915);
+	} interrupts;
+
 	struct i915_vma *ads_vma;
+	struct __guc_ads_blob *ads_blob;
+
 	struct i915_vma *stage_desc_pool;
 	void *stage_desc_pool_vaddr;
 	struct ida stage_ids;
@@ -82,6 +92,9 @@ struct intel_guc {
 		enum forcewake_domains fw_domains;
 	} send_regs;
 
+	/* Store msg (e.g. log flush) that we see while CTBs are disabled */
+	u32 mmio_msg;
+
 	/* To serialize the intel_guc_send actions */
 	struct mutex send_mutex;
 
@@ -95,11 +108,6 @@ struct intel_guc {
 	/* GuC's FW specific notify function */
 	void (*notify)(struct intel_guc *guc);
 };
-
-static inline bool intel_guc_is_alive(struct intel_guc *guc)
-{
-	return intel_uc_fw_is_loaded(&guc->fw);
-}
 
 static
 inline int intel_guc_send(struct intel_guc *guc, const u32 *action, u32 len)
@@ -164,7 +172,6 @@ int intel_guc_send_mmio(struct intel_guc *guc, const u32 *action, u32 len,
 			u32 *response_buf, u32 response_buf_size);
 void intel_guc_to_host_event_handler(struct intel_guc *guc);
 void intel_guc_to_host_event_handler_nop(struct intel_guc *guc);
-void intel_guc_to_host_event_handler_mmio(struct intel_guc *guc);
 int intel_guc_to_host_process_recv_msg(struct intel_guc *guc,
 				       const u32 *payload, u32 len);
 int intel_guc_sample_forcewake(struct intel_guc *guc);
@@ -172,11 +179,17 @@ int intel_guc_auth_huc(struct intel_guc *guc, u32 rsa_offset);
 int intel_guc_suspend(struct intel_guc *guc);
 int intel_guc_resume(struct intel_guc *guc);
 struct i915_vma *intel_guc_allocate_vma(struct intel_guc *guc, u32 size);
-u32 intel_guc_reserved_gtt_size(struct intel_guc *guc);
+
+static inline bool intel_guc_is_loaded(struct intel_guc *guc)
+{
+	return intel_uc_fw_is_loaded(&guc->fw);
+}
 
 static inline int intel_guc_sanitize(struct intel_guc *guc)
 {
 	intel_uc_fw_sanitize(&guc->fw);
+	guc->mmio_msg = 0;
+
 	return 0;
 }
 
