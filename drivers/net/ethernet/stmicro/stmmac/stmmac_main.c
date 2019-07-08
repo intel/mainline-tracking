@@ -2873,11 +2873,25 @@ static int stmmac_open(struct net_device *dev)
 		}
 	}
 
+	/* Start phy converter after MDIO bus IRQ handling is up */
+	if (priv->plat->setup_phy_conv) {
+		ret = priv->plat->setup_phy_conv(priv->mii, priv->phy_conv_irq,
+						 priv->plat->phy_addr);
+
+		if (ret < 0) {
+			netdev_err(priv->dev,
+				   "%s: ERROR: setup phy conv (error: %d)\n",
+				   __func__, ret);
+			goto phy_conv_error;
+		}
+	}
+
 	stmmac_enable_all_queues(priv);
 	netif_tx_start_all_queues(priv->dev);
 
 	return 0;
 
+phy_conv_error:
 lpiirq_error:
 	if (priv->wol_irq != dev->irq)
 		free_irq(priv->wol_irq, dev);
@@ -2907,6 +2921,7 @@ static int stmmac_release(struct net_device *dev)
 {
 	struct stmmac_priv *priv = netdev_priv(dev);
 	u32 chan;
+	int ret;
 
 	if (device_may_wakeup(priv->device))
 		phylink_speed_down(priv->phylink, false);
@@ -2929,6 +2944,17 @@ static int stmmac_release(struct net_device *dev)
 	if (priv->eee_enabled) {
 		priv->tx_path_in_lpi_mode = false;
 		del_timer_sync(&priv->eee_ctrl_timer);
+	}
+
+	/* Start phy converter after MDIO bus IRQ handling is up */
+	if (priv->plat->remove_phy_conv) {
+		ret = priv->plat->remove_phy_conv(priv->mii);
+		if (ret < 0) {
+			netdev_err(priv->dev,
+				   "%s: ERROR: remove phy conv (error: %d)\n",
+				   __func__, ret);
+			return 0;
+		}
 	}
 
 	/* Stop TX/RX DMA and clear the descriptors */
@@ -4880,6 +4906,7 @@ int stmmac_dvr_probe(struct device *device,
 	priv->dev->irq = res->irq;
 	priv->wol_irq = res->wol_irq;
 	priv->lpi_irq = res->lpi_irq;
+	priv->phy_conv_irq = res->phy_conv_irq;
 
 	if (!IS_ERR_OR_NULL(res->mac))
 		memcpy(priv->dev->dev_addr, res->mac, ETH_ALEN);
