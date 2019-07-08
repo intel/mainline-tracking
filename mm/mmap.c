@@ -2843,6 +2843,7 @@ int __do_munmap(struct mm_struct *mm, unsigned long start, size_t len,
 
 	return downgrade ? 1 : 0;
 }
+EXPORT_SYMBOL(do_munmap);
 
 int do_munmap(struct mm_struct *mm, unsigned long start, size_t len,
 	      struct list_head *uf)
