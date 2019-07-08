@@ -20,6 +20,7 @@
 struct ipc_message {
 	struct list_head list;
 	u64 header;
+	u64 reply;
 
 	/* direction wrt host CPU */
 	char *tx_data;
@@ -35,9 +36,11 @@ struct ipc_message {
 };
 
 struct sst_generic_ipc;
+struct sst_dsp;
 
 struct sst_plat_ipc_ops {
 	void (*tx_msg)(struct sst_generic_ipc *, struct ipc_message *);
+	void (*direct_tx_msg)(struct sst_generic_ipc *);
 	void (*shim_dbg)(struct sst_generic_ipc *, const char *);
 	void (*tx_data_copy)(struct ipc_message *, char *, size_t);
 	u64  (*reply_msg_match)(u64 header, u64 *mask);
@@ -66,13 +69,15 @@ struct sst_generic_ipc {
 };
 
 int sst_ipc_tx_message_wait(struct sst_generic_ipc *ipc, u64 header,
-	void *tx_data, size_t tx_bytes, void *rx_data, size_t rx_bytes);
+	void *tx_data, size_t tx_bytes, u64 *reply,
+	void *rx_data, size_t rx_bytes);
 
 int sst_ipc_tx_message_nowait(struct sst_generic_ipc *ipc, u64 header,
 	void *tx_data, size_t tx_bytes);
 
 int sst_ipc_tx_message_nopm(struct sst_generic_ipc *ipc, u64 header,
-	void *tx_data, size_t tx_bytes, void *rx_data, size_t rx_bytes);
+	void *tx_data, size_t tx_bytes, u64 *reply,
+	void *rx_data, size_t rx_bytes);
 
 struct ipc_message *sst_ipc_reply_find_msg(struct sst_generic_ipc *ipc,
 	u64 header);

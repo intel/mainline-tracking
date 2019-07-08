@@ -67,6 +67,7 @@ struct hdac_ext_stream {
 
 	u32 dpib;
 	u32 lpib;
+	u32 spib;
 	bool decoupled:1;
 	bool link_locked:1;
 	bool link_prepared;
@@ -85,6 +86,8 @@ int snd_hdac_ext_stream_init_all(struct hdac_bus *bus, int start_idx,
 		int num_stream, int dir);
 void snd_hdac_stream_free_all(struct hdac_bus *bus);
 void snd_hdac_link_free_all(struct hdac_bus *bus);
+struct hdac_ext_stream *hdac_ext_host_stream_compr_assign(struct hdac_bus *bus,
+				struct snd_compr_stream *cstream);
 struct hdac_ext_stream *snd_hdac_ext_stream_assign(struct hdac_bus *bus,
 					   struct snd_pcm_substream *substream,
 					   int type);
