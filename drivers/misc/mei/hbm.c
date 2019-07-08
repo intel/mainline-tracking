@@ -125,19 +125,15 @@ void mei_hbm_reset(struct mei_device *dev)
 /**
  * mei_hbm_hdr - construct hbm header
  *
- * @hdr: hbm header
+ * @mei_hdr: hbm header
  * @length: payload length
  */
 
-static inline void mei_hbm_hdr(struct mei_msg_hdr *hdr, size_t length)
+static inline void mei_hbm_hdr(struct mei_msg_hdr *mei_hdr, size_t length)
 {
-	hdr->host_addr = 0;
-	hdr->me_addr = 0;
-	hdr->length = length;
-	hdr->msg_complete = 1;
-	hdr->dma_ring = 0;
-	hdr->reserved = 0;
-	hdr->internal = 0;
+	memset(mei_hdr, 0, sizeof(*mei_hdr));
+	mei_hdr->length = length;
+	mei_hdr->msg_complete = 1;
 }
 
 /**
@@ -286,7 +282,8 @@ int mei_hbm_start_req(struct mei_device *dev)
 }
 
 /**
- * mei_hbm_dma_setup_req() - setup DMA request
+ * mei_hbm_dma_setup_req - setup DMA request
+ *
  * @dev: the device structure
  *
  * Return: 0 on success and < 0 on failure
@@ -322,6 +319,39 @@ static int mei_hbm_dma_setup_req(struct mei_device *dev)
 	}
 
 	dev->hbm_state = MEI_HBM_DR_SETUP;
+	dev->init_clients_timer = MEI_CLIENTS_INIT_TIMEOUT;
+	mei_schedule_stall_timer(dev);
+	return 0;
+}
+
+/**
+ * mei_hbm_capabilities_req - request capabilities
+ *
+ * @dev: the device structure
+ *
+ * Return: 0 on success and < 0 on failure
+ */
+static int mei_hbm_capabilities_req(struct mei_device *dev)
+{
+	struct mei_msg_hdr mei_hdr;
+	struct hbm_capability_request req;
+	int ret;
+
+	mei_hbm_hdr(&mei_hdr, sizeof(req));
+
+	memset(&req, 0, sizeof(req));
+	req.hbm_cmd = MEI_HBM_CAPABILITIES_REQ_CMD;
+	if (dev->hbm_f_vm_supported)
+		req.capability_requested[0] = HBM_CAP_VM;
+
+	ret = mei_hbm_write_message(dev, &mei_hdr, &req);
+	if (ret) {
+		dev_err(dev->dev,
+			"capabilities request write failed: ret = %d.\n", ret);
+		return ret;
+	}
+
+	dev->hbm_state = MEI_HBM_CAP_SETUP;
 	dev->init_clients_timer = MEI_CLIENTS_INIT_TIMEOUT;
 	mei_schedule_stall_timer(dev);
 	return 0;
@@ -1052,6 +1082,18 @@ static void mei_hbm_config_features(struct mei_device *dev)
 	    (dev->version.major_version == HBM_MAJOR_VERSION_DR &&
 	     dev->version.minor_version >= HBM_MINOR_VERSION_DR))
 		dev->hbm_f_dr_supported = 1;
+
+	/* VM Tag Support */
+	if (dev->version.major_version > HBM_MAJOR_VERSION_VM ||
+	    (dev->version.major_version == HBM_MAJOR_VERSION_VM &&
+	     dev->version.minor_version >= HBM_MINOR_VERSION_VM))
+		dev->hbm_f_vm_supported = 1;
+
+	/* Capability message Support */
+	if (dev->version.major_version > HBM_MAJOR_VERSION_CAP ||
+	    (dev->version.major_version == HBM_MAJOR_VERSION_CAP &&
+	     dev->version.minor_version >= HBM_MINOR_VERSION_CAP))
+		dev->hbm_f_cap_supported = 1;
 }
 
 /**
@@ -1085,6 +1127,7 @@ int mei_hbm_dispatch(struct mei_device *dev, struct mei_msg_hdr *hdr)
 	struct hbm_host_enum_response *enum_res;
 	struct hbm_dma_setup_response *dma_setup_res;
 	struct hbm_add_client_request *add_cl_req;
+	struct hbm_capability_response *capability_res;
 	int ret;
 
 	struct mei_hbm_cl_cmd *cl_cmd;
@@ -1148,6 +1191,13 @@ int mei_hbm_dispatch(struct mei_device *dev, struct mei_msg_hdr *hdr)
 			return -EPROTO;
 		}
 
+		if (dev->hbm_f_cap_supported) {
+			if (mei_hbm_capabilities_req(dev))
+				return -EIO;
+			wake_up(&dev->wait_hbm_start);
+			break;
+		}
+
 		if (dev->hbm_f_dr_supported) {
 			if (mei_dmam_ring_alloc(dev))
 				dev_info(dev->dev, "running w/o dma ring\n");
@@ -1169,6 +1219,38 @@ int mei_hbm_dispatch(struct mei_device *dev, struct mei_msg_hdr *hdr)
 		wake_up(&dev->wait_hbm_start);
 		break;
 
+	case MEI_HBM_CAPABILITIES_RES_CMD:
+		dev_dbg(dev->dev, "hbm: capabilities response: message received.\n");
+
+		dev->init_clients_timer = 0;
+
+		if (dev->hbm_state != MEI_HBM_CAP_SETUP) {
+			dev_err(dev->dev, "hbm: capabilities response: state mismatch, [%d, %d]\n",
+				dev->dev_state, dev->hbm_state);
+			return -EPROTO;
+		}
+
+		capability_res = (struct hbm_capability_response *)mei_msg;
+		if (!(capability_res->capability_granted[0] & HBM_CAP_VM))
+			dev->hbm_f_vm_supported = 0;
+
+		if (dev->hbm_f_dr_supported) {
+			if (mei_dmam_ring_alloc(dev))
+				dev_info(dev->dev, "running w/o dma ring\n");
+			if (mei_dma_ring_is_allocated(dev)) {
+				if (mei_hbm_dma_setup_req(dev))
+					return -EIO;
+				break;
+			}
+		}
+
+		dev->hbm_f_dr_supported = 0;
+		mei_dmam_ring_free(dev);
+
+		if (mei_hbm_enum_clients_req(dev))
+			return -EIO;
+		break;
+
 	case MEI_HBM_DMA_SETUP_RES_CMD:
 		dev_dbg(dev->dev, "hbm: dma setup response: message received.\n");
 
@@ -1183,15 +1265,9 @@ int mei_hbm_dispatch(struct mei_device *dev, struct mei_msg_hdr *hdr)
 		dma_setup_res = (struct hbm_dma_setup_response *)mei_msg;
 
 		if (dma_setup_res->status) {
-			u8 status = dma_setup_res->status;
-
-			if (status == MEI_HBMS_NOT_ALLOWED) {
-				dev_dbg(dev->dev, "hbm: dma setup not allowed\n");
-			} else {
-				dev_info(dev->dev, "hbm: dma setup response: failure = %d %s\n",
-					 status,
-					 mei_hbm_status_str(status));
-			}
+			dev_info(dev->dev, "hbm: dma setup response: failure = %d %s\n",
+				 dma_setup_res->status,
+				 mei_hbm_status_str(dma_setup_res->status));
 			dev->hbm_f_dr_supported = 0;
 			mei_dmam_ring_free(dev);
 		}
