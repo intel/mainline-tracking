@@ -28,6 +28,7 @@ struct stmmac_resources {
 	int wol_irq;
 	int lpi_irq;
 	int irq;
+	int phy_conv_irq;
 };
 
 struct stmmac_tx_info {
@@ -185,6 +186,7 @@ struct stmmac_priv {
 	spinlock_t ptp_lock;
 	void __iomem *mmcaddr;
 	void __iomem *ptpaddr;
+	int phy_conv_irq;
 
 #ifdef CONFIG_DEBUG_FS
 	struct dentry *dbgfs_dir;
