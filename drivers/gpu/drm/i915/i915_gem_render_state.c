@@ -84,7 +84,7 @@ static int render_state_setup(struct intel_render_state *so,
 	u32 *d;
 	int ret;
 
-	ret = i915_gem_obj_prepare_shmem_write(so->obj, &needs_clflush);
+	ret = i915_gem_object_prepare_write(so->obj, &needs_clflush);
 	if (ret)
 		return ret;
 
@@ -166,7 +166,7 @@ static int render_state_setup(struct intel_render_state *so,
 
 	ret = 0;
 out:
-	i915_gem_obj_finish_shmem_access(so->obj);
+	i915_gem_object_finish_access(so->obj);
 	return ret;
 
 err:
@@ -194,7 +194,7 @@ int i915_gem_render_state_emit(struct i915_request *rq)
 	if (IS_ERR(so.obj))
 		return PTR_ERR(so.obj);
 
-	so.vma = i915_vma_instance(so.obj, &engine->i915->ggtt.vm, NULL);
+	so.vma = i915_vma_instance(so.obj, &engine->gt->ggtt->vm, NULL);
 	if (IS_ERR(so.vma)) {
 		err = PTR_ERR(so.vma);
 		goto err_obj;
@@ -222,12 +222,14 @@ int i915_gem_render_state_emit(struct i915_request *rq)
 			goto err_unpin;
 	}
 
+	i915_vma_lock(so.vma);
 	err = i915_vma_move_to_active(so.vma, rq, 0);
+	i915_vma_unlock(so.vma);
 err_unpin:
 	i915_vma_unpin(so.vma);
 err_vma:
 	i915_vma_close(so.vma);
 err_obj:
-	__i915_gem_object_release_unless_active(so.obj);
+	i915_gem_object_put(so.obj);
 	return err;
 }
