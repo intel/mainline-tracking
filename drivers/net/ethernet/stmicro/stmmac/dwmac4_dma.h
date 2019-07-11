@@ -25,6 +25,7 @@
 
 /* DMA Bus Mode bitmap */
 #define DMA_BUS_MODE_SFT_RESET		BIT(0)
+#define DMA_BUS_MODE_INTR_MODE_01	BIT(16)
 
 /* DMA SYS Bus Mode bitmap */
 #define DMA_BUS_MODE_SPH		BIT(24)
@@ -195,5 +196,6 @@ void dwmac4_set_rx_ring_len(void __iomem *ioaddr, u32 len, u32 chan);
 void dwmac4_set_tx_ring_len(void __iomem *ioaddr, u32 len, u32 chan);
 void dwmac4_set_rx_tail_ptr(void __iomem *ioaddr, u32 tail_ptr, u32 chan);
 void dwmac4_set_tx_tail_ptr(void __iomem *ioaddr, u32 tail_ptr, u32 chan);
+void dwmac4_set_intr_mode(void __iomem *ioaddr);
 
 #endif /* __DWMAC4_DMA_H__ */

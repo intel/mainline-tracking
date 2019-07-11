@@ -40,9 +40,11 @@
 #include "stmmac.h"
 #include <linux/reset.h>
 #include <linux/of_mdio.h>
+#include "dw_tsn_lib.h"
 #include "dwmac1000.h"
 #include "dwxgmac2.h"
 #include "hwif.h"
+#include "intel_serdes.h"
 
 #define	STMMAC_ALIGN(x)		__ALIGN_KERNEL(x, SMP_CACHE_BYTES)
 #define	TSO_MAX_BUFF_SIZE	(SZ_16K - 1)
@@ -102,6 +104,9 @@ module_param(chain_mode, int, 0444);
 MODULE_PARM_DESC(chain_mode, "To use chain instead of ring mode");
 
 static irqreturn_t stmmac_interrupt(int irq, void *dev_id);
+static irqreturn_t stmmac_msi_dma(int irq, void *dev_id);
+static irqreturn_t stmmac_msi_non_dma(int irq, void *dev_id);
+static irqreturn_t xpcs_interrupt(int irq, void *dev_id);
 
 #ifdef CONFIG_DEBUG_FS
 static int stmmac_init_fs(struct net_device *dev);
@@ -838,6 +843,54 @@ static void stmmac_mac_flow_ctrl(struct stmmac_priv *priv, u32 duplex)
 			priv->pause, tx_cnt);
 }
 
+static bool mac_adjust_link(struct stmmac_priv *priv,
+			    int *speed, int *duplex)
+{
+	u32 ctrl = readl(priv->ioaddr + MAC_CTRL_REG);
+	bool new_state = false;
+
+	/* Now we make sure that we can be in full duplex mode.
+	 * If not, we operate in half-duplex mode.
+	 */
+	if (*duplex != priv->oldduplex) {
+		new_state = true;
+		if (!*duplex)
+			ctrl &= ~priv->hw->link.duplex;
+		else
+			ctrl |= priv->hw->link.duplex;
+		priv->oldduplex = *duplex;
+	}
+
+	if (*speed != priv->speed) {
+		new_state = true;
+		ctrl &= ~priv->hw->link.speed_mask;
+		switch (*speed) {
+		case SPEED_1000:
+			ctrl |= priv->hw->link.speed1000;
+			break;
+		case SPEED_100:
+			ctrl |= priv->hw->link.speed100;
+			break;
+		case SPEED_10:
+			ctrl |= priv->hw->link.speed10;
+			break;
+		default:
+			netif_warn(priv, link, priv->dev,
+				   "broken speed: %d\n", *speed);
+			*speed = SPEED_UNKNOWN;
+			break;
+		}
+		if (*speed != SPEED_UNKNOWN)
+			stmmac_hw_fix_mac_speed(priv);
+
+		priv->speed = *speed;
+	}
+
+	writel(ctrl, priv->ioaddr + MAC_CTRL_REG);
+
+	return new_state;
+}
+
 /**
  * stmmac_adjust_link - adjusts the link parameters
  * @dev: net device structure
@@ -859,47 +912,12 @@ static void stmmac_adjust_link(struct net_device *dev)
 	mutex_lock(&priv->lock);
 
 	if (phydev->link) {
-		u32 ctrl = readl(priv->ioaddr + MAC_CTRL_REG);
-
-		/* Now we make sure that we can be in full duplex mode.
-		 * If not, we operate in half-duplex mode. */
-		if (phydev->duplex != priv->oldduplex) {
-			new_state = true;
-			if (!phydev->duplex)
-				ctrl &= ~priv->hw->link.duplex;
-			else
-				ctrl |= priv->hw->link.duplex;
-			priv->oldduplex = phydev->duplex;
-		}
 		/* Flow Control operation */
 		if (phydev->pause)
 			stmmac_mac_flow_ctrl(priv, phydev->duplex);
 
-		if (phydev->speed != priv->speed) {
-			new_state = true;
-			ctrl &= ~priv->hw->link.speed_mask;
-			switch (phydev->speed) {
-			case SPEED_1000:
-				ctrl |= priv->hw->link.speed1000;
-				break;
-			case SPEED_100:
-				ctrl |= priv->hw->link.speed100;
-				break;
-			case SPEED_10:
-				ctrl |= priv->hw->link.speed10;
-				break;
-			default:
-				netif_warn(priv, link, priv->dev,
-					   "broken speed: %d\n", phydev->speed);
-				phydev->speed = SPEED_UNKNOWN;
-				break;
-			}
-			if (phydev->speed != SPEED_UNKNOWN)
-				stmmac_hw_fix_mac_speed(priv);
-			priv->speed = phydev->speed;
-		}
-
-		writel(ctrl, priv->ioaddr + MAC_CTRL_REG);
+		new_state = mac_adjust_link(priv, &phydev->speed,
+					    &phydev->duplex);
 
 		if (!priv->oldlink) {
 			new_state = true;
@@ -2192,6 +2210,9 @@ static int stmmac_init_dma_engine(struct stmmac_priv *priv)
 		return ret;
 	}
 
+	if (!priv->plat->multi_msi_en)
+		stmmac_set_intr_mode(priv, priv->ioaddr);
+
 	/* DMA Configuration */
 	stmmac_dma_init(priv, priv->ioaddr, priv->plat->dma_cfg, atds);
 
@@ -2498,6 +2519,10 @@ static int stmmac_hw_setup(struct net_device *dev, bool init_ptp)
 	u32 chan;
 	int ret;
 
+	/* Power up Serdes */
+	if (priv->plat->has_serdes)
+		stmmac_serdes_powerup(priv, dev);
+
 	/* DMA initialization and SW reset */
 	ret = stmmac_init_dma_engine(priv);
 	if (ret < 0) {
@@ -2528,8 +2553,12 @@ static int stmmac_hw_setup(struct net_device *dev, bool init_ptp)
 	/* Initialize MTL*/
 	stmmac_mtl_configuration(priv);
 
+	/* Initialize the xPCS PHY */
+	stmmac_xpcs_init(priv, dev, priv->plat->pcs_mode);
+
 	/* Initialize Safety Features */
-	stmmac_safety_feat_configuration(priv);
+	if (priv->plat->has_safety_feat)
+		stmmac_safety_feat_configuration(priv);
 
 	ret = stmmac_rx_ipc(priv, priv->hw);
 	if (!ret) {
@@ -2569,6 +2598,8 @@ static int stmmac_hw_setup(struct net_device *dev, bool init_ptp)
 	if (priv->hw->pcs)
 		stmmac_pcs_ctrl_ane(priv, priv->hw, 1, priv->hw->ps, 0);
 
+	stmmac_xpcs_ctrl_ane(priv, dev, 1, 0);
+
 	/* set TX and RX rings length */
 	stmmac_set_rings_length(priv);
 
@@ -2580,6 +2611,22 @@ static int stmmac_hw_setup(struct net_device *dev, bool init_ptp)
 
 	/* Start the ball rolling... */
 	stmmac_start_all_dma(priv);
+
+	/* Setup for TSN capability */
+	dwmac_tsn_setup(priv->ioaddr);
+
+	/* Set TSN HW tunable */
+	if (priv->plat->ptov)
+		stmmac_set_tsn_hwtunable(priv, priv->ioaddr, TSN_HWTUNA_TX_EST_PTOV,
+					 &priv->plat->ptov);
+
+	if (priv->plat->ctov)
+		stmmac_set_tsn_hwtunable(priv, priv->ioaddr, TSN_HWTUNA_TX_EST_CTOV,
+					 &priv->plat->ctov);
+
+	if (priv->plat->tils)
+		stmmac_set_tsn_hwtunable(priv, priv->ioaddr, TSN_HWTUNA_TX_EST_TILS,
+					 &priv->plat->tils);
 
 	return 0;
 }
@@ -2605,6 +2652,7 @@ static int stmmac_open(struct net_device *dev)
 	struct stmmac_priv *priv = netdev_priv(dev);
 	u32 chan;
 	int ret;
+	int i;
 
 	if (priv->hw->pcs != STMMAC_PCS_RGMII &&
 	    priv->hw->pcs != STMMAC_PCS_TBI &&
@@ -2651,36 +2699,151 @@ static int stmmac_open(struct net_device *dev)
 		phy_start(dev->phydev);
 
 	/* Request the IRQ lines */
-	ret = request_irq(dev->irq, stmmac_interrupt,
-			  IRQF_SHARED, dev->name, dev);
-	if (unlikely(ret < 0)) {
-		netdev_err(priv->dev,
-			   "%s: ERROR: allocating the IRQ %d (error: %d)\n",
-			   __func__, dev->irq, ret);
-		goto irq_error;
-	}
-
-	/* Request the Wake IRQ in case of another line is used for WoL */
-	if (priv->wol_irq != dev->irq) {
-		ret = request_irq(priv->wol_irq, stmmac_interrupt,
+	if (!priv->plat->multi_msi_en) {
+		ret = request_irq(dev->irq, stmmac_interrupt,
 				  IRQF_SHARED, dev->name, dev);
 		if (unlikely(ret < 0)) {
 			netdev_err(priv->dev,
-				   "%s: ERROR: allocating the WoL IRQ %d (%d)\n",
-				   __func__, priv->wol_irq, ret);
-			goto wolirq_error;
+				   "%s: ERROR: allocating IRQ %d (error: %d)\n",
+				   __func__, dev->irq, ret);
+			goto irq_error;
 		}
-	}
 
-	/* Request the IRQ lines */
-	if (priv->lpi_irq > 0) {
-		ret = request_irq(priv->lpi_irq, stmmac_interrupt, IRQF_SHARED,
-				  dev->name, dev);
-		if (unlikely(ret < 0)) {
+		/* Request the Wake IRQ in case of another line is used for WoL */
+		if (priv->wol_irq != dev->irq) {
+			ret = request_irq(priv->wol_irq, stmmac_interrupt,
+					  IRQF_SHARED, dev->name, dev);
+			if (unlikely(ret < 0)) {
+				netdev_err(priv->dev,
+					   "%s: ERROR: allocating the WoL IRQ %d (%d)\n",
+					   __func__, priv->wol_irq, ret);
+				goto wolirq_error;
+			}
+		}
+
+		/* Request the IRQ lines */
+		if (priv->lpi_irq > 0) {
+			ret = request_irq(priv->lpi_irq, stmmac_interrupt, IRQF_SHARED,
+					  dev->name, dev);
+			if (unlikely(ret < 0)) {
+				netdev_err(priv->dev,
+					   "%s: ERROR: allocating the LPI IRQ %d (%d)\n",
+					   __func__, priv->lpi_irq, ret);
+				goto lpiirq_error;
+			}
+		}
+
+		/* xPCS IRQ line */
+		if (priv->xpcs_irq > 0) {
+			ret = request_irq(priv->xpcs_irq, xpcs_interrupt, IRQF_SHARED,
+					  dev->name, dev);
+			if (unlikely(ret < 0)) {
+				netdev_err(priv->dev,
+					   "%s: ERROR: allocating the xPCS IRQ %d (%d)\n",
+					   __func__, priv->xpcs_irq, ret);
+				goto xpcsirq_error;
+			}
+		}
+	} else {
+		/* LPI IRQ lines */
+		if (priv->lpi_irq > 0) {
+			ret = request_irq(priv->lpi_irq, stmmac_msi_non_dma,
+					  0, dev->name, dev);
+			if (unlikely(ret < 0)) {
+				netdev_err(priv->dev,
+					   "%s: ERROR allocating IRQ %d (error: %d)\n",
+					   __func__, priv->lpi_irq, ret);
+				goto lpiirq_error;
+			}
+		}
+
+		/* xPCS IRQ line */
+		if (priv->xpcs_irq > 0) {
+			ret = request_irq(priv->xpcs_irq, xpcs_interrupt, 0,
+					  dev->name, dev);
+			if (unlikely(ret < 0)) {
+				netdev_err(priv->dev,
+					   "%s: ERROR allocating IRQ %d (error: %d)\n",
+					   __func__, priv->xpcs_irq, ret);
+				goto xpcsirq_error;
+			}
+		}
+
+		/* MAC IRQ lines */
+		if (priv->mac_irq > 0) {
+			ret = request_irq(priv->mac_irq, stmmac_msi_non_dma,
+					  0, dev->name, dev);
+			if (unlikely(ret < 0)) {
+				netdev_err(priv->dev,
+					   "%s: ERROR allocating IRQ %d (error: %d)\n",
+					   __func__, priv->mac_irq, ret);
+				goto macirq_error;
+			}
+		}
+
+		/* Safety correctable error IRQ line */
+		if (priv->sfty_ce_irq > 0) {
+			ret = request_irq(priv->sfty_ce_irq, stmmac_msi_non_dma,
+					  0, dev->name, dev);
+			if (unlikely(ret < 0)) {
+				netdev_err(priv->dev,
+					   "%s: ERROR allocating IRQ %d (error: %d)\n",
+					    __func__, priv->sfty_ce_irq, ret);
+				goto sfty_ce_irq_error;
+			}
+		}
+
+		/* Safety uncorrectable error IRQ line */
+		if (priv->sfty_ue_irq > 0) {
+			ret = request_irq(priv->sfty_ue_irq, stmmac_msi_non_dma,
+					  0, dev->name, dev);
+			if (unlikely(ret < 0)) {
+				netdev_err(priv->dev,
+					   "%s: ERROR allocating IRQ %d (error: %d)\n",
+					   __func__, priv->sfty_ue_irq, ret);
+				goto sfty_ue_irq_error;
+			}
+		}
+
+		/* MSI-style IRQs are handled by DMA and non-DMA ISRs */
+		/* Assign ISR to RX DMA IRQ lines */
+		for (i = 0; i < MTL_MAX_RX_QUEUES; i++) {
+			if (priv->rx_irq[i]) {
+				ret = request_irq(priv->rx_irq[i],
+						  stmmac_msi_dma,
+						  0,
+						  dev->name,
+						  dev);
+			if (unlikely(ret < 0))
+				break;
+			}
+		}
+
+		if (ret < 0) {
 			netdev_err(priv->dev,
-				   "%s: ERROR: allocating the LPI IRQ %d (%d)\n",
-				   __func__, priv->lpi_irq, ret);
-			goto lpiirq_error;
+				   "%s: ERROR: allocating IRQ %d (error: %d)\n",
+				   __func__, priv->rx_irq[i], ret);
+			goto rxirq_error;
+		}
+
+		/* Assign ISR to TX DMA IRQ lines */
+		for (i = 0; i < MTL_MAX_TX_QUEUES; i++) {
+			if (priv->tx_irq[i]) {
+				ret = request_irq(priv->tx_irq[i],
+						  stmmac_msi_dma,
+						  0,
+						  dev->name,
+						  dev);
+			}
+			if (unlikely(ret < 0))
+				break;
+		}
+
+		if (ret < 0) {
+			netdev_err(priv->dev,
+				   "%s: ERROR: allocating IRQ %d (error: %d)\n",
+				   __func__, priv->tx_irq[i], ret);
+			goto txirq_error;
 		}
 	}
 
@@ -2689,11 +2852,34 @@ static int stmmac_open(struct net_device *dev)
 
 	return 0;
 
+txirq_error:
+	if (priv->tx_irq[0]) {
+		for (i = 0; i < MTL_MAX_TX_QUEUES; i++)
+			free_irq(priv->tx_irq[i], dev);
+	}
+rxirq_error:
+	if (priv->rx_irq[0]) {
+		for (i = 0; i < MTL_MAX_RX_QUEUES; i++)
+			free_irq(priv->rx_irq[i], dev);
+	}
+sfty_ue_irq_error:
+	if (priv->sfty_ue_irq)
+		free_irq(priv->sfty_ue_irq, dev);
+sfty_ce_irq_error:
+	if (priv->sfty_ce_irq)
+		free_irq(priv->sfty_ce_irq, dev);
+macirq_error:
+	if (priv->mac_irq)
+		free_irq(priv->mac_irq, dev);
+xpcsirq_error:
+	if (priv->xpcs_irq)
+		free_irq(priv->xpcs_irq, dev);
 lpiirq_error:
-	if (priv->wol_irq != dev->irq)
-		free_irq(priv->wol_irq, dev);
+	if (priv->lpi_irq)
+		free_irq(priv->lpi_irq, dev);
 wolirq_error:
-	free_irq(dev->irq, dev);
+	if (priv->wol_irq != dev->irq && priv->wol_irq > 0)
+		free_irq(priv->wol_irq, dev);
 irq_error:
 	if (dev->phydev)
 		phy_stop(dev->phydev);
@@ -2721,6 +2907,7 @@ static int stmmac_release(struct net_device *dev)
 {
 	struct stmmac_priv *priv = netdev_priv(dev);
 	u32 chan;
+	int i;
 
 	if (priv->eee_enabled)
 		del_timer_sync(&priv->eee_ctrl_timer);
@@ -2739,11 +2926,32 @@ static int stmmac_release(struct net_device *dev)
 		del_timer_sync(&priv->tx_queue[chan].txtimer);
 
 	/* Free the IRQ lines */
-	free_irq(dev->irq, dev);
-	if (priv->wol_irq != dev->irq)
-		free_irq(priv->wol_irq, dev);
-	if (priv->lpi_irq > 0)
-		free_irq(priv->lpi_irq, dev);
+	if (!priv->plat->multi_msi_en)
+		free_irq(dev->irq, dev);
+	else {
+		if (priv->wol_irq != dev->irq  && priv->wol_irq > 0)
+			free_irq(priv->wol_irq, dev);
+		if (priv->lpi_irq > 0)
+			free_irq(priv->lpi_irq, dev);
+		if (priv->mac_irq > 0)
+			free_irq(priv->mac_irq, dev);
+		if (priv->xpcs_irq > 0)
+			free_irq(priv->xpcs_irq, dev);
+		if (priv->sfty_ue_irq > 0)
+			free_irq(priv->sfty_ue_irq, dev);
+		if (priv->sfty_ce_irq > 0)
+			free_irq(priv->sfty_ce_irq, dev);
+
+		if (priv->tx_irq[0] > 0) {
+			for (i = 0; i < priv->plat->tx_queues_to_use; i++)
+				free_irq(priv->tx_irq[i], dev);
+		}
+
+		if (priv->rx_irq[0] > 0) {
+			for (i = 0; i < priv->plat->rx_queues_to_use; i++)
+				free_irq(priv->rx_irq[i], dev);
+		}
+	}
 
 	/* Stop TX/RX DMA and clear the descriptors */
 	stmmac_stop_all_dma(priv);
@@ -3259,7 +3467,6 @@ static void stmmac_rx_vlan(struct net_device *dev, struct sk_buff *skb)
 	}
 }
 
-
 static inline int stmmac_rx_threshold_count(struct stmmac_rx_queue *rx_q)
 {
 	if (rx_q->rx_zeroc_thresh < STMMAC_RX_THRESH)
@@ -3535,6 +3742,35 @@ static int stmmac_rx(struct stmmac_priv *priv, int limit, u32 queue)
 
 	priv->xstats.rx_pkt_n += count;
 
+	switch (queue) {
+	case 0x0:
+		priv->xstats.q0_rx_pkt_n += count;
+		break;
+	case 0x1:
+		priv->xstats.q1_rx_pkt_n += count;
+		break;
+	case 0x2:
+		priv->xstats.q2_rx_pkt_n += count;
+		break;
+	case 0x3:
+		priv->xstats.q3_rx_pkt_n += count;
+		break;
+	case 0x4:
+		priv->xstats.q4_rx_pkt_n += count;
+		break;
+	case 0x5:
+		priv->xstats.q5_rx_pkt_n += count;
+		break;
+	case 0x6:
+		priv->xstats.q6_rx_pkt_n += count;
+		break;
+	case 0x7:
+		priv->xstats.q7_rx_pkt_n += count;
+		break;
+	default:
+		break;
+	}
+
 	return count;
 }
 
@@ -3685,7 +3921,163 @@ static int stmmac_set_features(struct net_device *netdev,
 	 */
 	stmmac_rx_ipc(priv, priv->hw);
 
+	netdev->features = features;
+
 	return 0;
+}
+
+/**
+ *  stmmac_msi_non_dma - same as main ISR but without dma interrupt handling
+ *  @irq: interrupt number.
+ *  @dev_id: to pass the net device pointer.
+ *  Description: ISR to service non-dma interrupts only when msi is available
+ *  It can call:
+ *  o Core interrupts to manage: remote wake-up, management counter, LPI
+ *    interrupts.
+ */
+static irqreturn_t stmmac_msi_non_dma(int irq, void *dev_id)
+{
+	struct net_device *dev = (struct net_device *)dev_id;
+	struct stmmac_priv *priv = netdev_priv(dev);
+	u32 rx_cnt = priv->plat->rx_queues_to_use;
+	u32 tx_cnt = priv->plat->tx_queues_to_use;
+	u32 queues_count;
+	u32 queue;
+
+	queues_count = (rx_cnt > tx_cnt) ? rx_cnt : tx_cnt;
+
+	if (priv->irq_wake)
+		pm_wakeup_event(priv->device, 0);
+
+	if (unlikely(!dev)) {
+		netdev_err(priv->dev, "%s: invalid dev pointer\n", __func__);
+		return IRQ_NONE;
+	}
+
+	/* Check if adapter is up */
+	if (test_bit(STMMAC_DOWN, &priv->state))
+		return IRQ_HANDLED;
+
+	/* Check if a fatal error happened */
+	if (stmmac_safety_feat_interrupt(priv))
+		return IRQ_HANDLED;
+
+	/* To handle GMAC own interrupts */
+	if (priv->plat->has_gmac || priv->plat->has_gmac4) {
+		int status = stmmac_host_irq_status(priv, priv->hw,
+						    &priv->xstats);
+		int mtl_status;
+
+		if (unlikely(status)) {
+			/* For LPI we need to save the tx status */
+			if (status & CORE_IRQ_TX_PATH_IN_LPI_MODE)
+				priv->tx_path_in_lpi_mode = true;
+			if (status & CORE_IRQ_TX_PATH_EXIT_LPI_MODE)
+				priv->tx_path_in_lpi_mode = false;
+		}
+
+		for (queue = 0; queue < queues_count; queue++) {
+			struct stmmac_rx_queue *rx_q = &priv->rx_queue[queue];
+
+			mtl_status = stmmac_host_mtl_irq_status(priv, priv->hw,
+								queue);
+			if (mtl_status != -EINVAL)
+				status |= mtl_status;
+
+			if (status & CORE_IRQ_MTL_RX_OVERFLOW)
+				stmmac_set_rx_tail_ptr(priv, priv->ioaddr,
+						       rx_q->rx_tail_addr,
+						       queue);
+		}
+
+		if (priv->hw->tsn_cap & TSN_CAP_EST)
+			stmmac_est_irq_status(priv, priv->ioaddr);
+
+		/* PCS link status */
+		if (priv->hw->pcs) {
+			if (priv->xstats.pcs_link)
+				netif_carrier_on(dev);
+			else
+				netif_carrier_off(dev);
+		}
+	}
+
+	return IRQ_HANDLED;
+}
+
+/**
+ *  stmmac_msi_non_dma - secondary ISR for dma interrupt handling only
+ *  @irq: interrupt number.
+ *  @dev_id: to pass the net device pointer.
+ *  Description: ISR to service dma interrupts only when msi is available
+ *  It can call:
+ *  o DMA service routine (to manage incoming frame reception and transmission
+ *    status)
+ */
+static irqreturn_t stmmac_msi_dma(int irq, void *dev_id)
+{
+	struct net_device *dev = (struct net_device *)dev_id;
+	struct stmmac_priv *priv = netdev_priv(dev);
+	u32 tx_channel_count = priv->plat->tx_queues_to_use;
+	u32 rx_channel_count = priv->plat->rx_queues_to_use;
+
+	u32 chan = -1; /* Invalid channel number */
+	int i;
+	int status;
+
+	if (unlikely(!dev)) {
+		netdev_err(priv->dev, "%s: invalid dev pointer\n", __func__);
+		return IRQ_NONE;
+	}
+
+	/* Check if adapter is up */
+	if (test_bit(STMMAC_DOWN, &priv->state))
+		return IRQ_HANDLED;
+
+	/* Find the queue/channel this IRQ is assigned to */
+	for (i = 0; i < rx_channel_count; i++)
+		if (priv->rx_irq[i] == irq)
+			chan = i;
+
+	if (chan < 0) {
+		for (i = 0; chan < tx_channel_count; i++)
+			if (priv->tx_irq[i] == irq)
+				chan = i;
+	}
+
+	spin_lock(&priv->dma_chan_status_lock);
+	status = stmmac_napi_check(priv, chan);
+	spin_unlock(&priv->dma_chan_status_lock);
+
+	if (unlikely(status & tx_hard_error_bump_tc)) {
+		/* Try to bump up the dma threshold on this failure */
+		if (unlikely(priv->xstats.threshold != SF_DMA_MODE) &&
+		    tc <= 256) {
+			tc += 64;
+			spin_lock(&priv->dma_operation_lock);
+
+			if (priv->plat->force_thresh_dma_mode)
+				stmmac_set_dma_operation_mode(priv,
+							      tc,
+							      tc,
+							      chan);
+			else
+				stmmac_set_dma_operation_mode(priv,
+							      tc,
+							      SF_DMA_MODE,
+							      chan);
+
+			spin_unlock(&priv->dma_operation_lock);
+			priv->xstats.threshold = tc;
+		}
+	} else if (unlikely(status == tx_hard_error)) {
+		stmmac_tx_err(priv, chan);
+	}
+
+	 /* To handle DMA interrupts */
+	stmmac_dma_interrupt(priv);
+
+	return IRQ_HANDLED;
 }
 
 /**
@@ -3754,6 +4146,9 @@ static irqreturn_t stmmac_interrupt(int irq, void *dev_id)
 						       queue);
 		}
 
+		if (priv->hw->tsn_cap & TSN_CAP_EST)
+			stmmac_est_irq_status(priv, priv->ioaddr);
+
 		/* PCS link status */
 		if (priv->hw->pcs) {
 			if (priv->xstats.pcs_link)
@@ -3767,6 +4162,35 @@ static irqreturn_t stmmac_interrupt(int irq, void *dev_id)
 	stmmac_dma_interrupt(priv);
 
 	return IRQ_HANDLED;
+}
+
+static irqreturn_t xpcs_interrupt(int irq, void *dev_id)
+{
+	struct net_device *ndev = (struct net_device *)dev_id;
+	struct stmmac_priv *priv = netdev_priv(ndev);
+	irqreturn_t ret = IRQ_NONE;
+
+	/* To handle xPCS interrupts */
+	ret = stmmac_xpcs_irq_status(priv, ndev, &priv->xstats,
+				     priv->plat->pcs_mode);
+
+	if (ret == IRQ_HANDLED) {
+		/* Keep the MAC's speed & duplex consistent with DW xPCS
+		 * because AN in DW xPCS does not update DW EQoS MAC
+		 * directly.
+		 */
+		int speed = (int)priv->xstats.pcs_speed;
+		int duplex = (int)priv->xstats.pcs_speed;
+
+		mac_adjust_link(priv, &speed, &duplex);
+
+		if (priv->xstats.pcs_link)
+			netif_carrier_on(ndev);
+		else
+			netif_carrier_off(ndev);
+	}
+
+	return ret;
 }
 
 #ifdef CONFIG_NET_POLL_CONTROLLER
@@ -3867,6 +4291,8 @@ static int stmmac_setup_tc(struct net_device *ndev, enum tc_setup_type type,
 		return stmmac_setup_tc_block(priv, type_data);
 	case TC_SETUP_QDISC_CBS:
 		return stmmac_tc_setup_cbs(priv, priv, type_data);
+	case TC_SETUP_QDISC_TAPRIO:
+		return stmmac_tc_setup_taprio(priv, priv, type_data);
 	default:
 		return -EOPNOTSUPP;
 	}
@@ -4135,6 +4561,8 @@ static void stmmac_service_task(struct work_struct *work)
  */
 static int stmmac_hw_init(struct stmmac_priv *priv)
 {
+	struct tsn_hw_cap *tsn_hwcap;
+	int gcl_depth = 0;
 	int ret;
 
 	/* dwmac-sun8i only work in chain mode */
@@ -4146,6 +4574,38 @@ static int stmmac_hw_init(struct stmmac_priv *priv)
 	ret = stmmac_hwif_init(priv);
 	if (ret)
 		return ret;
+
+	/* Initialize TSN capability */
+	stmmac_tsn_init(priv, priv->ioaddr);
+	stmmac_get_tsn_hwcap(priv, &tsn_hwcap);
+	if (tsn_hwcap)
+		gcl_depth = tsn_hwcap->gcl_depth;
+	if (gcl_depth > 0) {
+		u32 bank;
+		struct est_gc_entry *gcl[EST_GCL_BANK_MAX];
+
+		for (bank = 0; bank < EST_GCL_BANK_MAX; bank++) {
+			gcl[bank] = devm_kzalloc(priv->device,
+						 (sizeof(*gcl) * gcl_depth),
+						 GFP_KERNEL);
+			if (!gcl[bank]) {
+				ret = -ENOMEM;
+				break;
+			}
+			stmmac_set_est_gcb(priv, gcl[bank], bank);
+		}
+		if (ret) {
+			int i;
+
+			for (i = bank - 1; i >= 0; i--) {
+				devm_kfree(priv->device, gcl[i]);
+				stmmac_set_est_gcb(priv, NULL, bank);
+			}
+			dev_warn(priv->device, "EST: GCL -ENOMEM\n");
+
+			return ret;
+		}
+	}
 
 	/* Get the HW capability (new GMAC newer than 3.50a) */
 	priv->hw_cap_support = stmmac_get_hw_features(priv);
@@ -4233,9 +4693,11 @@ int stmmac_dvr_probe(struct device *device,
 		     struct stmmac_resources *res)
 {
 	struct net_device *ndev = NULL;
+	struct tsn_hw_cap *tsn_hwcap;
 	struct stmmac_priv *priv;
 	u32 queue, maxq;
 	int ret = 0;
+	int i;
 
 	ndev = alloc_etherdev_mqs(sizeof(struct stmmac_priv),
 				  MTL_MAX_TX_QUEUES,
@@ -4258,6 +4720,16 @@ int stmmac_dvr_probe(struct device *device,
 	priv->dev->irq = res->irq;
 	priv->wol_irq = res->wol_irq;
 	priv->lpi_irq = res->lpi_irq;
+	priv->xpcs_irq = res->xpcs_irq;
+	priv->mac_irq = res->mac_irq;
+	priv->sfty_ue_irq = res->sfty_ue_irq;
+	priv->sfty_ce_irq = res->sfty_ce_irq;
+
+	for (i = 0; i < priv->plat->tx_queues_to_use; i++)
+		priv->tx_irq[i] = res->tx_irq[i];
+
+	for (i = 0; i < priv->plat->rx_queues_to_use; i++)
+		priv->rx_irq[i] = res->rx_irq[i];
 
 	if (!IS_ERR_OR_NULL(res->mac))
 		memcpy(priv->dev->dev_addr, res->mac, ETH_ALEN);
@@ -4321,6 +4793,15 @@ int stmmac_dvr_probe(struct device *device,
 	}
 	ndev->features |= ndev->hw_features | NETIF_F_HIGHDMA;
 	ndev->watchdog_timeo = msecs_to_jiffies(watchdog);
+
+	/* TSN HW feature setup */
+	stmmac_get_tsn_hwcap(priv, &tsn_hwcap);
+	if (tsn_hwcap && tsn_hwcap->est_support && priv->plat->tsn_est_en) {
+		stmmac_set_tsn_feat(priv, TSN_FEAT_ID_EST, true);
+		priv->hw->tsn_cap |= TSN_CAP_EST;
+		dev_info(priv->device, "EST feature enabled\n");
+	}
+
 #ifdef STMMAC_VLAN_TAG_USED
 	/* Both mac100 and gmac support receive VLAN tag detection */
 	ndev->features |= NETIF_F_HW_VLAN_CTAG_RX | NETIF_F_HW_VLAN_STAG_RX;
@@ -4369,6 +4850,9 @@ int stmmac_dvr_probe(struct device *device,
 	}
 
 	mutex_init(&priv->lock);
+	spin_lock_init(&priv->dma_chan_status_lock);
+	spin_lock_init(&priv->dma_intr_enable_lock);
+	spin_lock_init(&priv->dma_operation_lock);
 
 	/* If a specific clk_csr value is passed from the platform
 	 * this means that the CSR Clock Range selection cannot be
@@ -4452,6 +4936,9 @@ int stmmac_dvr_remove(struct device *dev)
 	stmmac_exit_fs(ndev);
 #endif
 	stmmac_stop_all_dma(priv);
+
+	if (priv->plat->has_serdes)
+		stmmac_serdes_powerdown(priv, ndev);
 
 	stmmac_mac_set(priv, priv->ioaddr, false);
 	netif_carrier_off(ndev);
