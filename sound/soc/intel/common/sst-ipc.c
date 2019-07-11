@@ -24,7 +24,7 @@
 #include "sst-ipc.h"
 
 /* IPC message timeout (msecs) */
-#define IPC_TIMEOUT_MSECS	300
+#define IPC_TIMEOUT_MSECS	1000
 
 #define IPC_EMPTY_LIST_SIZE	8
 
@@ -43,7 +43,7 @@ static struct ipc_message *msg_get_empty(struct sst_generic_ipc *ipc)
 }
 
 static int tx_wait_done(struct sst_generic_ipc *ipc,
-	struct ipc_message *msg, void *rx_data)
+	struct ipc_message *msg, u64 *reply, void *rx_data)
 {
 	unsigned long flags;
 	int ret;
@@ -62,7 +62,9 @@ static int tx_wait_done(struct sst_generic_ipc *ipc,
 	} else {
 
 		/* copy the data returned from DSP */
-		if (msg->rx_size)
+		if (reply)
+			*reply = msg->reply;
+		if (rx_data)
 			memcpy(rx_data, msg->rx_data, msg->rx_size);
 		ret = msg->errno;
 	}
@@ -73,8 +75,8 @@ static int tx_wait_done(struct sst_generic_ipc *ipc,
 }
 
 static int ipc_tx_message(struct sst_generic_ipc *ipc, u64 header,
-	void *tx_data, size_t tx_bytes, void *rx_data,
-	size_t rx_bytes, int wait)
+	void *tx_data, size_t tx_bytes, u64 *reply,
+	void *rx_data, size_t rx_bytes, int wait)
 {
 	struct ipc_message *msg;
 	unsigned long flags;
@@ -88,6 +90,7 @@ static int ipc_tx_message(struct sst_generic_ipc *ipc, u64 header,
 	}
 
 	msg->header = header;
+	msg->reply = 0;
 	msg->tx_size = tx_bytes;
 	msg->rx_size = rx_bytes;
 	msg->wait = wait;
@@ -99,11 +102,18 @@ static int ipc_tx_message(struct sst_generic_ipc *ipc, u64 header,
 		ipc->ops.tx_data_copy(msg, tx_data, tx_bytes);
 
 	list_add_tail(&msg->list, &ipc->tx_list);
-	schedule_work(&ipc->kwork);
-	spin_unlock_irqrestore(&ipc->dsp->spinlock, flags);
+
+	if ((ipc->ops.is_dsp_busy && ipc->ops.is_dsp_busy(ipc->dsp)) ||
+                        (ipc->ops.direct_tx_msg == NULL)) {
+                schedule_work(&ipc->kwork);
+                spin_unlock_irqrestore(&ipc->dsp->spinlock, flags);
+        } else {
+                spin_unlock_irqrestore(&ipc->dsp->spinlock, flags);
+                ipc->ops.direct_tx_msg(ipc);
+        }
 
 	if (wait)
-		return tx_wait_done(ipc, msg, rx_data);
+		return tx_wait_done(ipc, msg, reply, rx_data);
 	else
 		return 0;
 }
@@ -174,7 +184,8 @@ static void ipc_tx_msgs(struct work_struct *work)
 }
 
 int sst_ipc_tx_message_wait(struct sst_generic_ipc *ipc, u64 header,
-	void *tx_data, size_t tx_bytes, void *rx_data, size_t rx_bytes)
+	void *tx_data, size_t tx_bytes, u64 *reply,
+	void *rx_data, size_t rx_bytes)
 {
 	int ret;
 
@@ -188,7 +199,7 @@ int sst_ipc_tx_message_wait(struct sst_generic_ipc *ipc, u64 header,
 			return -EIO;
 
 	ret = ipc_tx_message(ipc, header, tx_data, tx_bytes,
-		rx_data, rx_bytes, 1);
+		reply, rx_data, rx_bytes, 1);
 
 	if (ipc->ops.check_dsp_lp_on)
 		if (ipc->ops.check_dsp_lp_on(ipc->dsp, false))
@@ -202,15 +213,16 @@ int sst_ipc_tx_message_nowait(struct sst_generic_ipc *ipc, u64 header,
 	void *tx_data, size_t tx_bytes)
 {
 	return ipc_tx_message(ipc, header, tx_data, tx_bytes,
-		NULL, 0, 0);
+		NULL, NULL, 0, 0);
 }
 EXPORT_SYMBOL_GPL(sst_ipc_tx_message_nowait);
 
 int sst_ipc_tx_message_nopm(struct sst_generic_ipc *ipc, u64 header,
-	void *tx_data, size_t tx_bytes, void *rx_data, size_t rx_bytes)
+	void *tx_data, size_t tx_bytes, u64 *reply,
+	void *rx_data, size_t rx_bytes)
 {
 	return ipc_tx_message(ipc, header, tx_data, tx_bytes,
-		rx_data, rx_bytes, 1);
+		reply, rx_data, rx_bytes, 1);
 }
 EXPORT_SYMBOL_GPL(sst_ipc_tx_message_nopm);
 
@@ -222,6 +234,8 @@ struct ipc_message *sst_ipc_reply_find_msg(struct sst_generic_ipc *ipc,
 
 	if (ipc->ops.reply_msg_match != NULL)
 		header = ipc->ops.reply_msg_match(header, &mask);
+	else
+		mask = (u64)-1;
 
 	if (list_empty(&ipc->rx_list)) {
 		dev_err(ipc->dev, "error: rx list empty but received 0x%llx\n",
