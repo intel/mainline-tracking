@@ -781,6 +781,8 @@ config PARAVIRT_SPINLOCKS
 
 	  If you are unsure how to answer this question, answer Y.
 
+source "arch/x86/acrn/Kconfig"
+
 source "arch/x86/xen/Kconfig"
 
 config KVM_GUEST
