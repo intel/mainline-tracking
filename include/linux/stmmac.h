@@ -221,5 +221,7 @@ struct plat_stmmacenet_data {
 	bool speed_2500_en;
 	int int_snapshot_num;
 	int intel_adhoc_addr;
+	int ext_snapshot_num;
+	int ext_snapshot_en;
 };
 #endif
