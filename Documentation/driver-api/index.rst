@@ -42,6 +42,7 @@ available subsections can be seen below.
    target
    mtdnand
    miscellaneous
+   mei/index
    w1
    rapidio
    s390-drivers
@@ -58,6 +59,7 @@ available subsections can be seen below.
    fpga/index
    acpi/index
    generic-counter
+   rpmb/index
 
 .. only::  subproject and html
 

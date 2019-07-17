@@ -172,6 +172,20 @@ static inline void mei_me_d0i3c_write(struct mei_device *dev, u32 reg)
 	mei_me_reg_write(to_me_hw(dev), H_D0I3C, reg);
 }
 
+static u32 mei_me_trc_status(struct mei_device *dev)
+{
+	struct mei_me_hw *hw = to_me_hw(dev);
+	u32 reg;
+
+	if (!hw->cfg->trc_supported)
+		return 0;
+
+	reg = mei_me_reg_read(hw, ME_TRC);
+	trace_mei_reg_read(dev->dev, "ME_TRC", ME_TRC, reg);
+
+	return reg;
+}
+
 /**
  * mei_me_fw_status - read fw status register from pci config space
  *
@@ -1294,6 +1308,7 @@ end:
 
 static const struct mei_hw_ops mei_me_hw_ops = {
 
+	.trc_status = mei_me_trc_status,
 	.fw_status = mei_me_fw_status,
 	.pg_state  = mei_me_pg_state,
 
@@ -1320,7 +1335,10 @@ static const struct mei_hw_ops mei_me_hw_ops = {
 
 	.rdbuf_full_slots = mei_me_count_full_read_slots,
 	.read_hdr = mei_me_mecbrw_read,
-	.read = mei_me_read_slots
+	.read = mei_me_read_slots,
+
+	.pg_enter_sync = mei_me_pg_enter_sync,
+	.pg_exit_sync = mei_me_pg_exit_sync
 };
 
 static bool mei_me_fw_type_nm(struct pci_dev *pdev)
@@ -1382,6 +1400,9 @@ static bool mei_me_fw_type_sps(struct pci_dev *pdev)
 	.dma_size[DMA_DSCR_DEVICE] = SZ_128K, \
 	.dma_size[DMA_DSCR_CTRL] = PAGE_SIZE
 
+#define MEI_CFG_TRC \
+	.trc_supported = true
+
 /* ICH Legacy devices */
 static const struct mei_cfg mei_me_ich_cfg = {
 	MEI_CFG_ICH_HFS,
@@ -1420,6 +1441,13 @@ static const struct mei_cfg mei_me_pch12_cfg = {
 	MEI_CFG_DMA_128,
 };
 
+/* Tiger Lake and newer devices */
+static const struct mei_cfg mei_me_pch15_cfg = {
+	MEI_CFG_PCH8_HFS,
+	MEI_CFG_DMA_128,
+	MEI_CFG_TRC,
+};
+
 /*
  * mei_cfg_list - A list of platform platform specific configurations.
  * Note: has to be synchronized with  enum mei_cfg_idx.
@@ -1433,6 +1461,7 @@ static const struct mei_cfg *const mei_cfg_list[] = {
 	[MEI_ME_PCH8_CFG] = &mei_me_pch8_cfg,
 	[MEI_ME_PCH8_SPS_CFG] = &mei_me_pch8_sps_cfg,
 	[MEI_ME_PCH12_CFG] = &mei_me_pch12_cfg,
+	[MEI_ME_PCH15_CFG] = &mei_me_pch15_cfg,
 };
 
 const struct mei_cfg *mei_me_get_cfg(kernel_ulong_t idx)
