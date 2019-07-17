@@ -241,6 +241,7 @@ static int sst_byt_process_reply(struct sst_byt *byt, u64 header)
 		return 1;
 
 	if (header & IPC_HEADER_LARGE(true)) {
+		msg->reply = header;
 		msg->rx_size = sst_byt_header_data(header);
 		sst_dsp_inbox_read(byt->dsp, msg->rx_data, msg->rx_size);
 	}
@@ -416,7 +417,7 @@ int sst_byt_stream_commit(struct sst_byt *byt, struct sst_byt_stream *stream)
 				sizeof(*str_req) + sizeof(u32),
 				true, stream->str_id);
 	ret = sst_ipc_tx_message_wait(&byt->ipc, header, str_req,
-				      sizeof(*str_req),
+				      sizeof(*str_req), NULL,
 				      reply, sizeof(*reply));
 	if (ret < 0) {
 		dev_err(byt->dev, "ipc: error stream commit failed\n");
@@ -439,7 +440,8 @@ int sst_byt_stream_free(struct sst_byt *byt, struct sst_byt_stream *stream)
 		goto out;
 
 	header = sst_byt_header(IPC_IA_FREE_STREAM, 0, false, stream->str_id);
-	ret = sst_ipc_tx_message_wait(&byt->ipc, header, NULL, 0, NULL, 0);
+	ret = sst_ipc_tx_message_wait(&byt->ipc, header, NULL, 0,
+			NULL, NULL, 0);
 	if (ret < 0) {
 		dev_err(byt->dev, "ipc: free stream %d failed\n",
 			stream->str_id);
@@ -464,7 +466,7 @@ static int sst_byt_stream_operations(struct sst_byt *byt, int type,
 	header = sst_byt_header(type, 0, false, stream_id);
 	if (wait)
 		return sst_ipc_tx_message_wait(&byt->ipc, header, NULL,
-						0, NULL, 0);
+						0, NULL, NULL, 0);
 	else
 		return sst_ipc_tx_message_nowait(&byt->ipc, header,
 						NULL, 0);
