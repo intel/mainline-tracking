@@ -619,7 +619,11 @@ static long mei_ioctl(struct file *file, unsigned int cmd, unsigned long data)
 		props = &conn.out_client_properties;
 		vtag = 0;
 
-		if (!mei_vt_support_check(dev, cl_uuid))
+		rets = mei_vt_support_check(dev, cl_uuid);
+		if (rets == -ENOTTY)
+			goto out;
+
+		if (!rets)
 			rets = mei_ioctl_connect_vtag(file, cl_uuid, props,
 						      vtag);
 		else
@@ -649,12 +653,12 @@ static long mei_ioctl(struct file *file, unsigned int cmd, unsigned long data)
 		props = &conn_vtag.out_client_properties;
 		vtag = conn_vtag.connect.vtag;
 
-		if (mei_vt_support_check(dev, cl_uuid)) {
+		rets = mei_vt_support_check(dev, cl_uuid);
+		if (rets == -EOPNOTSUPP)
 			dev_dbg(dev->dev, "FW Client %pUl does not support vtags\n",
 				cl_uuid);
-			rets = -EOPNOTSUPP;
+		if (rets)
 			goto out;
-		}
 
 		if (!vtag) {
 			dev_dbg(dev->dev, "vtag can't be zero\n");
