@@ -203,6 +203,7 @@ static struct mount *alloc_vfsmnt(const char *name)
 		mnt->mnt_count = 1;
 		mnt->mnt_writers = 0;
 #endif
+		mnt->mnt.data = NULL;
 
 		INIT_HLIST_NODE(&mnt->mnt_hash);
 		INIT_LIST_HEAD(&mnt->mnt_child);
@@ -552,6 +553,7 @@ int sb_prepare_remount_readonly(struct super_block *sb)
 
 static void free_vfsmnt(struct mount *mnt)
 {
+	kfree(mnt->mnt.data);
 	kfree_const(mnt->mnt_devname);
 #ifdef CONFIG_SMP
 	free_percpu(mnt->mnt_pcp);
@@ -953,12 +955,16 @@ static struct mount *skip_mnt_tree(struct mount *p)
  */
 struct vfsmount *vfs_create_mount(struct fs_context *fc)
 {
-	struct mount *mnt;
+	struct mount *mnt = NULL;
 
 	if (!fc->root)
 		return ERR_PTR(-EINVAL);
 
-	mnt = alloc_vfsmnt(fc->source ?: "none");
+	if (fc->fs_type->alloc_mnt_data && fc->mnt_parent)
+		mnt = fc->mnt_parent;
+	else
+		mnt = alloc_vfsmnt(fc->source ?: "none");
+
 	if (!mnt)
 		return ERR_PTR(-ENOMEM);
 
@@ -974,13 +980,38 @@ struct vfsmount *vfs_create_mount(struct fs_context *fc)
 	lock_mount_hash();
 	list_add_tail(&mnt->mnt_instance, &mnt->mnt.mnt_sb->s_mounts);
 	unlock_mount_hash();
+
 	return &mnt->mnt;
 }
 EXPORT_SYMBOL(vfs_create_mount);
 
+static int vfs_preallocte_mount(struct fs_context *fc)
+{
+	struct mount *mnt;
+
+	mnt = alloc_vfsmnt(fc->source ?: "none");
+	if (!mnt)
+		return -ENOMEM;
+
+	mnt->mnt.data = fc->fs_type->alloc_mnt_data();
+	if (!mnt->mnt.data) {
+		mnt_free_id(mnt);
+		free_vfsmnt(mnt);
+		return -ENOMEM;
+	}
+	fc->mnt = &mnt->mnt;
+	fc->mnt_parent = mnt;
+
+	if (fc->sb_flags & SB_KERNMOUNT)
+		mnt->mnt.mnt_flags = MNT_INTERNAL;
+
+	return 0;
+}
+
 struct vfsmount *fc_mount(struct fs_context *fc)
 {
 	int err = vfs_get_tree(fc);
+
 	if (!err) {
 		up_write(&fc->root->d_sb->s_umount);
 		return vfs_create_mount(fc);
@@ -1044,6 +1075,14 @@ static struct mount *clone_mnt(struct mount *old, struct dentry *root,
 	mnt = alloc_vfsmnt(old->mnt_devname);
 	if (!mnt)
 		return ERR_PTR(-ENOMEM);
+
+	if (sb->s_op->clone_mnt_data) {
+		mnt->mnt.data = sb->s_op->clone_mnt_data(old->mnt.data);
+		if (!mnt->mnt.data) {
+			err = -ENOMEM;
+			goto out_free;
+		}
+	}
 
 	if (flag & (CL_SLAVE | CL_PRIVATE | CL_SHARED_TO_SLAVE))
 		mnt->mnt_group_id = 0; /* not a peer of original */
@@ -2526,11 +2565,22 @@ static int do_remount(struct path *path, int ms_flags, int sb_flags,
 		return PTR_ERR(fc);
 
 	err = parse_monolithic_mount_data(fc, data);
+
+	if (fc->fs_type->alloc_mnt_data && mnt) {
+	    fc->mnt = &mnt->mnt;
+	    fc->mnt_parent = mnt;
+	}
+
 	if (!err) {
 		down_write(&sb->s_umount);
 		err = -EPERM;
 		if (ns_capable(sb->s_user_ns, CAP_SYS_ADMIN)) {
 			err = reconfigure_super(fc);
+			namespace_lock();
+			lock_mount_hash();
+			propagate_remount(mnt);
+			unlock_mount_hash();
+			namespace_unlock();
 			if (!err)
 				set_mount_attributes(mnt, mnt_flags);
 		}
@@ -2788,6 +2838,8 @@ static int do_new_mount(struct path *path, const char *fstype, int sb_flags,
 		err = vfs_parse_fs_string(fc, "source", name, strlen(name));
 	if (!err)
 		err = parse_monolithic_mount_data(fc, data);
+	if (!err && fc->fs_type->alloc_mnt_data && !fc->mnt)
+		err = vfs_preallocte_mount(fc);
 	if (!err)
 		err = vfs_get_tree(fc);
 	if (!err)
