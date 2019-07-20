@@ -295,13 +295,13 @@ static void stmmac_clk_csr_set(struct stmmac_priv *priv)
 	}
 }
 
-static void print_pkt(unsigned char *buf, int len)
+void print_pkt(unsigned char *buf, int len)
 {
 	pr_debug("len = %d byte, buf addr: 0x%p\n", len, buf);
 	print_hex_dump_bytes("", DUMP_PREFIX_OFFSET, buf, len);
 }
 
-static inline u32 stmmac_tx_avail(struct stmmac_priv *priv, u32 queue)
+inline u32 stmmac_tx_avail(struct stmmac_priv *priv, u32 queue)
 {
 	struct stmmac_tx_queue *tx_q = &priv->tx_queue[queue];
 	u32 avail;
@@ -320,7 +320,7 @@ static inline u32 stmmac_tx_avail(struct stmmac_priv *priv, u32 queue)
  * @priv: driver private structure
  * @queue: RX queue index
  */
-static inline u32 stmmac_rx_dirty(struct stmmac_rx_queue *rx_q)
+inline u32 stmmac_rx_dirty(struct stmmac_rx_queue *rx_q)
 {
 	struct stmmac_priv *priv = rx_q->priv_data;
 	u32 dirty;
@@ -482,8 +482,8 @@ static void stmmac_get_tx_hwtstamp(struct stmmac_priv *priv,
  * This function will read received packet's timestamp from the descriptor
  * and pass it to stack. It also perform some sanity checks.
  */
-static void stmmac_get_rx_hwtstamp(struct stmmac_priv *priv, struct dma_desc *p,
-				   struct dma_desc *np, struct sk_buff *skb)
+void stmmac_get_rx_hwtstamp(struct stmmac_priv *priv, struct dma_desc *p,
+			    struct dma_desc *np, struct sk_buff *skb)
 {
 	struct skb_shared_hwtstamps *shhwtstamp = NULL;
 	struct dma_desc *desc = p;
@@ -1274,7 +1274,7 @@ static void stmmac_free_rx_buffer(struct stmmac_priv *priv, u32 queue, int i)
  * @queue: RX queue index
  * @i: buffer index.
  */
-static void stmmac_free_tx_buffer(struct stmmac_priv *priv, u32 queue, int i)
+void stmmac_free_tx_buffer(struct stmmac_priv *priv, u32 queue, int i)
 {
 	struct stmmac_tx_queue *tx_q = &priv->tx_queue[queue];
 
@@ -1819,7 +1819,6 @@ void stmmac_alloc_rx_buffers(struct stmmac_rx_queue *rx_q, u16 cleaned_count)
 	i -= priv->dma_rx_size;
 
 	do {
-		struct stmmac_rx_buffer *buf = &rx_q->buf_pool[entry];
 		struct dma_desc *p;
 
 		/* Get a Rx descriptor */
@@ -1843,9 +1842,6 @@ void stmmac_alloc_rx_buffers(struct stmmac_rx_queue *rx_q, u16 cleaned_count)
 					    priv->use_riwt, priv->mode,
 					    (entry == priv->dma_rx_size - 1),
 					    priv->dma_buf_sz);
-
-		netif_dbg(priv, probe, priv->dev, "[%p]\t[%x]\n",
-			  buf->page, (unsigned int)buf->dma_addr);
 
 		entry = STMMAC_GET_ENTRY(entry,  priv->dma_rx_size);
 
@@ -2142,7 +2138,7 @@ void stmmac_txrx_ring_disable(struct stmmac_priv *priv, u16 qid)
 	stmmac_stop_rx_dma(priv, qid);
 	stmmac_stop_tx_dma(priv, qid);
 
-	if (is_queue_xdp(qid))
+	if (queue_is_xdp(qid))
 		synchronize_rcu();
 
 	/* Disable napi context. */
@@ -2328,7 +2324,7 @@ static int stmmac_tx_clean(struct stmmac_priv *priv, int budget, u32 queue)
 			bytes_compl += skb->len;
 			dev_consume_skb_any(skb);
 			tx_q->tx_skbuff[entry] = NULL;
-		} else if (is_queue_xdp(queue) && tx_q->xdpf[entry]) {
+		} else if (queue_is_xdp(queue) && tx_q->xdpf[entry]) {
 			pkts_compl++;
 			bytes_compl += tx_q->xdpf[entry]->len;
 			xdp_return_frame(tx_q->xdpf[entry]);
@@ -4087,7 +4083,7 @@ tbs_err:
 	return NETDEV_TX_OK;
 }
 
-static void stmmac_rx_vlan(struct net_device *dev, struct sk_buff *skb)
+void stmmac_rx_vlan(struct net_device *dev, struct sk_buff *skb)
 {
 	struct vlan_ethhdr *veth;
 	__be16 vlan_proto;
