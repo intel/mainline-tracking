@@ -859,8 +859,10 @@ static void stmmac_get_channels(struct net_device *dev,
 
 	chan->rx_count = priv->plat->rx_queues_to_use;
 	chan->tx_count = priv->plat->tx_queues_to_use;
+	chan->combined_count = min(chan->rx_count, chan->tx_count);
 	chan->max_rx = priv->dma_cap.number_rx_queues;
 	chan->max_tx = priv->dma_cap.number_tx_queues;
+	chan->max_combined = min(chan->max_rx, chan->max_tx);
 }
 
 static int stmmac_set_channels(struct net_device *dev,
