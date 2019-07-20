@@ -286,6 +286,16 @@ int stmmac_suspend_main(struct stmmac_priv *priv, struct net_device *ndev);
 int stmmac_resume_main(struct stmmac_priv *priv, struct net_device *ndev);
 #endif
 
+void print_pkt(unsigned char *buf, int len);
+u32 stmmac_tx_avail(struct stmmac_priv *priv, u32 queue);
+u32 stmmac_rx_dirty(struct stmmac_rx_queue *rx_q);
+void stmmac_get_rx_hwtstamp(struct stmmac_priv *priv, struct dma_desc *p,
+			    struct dma_desc *np, struct sk_buff *skb);
+void stmmac_rx_vlan(struct net_device *dev, struct sk_buff *skb);
+void stmmac_txrx_ring_enable(struct stmmac_priv *priv, u16 qid);
+void stmmac_txrx_ring_disable(struct stmmac_priv *priv, u16 qid);
+void stmmac_free_tx_buffer(struct stmmac_priv *priv, u32 queue, int i);
+
 #if IS_ENABLED(CONFIG_STMMAC_SELFTESTS)
 void stmmac_selftest_run(struct net_device *dev,
 			 struct ethtool_test *etest, u64 *buf);
