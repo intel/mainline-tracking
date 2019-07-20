@@ -1036,6 +1036,7 @@ int phy_init_eee(struct phy_device *phydev, bool clk_stop_enable)
 		__ETHTOOL_DECLARE_LINK_MODE_MASK(lp);
 		__ETHTOOL_DECLARE_LINK_MODE_MASK(adv);
 		int eee_lp, eee_cap, eee_adv;
+		int fake_adv = 0xFFFF;
 		int status;
 		u32 cap;
 
@@ -1058,6 +1059,12 @@ int phy_init_eee(struct phy_device *phydev, bool clk_stop_enable)
 		 */
 		eee_lp = phy_read_mmd(phydev, MDIO_MMD_AN, MDIO_AN_EEE_LPABLE);
 		if (eee_lp <= 0)
+			goto eee_exit_err;
+
+		/* To advertised EEE link modes */
+		eee_adv = phy_write_mmd(phydev, MDIO_MMD_AN, MDIO_AN_EEE_ADV,
+					fake_adv);
+		if (eee_adv <= 0)
 			goto eee_exit_err;
 
 		eee_adv = phy_read_mmd(phydev, MDIO_MMD_AN, MDIO_AN_EEE_ADV);
