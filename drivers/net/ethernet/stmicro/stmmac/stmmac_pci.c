@@ -541,6 +541,7 @@ static SIMPLE_DEV_PM_OPS(stmmac_pm_ops, stmmac_pci_suspend, stmmac_pci_resume);
 #define STMMAC_QUARK_ID  0x0937
 #define STMMAC_DEVICE_ID 0x1108
 #define STMMAC_EHL_SGMII1G_ID	0x4b31
+#define STMMAC_EHL_SGMII2G5_ID	0x4b32
 #define STMMAC_EHL_PSE0_RGMII1G_ID	0x4ba0
 #define STMMAC_EHL_PSE0_SGMII1G_ID	0x4ba1
 #define STMMAC_EHL_PSE0_SGMII2G5_ID	0x4ba2
@@ -559,6 +560,7 @@ static const struct pci_device_id stmmac_id_table[] = {
 	STMMAC_DEVICE(STMICRO, PCI_DEVICE_ID_STMICRO_MAC, stmmac_pci_info),
 	STMMAC_DEVICE(INTEL, STMMAC_QUARK_ID, quark_pci_info),
 	STMMAC_DEVICE(INTEL, STMMAC_EHL_SGMII1G_ID, ehl_sgmii1g_pci_info),
+	STMMAC_DEVICE(INTEL, STMMAC_EHL_SGMII2G5_ID, ehl_sgmii1g_pci_info),
 	STMMAC_DEVICE(INTEL, STMMAC_EHL_PSE0_RGMII1G_ID,
 		      ehl_pse0_rgmii1g_pci_info),
 	STMMAC_DEVICE(INTEL, STMMAC_EHL_PSE0_SGMII1G_ID,
