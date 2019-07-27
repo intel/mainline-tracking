@@ -13,10 +13,10 @@ struct xt_quota_counter;
 
 struct xt_quota_mtinfo2 {
 	char name[15];
-	u_int8_t flags;
+	unsigned short flags;
 
 	/* Comparison-invariant */
-	aligned_u64 quota;
+	unsigned long quota __attribute__((aligned(8)));
 
 	/* Used internally by the kernel */
 	struct xt_quota_counter *master __attribute__((aligned(8)));
