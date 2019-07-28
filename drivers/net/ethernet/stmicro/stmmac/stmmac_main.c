@@ -3625,6 +3625,8 @@ static int stmmac_set_features(struct net_device *netdev,
 	 */
 	stmmac_rx_ipc(priv, priv->hw);
 
+	netdev->features = features;
+
 	return 0;
 }
 
