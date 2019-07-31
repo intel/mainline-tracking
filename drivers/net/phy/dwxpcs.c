@@ -314,6 +314,7 @@ static irqreturn_t dwxpcs_interrupt(int irq, void *dev_id)
 static const struct acpi_device_id dwxpcs_acpi_match[] = {
 	{ "INTC1033" }, /* EHL Ethernet PCS */
 	{ "INTC1034" }, /* TGL Ethernet PCS */
+	{ "INTC1058" }, /* TGL Ethernet PCS */
 	{ },
 };
 
