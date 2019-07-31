@@ -45,6 +45,7 @@ static const struct snd_pcm_hardware azx_pcm_hw = {
 	.formats =		SNDRV_PCM_FMTBIT_S16_LE |
 				SNDRV_PCM_FMTBIT_S32_LE |
 				SNDRV_PCM_FMTBIT_S24_LE |
+				SNDRV_PCM_FMTBIT_S24_3LE |
 				SNDRV_PCM_FMTBIT_FLOAT_LE,
 	.rates =		SNDRV_PCM_RATE_8000_192000 |
 				SNDRV_PCM_RATE_KNOT,
