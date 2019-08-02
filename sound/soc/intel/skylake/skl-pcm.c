@@ -140,7 +140,7 @@ static struct snd_pcm_hw_constraint_list hw_rates = {
  * check if the stream opened is marked as ignore_suspend by machine, if so
  * then enable suspend_active refcount
  *
- * The count supend_active does not need lock as it is used in open/close
+ * The count suspend_active does not need lock as it is used in open/close
  * and suspend context
  */
 static void skl_set_suspend_active(struct snd_pcm_substream *substream,
@@ -156,9 +156,9 @@ static void skl_set_suspend_active(struct snd_pcm_substream *substream,
 		w = dai->capture_widget;
 
 	if (w->ignore_suspend && enable)
-		skl->supend_active++;
+		skl->suspend_active++;
 	else if (w->ignore_suspend && !enable)
-		skl->supend_active--;
+		skl->suspend_active--;
 }
 
 int skl_pcm_host_dma_prepare(struct device *dev, struct skl_pipe_params *params)

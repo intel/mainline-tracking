@@ -389,7 +389,7 @@ static int skl_suspend(struct device *dev)
 	 * Do not suspend if streams which are marked ignore suspend are
 	 * running, we need to save the state for these and continue
 	 */
-	if (skl->supend_active) {
+	if (skl->suspend_active) {
 		/* turn off the links and stop the CORB/RIRB DMA if it is On */
 		snd_hdac_ext_bus_link_power_down_all(bus);
 
@@ -420,7 +420,7 @@ static int skl_resume(struct device *dev)
 	 * resume only when we are not in suspend active, otherwise need to
 	 * restore the device
 	 */
-	if (skl->supend_active) {
+	if (skl->suspend_active) {
 		pci_restore_state(pci);
 		snd_hdac_ext_bus_link_power_up_all(bus);
 		disable_irq_wake(bus->irq);

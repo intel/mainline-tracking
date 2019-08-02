@@ -128,7 +128,7 @@ struct skl_dev {
 	char tplg_name[64];
 	unsigned short pci_id;
 
-	int supend_active;
+	int suspend_active;
 
 	struct work_struct probe_work;
 

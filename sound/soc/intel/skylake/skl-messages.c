@@ -215,7 +215,7 @@ int skl_suspend_late_dsp(struct skl_dev *skl)
 	dwork = &skl->d0i3.work;
 
 	if (dwork->work.func) {
-		if (skl->supend_active)
+		if (skl->suspend_active)
 			flush_delayed_work(dwork);
 		else
 			cancel_delayed_work_sync(dwork);
