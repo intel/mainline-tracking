@@ -182,11 +182,12 @@ struct plat_stmmacenet_data {
 	void (*fix_mac_speed)(void *priv, unsigned int speed);
 	int (*serdes_powerup)(struct net_device *ndev, void *priv);
 	void (*serdes_powerdown)(struct net_device *ndev, void *priv);
+	int (*check_speed_2500)(struct net_device *ndev);
 	int (*init)(struct platform_device *pdev, void *priv);
 	void (*exit)(struct platform_device *pdev, void *priv);
 	struct mac_device_info *(*setup)(void *priv);
 	int (*setup_phy_conv)(struct mii_bus *bus, int irq,
-	     int phy_addr);
+	     int phy_addr, bool speed_2500_en);
 	int (*remove_phy_conv)(struct mii_bus *bus);
 	void *bsp_priv;
 	struct clk *stmmac_clk;
@@ -217,6 +218,7 @@ struct plat_stmmacenet_data {
 	int msi_rx_base_vec;
 	int msi_tx_base_vec;
 	bool has_art;
+	bool speed_2500_en;
 	int int_snapshot_num;
 	int intel_adhoc_addr;
 };

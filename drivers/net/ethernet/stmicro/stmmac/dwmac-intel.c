@@ -85,6 +85,22 @@ static int intel_serdes_powerup(struct net_device *ndev, void *priv_data)
 
 	serdes_phy_addr = intel_priv->mdio_adhoc_addr;
 
+	/* Set the serdes rate and the PCLK rate */
+	data = mdiobus_read(priv->mii, serdes_phy_addr,
+			    SERDES_GCR0);
+
+	data &= ~SERDES_RATE_MASK;
+	data &= ~SERDES_PCLK_MASK;
+
+	if (priv->plat->speed_2500_en)
+		data |= SERDES_RATE_PCIE_GEN2 << SERDES_RATE_PCIE_SHIFT |
+			SERDES_PCLK_37p5MHZ << SERDES_PCLK_SHIFT;
+	else
+		data |= SERDES_RATE_PCIE_GEN1 << SERDES_RATE_PCIE_SHIFT |
+			SERDES_PCLK_70MHZ << SERDES_PCLK_SHIFT;
+
+	mdiobus_write(priv->mii, serdes_phy_addr, SERDES_GCR0, data);
+
 	/* assert clk_req */
 	data = mdiobus_read(priv->mii, serdes_phy_addr, SERDES_GCR0);
 	data |= SERDES_PLL_CLK;
@@ -203,6 +219,27 @@ static void intel_serdes_powerdown(struct net_device *ndev, void *intel_data)
 	}
 }
 
+static int intel_speed_mode_2500(struct net_device *ndev)
+{
+	struct stmmac_priv *priv = netdev_priv(ndev);
+	int serdes_phy_addr = 0;
+	u32 data = 0;
+
+	serdes_phy_addr = priv->plat->intel_adhoc_addr;
+
+	/* Determine the link speed mode: 2.5Gbps/1Gbps */
+	data = mdiobus_read(priv->mii, serdes_phy_addr,
+			    SERDES_GCR);
+
+	if (((data & SERDES_LINK_MODE_MASK) >> SERDES_LINK_MODE_SHIFT) ==
+	    SERDES_LINK_MODE_2G5) {
+		dev_info(priv->device, "Link Speed Mode: 2.5Gbps\n");
+		return 1;
+	} else {
+		return 0;
+	}
+}
+
 static void common_default_data(struct plat_stmmacenet_data *plat)
 {
 	plat->clk_csr = 2;	/* clk_csr_i = 20-35MHz & MDC = clk_csr_i/16 */
@@ -244,12 +281,13 @@ static struct mdio_board_info intel_mgbe_bdinfo = {
 };
 
 static int setup_intel_mgbe_phy_conv(struct mii_bus *bus, int irq,
-				     int phy_addr)
+				     int phy_addr, bool speed_2500_en)
 {
 	struct dwxpcs_platform_data *pdata = &intel_mgbe_pdata;
 
 	pdata->irq = irq;
 	pdata->ext_phy_addr = phy_addr;
+	pdata->speed_2500_en = speed_2500_en;
 
 	return mdiobus_create_device(bus, &intel_mgbe_bdinfo);
 }
@@ -391,6 +429,7 @@ static int intel_mgbe_common_data(struct pci_dev *pdev,
 	plat->intel_adhoc_addr = intel_priv->mdio_adhoc_addr;
 
 	plat->int_snapshot_num = AUX_SNAPSHOT1;
+	plat->check_speed_2500 = intel_speed_mode_2500;
 
 	return 0;
 }
