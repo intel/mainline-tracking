@@ -121,11 +121,13 @@ static struct mdio_board_info intel_mgbe_bdinfo = {
 	.platform_data = &intel_mgbe_pdata,
 };
 
-static int setup_intel_mgbe_phy_conv(struct mii_bus *bus, int irq)
+static int setup_intel_mgbe_phy_conv(struct mii_bus *bus, int irq,
+				     bool speed_2500_en)
 {
 	struct dwxpcs_platform_data *pdata = &intel_mgbe_pdata;
 
 	pdata->irq = irq;
+	pdata->speed_2500_en = speed_2500_en;
 
 	return mdiobus_create_device(bus, &intel_mgbe_bdinfo);
 }
