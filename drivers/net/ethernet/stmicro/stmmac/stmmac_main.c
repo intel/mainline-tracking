@@ -3819,7 +3819,7 @@ static int stmmac_rx(struct stmmac_priv *priv, int limit, u32 queue)
 		} else {
 			struct sk_buff *skb;
 			int frame_len;
-			unsigned int des;
+			dma_addr_t des;
 			int ret;
 
 			stmmac_get_desc_addr(priv, p, &des);
@@ -3850,7 +3850,7 @@ static int stmmac_rx(struct stmmac_priv *priv, int limit, u32 queue)
 				frame_len -= ETH_FCS_LEN;
 
 			if (netif_msg_rx_status(priv)) {
-				netdev_dbg(priv->dev, "\tdesc: %p [entry %d] buff=0x%x\n",
+				netdev_dbg(priv->dev, "\tdesc: %p [entry %d] buff=0x%llx\n",
 					   p, entry, des);
 				netdev_dbg(priv->dev, "frame size %d, COE: %d\n",
 					   frame_len, status);
