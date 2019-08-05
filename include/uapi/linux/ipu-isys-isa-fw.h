@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: GPL-2.0 */
+/* SPDX-License-Identifier: GPL-2.0 WITH Linux-syscall-note*/
 /* Copyright (C) 2014 - 2018 Intel Corporation */
 
 #ifndef IPU_ISYS_ISA_FW_H
