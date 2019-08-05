@@ -179,6 +179,14 @@ static int mfd_add_device(struct device *parent, int id,
 			goto fail_alias;
 	}
 
+	if (cell->node) {
+		ret = software_node_register(cell->node);
+		if (ret)
+			goto fail_alias;
+
+		pdev->dev.fwnode = software_node_fwnode(cell->node);
+	}
+
 	for (r = 0; r < cell->num_resources; r++) {
 		res[r].name = cell->resources[r].name;
 		res[r].flags = cell->resources[r].flags;
