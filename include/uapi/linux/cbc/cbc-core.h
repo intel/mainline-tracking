@@ -1,4 +1,4 @@
-/* SPDX-License-Identifier: GPL-2.0 */
+/* SPDX-License-Identifier: GPL-2.0 WITH Linux-syscall-note */
 /*
  * CBC line discipline kernel module.
  * Handles Carrier Board Communications (CBC) protocol.
