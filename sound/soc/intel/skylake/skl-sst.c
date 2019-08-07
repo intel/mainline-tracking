@@ -650,6 +650,12 @@ library_load:
 		}
 	}
 
+	ret = skl_ipc_modules_info_get(&skl->ipc, &skl->fw_modules_info);
+	if (ret < 0) {
+		dev_err(dev, "Failed to get modules info: %d\n", ret);
+		goto exit;
+	}
+
 	skl->is_first_boot = false;
 exit:
 	skl->ipc.ops.check_dsp_lp_on = lp_check;
@@ -669,6 +675,8 @@ void skl_sst_dsp_cleanup(struct skl_dev *skl)
 	if (pdata->fw)
 		release_firmware(pdata->fw);
 	skl_clear_module_table(dsp);
+
+	kfree(skl->fw_modules_info);
 
 	list_del_init(&skl->module_list);
 	sst_dsp_free(dsp);
