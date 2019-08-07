@@ -19,13 +19,16 @@
 #include <linux/delay.h>
 #include <linux/firmware.h>
 #include <linux/device.h>
+#include <asm/set_memory.h>
+#include <asm/cacheflush.h>
+#include <sound/soc-acpi.h>
 
 #include "../common/sst-dsp.h"
 #include "../common/sst-dsp-priv.h"
 #include "../common/sst-ipc.h"
 #include "cnl-sst-dsp.h"
-#include "skl-sst-dsp.h"
-#include "skl-sst-ipc.h"
+#include "skl.h"
+#include "skl-topology.h"
 
 #define CNL_FW_ROM_INIT		0x1
 #define CNL_FW_INIT		0x5
@@ -33,10 +36,8 @@
 #define CNL_INIT_TIMEOUT	300
 #define CNL_BASEFW_TIMEOUT	3000
 
-#define CNL_ADSP_SRAM0_BASE	0x80000
-
 /* Firmware status window */
-#define CNL_ADSP_FW_STATUS	CNL_ADSP_SRAM0_BASE
+#define CNL_ADSP_FW_STATUS	BXT_ADSP_SRAM0_BASE
 #define CNL_ADSP_ERROR_CODE	(CNL_ADSP_FW_STATUS + 0x4)
 
 #define CNL_INSTANCE_ID		0
@@ -44,12 +45,62 @@
 #define CNL_ADSP_FW_HDR_OFFSET	0x2000
 #define CNL_ROM_CTRL_DMA_ID	0x9
 
+#ifdef CONFIG_X86_64
+#define CNL_IMR_MEMSIZE					0x400000
+#define CNL_IMR_PAGES	((CNL_IMR_MEMSIZE + PAGE_SIZE - 1) >> PAGE_SHIFT)
+#define HDA_ADSP_REG_ADSPCS_IMR_CACHED_TLB_START	0x100
+#define HDA_ADSP_REG_ADSPCS_IMR_UNCACHED_TLB_START	0x200
+#define HDA_ADSP_REG_ADSPCS_IMR_SIZE			0x8
+
+/* Needed for presilicon platform based on FPGA */
+static int cnl_alloc_imr(struct sst_dsp *ctx)
+{
+	if (ctx->dsp_ops.alloc_dma_buf(ctx->dev, &ctx->imr_buf,
+	     CNL_IMR_MEMSIZE) < 0) {
+		dev_err(ctx->dev, "Alloc imr buffer failed\n");
+		return -ENOMEM;
+	}
+
+	set_memory_uc((unsigned long)ctx->imr_buf.area, CNL_IMR_PAGES);
+	writeq(virt_to_phys(ctx->imr_buf.area) + 1,
+		 ctx->addr.shim + HDA_ADSP_REG_ADSPCS_IMR_CACHED_TLB_START);
+	writeq(virt_to_phys(ctx->imr_buf.area) + 1,
+		 ctx->addr.shim + HDA_ADSP_REG_ADSPCS_IMR_UNCACHED_TLB_START);
+
+	writel(CNL_IMR_MEMSIZE, ctx->addr.shim
+		+ HDA_ADSP_REG_ADSPCS_IMR_CACHED_TLB_START
+		+ HDA_ADSP_REG_ADSPCS_IMR_SIZE);
+	writel(CNL_IMR_MEMSIZE, ctx->addr.shim
+		+ HDA_ADSP_REG_ADSPCS_IMR_UNCACHED_TLB_START
+		+ HDA_ADSP_REG_ADSPCS_IMR_SIZE);
+
+	memset(ctx->imr_buf.area, 0, CNL_IMR_MEMSIZE);
+
+	return 0;
+}
+
+static inline void cnl_free_imr(struct sst_dsp *ctx)
+{
+	ctx->dsp_ops.free_dma_buf(ctx->dev, &ctx->imr_buf);
+}
+#endif
+
 static int cnl_prepare_fw(struct sst_dsp *ctx, const void *fwdata, u32 fwsize)
 {
 
 	int ret, stream_tag;
-
-	stream_tag = ctx->dsp_ops.prepare(ctx->dev, 0x40, fwsize, &ctx->dmab);
+#ifdef CONFIG_X86_64
+	struct skl_dev *skl = get_skl_ctx(ctx->dev);
+	struct skl_machine_pdata *pdata = (struct skl_machine_pdata *)
+						skl->mach->pdata;
+	if (pdata && pdata->imr_alloc && *(pdata->imr_alloc)) {
+		ret = cnl_alloc_imr(ctx);
+		if (ret < 0)
+			return ret;
+	}
+#endif
+	stream_tag = ctx->dsp_ops.prepare(ctx->dev, 0x40, fwsize, &ctx->dmab,
+						SNDRV_PCM_STREAM_PLAYBACK);
 	if (stream_tag <= 0) {
 		dev_err(ctx->dev, "dma prepare failed: 0%#x\n", stream_tag);
 		return stream_tag;
@@ -58,6 +109,7 @@ static int cnl_prepare_fw(struct sst_dsp *ctx, const void *fwdata, u32 fwsize)
 	ctx->dsp_ops.stream_tag = stream_tag;
 	memcpy(ctx->dmab.area, fwdata, fwsize);
 
+	clflush_cache_range(ctx->dmab.area, fwsize);
 	/* purge FW request */
 	sst_dsp_shim_write(ctx, CNL_ADSP_REG_HIPCIDR,
 			   CNL_ADSP_REG_HIPCIDR_BUSY | (CNL_IPC_PURGE |
@@ -85,9 +137,13 @@ static int cnl_prepare_fw(struct sst_dsp *ctx, const void *fwdata, u32 fwsize)
 	return 0;
 
 base_fw_load_failed:
-	ctx->dsp_ops.cleanup(ctx->dev, &ctx->dmab, stream_tag);
+	ctx->dsp_ops.cleanup(ctx->dev, &ctx->dmab, stream_tag,
+						SNDRV_PCM_STREAM_PLAYBACK);
 	cnl_dsp_disable_core(ctx, SKL_DSP_CORE0_MASK);
-
+#ifdef CONFIG_X86_64
+	if (pdata && pdata->imr_alloc && *(pdata->imr_alloc))
+		cnl_free_imr(ctx);
+#endif
 	return ret;
 }
 
@@ -95,13 +151,16 @@ static int sst_transfer_fw_host_dma(struct sst_dsp *ctx)
 {
 	int ret;
 
-	ctx->dsp_ops.trigger(ctx->dev, true, ctx->dsp_ops.stream_tag);
+	ctx->dsp_ops.trigger(ctx->dev, true, ctx->dsp_ops.stream_tag,
+						SNDRV_PCM_STREAM_PLAYBACK);
 	ret = sst_dsp_register_poll(ctx, CNL_ADSP_FW_STATUS, CNL_FW_STS_MASK,
 				    CNL_FW_INIT, CNL_BASEFW_TIMEOUT,
 				    "firmware boot");
 
-	ctx->dsp_ops.trigger(ctx->dev, false, ctx->dsp_ops.stream_tag);
-	ctx->dsp_ops.cleanup(ctx->dev, &ctx->dmab, ctx->dsp_ops.stream_tag);
+	ctx->dsp_ops.trigger(ctx->dev, false, ctx->dsp_ops.stream_tag,
+						SNDRV_PCM_STREAM_PLAYBACK);
+	ctx->dsp_ops.cleanup(ctx->dev, &ctx->dmab, ctx->dsp_ops.stream_tag,
+						SNDRV_PCM_STREAM_PLAYBACK);
 
 	return ret;
 }
@@ -109,41 +168,48 @@ static int sst_transfer_fw_host_dma(struct sst_dsp *ctx)
 static int cnl_load_base_firmware(struct sst_dsp *ctx)
 {
 	struct firmware stripped_fw;
-	struct skl_sst *cnl = ctx->thread_context;
-	int ret;
+	struct skl_dev *cnl = ctx->thread_context;
+	int ret, i;
 
 	if (!ctx->fw) {
 		ret = request_firmware(&ctx->fw, ctx->fw_name, ctx->dev);
 		if (ret < 0) {
 			dev_err(ctx->dev, "request firmware failed: %d\n", ret);
-			goto cnl_load_base_firmware_failed;
+			return ret;
 		}
 	}
 
-	/* parse uuids if first boot */
 	if (cnl->is_first_boot) {
-		ret = snd_skl_parse_uuids(ctx, ctx->fw,
-					  CNL_ADSP_FW_HDR_OFFSET, 0);
+		ret = snd_skl_parse_manifest(ctx, ctx->fw,
+						CNL_ADSP_FW_HDR_OFFSET, 0);
 		if (ret < 0)
-			goto cnl_load_base_firmware_failed;
+			goto load_base_firmware_failed;
 	}
 
 	stripped_fw.data = ctx->fw->data;
 	stripped_fw.size = ctx->fw->size;
 	skl_dsp_strip_extended_manifest(&stripped_fw);
 
-	ret = cnl_prepare_fw(ctx, stripped_fw.data, stripped_fw.size);
-	if (ret < 0) {
-		dev_err(ctx->dev, "prepare firmware failed: %d\n", ret);
-		goto cnl_load_base_firmware_failed;
+	ret = -ENOEXEC;
+	for (i = 0; i < SST_FW_INIT_RETRY && ret < 0; i++) {
+		ret = cnl_prepare_fw(ctx, stripped_fw.data, stripped_fw.size);
+		if (ret < 0) {
+			dev_dbg(ctx->dev, "prepare firmware failed: %d\n", ret);
+			continue;
+		}
+
+		dev_dbg(ctx->dev, "ROM loaded successfully on iteration %d.\n", i);
+
+		ret = sst_transfer_fw_host_dma(ctx);
+		if (ret < 0) {
+			dev_dbg(ctx->dev, "transfer firmware failed: %d\n", ret);
+			cnl_dsp_disable_core(ctx, SKL_DSP_CORE0_MASK);
+		}
 	}
 
-	ret = sst_transfer_fw_host_dma(ctx);
-	if (ret < 0) {
-		dev_err(ctx->dev, "transfer firmware failed: %d\n", ret);
-		cnl_dsp_disable_core(ctx, SKL_DSP_CORE0_MASK);
-		goto cnl_load_base_firmware_failed;
-	}
+	if (ret < 0)
+		goto load_base_firmware_failed;
+	dev_dbg(ctx->dev, "Firmware download successful.\n");
 
 	ret = wait_event_timeout(cnl->boot_wait, cnl->boot_complete,
 				 msecs_to_jiffies(SKL_IPC_BOOT_MSECS));
@@ -151,14 +217,15 @@ static int cnl_load_base_firmware(struct sst_dsp *ctx)
 		dev_err(ctx->dev, "FW ready timed-out\n");
 		cnl_dsp_disable_core(ctx, SKL_DSP_CORE0_MASK);
 		ret = -EIO;
-		goto cnl_load_base_firmware_failed;
+		goto load_base_firmware_failed;
 	}
 
 	cnl->fw_loaded = true;
 
 	return 0;
 
-cnl_load_base_firmware_failed:
+load_base_firmware_failed:
+	dev_err(ctx->dev, "Firmware load failed: %d.\n", ret);
 	release_firmware(ctx->fw);
 	ctx->fw = NULL;
 
@@ -167,17 +234,27 @@ cnl_load_base_firmware_failed:
 
 static int cnl_set_dsp_D0(struct sst_dsp *ctx, unsigned int core_id)
 {
-	struct skl_sst *cnl = ctx->thread_context;
+	struct skl_dev *cnl = ctx->thread_context;
 	unsigned int core_mask = SKL_DSP_CORE_MASK(core_id);
 	struct skl_ipc_dxstate_info dx;
 	int ret;
 
 	if (!cnl->fw_loaded) {
 		cnl->boot_complete = false;
-		ret = cnl_load_base_firmware(ctx);
+		ret = ctx->fw_ops.load_fw(ctx);
 		if (ret < 0) {
 			dev_err(ctx->dev, "fw reload failed: %d\n", ret);
 			return ret;
+		}
+
+		if (cnl->lib_count > 1) {
+			ret = ctx->fw_ops.load_library(ctx, cnl->lib_info,
+						cnl->lib_count);
+			if (ret < 0) {
+				dev_err(ctx->dev,
+					"reload libs failed: %d\n", ret);
+				return ret;
+			}
 		}
 
 		cnl->cores.state[core_id] = SKL_DSP_RUNNING;
@@ -229,7 +306,7 @@ err:
 
 static int cnl_set_dsp_D3(struct sst_dsp *ctx, unsigned int core_id)
 {
-	struct skl_sst *cnl = ctx->thread_context;
+	struct skl_dev *cnl = ctx->thread_context;
 	unsigned int core_mask = SKL_DSP_CORE_MASK(core_id);
 	struct skl_ipc_dxstate_info dx;
 	int ret;
@@ -248,7 +325,7 @@ static int cnl_set_dsp_D3(struct sst_dsp *ctx, unsigned int core_id)
 
 	/* disable interrupts if core 0 */
 	if (core_id == SKL_DSP_CORE0_ID) {
-		skl_ipc_op_int_disable(ctx);
+		cnl_ipc_op_int_disable(ctx);
 		skl_ipc_int_disable(ctx);
 	}
 
@@ -272,8 +349,14 @@ static unsigned int cnl_get_errno(struct sst_dsp *ctx)
 static const struct skl_dsp_fw_ops cnl_fw_ops = {
 	.set_state_D0 = cnl_set_dsp_D0,
 	.set_state_D3 = cnl_set_dsp_D3,
+	.set_state_D0i3 = bxt_schedule_dsp_D0i3,
+	.set_state_D0i0 = bxt_set_dsp_D0i0,
 	.load_fw = cnl_load_base_firmware,
 	.get_fw_errcode = cnl_get_errno,
+	.load_library = bxt_load_library,
+	.enable_logs = bxt_enable_logs,
+	.log_buffer_offset = skl_log_buffer_offset,
+	.log_buffer_status = bxt_log_buffer_status,
 };
 
 static struct sst_ops cnl_ops = {
@@ -293,7 +376,7 @@ static struct sst_ops cnl_ops = {
 static irqreturn_t cnl_dsp_irq_thread_handler(int irq, void *context)
 {
 	struct sst_dsp *dsp = context;
-	struct skl_sst *cnl = sst_dsp_get_thread_context(dsp);
+	struct skl_dev *cnl = sst_dsp_get_thread_context(dsp);
 	struct sst_generic_ipc *ipc = &cnl->ipc;
 	struct skl_ipc_header header = {0};
 	u32 hipcida, hipctdr, hipctdd;
@@ -367,10 +450,10 @@ static struct sst_dsp_device cnl_dev = {
 
 static void cnl_ipc_tx_msg(struct sst_generic_ipc *ipc, struct ipc_message *msg)
 {
-	struct skl_ipc_header *header = (struct skl_ipc_header *)(&msg->header);
+	struct skl_ipc_header *header = (struct skl_ipc_header *)(&msg->tx.header);
 
-	if (msg->tx_size)
-		sst_dsp_outbox_write(ipc->dsp, msg->tx_data, msg->tx_size);
+	if (msg->tx.size)
+		sst_dsp_outbox_write(ipc->dsp, msg->tx.data, msg->tx.size);
 	sst_dsp_shim_write_unlocked(ipc->dsp, CNL_ADSP_REG_HIPCIDD,
 				    header->extension);
 	sst_dsp_shim_write_unlocked(ipc->dsp, CNL_ADSP_REG_HIPCIDR,
@@ -386,7 +469,7 @@ static bool cnl_ipc_is_dsp_busy(struct sst_dsp *dsp)
 	return (hipcidr & CNL_ADSP_REG_HIPCIDR_BUSY);
 }
 
-static int cnl_ipc_init(struct device *dev, struct skl_sst *cnl)
+static int cnl_ipc_init(struct device *dev, struct skl_dev *cnl)
 {
 	struct sst_generic_ipc *ipc;
 	int err;
@@ -415,9 +498,9 @@ static int cnl_ipc_init(struct device *dev, struct skl_sst *cnl)
 
 int cnl_sst_dsp_init(struct device *dev, void __iomem *mmio_base, int irq,
 		     const char *fw_name, struct skl_dsp_loader_ops dsp_ops,
-		     struct skl_sst **dsp)
+		     struct skl_dev **dsp)
 {
-	struct skl_sst *cnl;
+	struct skl_dev *cnl;
 	struct sst_dsp *sst;
 	int ret;
 
@@ -432,58 +515,34 @@ int cnl_sst_dsp_init(struct device *dev, void __iomem *mmio_base, int irq,
 	sst->fw_ops = cnl_fw_ops;
 	sst->addr.lpe = mmio_base;
 	sst->addr.shim = mmio_base;
-	sst->addr.sram0_base = CNL_ADSP_SRAM0_BASE;
-	sst->addr.sram1_base = CNL_ADSP_SRAM1_BASE;
+	sst->addr.sram0_base = BXT_ADSP_SRAM0_BASE;
+	sst->addr.sram1_base = BXT_ADSP_SRAM1_BASE;
+	sst->addr.sram0 = (mmio_base + BXT_ADSP_SRAM0_BASE);
+	sst->addr.sram2 = (mmio_base + BXT_ADSP_SRAM2_BASE);
 	sst->addr.w0_stat_sz = CNL_ADSP_W0_STAT_SZ;
 	sst->addr.w0_up_sz = CNL_ADSP_W0_UP_SZ;
 
-	sst_dsp_mailbox_init(sst, (CNL_ADSP_SRAM0_BASE + CNL_ADSP_W0_STAT_SZ),
-			     CNL_ADSP_W0_UP_SZ, CNL_ADSP_SRAM1_BASE,
+	sst_dsp_mailbox_init(sst, (BXT_ADSP_SRAM0_BASE + CNL_ADSP_W0_STAT_SZ),
+			     CNL_ADSP_W0_UP_SZ, BXT_ADSP_SRAM1_BASE,
 			     CNL_ADSP_W1_SZ);
 
 	ret = cnl_ipc_init(dev, cnl);
 	if (ret) {
-		skl_dsp_free(sst);
+		cnl_dsp_free(sst);
 		return ret;
 	}
 
+	/* set the D0i3 check */
+	cnl->ipc.ops.check_dsp_lp_on = skl_ipc_check_D0i0;
 	cnl->boot_complete = false;
 	init_waitqueue_head(&cnl->boot_wait);
+
+	INIT_DELAYED_WORK(&cnl->d0i3.work, bxt_set_dsp_D0i3);
+	cnl->d0i3.state = SKL_DSP_D0I3_NONE;
 
 	return skl_dsp_acquire_irq(sst);
 }
 EXPORT_SYMBOL_GPL(cnl_sst_dsp_init);
-
-int cnl_sst_init_fw(struct device *dev, struct skl_sst *ctx)
-{
-	int ret;
-	struct sst_dsp *sst = ctx->dsp;
-
-	ret = ctx->dsp->fw_ops.load_fw(sst);
-	if (ret < 0) {
-		dev_err(dev, "load base fw failed: %d", ret);
-		return ret;
-	}
-
-	skl_dsp_init_core_state(sst);
-
-	ctx->is_first_boot = false;
-
-	return 0;
-}
-EXPORT_SYMBOL_GPL(cnl_sst_init_fw);
-
-void cnl_sst_dsp_cleanup(struct device *dev, struct skl_sst *ctx)
-{
-	if (ctx->dsp->fw)
-		release_firmware(ctx->dsp->fw);
-
-	skl_freeup_uuid_list(ctx);
-	cnl_ipc_free(&ctx->ipc);
-
-	ctx->dsp->ops->free(ctx->dsp);
-}
-EXPORT_SYMBOL_GPL(cnl_sst_dsp_cleanup);
 
 MODULE_LICENSE("GPL v2");
 MODULE_DESCRIPTION("Intel Cannonlake IPC driver");

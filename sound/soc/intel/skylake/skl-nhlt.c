@@ -11,6 +11,7 @@
 #include <linux/pci.h>
 #include "skl.h"
 #include "skl-i2s.h"
+#include "skl-topology.h"
 
 #define NHLT_ACPI_HEADER_SIG	"NHLT"
 
@@ -19,13 +20,33 @@ static guid_t osc_guid =
 	GUID_INIT(0xA69F886E, 0x6CEB, 0x4594,
 		  0xA4, 0x1F, 0x7B, 0x5D, 0xCE, 0x24, 0xC5, 0x53);
 
+int skl_get_nhlt_version(struct device *dev)
+{
+	const char *version;
+	int ret;
+
+	ret = device_property_read_string(dev, "nhlt-version", &version);
+	if (!ret) {
+		if (!strncmp(version, "1.8-0", strlen("1.8-0")))
+			return VERSION_1;
+		else
+			return VERSION_INVALID;
+	}
+	/* if reading fails, assume we are on older platforms */
+	return VERSION_0;
+}
 
 struct nhlt_acpi_table *skl_nhlt_init(struct device *dev)
 {
 	acpi_handle handle;
 	union acpi_object *obj;
 	struct nhlt_resource_desc  *nhlt_ptr = NULL;
-	struct nhlt_acpi_table *nhlt_table = NULL;
+	struct nhlt_acpi_table *nhlt = NULL;
+	struct nhlt_acpi_table *tmp;
+	struct nhlt_endpoint_list *entries;
+	struct nhlt_endpoint *epnt_tmp;
+	struct skl_dev *skl = get_skl_ctx(dev);
+	int i;
 
 	handle = ACPI_HANDLE(dev);
 	if (!handle) {
@@ -34,30 +55,65 @@ struct nhlt_acpi_table *skl_nhlt_init(struct device *dev)
 	}
 
 	obj = acpi_evaluate_dsm(handle, &osc_guid, 1, 1, NULL);
-	if (obj && obj->type == ACPI_TYPE_BUFFER) {
-		nhlt_ptr = (struct nhlt_resource_desc  *)obj->buffer.pointer;
-		if (nhlt_ptr->length)
-			nhlt_table = (struct nhlt_acpi_table *)
-				memremap(nhlt_ptr->min_addr, nhlt_ptr->length,
-				MEMREMAP_WB);
-		ACPI_FREE(obj);
-		if (nhlt_table && (strncmp(nhlt_table->header.signature,
-					NHLT_ACPI_HEADER_SIG,
-					strlen(NHLT_ACPI_HEADER_SIG)) != 0)) {
-			memunmap(nhlt_table);
-			dev_err(dev, "NHLT ACPI header signature incorrect\n");
-			return NULL;
-		}
-		return nhlt_table;
+	if (!obj) {
+		dev_err(dev, "Failed evaluate ACPI device\n");
+		return NULL;
 	}
 
-	dev_err(dev, "device specific method to extract NHLT blob failed\n");
-	return NULL;
-}
+	if (obj->type != ACPI_TYPE_BUFFER) {
+		dev_err(dev, "Wrong type of ACPI buffer\n");
+		goto out;
+	}
 
-void skl_nhlt_free(struct nhlt_acpi_table *nhlt)
-{
-	memunmap((void *) nhlt);
+	nhlt_ptr = (struct nhlt_resource_desc  *)obj->buffer.pointer;
+	if (!nhlt_ptr || !nhlt_ptr->length)
+		goto out;
+
+	tmp = memremap(nhlt_ptr->min_addr, nhlt_ptr->length,
+			MEMREMAP_WB);
+	if (!tmp) {
+		dev_err(dev, "Failed to map memory for NHLT\n");
+		goto out;
+	}
+
+	if (strncmp(tmp->header.signature, NHLT_ACPI_HEADER_SIG,
+			strlen(NHLT_ACPI_HEADER_SIG)) != 0) {
+		dev_err(dev, "NHLT ACPI header signature incorrect\n");
+		memunmap(tmp);
+		goto out;
+	}
+
+	nhlt = devm_kmemdup(dev, tmp, nhlt_ptr->length, GFP_KERNEL);
+	memunmap(tmp);
+
+	if (!nhlt)
+		goto out;
+
+	INIT_LIST_HEAD(&skl->nhlt_endpoint_list);
+	entries = devm_kmalloc_array(dev, nhlt->endpoint_count,
+				sizeof(struct nhlt_endpoint_list), GFP_KERNEL);
+
+	if (!entries)
+		goto out;
+
+	epnt_tmp = (struct nhlt_endpoint *)nhlt->desc;
+
+	for (i = 0; i < nhlt->endpoint_count; i++) {
+		entries[i].endpoint = epnt_tmp;
+
+		list_add_tail(&entries[i].list, &skl->nhlt_endpoint_list);
+		epnt_tmp = (struct nhlt_endpoint *)((u8 *)epnt_tmp +
+							epnt_tmp->length);
+
+		if (((u8 *)epnt_tmp + epnt_tmp->length) >
+			((u8 *)nhlt->desc + nhlt_ptr->length)) {
+			dev_err(dev, "pointer to nhlt_endpoint is out of range NHLT data\n");
+			break;
+		}
+	}
+out:
+	ACPI_FREE(obj);
+	return nhlt;
 }
 
 static struct nhlt_specific_cfg *skl_get_specific_cfg(
@@ -125,8 +181,29 @@ static bool skl_check_ep_match(struct device *dev, struct nhlt_endpoint *epnt,
 	return false;
 }
 
+struct nhlt_specific_cfg *
+skl_get_nhlt_specific_cfg(struct skl_dev *skl, u32 instance, u8 link_type,
+		u8 s_fmt, u8 num_ch, u32 s_rate, u8 dir, u8 dev_type)
+{
+	struct nhlt_specific_cfg *cfg = NULL;
+	struct hdac_bus *bus = skl_to_bus(skl);
+
+	/* update the blob based on virtual bus_id*/
+	if (!skl->nhlt_override) {
+		dev_dbg(bus->dev, "Querying NHLT blob from ACPI NHLT table !!\n");
+		cfg = skl_get_ep_blob(skl, instance, link_type, s_fmt,
+				num_ch, s_rate, dir, dev_type);
+	} else {
+		dev_dbg(bus->dev, "Querying NHLT blob from Debugfs!!\n");
+		cfg = skl_nhlt_get_debugfs_blob(skl->debugfs, link_type,
+			instance, dir);
+	}
+
+	return cfg;
+}
+
 struct nhlt_specific_cfg
-*skl_get_ep_blob(struct skl *skl, u32 instance, u8 link_type,
+*skl_get_ep_blob(struct skl_dev *skl, u32 instance, u8 link_type,
 			u8 s_fmt, u8 num_ch, u32 s_rate,
 			u8 dirn, u8 dev_type)
 {
@@ -136,16 +213,16 @@ struct nhlt_specific_cfg
 	struct device *dev = bus->dev;
 	struct nhlt_specific_cfg *sp_config;
 	struct nhlt_acpi_table *nhlt = skl->nhlt;
+	struct nhlt_endpoint_list *epnt_lst;
 	u16 bps = (s_fmt == 16) ? 16 : 32;
-	u8 j;
 
 	dump_config(dev, instance, link_type, s_fmt, num_ch, s_rate, dirn, bps);
 
-	epnt = (struct nhlt_endpoint *)nhlt->desc;
-
 	dev_dbg(dev, "endpoint count =%d\n", nhlt->endpoint_count);
 
-	for (j = 0; j < nhlt->endpoint_count; j++) {
+	list_for_each_entry(epnt_lst, &skl->nhlt_endpoint_list, list) {
+		epnt = epnt_lst->endpoint;
+
 		if (skl_check_ep_match(dev, epnt, instance, link_type,
 						dirn, dev_type)) {
 			fmt = (struct nhlt_fmt *)(epnt->config.caps +
@@ -155,28 +232,22 @@ struct nhlt_specific_cfg
 			if (sp_config)
 				return sp_config;
 		}
-
-		epnt = (struct nhlt_endpoint *)((u8 *)epnt + epnt->length);
 	}
 
 	return NULL;
 }
 
-int skl_get_dmic_geo(struct skl *skl)
+int skl_get_dmic_geo(struct skl_dev *skl)
 {
-	struct nhlt_acpi_table *nhlt = (struct nhlt_acpi_table *)skl->nhlt;
 	struct nhlt_endpoint *epnt;
+	struct nhlt_endpoint_list *epnt_lst;
 	struct nhlt_dmic_array_config *cfg;
 	struct device *dev = &skl->pci->dev;
 	unsigned int dmic_geo = 0;
-	u8 j;
 
-	if (!nhlt)
-		return 0;
+	list_for_each_entry(epnt_lst, &skl->nhlt_endpoint_list, list) {
+		epnt = epnt_lst->endpoint;
 
-	epnt = (struct nhlt_endpoint *)nhlt->desc;
-
-	for (j = 0; j < nhlt->endpoint_count; j++) {
 		if (epnt->linktype == NHLT_LINK_DMIC) {
 			cfg = (struct nhlt_dmic_array_config  *)
 					(epnt->config.caps);
@@ -198,7 +269,6 @@ int skl_get_dmic_geo(struct skl *skl)
 
 			}
 		}
-		epnt = (struct nhlt_endpoint *)((u8 *)epnt + epnt->length);
 	}
 
 	return dmic_geo;
@@ -219,7 +289,7 @@ static void skl_nhlt_trim_space(char *trim)
 	s[cnt] = '\0';
 }
 
-int skl_nhlt_update_topology_bin(struct skl *skl)
+int skl_nhlt_update_topology_bin(struct skl_dev *skl)
 {
 	struct nhlt_acpi_table *nhlt = (struct nhlt_acpi_table *)skl->nhlt;
 	struct hdac_bus *bus = skl_to_bus(skl);
@@ -243,7 +313,7 @@ static ssize_t skl_nhlt_platform_id_show(struct device *dev,
 {
 	struct pci_dev *pci = to_pci_dev(dev);
 	struct hdac_bus *bus = pci_get_drvdata(pci);
-	struct skl *skl = bus_to_skl(bus);
+	struct skl_dev *skl = bus_to_skl(bus);
 	struct nhlt_acpi_table *nhlt = (struct nhlt_acpi_table *)skl->nhlt;
 	char platform_id[32];
 
@@ -257,7 +327,7 @@ static ssize_t skl_nhlt_platform_id_show(struct device *dev,
 
 static DEVICE_ATTR(platform_id, 0444, skl_nhlt_platform_id_show, NULL);
 
-int skl_nhlt_create_sysfs(struct skl *skl)
+int skl_nhlt_create_sysfs(struct skl_dev *skl)
 {
 	struct device *dev = &skl->pci->dev;
 
@@ -267,7 +337,7 @@ int skl_nhlt_create_sysfs(struct skl *skl)
 	return 0;
 }
 
-void skl_nhlt_remove_sysfs(struct skl *skl)
+void skl_nhlt_remove_sysfs(struct skl_dev *skl)
 {
 	struct device *dev = &skl->pci->dev;
 
@@ -279,7 +349,7 @@ void skl_nhlt_remove_sysfs(struct skl *skl)
  * stores all possible rates supported in a rate table for the corresponding
  * sclk/sclkfs.
  */
-static void skl_get_ssp_clks(struct skl *skl, struct skl_ssp_clk *ssp_clks,
+static void skl_get_ssp_clks(struct skl_dev *skl, struct skl_ssp_clk *ssp_clks,
 				struct nhlt_fmt *fmt, u8 id)
 {
 	struct skl_i2s_config_blob_ext *i2s_config_ext;
@@ -377,7 +447,7 @@ static void skl_get_ssp_clks(struct skl *skl, struct skl_ssp_clk *ssp_clks,
 	}
 }
 
-static void skl_get_mclk(struct skl *skl, struct skl_ssp_clk *mclk,
+static void skl_get_mclk(struct skl_dev *skl, struct skl_ssp_clk *mclk,
 				struct nhlt_fmt *fmt, u8 id)
 {
 	struct skl_i2s_config_blob_ext *i2s_config_ext;
@@ -421,16 +491,16 @@ static void skl_get_mclk(struct skl *skl, struct skl_ssp_clk *mclk,
 	mclk[id].parent_name = parent->name;
 }
 
-void skl_get_clks(struct skl *skl, struct skl_ssp_clk *ssp_clks)
+void skl_get_clks(struct skl_dev *skl, struct skl_ssp_clk *ssp_clks)
 {
-	struct nhlt_acpi_table *nhlt = (struct nhlt_acpi_table *)skl->nhlt;
 	struct nhlt_endpoint *epnt;
+	struct nhlt_endpoint_list *epnt_lst;
 	struct nhlt_fmt *fmt;
-	int i;
 	u8 id;
 
-	epnt = (struct nhlt_endpoint *)nhlt->desc;
-	for (i = 0; i < nhlt->endpoint_count; i++) {
+	list_for_each_entry(epnt_lst, &skl->nhlt_endpoint_list, list) {
+		epnt = epnt_lst->endpoint;
+
 		if (epnt->linktype == NHLT_LINK_SSP) {
 			id = epnt->virtual_bus_id;
 
@@ -440,6 +510,41 @@ void skl_get_clks(struct skl *skl, struct skl_ssp_clk *ssp_clks)
 			skl_get_ssp_clks(skl, ssp_clks, fmt, id);
 			skl_get_mclk(skl, ssp_clks, fmt, id);
 		}
-		epnt = (struct nhlt_endpoint *)((u8 *)epnt + epnt->length);
+	}
+}
+
+static bool is_vbus_id_exist(struct skl_dev *skl, int vbus_id)
+{
+	bool ret = false;
+	int i;
+
+	for (i = 0; i < skl->nhlt->endpoint_count; i++) {
+		if (vbus_id == skl->grp_cnt.vbus_id[i])
+			return true;
+	}
+	return ret;
+}
+
+/*
+ * This function gets endpoint count and vbus_id for the specific link type
+ *  passed as parameter.
+ */
+void skl_nhlt_get_ep_cnt(struct skl_dev *skl, int link_type)
+{
+	struct nhlt_endpoint *epnt;
+	struct nhlt_endpoint_list *epnt_lst;
+
+	skl->grp_cnt.cnt = 0;
+	memset(skl->grp_cnt.vbus_id, 0xff,
+		(sizeof(int) * skl->nhlt->endpoint_count));
+
+	list_for_each_entry(epnt_lst, &skl->nhlt_endpoint_list, list) {
+		epnt = epnt_lst->endpoint;
+
+		if (epnt->linktype == link_type) {
+			if (!is_vbus_id_exist(skl, epnt->virtual_bus_id))
+				skl->grp_cnt.vbus_id[skl->grp_cnt.cnt++] =
+						epnt->virtual_bus_id;
+		}
 	}
 }
