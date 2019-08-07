@@ -1383,6 +1383,55 @@ err_init_rx_buffers:
 	return ret;
 }
 
+static void init_dma_tx_desc_ring_q(struct stmmac_priv *priv, u32 queue)
+{
+	struct stmmac_tx_queue *tx_q = &priv->tx_queue[queue];
+	int i;
+
+	netif_dbg(priv, probe, priv->dev,
+		  "(%s) dma_tx_phy=0x%08x\n", __func__,
+		  (u32)tx_q->dma_tx_phy);
+
+	/* Setup the chained descriptor addresses */
+	if (priv->mode == STMMAC_CHAIN_MODE) {
+		if (priv->extend_desc)
+			stmmac_mode_init(priv, tx_q->dma_etx,
+					 tx_q->dma_tx_phy,
+					 priv->dma_tx_size, 1);
+		else if (priv->enhanced_tx_desc)
+			stmmac_mode_init(priv, tx_q->dma_enhtx,
+					 tx_q->dma_tx_phy,
+					 priv->dma_tx_size, 1);
+		else
+			stmmac_mode_init(priv, tx_q->dma_tx,
+					 tx_q->dma_tx_phy,
+					 priv->dma_tx_size, 0);
+	}
+
+	for (i = 0; i < priv->dma_tx_size; i++) {
+		struct dma_desc *p;
+
+		if (priv->extend_desc)
+			p = &((tx_q->dma_etx + i)->basic);
+		else if (priv->enhanced_tx_desc)
+			p = &((tx_q->dma_enhtx + i)->basic);
+		else
+			p = tx_q->dma_tx + i;
+
+		stmmac_clear_desc(priv, p);
+
+		tx_q->tx_skbuff_dma[i].buf = 0;
+		tx_q->tx_skbuff_dma[i].map_as_page = false;
+		tx_q->tx_skbuff_dma[i].len = 0;
+		tx_q->tx_skbuff_dma[i].last_segment = false;
+		tx_q->tx_skbuff[i] = NULL;
+	}
+
+	tx_q->dirty_tx = 0;
+	tx_q->cur_tx = 0;
+	tx_q->mss = 0;
+}
+
 /**
  * init_dma_tx_desc_rings - init the TX descriptor rings
  * @dev: net device structure.
@@ -1395,53 +1444,9 @@ static int init_dma_tx_desc_rings(struct net_device *dev)
 	struct stmmac_priv *priv = netdev_priv(dev);
 	u32 tx_queue_cnt = priv->plat->tx_queues_to_use;
 	u32 queue;
-	int i;
 
 	for (queue = 0; queue < tx_queue_cnt; queue++) {
-		struct stmmac_tx_queue *tx_q = &priv->tx_queue[queue];
-
-		netif_dbg(priv, probe, priv->dev,
-			  "(%s) dma_tx_phy=0x%08x\n", __func__,
-			 (u32)tx_q->dma_tx_phy);
-
-		/* Setup the chained descriptor addresses */
-		if (priv->mode == STMMAC_CHAIN_MODE) {
-			if (priv->extend_desc)
-				stmmac_mode_init(priv, tx_q->dma_etx,
-						 tx_q->dma_tx_phy,
-						 priv->dma_tx_size, 1);
-			else if (priv->enhanced_tx_desc)
-				stmmac_mode_init(priv, tx_q->dma_enhtx,
-						 tx_q->dma_tx_phy,
-						 priv->dma_tx_size, 1);
-			else
-				stmmac_mode_init(priv, tx_q->dma_tx,
-						 tx_q->dma_tx_phy,
-						 priv->dma_tx_size, 0);
-		}
-
-		for (i = 0; i < priv->dma_tx_size; i++) {
-			struct dma_desc *p;
-			if (priv->extend_desc)
-				p = &((tx_q->dma_etx + i)->basic);
-			else if (priv->enhanced_tx_desc)
-				p = &((tx_q->dma_enhtx + i)->basic);
-			else
-				p = tx_q->dma_tx + i;
-
-			stmmac_clear_desc(priv, p);
-
-			tx_q->tx_skbuff_dma[i].buf = 0;
-			tx_q->tx_skbuff_dma[i].map_as_page = false;
-			tx_q->tx_skbuff_dma[i].len = 0;
-			tx_q->tx_skbuff_dma[i].last_segment = false;
-			tx_q->tx_skbuff[i] = NULL;
-		}
-
-		tx_q->dirty_tx = 0;
-		tx_q->cur_tx = 0;
-		tx_q->mss = 0;
-
+		init_dma_tx_desc_ring_q(priv, queue);
 		netdev_tx_reset_queue(netdev_get_tx_queue(priv->dev, queue));
 	}
 
@@ -1501,6 +1506,30 @@ static void dma_free_tx_skbufs(struct stmmac_priv *priv, u32 queue)
 		stmmac_free_tx_buffer(priv, queue, i);
 }
 
+static void free_dma_rx_desc_resources_q(struct stmmac_priv *priv, u32 queue)
+{
+	struct stmmac_rx_queue *rx_q = &priv->rx_queue[queue];
+
+	/* Release the DMA RX socket buffers */
+	dma_free_rx_skbufs(priv, queue);
+
+	/* Free DMA regions of consistent memory previously allocated */
+	if (!priv->extend_desc)
+		dma_free_coherent(priv->device, priv->dma_rx_size *
+					sizeof(struct dma_desc),
+					rx_q->dma_rx, rx_q->dma_rx_phy);
+	else
+		dma_free_coherent(priv->device, priv->dma_rx_size *
+					sizeof(struct dma_extended_desc),
+					rx_q->dma_erx, rx_q->dma_rx_phy);
+
+	kfree(rx_q->buf_pool);
+	if (rx_q->page_pool) {
+		page_pool_request_shutdown(rx_q->page_pool);
+		page_pool_destroy(rx_q->page_pool);
+	}
+}
+
 /**
  * free_dma_rx_desc_resources - free RX dma desc resources
  * @priv: private structure
@@ -1511,28 +1540,33 @@ static void free_dma_rx_desc_resources(struct stmmac_priv *priv)
 	u32 queue;
 
 	/* Free RX queue resources */
-	for (queue = 0; queue < rx_count; queue++) {
-		struct stmmac_rx_queue *rx_q = &priv->rx_queue[queue];
+	for (queue = 0; queue < rx_count; queue++)
+		free_dma_rx_desc_resources_q(priv, queue);
+}
 
-		/* Release the DMA RX socket buffers */
-		dma_free_rx_skbufs(priv, queue);
+static void free_dma_tx_desc_resources_q(struct stmmac_priv *priv, u32 queue)
+{
+	struct stmmac_tx_queue *tx_q = &priv->tx_queue[queue];
 
-		/* Free DMA regions of consistent memory previously allocated */
-		if (!priv->extend_desc)
-			dma_free_coherent(priv->device, priv->dma_rx_size *
-					  sizeof(struct dma_desc),
-					  rx_q->dma_rx, rx_q->dma_rx_phy);
-		else
-			dma_free_coherent(priv->device, priv->dma_rx_size *
-					  sizeof(struct dma_extended_desc),
-					  rx_q->dma_erx, rx_q->dma_rx_phy);
+	/* Release the DMA TX socket buffers */
+	dma_free_tx_skbufs(priv, queue);
 
-		kfree(rx_q->buf_pool);
-		if (rx_q->page_pool) {
-			page_pool_request_shutdown(rx_q->page_pool);
-			page_pool_destroy(rx_q->page_pool);
-		}
-	}
+	/* Free DMA regions of consistent memory previously allocated */
+	if (priv->extend_desc)
+		dma_free_coherent(priv->device, priv->dma_tx_size *
+					sizeof(struct dma_extended_desc),
+					tx_q->dma_etx, tx_q->dma_tx_phy);
+	else if (priv->enhanced_tx_desc)
+		dma_free_coherent(priv->device, priv->dma_tx_size *
+					sizeof(struct dma_enhanced_tx_desc),
+					tx_q->dma_enhtx, tx_q->dma_tx_phy);
+	else
+		dma_free_coherent(priv->device, priv->dma_tx_size *
+					sizeof(struct dma_desc),
+					tx_q->dma_tx, tx_q->dma_tx_phy);
+
+	kfree(tx_q->tx_skbuff_dma);
+	kfree(tx_q->tx_skbuff);
 }
 
 /**
@@ -1545,29 +1579,64 @@ static void free_dma_tx_desc_resources(struct stmmac_priv *priv)
 	u32 queue;
 
 	/* Free TX queue resources */
-	for (queue = 0; queue < tx_count; queue++) {
-		struct stmmac_tx_queue *tx_q = &priv->tx_queue[queue];
+	for (queue = 0; queue < tx_count; queue++)
+		free_dma_tx_desc_resources_q(priv, queue);
+}
 
-		/* Release the DMA TX socket buffers */
-		dma_free_tx_skbufs(priv, queue);
 
-		/* Free DMA regions of consistent memory previously allocated */
-		if (priv->extend_desc)
-			dma_free_coherent(priv->device, priv->dma_tx_size *
-					  sizeof(struct dma_extended_desc),
-					  tx_q->dma_etx, tx_q->dma_tx_phy);
-		else if (priv->enhanced_tx_desc)
-			dma_free_coherent(priv->device, priv->dma_tx_size *
-					  sizeof(struct dma_enhanced_tx_desc),
-					  tx_q->dma_enhtx, tx_q->dma_tx_phy);
-		else
-			dma_free_coherent(priv->device, priv->dma_tx_size *
-					  sizeof(struct dma_desc),
-					  tx_q->dma_tx, tx_q->dma_tx_phy);
+static int alloc_dma_rx_desc_resources_q(struct stmmac_priv *priv, u32 queue)
+{
+	struct stmmac_rx_queue *rx_q = &priv->rx_queue[queue];
+	struct page_pool_params pp_params = { 0 };
+	int ret = -ENOMEM;
 
-		kfree(tx_q->tx_skbuff_dma);
-		kfree(tx_q->tx_skbuff);
+	rx_q->queue_index = queue;
+	rx_q->priv_data = priv;
+
+	pp_params.flags = PP_FLAG_DMA_MAP;
+	pp_params.pool_size = priv->dma_rx_size;
+	pp_params.order = DIV_ROUND_UP(priv->dma_buf_sz, PAGE_SIZE);
+	pp_params.nid = dev_to_node(priv->device);
+	pp_params.dev = priv->device;
+	pp_params.dma_dir = DMA_FROM_DEVICE;
+
+	rx_q->page_pool = page_pool_create(&pp_params);
+	if (IS_ERR(rx_q->page_pool)) {
+		ret = PTR_ERR(rx_q->page_pool);
+		rx_q->page_pool = NULL;
+		goto err_dma;
 	}
+
+	rx_q->buf_pool = kcalloc(priv->dma_rx_size,
+				 sizeof(*rx_q->buf_pool),
+				 GFP_KERNEL);
+	if (!rx_q->buf_pool)
+		goto err_dma;
+
+	if (priv->extend_desc) {
+		rx_q->dma_erx = dma_alloc_coherent(priv->device,
+						   priv->dma_rx_size *
+						   sizeof(struct
+						   dma_extended_desc),
+						   &rx_q->dma_rx_phy,
+						   GFP_KERNEL);
+		if (!rx_q->dma_erx)
+			goto err_dma;
+
+	} else {
+		rx_q->dma_rx = dma_alloc_coherent(priv->device,
+						  priv->dma_rx_size *
+						  sizeof(struct
+						  dma_desc),
+						  &rx_q->dma_rx_phy,
+						  GFP_KERNEL);
+		if (!rx_q->dma_rx)
+			goto err_dma;
+	}
+err_dma:
+	kfree(rx_q->buf_pool);
+	rx_q->buf_pool = NULL;
+	return -ENOMEM;
 }
 
 /**
@@ -1586,52 +1655,9 @@ static int alloc_dma_rx_desc_resources(struct stmmac_priv *priv)
 
 	/* RX queues buffers and DMA */
 	for (queue = 0; queue < rx_count; queue++) {
-		struct stmmac_rx_queue *rx_q = &priv->rx_queue[queue];
-		struct page_pool_params pp_params = { 0 };
-
-		rx_q->queue_index = queue;
-		rx_q->priv_data = priv;
-
-		pp_params.flags = PP_FLAG_DMA_MAP;
-		pp_params.pool_size = priv->dma_rx_size;
-		pp_params.order = DIV_ROUND_UP(priv->dma_buf_sz, PAGE_SIZE);
-		pp_params.nid = dev_to_node(priv->device);
-		pp_params.dev = priv->device;
-		pp_params.dma_dir = DMA_FROM_DEVICE;
-
-		rx_q->page_pool = page_pool_create(&pp_params);
-		if (IS_ERR(rx_q->page_pool)) {
-			ret = PTR_ERR(rx_q->page_pool);
-			rx_q->page_pool = NULL;
+		ret = alloc_dma_rx_desc_resources_q(priv, queue);
+		if (ret)
 			goto err_dma;
-		}
-
-		rx_q->buf_pool = kcalloc(priv->dma_rx_size,
-					 sizeof(*rx_q->buf_pool),
-					 GFP_KERNEL);
-		if (!rx_q->buf_pool)
-			goto err_dma;
-
-		if (priv->extend_desc) {
-			rx_q->dma_erx = dma_alloc_coherent(priv->device,
-							    priv->dma_rx_size *
-							    sizeof(struct
-							    dma_extended_desc),
-							    &rx_q->dma_rx_phy,
-							    GFP_KERNEL);
-			if (!rx_q->dma_erx)
-				goto err_dma;
-
-		} else {
-			rx_q->dma_rx = dma_alloc_coherent(priv->device,
-							   priv->dma_rx_size *
-							   sizeof(struct
-							   dma_desc),
-							   &rx_q->dma_rx_phy,
-							   GFP_KERNEL);
-			if (!rx_q->dma_rx)
-				goto err_dma;
-		}
 	}
 
 	return 0;
@@ -1640,6 +1666,58 @@ err_dma:
 	free_dma_rx_desc_resources(priv);
 
 	return ret;
+}
+
+static int alloc_dma_tx_desc_resources_q(struct stmmac_priv *priv, u32 queue)
+{
+	struct stmmac_tx_queue *tx_q = &priv->tx_queue[queue];
+
+	tx_q->queue_index = queue;
+	tx_q->priv_data = priv;
+
+	tx_q->tx_skbuff_dma = kcalloc(priv->dma_tx_size,
+				      sizeof(*tx_q->tx_skbuff_dma),
+				      GFP_KERNEL);
+	if (!tx_q->tx_skbuff_dma)
+		goto err_dma;
+
+	tx_q->tx_skbuff = kcalloc(priv->dma_tx_size,
+				  sizeof(struct sk_buff *),
+				  GFP_KERNEL);
+	if (!tx_q->tx_skbuff)
+		goto err_dma;
+
+	if (priv->extend_desc) {
+		tx_q->dma_etx = dma_alloc_coherent(priv->device,
+						   priv->dma_tx_size *
+						   sizeof(struct
+						   dma_extended_desc),
+						   &tx_q->dma_tx_phy,
+						   GFP_KERNEL);
+		if (!tx_q->dma_etx)
+			goto err_dma;
+	} else if (priv->enhanced_tx_desc) {
+		tx_q->dma_enhtx = dma_alloc_coherent(priv->device,
+						     priv->dma_tx_size *
+						     sizeof(struct
+						     dma_enhanced_tx_desc),
+						     &tx_q->dma_tx_phy,
+						     GFP_KERNEL);
+		if (!tx_q->dma_enhtx)
+			goto err_dma;
+	} else {
+		tx_q->dma_tx = dma_alloc_coherent(priv->device,
+						  priv->dma_tx_size *
+						  sizeof(struct dma_desc),
+						  &tx_q->dma_tx_phy,
+						  GFP_KERNEL);
+		if (!tx_q->dma_tx)
+			goto err_dma;
+	}
+err_dma:
+	kfree(tx_q->tx_skbuff);
+	tx_q->tx_skbuff = NULL;
+	return -ENOMEM;
 }
 
 /**
@@ -1658,51 +1736,9 @@ static int alloc_dma_tx_desc_resources(struct stmmac_priv *priv)
 
 	/* TX queues buffers and DMA */
 	for (queue = 0; queue < tx_count; queue++) {
-		struct stmmac_tx_queue *tx_q = &priv->tx_queue[queue];
-
-		tx_q->queue_index = queue;
-		tx_q->priv_data = priv;
-
-		tx_q->tx_skbuff_dma = kcalloc(priv->dma_tx_size,
-					      sizeof(*tx_q->tx_skbuff_dma),
-					      GFP_KERNEL);
-		if (!tx_q->tx_skbuff_dma)
+		ret = alloc_dma_tx_desc_resources_q(priv, queue);
+		if (ret)
 			goto err_dma;
-
-		tx_q->tx_skbuff = kcalloc(priv->dma_tx_size,
-					  sizeof(struct sk_buff *),
-					  GFP_KERNEL);
-		if (!tx_q->tx_skbuff)
-			goto err_dma;
-
-		if (priv->extend_desc) {
-			tx_q->dma_etx = dma_alloc_coherent(priv->device,
-							    priv->dma_tx_size *
-							    sizeof(struct
-							    dma_extended_desc),
-							    &tx_q->dma_tx_phy,
-							    GFP_KERNEL);
-			if (!tx_q->dma_etx)
-				goto err_dma;
-		} else if (priv->enhanced_tx_desc) {
-			tx_q->dma_enhtx = dma_alloc_coherent(priv->device,
-							     priv->dma_tx_size *
-							     sizeof(struct
-							     dma_enhanced_tx_desc),
-							     &tx_q->dma_tx_phy,
-							     GFP_KERNEL);
-			if (!tx_q->dma_enhtx)
-				goto err_dma;
-		} else {
-			tx_q->dma_tx = dma_alloc_coherent(priv->device,
-							   priv->dma_tx_size *
-							   sizeof(struct
-								  dma_desc),
-							   &tx_q->dma_tx_phy,
-							   GFP_KERNEL);
-			if (!tx_q->dma_tx)
-				goto err_dma;
-		}
 	}
 
 	return 0;
