@@ -221,6 +221,70 @@ static inline void cache_alloc_hsw_probe(void)
 	rdt_alloc_capable = true;
 }
 
+/*
+ * cache_alloc_8C_probe() - Have to probe for Intel 0x8C systems
+ * as they do not have CPUID enumeration support for L3 cache allocation
+ * (the L2 cache allocation does have CPUID enumeration support).
+ * Not all SKUs support L3 CAT so the test whether the first L3 CAT CBM can
+ * be written safely is required.
+ * Max CLOSids is 4 and max CBM length is 12. CDP is not supported.
+ *
+ * The global rdt_alloc_capable is not set here so that the enumeration of
+ * L2 CAT can proceed.
+ */
+static inline void cache_alloc_8C_probe(void)
+{
+	struct rdt_resource *r  = &rdt_resources_all[RDT_RESOURCE_L3];
+	u32 l, h, max_cbm = BIT_MASK(12) - 1;
+
+	if (wrmsr_safe(MSR_IA32_L3_CBM_BASE, max_cbm, 0))
+		return;
+	rdmsr(MSR_IA32_L3_CBM_BASE, l, h);
+
+	if (l != max_cbm)
+		return;
+
+	r->num_closid = 4;
+	r->default_ctrl = max_cbm;
+	r->cache.cbm_len = 12;
+	r->cache.shareable_bits = 0x400;
+	r->cache.min_cbm_bits = 1;
+	r->alloc_capable = true;
+	r->alloc_enabled = true;
+}
+
+/*
+ * cache_alloc_96_probe() - Have to probe for Intel 0x96 systems
+ * as they do not have CPUID enumeration support for L3 cache allocation
+ * (the L2 cache allocation does have CPUID enumeration support).
+ * All SKUs should support L3 CAT but the probe is maintained as a
+ * verification of the support. Max CLOSids is 4 and max CBM length is 16.
+ * CDP is not supported.
+ *
+ * The global rdt_alloc_capable is not set here so that the enumeration of
+ * L2 CAT can proceed.
+ */
+static inline void cache_alloc_96_probe(void)
+{
+	struct rdt_resource *r  = &rdt_resources_all[RDT_RESOURCE_L3];
+	u32 l, h, max_cbm = BIT_MASK(16) - 1;
+
+	if (wrmsr_safe(MSR_IA32_L3_CBM_BASE, max_cbm, 0))
+		return;
+	rdmsr(MSR_IA32_L3_CBM_BASE, l, h);
+
+	if (l != max_cbm)
+		return;
+
+	r->num_closid = 4;
+	r->default_ctrl = max_cbm;
+	r->cache.cbm_len = 16;
+	r->cache.shareable_bits = 0x0;
+	r->cache.min_cbm_bits = 1;
+	r->alloc_capable = true;
+	r->alloc_enabled = true;
+}
+
 bool is_mba_sc(struct rdt_resource *r)
 {
 	if (!r)
@@ -314,6 +378,24 @@ static void rdt_get_cache_alloc_cfg(int idx, struct rdt_resource *r)
 	r->data_width = (r->cache.cbm_len + 3) / 4;
 	r->alloc_capable = true;
 	r->alloc_enabled = true;
+	/*
+	 * FIXME: REMOVE ME
+	 * These workarounds are needed for 0x8C A0. Workarounds are safe
+	 * to run on all platforms since no L2 cache supporting CAT
+	 * has shareable bits set and no current platform supports 9 CLOSids.
+	 */
+	if (idx == 2) {
+		if (r->cache.shareable_bits != 0x0) {
+			pr_warn("Overriding L2 shareable bits (was 0x%X)\n",
+				r->cache.shareable_bits);
+			r->cache.shareable_bits = 0x0;
+		}
+		if (r->num_closid == 9) {
+			pr_warn("Overriding COS_MAX, retrieved edx.split.cos_max  = %u, but marking num clos as %u (without adding 1)\n",
+				edx.split.cos_max, edx.split.cos_max);
+			r->num_closid = edx.split.cos_max;
+		}
+	}
 }
 
 static void rdt_get_cdp_config(int level, int type)
@@ -633,13 +715,6 @@ static void domain_remove_cpu(int cpu, struct rdt_resource *r)
 			cancel_delayed_work(&d->cqm_limbo);
 		}
 
-		/*
-		 * rdt_domain "d" is going to be freed below, so clear
-		 * its pointer from pseudo_lock_region struct.
-		 */
-		if (d->plr)
-			d->plr->d = NULL;
-
 		kfree(d->ctrl_val);
 		kfree(d->mbps_val);
 		bitmap_free(d->rmid_busy_llc);
@@ -889,6 +964,15 @@ static __init void __check_quirks_intel(void)
 			set_rdt_options("!cmt,!mbmtotal,!mbmlocal,!l3cat");
 		else
 			set_rdt_options("!l3cat");
+		break;
+	case 0x8C:
+		if (!rdt_options[RDT_FLAG_L3_CAT].force_off)
+			cache_alloc_8C_probe();
+		break;
+	case 0x96:
+		if (!rdt_options[RDT_FLAG_L3_CAT].force_off)
+			cache_alloc_96_probe();
+		break;
 	}
 }
 
