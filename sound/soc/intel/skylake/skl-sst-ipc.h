@@ -438,6 +438,7 @@ enum skl_basefw_runtime_param {
 	SKL_BASEFW_ENABLE_LOGS = 6,
 	SKL_BASEFW_FIRMWARE_CONFIG = 7,
 	SKL_BASEFW_HARDWARE_CONFIG = 8,
+	SKL_BASEFW_MODULES_INFO = 9,
 	SKL_BASEFW_SYSTEM_TIME = 20,
 };
 
@@ -546,6 +547,55 @@ struct skl_hw_cfg {
 	u32 lp_ebb_count;
 	u32 ebb_size_bytes;
 };
+
+struct _skl_module_type {
+	u32 load_type:4;
+	u32 auto_start:1;
+	u32 domain_ll:1;
+	u32 domain_dp:1;
+	u32 lib_code:1;
+	u32 rsvd:24;
+} __packed;
+
+struct skl_segment_flags {
+	u32 contents:1;
+	u32 alloc:1;
+	u32 load:1;
+	u32 readonly:1;
+	u32 code:1;
+	u32 data:1;
+	u32 rsvd_1:2;
+	u32 type:4;
+	u32 rsvd_2:4;
+	u32 length:16;
+} __packed;
+
+struct skl_segment_desc {
+	struct skl_segment_flags flags;
+	u32 v_base_addr;
+	u32 file_offset;
+} __packed;
+
+struct skl_module_entry {
+	u16 module_id;
+	u16 state_flags;
+	u8 name[8];
+	guid_t uuid;
+	struct _skl_module_type type;
+	u8 hash[32];
+	u32 entry_point;
+	u16 cfg_offset;
+	u16 cfg_count;
+	u32 affinity_mask;
+	u16 instance_max_count;
+	u16 instance_bss_size;
+	struct skl_segment_desc segments[3];
+} __packed;
+
+struct skl_modules_info {
+	u32 count;
+	struct skl_module_entry module_entry[0];
+} __packed;
 
 struct skl_sys_time {
 	u32 val_l;
@@ -723,6 +773,9 @@ void skl_ipc_set_fw_cfg(struct sst_generic_ipc *ipc, u8 instance_id,
 
 int skl_ipc_fw_cfg_get(struct sst_generic_ipc *ipc, struct skl_fw_cfg *cfg);
 int skl_ipc_hw_cfg_get(struct sst_generic_ipc *ipc, struct skl_hw_cfg *cfg);
+
+int skl_ipc_modules_info_get(struct sst_generic_ipc *ipc,
+		struct skl_modules_info **modules_info);
 
 int skl_probe_init_module(struct skl_dev *skl, size_t buffer_size);
 int skl_probe_delete_module(struct skl_dev *skl);

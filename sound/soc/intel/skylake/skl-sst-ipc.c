@@ -1475,6 +1475,29 @@ exit:
 }
 EXPORT_SYMBOL_GPL(skl_ipc_hw_cfg_get);
 
+int skl_ipc_modules_info_get(struct sst_generic_ipc *ipc,
+		struct skl_modules_info **modules_info)
+{
+	struct skl_ipc_large_config_msg msg = {0};
+	size_t bytes = 0;
+	u32 *payload = NULL;
+	int ret;
+
+	msg.module_id = 0;
+	msg.instance_id = 0;
+	msg.large_param_id = SKL_BASEFW_MODULES_INFO;
+
+	ret = skl_ipc_get_large_config(ipc, &msg, &payload, &bytes);
+	if (ret)
+		goto exit;
+
+	*modules_info = (struct skl_modules_info *)payload;
+
+exit:
+	return ret;
+}
+EXPORT_SYMBOL_GPL(skl_ipc_modules_info_get);
+
 unsigned int __kfifo_fromio_locked(struct kfifo *fifo,
 		const void __iomem *src,
 		unsigned int len, spinlock_t *lock)
