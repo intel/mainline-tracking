@@ -34,13 +34,11 @@ static int skl_free_dma_buf(struct device *dev, struct snd_dma_buffer *dmab)
 	return 0;
 }
 
-#define SKL_ASTATE_PARAM_ID	4
-
 void skl_dsp_set_astate_cfg(struct skl_dev *skl, u32 cnt, void *data)
 {
 	struct skl_ipc_large_config_msg	msg = {0};
 
-	msg.large_param_id = SKL_ASTATE_PARAM_ID;
+	msg.large_param_id = SKL_BASEFW_ASTATE_TABLE;
 	msg.param_data_size = (cnt * sizeof(struct skl_astate_param) +
 				sizeof(cnt));
 
@@ -614,7 +612,6 @@ skip_buf_size_calc:
 	skl_copy_copier_caps(mconfig, cpr_mconfig);
 }
 
-#define DMA_CONTROL_ID 5
 #define DMA_I2S_BLOB_SIZE 21
 
 int skl_dsp_set_dma_control(struct skl_dev *skl, u32 *caps,
@@ -631,7 +628,7 @@ int skl_dsp_set_dma_control(struct skl_dev *skl, u32 *caps,
 	if (caps_size == 0)
 		return 0;
 
-	msg.large_param_id = DMA_CONTROL_ID;
+	msg.large_param_id = SKL_BASEFW_DMA_CONTROL;
 	msg.param_data_size = sizeof(struct skl_dma_control) + caps_size;
 
 	dma_ctrl = kzalloc(msg.param_data_size, GFP_KERNEL);

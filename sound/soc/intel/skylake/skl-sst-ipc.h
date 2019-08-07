@@ -184,6 +184,11 @@ struct skl_lib_info {
 	const struct firmware *fw;
 };
 
+enum skl_basefw_runtime_param {
+	SKL_BASEFW_ASTATE_TABLE = 4,
+	SKL_BASEFW_DMA_CONTROL = 5,
+};
+
 struct skl_ipc_init_instance_msg {
 	u32 module_id;
 	u32 instance_id;
