@@ -17,7 +17,6 @@
 #include <linux/sched.h>
 #include <linux/shrinker.h>
 #include <linux/types.h>
-#include <linux/miscdevice.h>
 
 #include "../uapi/ion.h"
 
@@ -39,7 +38,6 @@
  */
 struct ion_buffer {
 	struct list_head list;
-	struct ion_device *dev;
 	struct ion_heap *heap;
 	unsigned long flags;
 	unsigned long private_flags;
@@ -53,19 +51,6 @@ struct ion_buffer {
 };
 
 void ion_buffer_destroy(struct ion_buffer *buffer);
-
-/**
- * struct ion_device - the metadata of the ion device node
- * @dev:		the actual misc device
- * @lock:		rwsem protecting the tree of heaps and clients
- */
-struct ion_device {
-	struct miscdevice dev;
-	struct rw_semaphore lock;
-	struct plist_head heaps;
-	struct dentry *debug_root;
-	int heap_cnt;
-};
 
 /**
  * struct ion_heap_ops - ops to operate on a given heap
