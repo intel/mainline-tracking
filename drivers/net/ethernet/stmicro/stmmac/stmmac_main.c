@@ -316,9 +316,9 @@ static inline u32 stmmac_tx_avail(struct stmmac_priv *priv, u32 queue)
  * @priv: driver private structure
  * @queue: RX queue index
  */
-static inline u32 stmmac_rx_dirty(struct stmmac_priv *priv, u32 queue)
+static inline u32 stmmac_rx_dirty(struct stmmac_rx_queue *rx_q)
 {
-	struct stmmac_rx_queue *rx_q = &priv->rx_queue[queue];
+	struct stmmac_priv *priv = rx_q->priv_data;
 	u32 dirty;
 
 	if (rx_q->dirty_rx <= rx_q->cur_rx)
@@ -3846,7 +3846,7 @@ static inline int stmmac_rx_threshold_count(struct stmmac_rx_queue *rx_q)
 static inline void stmmac_rx_refill(struct stmmac_priv *priv, u32 queue)
 {
 	struct stmmac_rx_queue *rx_q = &priv->rx_queue[queue];
-	int len, dirty = stmmac_rx_dirty(priv, queue);
+	int len, dirty = stmmac_rx_dirty(rx_q);
 	unsigned int entry = rx_q->dirty_rx;
 	unsigned int last_refill = entry;
 
