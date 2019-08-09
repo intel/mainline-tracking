@@ -60,6 +60,9 @@ struct stmmac_tx_queue {
 	struct sk_buff **tx_skbuff;
 	struct stmmac_tx_info *tx_skbuff_dma;
 	struct xdp_frame **xdpf;
+	struct xdp_umem *xsk_umem;
+	bool *is_zc_pkt;
+	u32 xdpzc_inv_len_pkt;
 	unsigned int cur_tx;
 	unsigned int dirty_tx;
 	dma_addr_t dma_tx_phy;
@@ -308,6 +311,7 @@ void stmmac_rx_vlan(struct net_device *dev, struct sk_buff *skb);
 void stmmac_txrx_ring_enable(struct stmmac_priv *priv, u16 qid);
 void stmmac_txrx_ring_disable(struct stmmac_priv *priv, u16 qid);
 void stmmac_free_tx_buffer(struct stmmac_priv *priv, u32 queue, int i);
+int stmmac_xsk_async_xmit(struct net_device *dev, u32 qid);
 
 #if IS_ENABLED(CONFIG_STMMAC_SELFTESTS)
 void stmmac_selftest_run(struct net_device *dev,
