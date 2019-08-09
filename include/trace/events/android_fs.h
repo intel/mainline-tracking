@@ -40,6 +40,7 @@ DEFINE_EVENT(android_fs_data_end_template, android_fs_fsync_end,
 
 /* This part must be outside protection */
 #include <trace/define_trace.h>
+#include <linux/fs.h>
 
 #ifndef ANDROID_FSTRACE_GET_PATHNAME
 #define ANDROID_FSTRACE_GET_PATHNAME
