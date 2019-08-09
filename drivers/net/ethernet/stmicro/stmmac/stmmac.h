@@ -66,7 +66,7 @@ struct stmmac_tx_queue {
 
 struct stmmac_rx_buffer {
 	struct page *page;
-	dma_addr_t addr;
+	dma_addr_t dma_addr;
 };
 
 struct stmmac_rx_queue {
