@@ -107,6 +107,8 @@ static int stmmac_xsk_umem_enable(struct stmmac_priv *priv,
 
 static int stmmac_xsk_umem_disable(struct stmmac_priv *priv, u16 qid)
 {
+	struct stmmac_rx_queue *rx_q = &priv->rx_queue[qid];
+	struct stmmac_tx_queue *tx_q = &priv->tx_queue[qid];
 	struct xdp_umem *umem;
 	bool if_running;
 
@@ -123,6 +125,11 @@ static int stmmac_xsk_umem_disable(struct stmmac_priv *priv, u16 qid)
 
 	/* UMEM is shared for both Tx & Rx, we unmap once */
 	stmmac_xsk_umem_dma_unmap(priv, umem);
+
+	if (rx_q->xsk_umem)
+		rx_q->xsk_umem = NULL;
+	else if (tx_q->xsk_umem)
+		tx_q->xsk_umem = NULL;
 
 	if (if_running)
 		stmmac_txrx_ring_enable(priv, qid);
@@ -151,6 +158,14 @@ int stmmac_run_xdp_zc(struct stmmac_priv *priv, struct stmmac_rx_queue *rx_q,
 	xdp->handle += xdp->data - xdp->data_hard_start;
 	switch (act) {
 	case XDP_PASS:
+		break;
+	case XDP_TX:
+		xdpf = convert_to_xdp_frame(xdp);
+		if (unlikely(!xdpf)) {
+			result = STMMAC_XDP_DROP;
+			break;
+		}
+		result = stmmac_xdp_xmit_queue(priv, rx_q->queue_index, xdpf);
 		break;
 	case XDP_REDIRECT:
 		err = xdp_do_redirect(priv->dev, xdp, xdp_prog);
@@ -646,4 +661,145 @@ void stmmac_xsk_free_rx_ring(struct stmmac_rx_queue *rx_q)
 			buf = rx_q->buf_pool;
 		}
 	}
+}
+
+bool stmmac_xdp_xmit_zc(struct stmmac_tx_queue *tx_q, unsigned int budget)
+{
+	struct stmmac_priv *priv = tx_q->priv_data;
+	struct dma_desc *tx_desc = NULL;
+	u32 queue = tx_q->queue_index;
+	bool work_done = true;
+	struct xdp_desc desc;
+	dma_addr_t dma;
+
+	while (budget-- > 0) {
+		if (unlikely(!stmmac_tx_avail(priv, queue)) ||
+		    !netif_carrier_ok(priv->dev)) {
+			work_done = false;
+			break;
+		}
+
+		if (!xsk_umem_consume_tx(tx_q->xsk_umem, &desc))
+			break;
+
+		if (!desc.len || desc.len > ((priv->plat->tx_fifo_size ?
+		    priv->plat->tx_fifo_size : priv->dma_cap.tx_fifo_size) /
+		    priv->plat->tx_queues_to_use)) {
+			tx_q->xdpzc_inv_len_pkt++;
+			break;
+		}
+
+		dma = xdp_umem_get_dma(tx_q->xsk_umem, desc.addr);
+
+		dma_sync_single_for_device(priv->device, dma, desc.len,
+					   DMA_BIDIRECTIONAL);
+
+		tx_q->xdpf[tx_q->cur_tx] = NULL;
+		tx_q->is_zc_pkt[tx_q->cur_tx] = true;
+
+		/* Fill Tx descriptor */
+		if (priv->extend_desc)
+			tx_desc = (struct dma_desc *)(tx_q->dma_etx +
+						      tx_q->cur_tx);
+		else if (priv->enhanced_tx_desc)
+			tx_desc = &(tx_q->dma_enhtx + tx_q->cur_tx)->basic;
+		else
+			tx_desc = tx_q->dma_tx + tx_q->cur_tx;
+
+		stmmac_set_desc_addr(priv, tx_desc, dma);
+
+		/* Prepare the descriptor and set the own bit too */
+		stmmac_prepare_tx_desc(priv,
+				       tx_desc,
+				       1, /* First Descriptor */
+				       desc.len,
+				       1, /* Checksum offload */
+				       priv->mode,
+				       1, /* OWN bit */
+				       1, /* Last Descriptor */
+				       desc.len);
+
+		tx_q->cur_tx = STMMAC_GET_ENTRY(tx_q->cur_tx,
+						priv->dma_tx_size);
+	}
+
+	if (tx_desc) {
+		stmmac_enable_dma_transmission(priv, priv->ioaddr);
+		if (priv->extend_desc)
+			tx_q->tx_tail_addr = tx_q->dma_tx_phy + (tx_q->cur_tx *
+					sizeof(struct dma_extended_desc));
+		else if (priv->enhanced_tx_desc)
+			tx_q->tx_tail_addr = tx_q->dma_tx_phy + (tx_q->cur_tx *
+					sizeof(struct dma_enhanced_tx_desc));
+		else
+			tx_q->tx_tail_addr = tx_q->dma_tx_phy + (tx_q->cur_tx *
+					sizeof(struct dma_desc));
+		stmmac_set_tx_tail_ptr(priv, priv->ioaddr, tx_q->tx_tail_addr,
+				       queue);
+		xsk_umem_consume_tx_done(tx_q->xsk_umem);
+	}
+
+	return !!budget && work_done;
+}
+
+/* ndo_xsk_async_xmit, also used to trigger a zc transmit. DW EQoS MAC does not
+ * have a way for SW to trigger INTR directly, so we rely on napi
+ */
+int stmmac_xsk_async_xmit(struct net_device *dev, u32 qid)
+{
+	struct stmmac_priv *priv = netdev_priv(dev);
+	struct stmmac_channel *ch = &priv->channel[qid];
+
+	if (test_bit(STMMAC_DOWN, &priv->state))
+		return -ENETDOWN;
+
+	if (!READ_ONCE(priv->xdp_prog))
+		return -ENXIO;
+
+	/* XDP max queues is based on the maximum queues availableq */
+	if (qid >= priv->plat->rx_queues_to_use ||
+	    qid >= priv->plat->tx_queues_to_use)
+		return -ENXIO;
+
+	if (queue_is_xdp(qid) &&
+	    !napi_if_scheduled_mark_missed(&ch->tx_napi)) {
+		/* DW EQoS MAC does not have a way for SW to trigger INTR */
+		if (likely(napi_schedule_prep(&ch->tx_napi)))
+			__napi_schedule(&ch->tx_napi);
+	}
+
+	return 0;
+}
+
+/* After hw transmits the packet, reclaim the buffer for next packet */
+static void stmmac_free_tx_xdp_buffer(struct stmmac_priv *priv,
+				      struct stmmac_tx_queue *tx_q,
+				      int entry)
+{
+	xdp_return_frame(tx_q->xdpf[entry]);
+
+	stmmac_free_tx_buffer(priv, tx_q->queue_index, entry);
+}
+
+void stmmac_xsk_free_tx_ring(struct stmmac_tx_queue *tx_q)
+{
+	struct stmmac_priv *priv = tx_q->priv_data;
+	struct xdp_umem *umem = tx_q->xsk_umem;
+	unsigned int entry = tx_q->dirty_tx;
+	u32 xsk_frames = 0;
+
+	while (entry != tx_q->cur_tx) {
+		/* Don't increment if packet is from run_xdp_zc's XDP_TX */
+		if (tx_q->xdpf[entry])
+			stmmac_free_tx_xdp_buffer(priv, tx_q, entry);
+		else
+			xsk_frames++;
+
+		tx_q->xdpf[entry] = NULL;
+
+		entry = STMMAC_GET_ENTRY(entry, priv->dma_tx_size);
+	}
+
+	if (xsk_frames)
+		xsk_umem_complete_tx(umem, xsk_frames);
 }
