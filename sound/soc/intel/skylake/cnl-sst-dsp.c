@@ -17,6 +17,7 @@
 #include "../common/sst-dsp-priv.h"
 #include "cnl-sst-dsp.h"
 #include "skl.h"
+#include <linux/pci.h>
 
 /* various timeout values */
 #define CNL_DSP_PU_TO		50
@@ -141,6 +142,11 @@ static int cnl_dsp_core_power_down(struct sst_dsp *ctx, unsigned int core_mask)
 int cnl_dsp_enable_core(struct sst_dsp *ctx, unsigned int core_mask)
 {
 	int ret;
+	struct skl_dev *skl = ctx->thread_context;
+
+	if ((IS_EHL(skl->pci) || IS_TGL(skl->pci)) &&
+			core_mask != SKL_DSP_CORE0_MASK)
+		return 0;
 
 	/* power up */
 	ret = cnl_dsp_core_power_up(ctx, core_mask);
@@ -156,6 +162,11 @@ int cnl_dsp_enable_core(struct sst_dsp *ctx, unsigned int core_mask)
 int cnl_dsp_disable_core(struct sst_dsp *ctx, unsigned int core_mask)
 {
 	int ret;
+	struct skl_dev *skl = ctx->thread_context;
+
+	if ((IS_EHL(skl->pci) || IS_TGL(skl->pci)) &&
+			core_mask != SKL_DSP_CORE0_MASK)
+		return 0;
 
 	ret = cnl_dsp_reset_core(ctx, core_mask);
 	if (ret < 0) {
