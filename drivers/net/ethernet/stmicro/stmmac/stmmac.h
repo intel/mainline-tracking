@@ -67,9 +67,17 @@ struct stmmac_tx_queue {
 	u32 mss;
 };
 
+/* How many Rx Buffers do we bundle into one write to the hardware ? */
+#define STMMAC_RX_BUFFER_WRITE	16	/* Must be power of 2 */
+#define STMMAC_RX_DMA_ATTR \
+	(DMA_ATTR_SKIP_CPU_SYNC | DMA_ATTR_WEAK_ORDERING)
+
 struct stmmac_rx_buffer {
 	struct page *page;
 	dma_addr_t dma_addr;
+	/* For XSK UMEM */
+	void *addr;
+	u64 handle;
 };
 
 struct stmmac_rx_queue {
@@ -88,6 +96,10 @@ struct stmmac_rx_queue {
 	struct bpf_prog *xdp_prog;
 	struct xdp_rxq_info xdp_rxq;
 	u16 next_to_alloc;
+	/* For XSK UMEM */
+	struct xdp_umem *xsk_umem;
+	struct zero_copy_allocator zca; /* ZC allocator func() anchor */
+	u16 xsk_buf_len;
 };
 
 struct stmmac_channel {
@@ -252,6 +264,7 @@ struct stmmac_priv {
 
 	/* XDP */
 	struct bpf_prog *xdp_prog;
+	unsigned long *has_xdp_zc_umem; //per queue bitmap flag
 };
 
 enum stmmac_state {

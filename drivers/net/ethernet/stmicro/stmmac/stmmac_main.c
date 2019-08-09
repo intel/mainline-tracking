@@ -1788,13 +1788,24 @@ err_dma:
  */
 static int alloc_dma_desc_resources(struct stmmac_priv *priv)
 {
+	u32 rx_count = priv->plat->rx_queues_to_use;
+	u32 tx_count = priv->plat->tx_queues_to_use;
+	u32 max_count;
+
 	/* RX Allocation */
 	int ret = alloc_dma_rx_desc_resources(priv);
-
 	if (ret)
 		return ret;
 
 	ret = alloc_dma_tx_desc_resources(priv);
+	if (ret)
+		return ret;
+
+	max_count = (rx_count > tx_count ? rx_count : tx_count);
+
+	priv->has_xdp_zc_umem = bitmap_zalloc(max_count, GFP_KERNEL);
+	if (!priv->has_xdp_zc_umem)
+		bitmap_free(priv->has_xdp_zc_umem);
 
 	return ret;
 }
@@ -1886,6 +1897,10 @@ static void free_dma_desc_resources(struct stmmac_priv *priv)
 
 	/* Release the DMA TX socket buffers */
 	free_dma_tx_desc_resources(priv);
+
+	/* Release the AF_XDP ZC flag */
+	if (priv->has_xdp_zc_umem)
+		bitmap_free(priv->has_xdp_zc_umem);
 }
 
 /**
@@ -2050,9 +2065,15 @@ static void stmmac_free_rx_queue(struct stmmac_priv *priv, u16 qid)
 {
 	struct stmmac_rx_queue *rx_q = &priv->rx_queue[qid];
 
+	if (rx_q->xsk_umem) {
+		stmmac_xsk_free_rx_ring(rx_q);
+		goto out;
+	}
+
 	/* Free all the Rx ring sk_buffs */
 	dma_free_rx_skbufs(priv, qid);
 
+out:
 	rx_q->cur_rx = 0;
 	rx_q->dirty_rx = 0;
 	rx_q->next_to_alloc = 0;
@@ -2081,9 +2102,19 @@ static void stmmac_configure_rx_queue(struct stmmac_priv *priv, u16 qid)
 	struct stmmac_rx_queue *rx_q = &priv->rx_queue[qid];
 
 	xdp_rxq_info_unreg_mem_model(&rx_q->xdp_rxq);
-	WARN_ON(xdp_rxq_info_reg_mem_model(&rx_q->xdp_rxq,
-					   MEM_TYPE_PAGE_SHARED,
-					   NULL));
+	rx_q->xsk_umem = stmmac_xsk_umem(priv, qid);
+	if (rx_q->xsk_umem) {
+		rx_q->zca.free = stmmac_zca_free;
+		WARN_ON(xdp_rxq_info_reg_mem_model(&rx_q->xdp_rxq,
+						   MEM_TYPE_ZERO_COPY,
+						   &rx_q->zca));
+		rx_q->xsk_buf_len = rx_q->xsk_umem->chunk_size_nohr -
+							XDP_PACKET_HEADROOM;
+	} else {
+		WARN_ON(xdp_rxq_info_reg_mem_model(&rx_q->xdp_rxq,
+						   MEM_TYPE_PAGE_SHARED,
+						   NULL));
+	}
 
 	/* Init Rx DMA - DMA_CHAN_RX_BASE_ADDR */
 	stmmac_init_rx_chan(priv, priv->ioaddr, priv->plat->dma_cfg,
@@ -2094,7 +2125,10 @@ static void stmmac_configure_rx_queue(struct stmmac_priv *priv, u16 qid)
 			       qid);
 
 	/* Populate Rx Buffers to Rx DMA Ring */
-	stmmac_alloc_rx_buffers(rx_q, priv->dma_rx_size);
+	if (rx_q->xsk_umem)
+		stmmac_alloc_rx_buffers_slow_zc(rx_q, priv->dma_rx_size);
+	else
+		stmmac_alloc_rx_buffers(rx_q, priv->dma_rx_size);
 }
 
 /**
@@ -2243,6 +2277,8 @@ static int stmmac_tx_clean(struct stmmac_priv *priv, int budget, u32 queue)
 			p = &(tx_q->dma_enhtx + entry)->basic;
 		else
 			p = tx_q->dma_tx + entry;
+
+		prefetch(p);
 
 		status = stmmac_tx_status(priv, &priv->dev->stats,
 				&priv->xstats, p, priv->ioaddr);
@@ -4483,12 +4519,16 @@ static int stmmac_napi_poll_rx(struct napi_struct *napi, int budget)
 	struct stmmac_channel *ch =
 		container_of(napi, struct stmmac_channel, rx_napi);
 	struct stmmac_priv *priv = ch->priv_data;
+	struct stmmac_rx_queue *rx_q;
 	u32 chan = ch->index;
 	int work_done;
 
 	priv->xstats.napi_poll++;
 
-	work_done = stmmac_rx(priv, budget, chan);
+	rx_q = &priv->rx_queue[chan];
+	work_done = rx_q->xsk_umem ? stmmac_rx_zc(priv, budget, chan) :
+				     stmmac_rx(priv, budget, chan);
+
 	if (work_done < budget && napi_complete_done(napi, work_done))
 		stmmac_enable_dma_irq(priv, priv->ioaddr, chan);
 	return work_done;
