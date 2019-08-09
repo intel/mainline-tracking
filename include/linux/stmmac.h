@@ -184,6 +184,7 @@ struct plat_stmmacenet_data {
 	bool has_sun8i;
 	bool tso_en;
 	bool tsn_est_en;
+	bool tsn_fpe_en;
 	bool tsn_tbs_en;
 	int mac_port_sel_speed;
 	bool en_tx_lpi_clockgating;
@@ -203,6 +204,8 @@ struct plat_stmmacenet_data {
 	u32 ptov;
 	u32 ctov;
 	u32 tils;
+	/*FPE */
+	u32 fprq;
 	/* TBS */
 	u32 estm;
 	u32 leos;
