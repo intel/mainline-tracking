@@ -1,6 +1,8 @@
 #ifndef _XT_QUOTA_H
 #define _XT_QUOTA_H
 
+#include <linux/types.h>
+
 enum xt_quota_flags {
 	XT_QUOTA_INVERT    = 1 << 0,
 	XT_QUOTA_GROW      = 1 << 1,
