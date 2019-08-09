@@ -1240,8 +1240,8 @@ static int stmmac_init_rx_buffers(struct stmmac_priv *priv, struct dma_desc *p,
 	if (!buf->page)
 		return -ENOMEM;
 
-	buf->addr = page_pool_get_dma_addr(buf->page);
-	stmmac_set_desc_addr(priv, p, buf->addr);
+	buf->dma_addr = page_pool_get_dma_addr(buf->page);
+	stmmac_set_desc_addr(priv, p, buf->dma_addr);
 	if (priv->dma_buf_sz == BUF_SIZE_16KiB)
 		stmmac_init_desc3(priv, p);
 
@@ -3868,15 +3868,15 @@ static inline void stmmac_rx_refill(struct stmmac_priv *priv, u32 queue)
 				break;
 		}
 
-		buf->addr = page_pool_get_dma_addr(buf->page);
+		buf->dma_addr = page_pool_get_dma_addr(buf->page);
 
 		/* Sync whole allocation to device. This will invalidate old
 		 * data.
 		 */
-		dma_sync_single_for_device(priv->device, buf->addr, len,
+		dma_sync_single_for_device(priv->device, buf->dma_addr, len,
 					   DMA_FROM_DEVICE);
 
-		stmmac_set_desc_addr(priv, p, buf->addr);
+		stmmac_set_desc_addr(priv, p, buf->dma_addr);
 		stmmac_refill_desc3(priv, rx_q, p);
 
 		rx_q->rx_count_frames++;
@@ -4011,7 +4011,7 @@ static int stmmac_rx(struct stmmac_priv *priv, int limit, u32 queue)
 				continue;
 			}
 
-			dma_sync_single_for_cpu(priv->device, buf->addr,
+			dma_sync_single_for_cpu(priv->device, buf->dma_addr,
 						frame_len, DMA_FROM_DEVICE);
 			skb_copy_to_linear_data(skb, page_address(buf->page),
 						frame_len);
