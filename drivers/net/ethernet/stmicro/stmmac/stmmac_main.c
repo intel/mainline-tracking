@@ -2841,13 +2841,13 @@ static void stmmac_configure_cbs(struct stmmac_priv *priv)
 	}
 }
 
-static int stmmac_set_tbs_launchtime(struct stmmac_priv *priv,
-				     struct dma_desc *desc,
-				     u64 tx_time)
+int stmmac_set_tbs_launchtime(struct stmmac_priv *priv,
+			      struct dma_desc *desc,
+			      u64 tx_time)
 {
 	struct dma_enhanced_tx_desc *enhtxdesc;
 	u32 launchtime_ns;
-	u8 launchtime_s;
+	u32 launchtime_s;
 
 	enhtxdesc = container_of(desc, struct dma_enhanced_tx_desc, basic);
 	launchtime_ns = do_div(tx_time, NSEC_PER_SEC);
