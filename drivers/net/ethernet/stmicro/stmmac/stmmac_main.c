@@ -961,6 +961,8 @@ static void stmmac_mac_link_down(struct phylink_config *config,
 	priv->eee_active = false;
 	stmmac_eee_init(priv);
 	stmmac_set_eee_pls(priv, priv->hw, false);
+	stmmac_fpe_link_state_handle(priv, priv->hw, priv->dev, false);
+
 }
 
 static void stmmac_mac_link_up(struct phylink_config *config,
@@ -975,6 +977,7 @@ static void stmmac_mac_link_up(struct phylink_config *config,
 		priv->eee_enabled = stmmac_eee_init(priv);
 		stmmac_set_eee_pls(priv, priv->hw, true);
 	}
+	stmmac_fpe_link_state_handle(priv, priv->hw, priv->dev, true);
 }
 
 static const struct phylink_mac_ops stmmac_phylink_mac_ops = {
@@ -2708,6 +2711,11 @@ static int stmmac_hw_setup(struct net_device *dev, bool init_ptp)
 					 TSN_HWTUNA_TX_TBS_FGOS,
 					 priv->plat->fgos);
 
+	if (stmmac_has_tsn_feat(priv, priv->hw, dev, TSN_FEAT_ID_FPE)) {
+		if (priv->hw->cached_fpe_en)
+			stmmac_fpe_set_enable(priv, priv->hw, dev, true);
+	}
+
 	return 0;
 }
 
@@ -3099,6 +3107,8 @@ static int stmmac_release(struct net_device *dev)
 	netif_carrier_off(dev);
 
 	stmmac_release_ptp(priv);
+
+	stmmac_tsn_hw_unsetup(priv, priv->hw, dev);
 
 	return 0;
 }
@@ -4073,6 +4083,9 @@ static void stmmac_common_interrupt(struct stmmac_priv *priv)
 
 	if (priv->hw->tsn_info.feat_en[TSN_FEAT_ID_EST])
 		stmmac_est_irq_status(priv, priv->hw, priv->dev);
+
+	if (priv->hw->tsn_info.feat_en[TSN_FEAT_ID_FPE])
+		stmmac_fpe_irq_status(priv, priv->hw, priv->dev);
 
 	/* To handle GMAC own interrupts */
 	if ((priv->plat->has_gmac) || xmac) {
@@ -5127,6 +5140,15 @@ int stmmac_suspend(struct device *dev)
 		clk_disable(priv->plat->pclk);
 		clk_disable(priv->plat->stmmac_clk);
 	}
+
+	if (stmmac_has_tsn_feat(priv, priv->hw, ndev, TSN_FEAT_ID_FPE)) {
+		/* Keep the FPE enable/disable state before suspend */
+		priv->hw->cached_fpe_en = priv->hw->tsn_info.fpe_cfg.enable;
+		netdev_info(ndev, "FPE: cached Enable %d",
+			    priv->hw->cached_fpe_en);
+		stmmac_fpe_set_enable(priv, priv->hw, ndev, false);
+	}
+
 	mutex_unlock(&priv->lock);
 
 	priv->speed = SPEED_UNKNOWN;
