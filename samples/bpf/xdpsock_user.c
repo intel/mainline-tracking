@@ -46,7 +46,7 @@
 #define NUM_FRAMES (4 * 1024)
 #define BATCH_SIZE 64
 
-#define DEBUG_HEXDUMP 0
+#define DEBUG_HEXDUMP 1
 #define MAX_SOCKS 8
 
 typedef __u64 u64;
@@ -247,26 +247,27 @@ static void hex_dump(void *pkt, size_t length, u64 addr)
 		return;
 
 	sprintf(buf, "addr=%llu", addr);
-	printf("length = %zu\n", length);
-	printf("%s | ", buf);
+	fprintf(stderr, "length = %zu\n", length);
+	fprintf(stderr, "%s | ", buf);
 	while (length-- > 0) {
-		printf("%02X ", *address++);
+		fprintf(stderr, "%02X ", *address++);
 		if (!(++i % line_size) || (length == 0 && i % line_size)) {
 			if (length == 0) {
 				while (i++ % line_size)
-					printf("__ ");
+					fprintf(stderr, "__ ");
 			}
-			printf(" | ");	/* right close */
+			fprintf(stderr, " | ");	/* right close */
 			while (line < address) {
 				c = *line++;
-				printf("%c", (c < 33 || c == 255) ? 0x2E : c);
+				fprintf(stderr, "%c", (c < 33 || c == 255) ?
+						       0x2E : c);
 			}
-			printf("\n");
+			fprintf(stderr, "\n");
 			if (length > 0)
-				printf("%s | ", buf);
+				fprintf(stderr, "%s | ", buf);
 		}
 	}
-	printf("\n");
+	fprintf(stderr, "\n");
 }
 
 static size_t gen_eth_frame(struct xsk_umem_info *umem, u64 addr)
