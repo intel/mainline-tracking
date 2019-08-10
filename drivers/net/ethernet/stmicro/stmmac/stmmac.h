@@ -312,7 +312,9 @@ void stmmac_txrx_ring_enable(struct stmmac_priv *priv, u16 qid);
 void stmmac_txrx_ring_disable(struct stmmac_priv *priv, u16 qid);
 void stmmac_free_tx_buffer(struct stmmac_priv *priv, u32 queue, int i);
 int stmmac_xsk_async_xmit(struct net_device *dev, u32 qid);
-
+/* Forward declaration */
+int stmmac_set_tbs_launchtime(struct stmmac_priv *priv, struct dma_desc *desc,
+			      u64 txtime);
 #if IS_ENABLED(CONFIG_STMMAC_SELFTESTS)
 void stmmac_selftest_run(struct net_device *dev,
 			 struct ethtool_test *etest, u64 *buf);
