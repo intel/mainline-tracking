@@ -67,6 +67,8 @@ static int opt_ifindex;
 static int opt_queue;
 static int opt_poll;
 static int opt_interval = 1;
+static int opt_txtime;
+static int opt_period_ns = 250000;
 static u32 opt_xdp_bind_flags;
 static int opt_xsk_frame_size = XSK_UMEM__DEFAULT_FRAME_SIZE;
 static __u32 prog_id;
@@ -352,6 +354,8 @@ static struct option long_options[] = {
 	{"zero-copy", no_argument, 0, 'z'},
 	{"copy", no_argument, 0, 'c'},
 	{"frame-size", required_argument, 0, 'f'},
+	{"txtime", no_argument, 0, 'T'},
+	{"period_ns", required_argument, 0, 'P'},
 	{0, 0, 0, 0}
 };
 
@@ -372,6 +376,8 @@ static void usage(const char *prog)
 		"  -z, --zero-copy      Force zero-copy mode.\n"
 		"  -c, --copy           Force copy mode.\n"
 		"  -f, --frame-size=n   Set the frame size (must be a power of two, default is %d).\n"
+		"  -T, --txtime		Specify transmit time in each packet\n"
+		"  -P, --period_ns=n	Set transmit time period (default 250us)\n"
 		"\n";
 	fprintf(stderr, str, prog, XSK_UMEM__DEFAULT_FRAME_SIZE);
 	exit(EXIT_FAILURE);
@@ -384,7 +390,7 @@ static void parse_command_line(int argc, char **argv)
 	opterr = 0;
 
 	for (;;) {
-		c = getopt_long(argc, argv, "Frtli:q:psSNn:czf:", long_options,
+		c = getopt_long(argc, argv, "FrtTli:q:psSNn:czf:", long_options,
 				&option_index);
 		if (c == -1)
 			break;
@@ -429,6 +435,12 @@ static void parse_command_line(int argc, char **argv)
 			break;
 		case 'f':
 			opt_xsk_frame_size = atoi(optarg);
+			break;
+		case 'T':
+			opt_txtime = 1;
+			break;
+		case 'P':
+			opt_period_ns = atoi(optarg);
 			break;
 		default:
 			usage(basename(argv[0]));
@@ -571,16 +583,48 @@ static void rx_drop_all(void)
 	}
 }
 
+/* Get the current time and convert to nanoseconds */
+static u64 get_time_nanosec(clockid_t clkid)
+{
+	struct timespec now;
+
+	clock_gettime(clkid, &now);
+	return now.tv_sec * 1000000000 + now.tv_nsec;
+}
+
+/* Get the current time in seconds */
+static u64 get_time_sec(clockid_t clkid)
+{
+	struct timespec now;
+
+	clock_gettime(clkid, &now);
+	return now.tv_sec * 1000000000;
+}
+
+static u64 txtime_curtime_delta(u64 txtime, clockid_t clkid)
+{
+	u64 curtime;
+
+	curtime = get_time_nanosec(clkid);
+	return (txtime - curtime);
+}
+
 static void tx_only(struct xsk_socket_info *xsk)
 {
 	int timeout, ret, nfds = 1;
 	struct pollfd fds[nfds + 1];
 	u32 idx, frame_nb = 0;
+	u64 tx_timestamp = 0;
 
 	memset(fds, 0, sizeof(fds));
 	fds[0].fd = xsk_socket__fd(xsk->xsk);
 	fds[0].events = POLLOUT;
 	timeout = 1000; /* 1sn */
+
+	if (opt_txtime) {
+		/* Initialize the first packet to 0.5s to the future*/
+		tx_timestamp = get_time_sec(CLOCK_TAI) + 500000000;
+	}
 
 	for (;;) {
 		if (opt_poll) {
@@ -594,13 +638,31 @@ static void tx_only(struct xsk_socket_info *xsk)
 
 		if (xsk_ring_prod__reserve(&xsk->tx, BATCH_SIZE, &idx) ==
 		    BATCH_SIZE) {
-			unsigned int i;
+			unsigned int i, j;
 
 			for (i = 0; i < BATCH_SIZE; i++) {
 				xsk_ring_prod__tx_desc(&xsk->tx, idx + i)->addr
 					= (frame_nb + i) * opt_xsk_frame_size;
 				xsk_ring_prod__tx_desc(&xsk->tx, idx + i)->len =
 					sizeof(pkt_data) - 1;
+
+				j = idx + i;
+
+				if (opt_txtime) {
+					tx_timestamp += opt_period_ns;
+
+					/* Don't transmit beyond 3 seconds */
+					if (txtime_curtime_delta(tx_timestamp,
+								 CLOCK_TAI)
+						> 3000000000)
+						return;
+
+					xsk_ring_prod__tx_desc(&xsk->tx, j)
+						->txtime = tx_timestamp;
+				} else {
+					xsk_ring_prod__tx_desc(&xsk->tx, j)
+						->txtime = 0;
+				}
 			}
 
 			xsk_ring_prod__submit(&xsk->tx, BATCH_SIZE);
