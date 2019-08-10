@@ -276,6 +276,17 @@ static size_t gen_eth_frame(struct xsk_umem_info *umem, u64 addr)
 	return sizeof(pkt_data) - 1;
 }
 
+static void add_seqnum(struct xsk_umem_info *umem, u64 addr, u64 count)
+{
+	/* Get offset after ethernet hdr, ip hdr, udp hdr, txq, seq, and
+	 * timestampA to finally get to the position of timestamp B
+	 */
+	int offset = 46; //14 + 20 + 8 + 4
+
+	memcpy(xsk_umem__get_data(umem->buffer, addr) + offset, &count,
+	       sizeof(u64));
+}
+
 static struct xsk_umem_info *xsk_configure_umem(void *buffer, u64 size)
 {
 	struct xsk_umem_info *umem;
@@ -748,8 +759,10 @@ int main(int argc, char **argv)
 	if (opt_bench == BENCH_TXONLY) {
 		int i;
 
-		for (i = 0; i < NUM_FRAMES; i++)
+		for (i = 0; i < NUM_FRAMES; i++) {
 			(void)gen_eth_frame(umem, i * opt_xsk_frame_size);
+			add_seqnum(umem, i * opt_xsk_frame_size, i);
+		}
 	}
 
 	signal(SIGINT, int_exit);
