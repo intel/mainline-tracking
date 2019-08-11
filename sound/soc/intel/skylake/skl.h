@@ -76,7 +76,6 @@ struct skl_dev {
 	struct list_head ppl_list;
 	struct list_head bind_list;
 
-	const char *fw_name;
 	char tplg_name[64];
 	unsigned short pci_id;
 
