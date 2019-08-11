@@ -67,14 +67,15 @@ static int skl_load_base_firmware(struct sst_dsp *ctx)
 {
 	int ret = 0, i;
 	struct skl_dev *skl = ctx->thread_context;
+	struct sst_pdata *pdata = ctx->pdata;
 	struct firmware stripped_fw;
 	u32 reg;
 
 	skl->boot_complete = false;
 	init_waitqueue_head(&skl->boot_wait);
 
-	if (ctx->fw == NULL) {
-		ret = request_firmware(&ctx->fw, ctx->fw_name, ctx->dev);
+	if (!pdata->fw) {
+		ret = request_firmware(&pdata->fw, ctx->fw_name, ctx->dev);
 		if (ret < 0) {
 			dev_err(ctx->dev, "Request firmware failed %d\n", ret);
 			return -EIO;
@@ -82,19 +83,19 @@ static int skl_load_base_firmware(struct sst_dsp *ctx)
 	}
 
 	if (skl->is_first_boot) {
-		ret = snd_skl_parse_manifest(ctx, ctx->fw,
+		ret = snd_skl_parse_manifest(ctx, pdata->fw,
 						SKL_ADSP_FW_BIN_HDR_OFFSET, 0);
 		if (ret < 0) {
 			dev_err(ctx->dev, "Manifest parsing err: %d\n", ret);
-			release_firmware(ctx->fw);
+			release_firmware(pdata->fw);
 			skl_dsp_disable_core(ctx, SKL_DSP_CORE0_MASK);
 			return ret;
 		}
 	}
 
 	/* check for extended manifest */
-	stripped_fw.data = ctx->fw->data;
-	stripped_fw.size = ctx->fw->size;
+	stripped_fw.data = pdata->fw->data;
+	stripped_fw.size = pdata->fw->size;
 
 	skl_dsp_strip_extended_manifest(&stripped_fw);
 
@@ -152,8 +153,8 @@ transfer_firmware_failed:
 	ctx->cl_dev.ops.cl_cleanup_controller(ctx);
 skl_load_base_firmware_failed:
 	skl_dsp_disable_core(ctx, SKL_DSP_CORE0_MASK);
-	release_firmware(ctx->fw);
-	ctx->fw = NULL;
+	release_firmware(pdata->fw);
+	pdata->fw = NULL;
 	return ret;
 }
 
@@ -602,10 +603,11 @@ EXPORT_SYMBOL_GPL(skl_sst_init_fw);
 void skl_sst_dsp_cleanup(struct skl_dev *skl)
 {
 	struct sst_dsp *dsp = skl->dsp;
+	struct sst_pdata *pdata = dsp->pdata;
 
 	skl_release_library(skl->lib_info, skl->lib_count);
-	if (dsp->fw)
-		release_firmware(dsp->fw);
+	if (pdata->fw)
+		release_firmware(pdata->fw);
 	skl_clear_module_table(dsp);
 
 	list_del_init(&skl->module_list);

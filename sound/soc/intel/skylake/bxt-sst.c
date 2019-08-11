@@ -185,10 +185,11 @@ static int bxt_load_base_firmware(struct sst_dsp *ctx)
 {
 	struct firmware stripped_fw;
 	struct skl_dev *skl = ctx->thread_context;
+	struct sst_pdata *pdata = ctx->pdata;
 	int ret, i;
 
-	if (ctx->fw == NULL) {
-		ret = request_firmware(&ctx->fw, ctx->fw_name, ctx->dev);
+	if (!pdata->fw) {
+		ret = request_firmware(&pdata->fw, ctx->fw_name, ctx->dev);
 		if (ret < 0) {
 			dev_err(ctx->dev, "Request firmware failed %d\n", ret);
 			return ret;
@@ -196,14 +197,14 @@ static int bxt_load_base_firmware(struct sst_dsp *ctx)
 	}
 
 	if (skl->is_first_boot) {
-		ret = snd_skl_parse_manifest(ctx, ctx->fw,
+		ret = snd_skl_parse_manifest(ctx, pdata->fw,
 						BXT_ADSP_FW_BIN_HDR_OFFSET, 0);
 		if (ret < 0)
 			goto sst_load_base_firmware_failed;
 	}
 
-	stripped_fw.data = ctx->fw->data;
-	stripped_fw.size = ctx->fw->size;
+	stripped_fw.data = pdata->fw->data;
+	stripped_fw.size = pdata->fw->size;
 	skl_dsp_strip_extended_manifest(&stripped_fw);
 
 	for (i = 0; i < BXT_FW_ROM_INIT_RETRY; i++) {
@@ -246,8 +247,8 @@ static int bxt_load_base_firmware(struct sst_dsp *ctx)
 	return ret;
 
 sst_load_base_firmware_failed:
-	release_firmware(ctx->fw);
-	ctx->fw = NULL;
+	release_firmware(pdata->fw);
+	pdata->fw = NULL;
 	return ret;
 }
 

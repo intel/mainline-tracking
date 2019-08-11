@@ -108,10 +108,11 @@ static int cnl_load_base_firmware(struct sst_dsp *ctx)
 {
 	struct firmware stripped_fw;
 	struct skl_dev *cnl = ctx->thread_context;
+	struct sst_pdata *pdata = ctx->pdata;
 	int ret;
 
-	if (!ctx->fw) {
-		ret = request_firmware(&ctx->fw, ctx->fw_name, ctx->dev);
+	if (!pdata->fw) {
+		ret = request_firmware(&pdata->fw, ctx->fw_name, ctx->dev);
 		if (ret < 0) {
 			dev_err(ctx->dev, "request firmware failed: %d\n", ret);
 			goto cnl_load_base_firmware_failed;
@@ -119,14 +120,14 @@ static int cnl_load_base_firmware(struct sst_dsp *ctx)
 	}
 
 	if (cnl->is_first_boot) {
-		ret = snd_skl_parse_manifest(ctx, ctx->fw,
+		ret = snd_skl_parse_manifest(ctx, pdata->fw,
 						CNL_ADSP_FW_HDR_OFFSET, 0);
 		if (ret < 0)
 			goto cnl_load_base_firmware_failed;
 	}
 
-	stripped_fw.data = ctx->fw->data;
-	stripped_fw.size = ctx->fw->size;
+	stripped_fw.data = pdata->fw->data;
+	stripped_fw.size = pdata->fw->size;
 	skl_dsp_strip_extended_manifest(&stripped_fw);
 
 	ret = cnl_prepare_fw(ctx, stripped_fw.data, stripped_fw.size);
@@ -156,8 +157,8 @@ static int cnl_load_base_firmware(struct sst_dsp *ctx)
 	return 0;
 
 cnl_load_base_firmware_failed:
-	release_firmware(ctx->fw);
-	ctx->fw = NULL;
+	release_firmware(pdata->fw);
+	pdata->fw = NULL;
 
 	return ret;
 }
