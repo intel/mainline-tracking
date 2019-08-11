@@ -203,6 +203,15 @@ struct skl_module_table {
 	struct list_head list;
 };
 
+int skl_alloc_dma_buf(struct device *dev,
+		struct snd_dma_buffer *dmab, size_t size);
+int skl_free_dma_buf(struct device *dev, struct snd_dma_buffer *dmab);
+int skl_dsp_prepare(struct device *dev, unsigned int format,
+		unsigned int size, struct snd_dma_buffer *dmab);
+int skl_dsp_trigger(struct device *dev, bool start, int stream_tag);
+int skl_dsp_cleanup(struct device *dev, struct snd_dma_buffer *dmab,
+		int stream_tag);
+
 void skl_cldma_process_intr(struct sst_dsp *ctx);
 void skl_cldma_int_disable(struct sst_dsp *ctx);
 int skl_cldma_prepare(struct sst_dsp *ctx);

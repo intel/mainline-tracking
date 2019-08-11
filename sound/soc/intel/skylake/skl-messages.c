@@ -22,13 +22,13 @@
 #include "../common/sst-dsp-priv.h"
 #include "skl-topology.h"
 
-static int skl_alloc_dma_buf(struct device *dev,
+int skl_alloc_dma_buf(struct device *dev,
 		struct snd_dma_buffer *dmab, size_t size)
 {
 	return snd_dma_alloc_pages(SNDRV_DMA_TYPE_DEV, dev, size, dmab);
 }
 
-static int skl_free_dma_buf(struct device *dev, struct snd_dma_buffer *dmab)
+int skl_free_dma_buf(struct device *dev, struct snd_dma_buffer *dmab)
 {
 	snd_dma_free_pages(dmab);
 	return 0;
@@ -66,7 +66,7 @@ static int skl_dsp_setup_spib(struct device *dev, unsigned int size,
 	return 0;
 }
 
-static int skl_dsp_prepare(struct device *dev, unsigned int format,
+int skl_dsp_prepare(struct device *dev, unsigned int format,
 			unsigned int size, struct snd_dma_buffer *dmab)
 {
 	struct hdac_bus *bus = dev_get_drvdata(dev);
@@ -98,7 +98,7 @@ static int skl_dsp_prepare(struct device *dev, unsigned int format,
 	return stream->stream_tag;
 }
 
-static int skl_dsp_trigger(struct device *dev, bool start, int stream_tag)
+int skl_dsp_trigger(struct device *dev, bool start, int stream_tag)
 {
 	struct hdac_bus *bus = dev_get_drvdata(dev);
 	struct hdac_stream *stream;
@@ -116,7 +116,7 @@ static int skl_dsp_trigger(struct device *dev, bool start, int stream_tag)
 	return 0;
 }
 
-static int skl_dsp_cleanup(struct device *dev,
+int skl_dsp_cleanup(struct device *dev,
 		struct snd_dma_buffer *dmab, int stream_tag)
 {
 	struct hdac_bus *bus = dev_get_drvdata(dev);
