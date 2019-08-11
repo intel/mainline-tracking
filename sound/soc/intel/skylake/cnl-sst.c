@@ -54,7 +54,6 @@ static int cnl_prepare_fw(struct sst_dsp *ctx, const void *fwdata, u32 fwsize)
 		return stream_tag;
 	}
 
-	ctx->dsp_ops.stream_tag = stream_tag;
 	memcpy(ctx->dmab.area, fwdata, fwsize);
 
 	/* purge FW request */
@@ -81,7 +80,7 @@ static int cnl_prepare_fw(struct sst_dsp *ctx, const void *fwdata, u32 fwsize)
 		goto base_fw_load_failed;
 	}
 
-	return 0;
+	return stream_tag;
 
 base_fw_load_failed:
 	skl_dsp_cleanup(ctx->dev, &ctx->dmab, stream_tag);
@@ -90,17 +89,17 @@ base_fw_load_failed:
 	return ret;
 }
 
-static int sst_transfer_fw_host_dma(struct sst_dsp *ctx)
+static int sst_transfer_fw_host_dma(struct sst_dsp *ctx, int stream_tag)
 {
 	int ret;
 
-	skl_dsp_trigger(ctx->dev, true, ctx->dsp_ops.stream_tag);
+	skl_dsp_trigger(ctx->dev, true, stream_tag);
 	ret = sst_dsp_register_poll(ctx, CNL_ADSP_FW_STATUS, CNL_FW_STS_MASK,
 				    CNL_FW_INIT, CNL_BASEFW_TIMEOUT,
 				    "firmware boot");
 
-	skl_dsp_trigger(ctx->dev, false, ctx->dsp_ops.stream_tag);
-	skl_dsp_cleanup(ctx->dev, &ctx->dmab, ctx->dsp_ops.stream_tag);
+	skl_dsp_trigger(ctx->dev, false, stream_tag);
+	skl_dsp_cleanup(ctx->dev, &ctx->dmab, stream_tag);
 
 	return ret;
 }
@@ -136,7 +135,7 @@ static int cnl_load_base_firmware(struct sst_dsp *ctx)
 		goto cnl_load_base_firmware_failed;
 	}
 
-	ret = sst_transfer_fw_host_dma(ctx);
+	ret = sst_transfer_fw_host_dma(ctx, ret);
 	if (ret < 0) {
 		dev_err(ctx->dev, "transfer firmware failed: %d\n", ret);
 		cnl_dsp_disable_core(ctx, SKL_DSP_CORE0_MASK);

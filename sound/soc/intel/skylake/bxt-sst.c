@@ -107,7 +107,6 @@ static int sst_bxt_prepare_fw(struct sst_dsp *ctx,
 		return stream_tag;
 	}
 
-	ctx->dsp_ops.stream_tag = stream_tag;
 	memcpy(ctx->dmab.area, fwdata, fwsize);
 
 	/* Step 1: Power up core 0 and core1 */
@@ -159,7 +158,7 @@ static int sst_bxt_prepare_fw(struct sst_dsp *ctx,
 		goto base_fw_load_failed;
 	}
 
-	return ret;
+	return stream_tag;
 
 base_fw_load_failed:
 	skl_dsp_cleanup(ctx->dev, &ctx->dmab, stream_tag);
@@ -168,16 +167,16 @@ base_fw_load_failed:
 	return ret;
 }
 
-static int sst_transfer_fw_host_dma(struct sst_dsp *ctx)
+static int sst_transfer_fw_host_dma(struct sst_dsp *ctx, int stream_tag)
 {
 	int ret;
 
-	skl_dsp_trigger(ctx->dev, true, ctx->dsp_ops.stream_tag);
+	skl_dsp_trigger(ctx->dev, true, stream_tag);
 	ret = sst_dsp_register_poll(ctx, BXT_ADSP_FW_STATUS, SKL_FW_STS_MASK,
 			BXT_ROM_INIT, BXT_BASEFW_TIMEOUT, "Firmware boot");
 
-	skl_dsp_trigger(ctx->dev, false, ctx->dsp_ops.stream_tag);
-	skl_dsp_cleanup(ctx->dev, &ctx->dmab, ctx->dsp_ops.stream_tag);
+	skl_dsp_trigger(ctx->dev, false, stream_tag);
+	skl_dsp_cleanup(ctx->dev, &ctx->dmab, stream_tag);
 
 	return ret;
 }
@@ -207,7 +206,6 @@ static int bxt_load_base_firmware(struct sst_dsp *ctx)
 	stripped_fw.size = ctx->fw->size;
 	skl_dsp_strip_extended_manifest(&stripped_fw);
 
-
 	for (i = 0; i < BXT_FW_ROM_INIT_RETRY; i++) {
 		ret = sst_bxt_prepare_fw(ctx, stripped_fw.data, stripped_fw.size);
 		if (ret == 0)
@@ -223,7 +221,7 @@ static int bxt_load_base_firmware(struct sst_dsp *ctx)
 		goto sst_load_base_firmware_failed;
 	}
 
-	ret = sst_transfer_fw_host_dma(ctx);
+	ret = sst_transfer_fw_host_dma(ctx, ret);
 	if (ret < 0) {
 		dev_err(ctx->dev, "Transfer firmware failed %d\n", ret);
 		dev_info(ctx->dev, "Error code=0x%x: FW status=0x%x\n",
