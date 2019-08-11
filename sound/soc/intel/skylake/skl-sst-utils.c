@@ -395,7 +395,7 @@ int skl_dsp_strip_extended_manifest(struct firmware *fw)
 }
 
 int skl_sst_ctx_init(struct device *dev, int irq, const char *fw_name,
-	struct skl_dsp_loader_ops dsp_ops, struct skl_dev **dsp,
+	struct skl_dev **dsp,
 	struct sst_pdata *pdata)
 {
 	struct skl_dev *skl = *dsp;
@@ -415,7 +415,6 @@ int skl_sst_ctx_init(struct device *dev, int irq, const char *fw_name,
 
 	sst = skl->dsp;
 	sst->fw_name = fw_name;
-	sst->dsp_ops = dsp_ops;
 	init_waitqueue_head(&skl->mod_load_wait);
 	INIT_LIST_HEAD(&sst->module_list);
 

@@ -140,72 +140,37 @@ int skl_dsp_cleanup(struct device *dev,
 	return 0;
 }
 
-static struct skl_dsp_loader_ops skl_get_loader_ops(void)
-{
-	struct skl_dsp_loader_ops loader_ops;
-
-	memset(&loader_ops, 0, sizeof(struct skl_dsp_loader_ops));
-
-	loader_ops.alloc_dma_buf = skl_alloc_dma_buf;
-	loader_ops.free_dma_buf = skl_free_dma_buf;
-
-	return loader_ops;
-};
-
-static struct skl_dsp_loader_ops bxt_get_loader_ops(void)
-{
-	struct skl_dsp_loader_ops loader_ops;
-
-	memset(&loader_ops, 0, sizeof(loader_ops));
-
-	loader_ops.alloc_dma_buf = skl_alloc_dma_buf;
-	loader_ops.free_dma_buf = skl_free_dma_buf;
-	loader_ops.prepare = skl_dsp_prepare;
-	loader_ops.trigger = skl_dsp_trigger;
-	loader_ops.cleanup = skl_dsp_cleanup;
-
-	return loader_ops;
-};
-
 static const struct skl_dsp_ops dsp_ops[] = {
 	{
 		.id = 0x9d70,
-		.loader_ops = skl_get_loader_ops,
 		.init = skl_sst_dsp_init,
 	},
 	{
 		.id = 0x9d71,
-		.loader_ops = skl_get_loader_ops,
 		.init = skl_sst_dsp_init,
 	},
 	{
 		.id = 0x5a98,
-		.loader_ops = bxt_get_loader_ops,
 		.init = bxt_sst_dsp_init,
 	},
 	{
 		.id = 0x3198,
-		.loader_ops = bxt_get_loader_ops,
 		.init = bxt_sst_dsp_init,
 	},
 	{
 		.id = 0x9dc8,
-		.loader_ops = bxt_get_loader_ops,
 		.init = cnl_sst_dsp_init,
 	},
 	{
 		.id = 0xa348,
-		.loader_ops = bxt_get_loader_ops,
 		.init = cnl_sst_dsp_init,
 	},
 	{
 		.id = 0x02c8,
-		.loader_ops = bxt_get_loader_ops,
 		.init = cnl_sst_dsp_init,
 	},
 	{
 		.id = 0x06c8,
-		.loader_ops = bxt_get_loader_ops,
 		.init = cnl_sst_dsp_init,
 	},
 };
@@ -226,7 +191,6 @@ int skl_init_dsp(struct skl_dev *skl)
 {
 	void __iomem *mmio_base;
 	struct hdac_bus *bus = skl_to_bus(skl);
-	struct skl_dsp_loader_ops loader_ops;
 	int irq = bus->irq;
 	const struct skl_dsp_ops *ops;
 	int ret;
@@ -248,10 +212,8 @@ int skl_init_dsp(struct skl_dev *skl)
 		goto unmap_mmio;
 	}
 
-	loader_ops = ops->loader_ops();
 	ret = ops->init(bus->dev, mmio_base, irq,
-				skl->fw_name, loader_ops,
-				&skl);
+				skl->fw_name, &skl);
 
 	if (ret < 0)
 		goto unmap_mmio;

@@ -150,22 +150,6 @@ struct skl_dsp_fw_ops {
 
 };
 
-struct skl_dsp_loader_ops {
-	int stream_tag;
-
-	int (*alloc_dma_buf)(struct device *dev,
-		struct snd_dma_buffer *dmab, size_t size);
-	int (*free_dma_buf)(struct device *dev,
-		struct snd_dma_buffer *dmab);
-	int (*prepare)(struct device *dev, unsigned int format,
-				unsigned int byte_size,
-				struct snd_dma_buffer *bufp);
-	int (*trigger)(struct device *dev, bool start, int stream_tag);
-
-	int (*cleanup)(struct device *dev, struct snd_dma_buffer *dmab,
-				 int stream_tag);
-};
-
 struct adsp_module_config {
 	u32 par[4];		/* module parameters */
 	u32 is_bytes;		/* actual size of instance .bss (bytes) */
@@ -240,11 +224,9 @@ int skl_dsp_put_core(struct sst_dsp *ctx, unsigned int core_id);
 
 int skl_dsp_boot(struct sst_dsp *ctx);
 int skl_sst_dsp_init(struct device *dev, void __iomem *mmio_base, int irq,
-		const char *fw_name, struct skl_dsp_loader_ops dsp_ops,
-		struct skl_dev **dsp);
+		const char *fw_name, struct skl_dev **dsp);
 int bxt_sst_dsp_init(struct device *dev, void __iomem *mmio_base, int irq,
-		const char *fw_name, struct skl_dsp_loader_ops dsp_ops,
-		struct skl_dev **dsp);
+		const char *fw_name, struct skl_dev **dsp);
 int bxt_load_library(struct sst_dsp *ctx, struct skl_lib_info *linfo,
 		int lib_count);
 
@@ -263,7 +245,7 @@ int skl_dsp_strip_extended_manifest(struct firmware *fw);
 void skl_dsp_set_astate_cfg(struct skl_dev *skl, u32 cnt, void *data);
 
 int skl_sst_ctx_init(struct device *dev, int irq, const char *fw_name,
-		struct skl_dsp_loader_ops dsp_ops, struct skl_dev **dsp,
+		struct skl_dev **dsp,
 		struct sst_pdata *pdata);
 int skl_prepare_lib_load(struct skl_dev *skl, struct skl_lib_info *linfo,
 			struct firmware *stripped_fw,

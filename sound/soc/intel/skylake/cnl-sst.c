@@ -422,14 +422,13 @@ static struct sst_pdata cnl_dev = {
 };
 
 int cnl_sst_dsp_init(struct device *dev, void __iomem *mmio_base, int irq,
-		     const char *fw_name, struct skl_dsp_loader_ops dsp_ops,
-		     struct skl_dev **dsp)
+		     const char *fw_name, struct skl_dev **dsp)
 {
 	struct skl_dev *cnl;
 	struct sst_dsp *sst;
 	int ret;
 
-	ret = skl_sst_ctx_init(dev, irq, fw_name, dsp_ops, dsp, &cnl_dev);
+	ret = skl_sst_ctx_init(dev, irq, fw_name, dsp, &cnl_dev);
 	if (ret < 0) {
 		dev_err(dev, "%s: no device\n", __func__);
 		return ret;
