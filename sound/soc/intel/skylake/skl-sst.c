@@ -523,13 +523,13 @@ int skl_sst_dsp_init(struct device *dev, void __iomem *mmio_base, int irq,
 	struct sst_dsp *sst;
 	int ret;
 
-	ret = skl_sst_ctx_init(dev, irq, fw_name, dsp, &skl_dev);
+	skl = *dsp;
+	ret = skl_sst_ctx_init(skl, fw_name, &skl_dev);
 	if (ret < 0) {
 		dev_err(dev, "%s: no device\n", __func__);
 		return ret;
 	}
 
-	skl = *dsp;
 	sst = skl->dsp;
 	sst->addr.lpe = mmio_base;
 	sst->addr.shim = mmio_base;

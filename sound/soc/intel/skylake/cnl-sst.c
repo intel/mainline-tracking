@@ -428,13 +428,13 @@ int cnl_sst_dsp_init(struct device *dev, void __iomem *mmio_base, int irq,
 	struct sst_dsp *sst;
 	int ret;
 
-	ret = skl_sst_ctx_init(dev, irq, fw_name, dsp, &cnl_dev);
+	cnl = *dsp;
+	ret = skl_sst_ctx_init(cnl, fw_name, &cnl_dev);
 	if (ret < 0) {
 		dev_err(dev, "%s: no device\n", __func__);
 		return ret;
 	}
 
-	cnl = *dsp;
 	sst = cnl->dsp;
 	sst->fw_ops = cnl_fw_ops;
 	sst->addr.lpe = mmio_base;

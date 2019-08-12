@@ -890,6 +890,7 @@ static int skl_create(struct pci_dev *pci,
 	snd_hdac_ext_bus_init(bus, &pci->dev, &bus_core_ops, ext_ops);
 	bus->use_posbuf = 1;
 	skl->pci = pci;
+	skl->dev = &pci->dev;
 	INIT_WORK(&skl->probe_work, skl_probe_work);
 	bus->bdl_pos_adj = 0;
 
