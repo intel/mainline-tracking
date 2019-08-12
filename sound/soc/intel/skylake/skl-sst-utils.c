@@ -6,6 +6,7 @@
  */
 
 #include <linux/device.h>
+#include <linux/pci.h>
 #include <linux/slab.h>
 #include <linux/uuid.h>
 #include "../common/sst-dsp.h"
@@ -400,10 +401,13 @@ int skl_sst_ctx_init(struct device *dev, int irq, const char *fw_name,
 	struct skl_dev *skl = *dsp;
 	struct sst_dsp *sst;
 
+	pdata->id = skl->pci->device;
+	pdata->irq = irq;
+	pdata->resindex_dma_base = -1;
 	skl->dev = dev;
 	pdata->dsp = skl;
 	INIT_LIST_HEAD(&skl->module_list);
-	skl->dsp = skl_dsp_ctx_init(dev, pdata, irq);
+	skl->dsp = sst_dsp_new(dev, pdata);
 	if (!skl->dsp) {
 		dev_err(skl->dev, "%s: no device\n", __func__);
 		return -ENODEV;

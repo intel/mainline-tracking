@@ -418,34 +418,6 @@ int skl_dsp_sleep(struct sst_dsp *ctx)
 }
 EXPORT_SYMBOL_GPL(skl_dsp_sleep);
 
-struct sst_dsp *skl_dsp_ctx_init(struct device *dev,
-		struct sst_pdata *pdata, int irq)
-{
-	int ret;
-	struct sst_dsp *sst;
-
-	sst = devm_kzalloc(dev, sizeof(*sst), GFP_KERNEL);
-	if (sst == NULL)
-		return NULL;
-
-	spin_lock_init(&sst->spinlock);
-	mutex_init(&sst->mutex);
-	sst->dev = dev;
-	sst->pdata = pdata;
-	sst->irq = irq;
-	sst->ops = pdata->ops;
-	sst->thread_context = pdata->dsp;
-
-	/* Initialise SST Audio DSP */
-	if (sst->ops->init) {
-		ret = sst->ops->init(sst, NULL);
-		if (ret < 0)
-			return NULL;
-	}
-
-	return sst;
-}
-
 int skl_dsp_acquire_irq(struct sst_dsp *sst)
 {
 	int ret;
