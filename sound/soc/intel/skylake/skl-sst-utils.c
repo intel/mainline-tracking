@@ -394,8 +394,7 @@ int skl_dsp_strip_extended_manifest(struct firmware *fw)
 	return 0;
 }
 
-int skl_sst_ctx_init(struct skl_dev *skl, const char *fw_name,
-	struct sst_pdata *pdata)
+int skl_sst_ctx_init(struct skl_dev *skl, struct sst_pdata *pdata)
 {
 	struct sst_dsp *sst;
 	struct device *dev = skl->dev;
@@ -412,7 +411,6 @@ int skl_sst_ctx_init(struct skl_dev *skl, const char *fw_name,
 	}
 
 	skl->dsp = sst;
-	sst->fw_name = fw_name;
 	init_waitqueue_head(&skl->mod_load_wait);
 	skl->is_first_boot = true;
 

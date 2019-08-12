@@ -201,7 +201,7 @@ int skl_init_dsp(struct skl_dev *skl, struct sst_pdata *pdata)
 	if (!ops)
 		return -EIO;
 
-	ret = skl_sst_ctx_init(skl, skl->fw_name, pdata);
+	ret = skl_sst_ctx_init(skl, pdata);
 	if (ret < 0)
 		return ret;
 

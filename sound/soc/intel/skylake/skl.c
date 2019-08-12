@@ -491,9 +491,6 @@ static struct snd_soc_acpi_mach *skl_find_hda_machine(struct skl_dev *skl,
 	/* point to common table */
 	mach = snd_soc_acpi_intel_hda_machines;
 
-	/* all entries in the machine table use the same firmware */
-	mach->fw_filename = machines->fw_filename;
-
 	return mach;
 }
 
@@ -514,7 +511,6 @@ static int skl_find_machine(struct skl_dev *skl, void *driver_data)
 	}
 
 	skl->mach = mach;
-	skl->fw_name = mach->fw_filename;
 	pdata = mach->pdata;
 
 	if (pdata) {
