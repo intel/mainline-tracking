@@ -219,8 +219,6 @@ int skl_dsp_get_core(struct sst_dsp *ctx, unsigned int core_id);
 int skl_dsp_put_core(struct sst_dsp *ctx, unsigned int core_id);
 
 int skl_dsp_boot(struct sst_dsp *ctx);
-int skl_sst_dsp_init(struct sst_dsp *sst, struct sst_pdata *pdata);
-int bxt_sst_dsp_init(struct sst_dsp *sst, struct sst_pdata *pdata);
 int bxt_load_library(struct sst_dsp *ctx, struct skl_lib_info *linfo,
 		int lib_count);
 

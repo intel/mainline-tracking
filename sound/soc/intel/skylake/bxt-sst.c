@@ -532,18 +532,7 @@ static const struct skl_dsp_fw_ops bxt_fw_ops = {
 	.load_library = bxt_load_library,
 };
 
-struct sst_ops apl_sst_ops = {
-	.irq_handler = skl_dsp_sst_interrupt,
-	.thread_fn = skl_dsp_irq_thread_handler,
-	.write = sst_shim32_write,
-	.read = sst_shim32_read,
-	.ram_read = sst_memcpy_fromio_32,
-	.ram_write = sst_memcpy_toio_32,
-	.init = bxt_sst_dsp_init,
-	.free = skl_dsp_free,
-};
-
-int bxt_sst_dsp_init(struct sst_dsp *sst, struct sst_pdata *pdata)
+static int bxt_sst_init(struct sst_dsp *sst, struct sst_pdata *pdata)
 {
 	struct skl_dev *skl = sst->thread_context;
 	void __iomem *mmio;
@@ -577,7 +566,17 @@ int bxt_sst_dsp_init(struct sst_dsp *sst, struct sst_pdata *pdata)
 
 	return 0;
 }
-EXPORT_SYMBOL_GPL(bxt_sst_dsp_init);
+
+struct sst_ops apl_sst_ops = {
+	.irq_handler = skl_dsp_sst_interrupt,
+	.thread_fn = skl_dsp_irq_thread_handler,
+	.write = sst_shim32_write,
+	.read = sst_shim32_read,
+	.ram_read = sst_memcpy_fromio_32,
+	.ram_write = sst_memcpy_toio_32,
+	.init = bxt_sst_init,
+	.free = skl_dsp_free,
+};
 
 MODULE_LICENSE("GPL v2");
 MODULE_DESCRIPTION("Intel Broxton IPC driver");

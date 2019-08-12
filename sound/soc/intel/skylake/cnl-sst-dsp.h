@@ -87,6 +87,4 @@ void cnl_ipc_op_int_enable(struct sst_dsp *ctx);
 void cnl_ipc_op_int_disable(struct sst_dsp *ctx);
 bool cnl_ipc_int_status(struct sst_dsp *ctx);
 
-int cnl_sst_dsp_init(struct sst_dsp *sst, struct sst_pdata *pdata);
-
 #endif /*__CNL_SST_DSP_H__*/

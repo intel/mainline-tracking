@@ -408,18 +408,7 @@ static int cnl_ipc_init(struct device *dev, struct skl_dev *cnl)
 	return 0;
 }
 
-struct sst_ops cnl_sst_ops = {
-	.irq_handler = cnl_dsp_sst_interrupt,
-	.thread_fn = cnl_dsp_irq_thread_handler,
-	.write = sst_shim32_write,
-	.read = sst_shim32_read,
-	.ram_read = sst_memcpy_fromio_32,
-	.ram_write = sst_memcpy_toio_32,
-	.init = cnl_sst_dsp_init,
-	.free = cnl_dsp_free,
-};
-
-int cnl_sst_dsp_init(struct sst_dsp *sst, struct sst_pdata *pdata)
+static int cnl_sst_init(struct sst_dsp *sst, struct sst_pdata *pdata)
 {
 	struct skl_dev *cnl = sst->thread_context;
 	void __iomem *mmio;
@@ -448,7 +437,17 @@ int cnl_sst_dsp_init(struct sst_dsp *sst, struct sst_pdata *pdata)
 
 	return 0;
 }
-EXPORT_SYMBOL_GPL(cnl_sst_dsp_init);
+
+struct sst_ops cnl_sst_ops = {
+	.irq_handler = cnl_dsp_sst_interrupt,
+	.thread_fn = cnl_dsp_irq_thread_handler,
+	.write = sst_shim32_write,
+	.read = sst_shim32_read,
+	.ram_read = sst_memcpy_fromio_32,
+	.ram_write = sst_memcpy_toio_32,
+	.init = cnl_sst_init,
+	.free = cnl_dsp_free,
+};
 
 MODULE_LICENSE("GPL v2");
 MODULE_DESCRIPTION("Intel Cannonlake IPC driver");
