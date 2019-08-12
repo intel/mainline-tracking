@@ -516,35 +516,33 @@ static struct sst_pdata skl_dev = {
 	.ops = &skl_ops,
 };
 
-int skl_sst_dsp_init(struct device *dev, void __iomem *mmio_base, int irq,
-		const char *fw_name, struct skl_dev **dsp)
+int skl_sst_dsp_init(struct skl_dev *skl, const char *fw_name)
 {
-	struct skl_dev *skl;
 	struct sst_dsp *sst;
+	void __iomem *mmio;
 	int ret;
 
-	skl = *dsp;
 	ret = skl_sst_ctx_init(skl, fw_name, &skl_dev);
-	if (ret < 0) {
-		dev_err(dev, "%s: no device\n", __func__);
+	if (ret < 0)
 		return ret;
-	}
 
 	sst = skl->dsp;
-	sst->addr.lpe = mmio_base;
-	sst->addr.shim = mmio_base;
+	sst->fw_ops = skl_fw_ops;
+	mmio = pci_ioremap_bar(skl->pci, 4);
+	if (!mmio)
+		return -ENXIO;
+	sst->addr.lpe = mmio;
+	sst->addr.shim = mmio;
 
 	sst_dsp_mailbox_init(sst,
 		(SKL_ADSP_SRAM0_BASE + SKL_FW_REGS_SIZE), SKL_MAILBOX_SIZE,
 		SKL_ADSP_SRAM1_BASE, SKL_MAILBOX_SIZE);
 
-	ret = skl_ipc_init(dev, skl);
+	ret = skl_ipc_init(skl->dev, skl);
 	if (ret) {
 		skl_dsp_free(sst);
 		return ret;
 	}
-
-	sst->fw_ops = skl_fw_ops;
 
 	return 0;
 }

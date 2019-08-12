@@ -189,9 +189,7 @@ const struct skl_dsp_ops *skl_get_dsp_ops(int pci_id)
 
 int skl_init_dsp(struct skl_dev *skl)
 {
-	void __iomem *mmio_base;
 	struct hdac_bus *bus = skl_to_bus(skl);
-	int irq = bus->irq;
 	const struct skl_dsp_ops *ops;
 	int ret;
 
@@ -199,34 +197,18 @@ int skl_init_dsp(struct skl_dev *skl)
 	snd_hdac_ext_bus_ppcap_enable(bus, true);
 	snd_hdac_ext_bus_ppcap_int_enable(bus, true);
 
-	/* read the BAR of the ADSP MMIO */
-	mmio_base = pci_ioremap_bar(skl->pci, 4);
-	if (mmio_base == NULL) {
-		dev_err(bus->dev, "ioremap error\n");
-		return -ENXIO;
-	}
-
 	ops = skl_get_dsp_ops(skl->pci->device);
-	if (!ops) {
-		ret = -EIO;
-		goto unmap_mmio;
-	}
+	if (!ops)
+		return -EIO;
 
-	ret = ops->init(bus->dev, mmio_base, irq,
-				skl->fw_name, &skl);
-
+	ret = ops->init(skl, skl->fw_name);
 	if (ret < 0)
-		goto unmap_mmio;
+		return ret;
 
 	skl->dsp_ops = ops;
 	dev_dbg(bus->dev, "dsp registration status=%d\n", ret);
 
 	return 0;
-
-unmap_mmio:
-	iounmap(mmio_base);
-
-	return ret;
 }
 
 int skl_free_dsp(struct skl_dev *skl)

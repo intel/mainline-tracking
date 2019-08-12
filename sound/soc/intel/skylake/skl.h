@@ -12,6 +12,7 @@
 #ifndef __SOUND_SOC_SKL_H
 #define __SOUND_SOC_SKL_H
 
+#include <linux/pci.h>
 #include <sound/hda_register.h>
 #include <sound/hdaudio_ext.h>
 #include <sound/hda_codec.h>
@@ -154,9 +155,7 @@ struct skl_machine_pdata {
 
 struct skl_dsp_ops {
 	int id;
-	int (*init)(struct device *dev, void __iomem *mmio_base,
-			int irq, const char *fw_name,
-			struct skl_dev **skl_sst);
+	int (*init)(struct skl_dev *skl, const char *fw_name);
 };
 
 int skl_platform_unregister(struct device *dev);
