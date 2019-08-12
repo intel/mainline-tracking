@@ -543,7 +543,7 @@ static struct sst_ops skl_ops = {
 	.free = skl_dsp_free,
 };
 
-static struct sst_dsp_device skl_dev = {
+static struct sst_pdata skl_dev = {
 	.ops = &skl_ops,
 };
 

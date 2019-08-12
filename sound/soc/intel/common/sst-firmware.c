@@ -1200,8 +1200,7 @@ u32 sst_dsp_get_offset(struct sst_dsp *dsp, u32 offset,
 }
 EXPORT_SYMBOL_GPL(sst_dsp_get_offset);
 
-struct sst_dsp *sst_dsp_new(struct device *dev,
-	struct sst_dsp_device *sst_dev, struct sst_pdata *pdata)
+struct sst_dsp *sst_dsp_new(struct device *dev, struct sst_pdata *pdata)
 {
 	struct sst_dsp *sst;
 	int err;
@@ -1216,11 +1215,10 @@ struct sst_dsp *sst_dsp_new(struct device *dev,
 	mutex_init(&sst->mutex);
 	sst->dev = dev;
 	sst->dma_dev = pdata->dma_dev;
-	sst->thread_context = sst_dev->thread_context;
-	sst->sst_dev = sst_dev;
+	sst->thread_context = pdata->dsp;
 	sst->id = pdata->id;
 	sst->irq = pdata->irq;
-	sst->ops = sst_dev->ops;
+	sst->ops = pdata->ops;
 	sst->pdata = pdata;
 	INIT_LIST_HEAD(&sst->used_block_list);
 	INIT_LIST_HEAD(&sst->free_block_list);

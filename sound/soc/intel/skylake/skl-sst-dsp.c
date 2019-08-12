@@ -419,7 +419,7 @@ int skl_dsp_sleep(struct sst_dsp *ctx)
 EXPORT_SYMBOL_GPL(skl_dsp_sleep);
 
 struct sst_dsp *skl_dsp_ctx_init(struct device *dev,
-		struct sst_dsp_device *sst_dev, int irq)
+		struct sst_pdata *pdata, int irq)
 {
 	int ret;
 	struct sst_dsp *sst;
@@ -431,10 +431,10 @@ struct sst_dsp *skl_dsp_ctx_init(struct device *dev,
 	spin_lock_init(&sst->spinlock);
 	mutex_init(&sst->mutex);
 	sst->dev = dev;
-	sst->sst_dev = sst_dev;
+	sst->pdata = pdata;
 	sst->irq = irq;
-	sst->ops = sst_dev->ops;
-	sst->thread_context = sst_dev->thread_context;
+	sst->ops = pdata->ops;
+	sst->thread_context = pdata->dsp;
 
 	/* Initialise SST Audio DSP */
 	if (sst->ops->init) {

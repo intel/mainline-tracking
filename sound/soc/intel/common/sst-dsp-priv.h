@@ -259,7 +259,6 @@ struct sst_dsp {
 	/* Shared for all platforms */
 
 	/* runtime */
-	struct sst_dsp_device *sst_dev;
 	spinlock_t spinlock;	/* IPC locking */
 	struct mutex mutex;	/* DSP FW lock */
 	struct device *dev;

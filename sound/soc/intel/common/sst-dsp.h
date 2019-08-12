@@ -168,17 +168,6 @@
 struct sst_dsp;
 
 /*
- * SST Device.
- *
- * This structure is populated by the SST core driver.
- */
-struct sst_dsp_device {
-	/* Mandatory fields */
-	struct sst_ops *ops;
-	void *thread_context;
-};
-
-/*
  * SST Platform Data.
  */
 struct sst_pdata {
@@ -203,13 +192,15 @@ struct sst_pdata {
 
 	/* DSP */
 	u32 id;
+	const char *fw_name;
+	struct sst_ops *ops;
+	struct snd_soc_acpi_mach *boards;
 	void *dsp;
 };
 
 #if IS_ENABLED(CONFIG_DW_DMAC_CORE)
 /* Initialization */
-struct sst_dsp *sst_dsp_new(struct device *dev,
-	struct sst_dsp_device *sst_dev, struct sst_pdata *pdata);
+struct sst_dsp *sst_dsp_new(struct device *dev, struct sst_pdata *pdata);
 void sst_dsp_free(struct sst_dsp *sst);
 #endif
 

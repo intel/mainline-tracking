@@ -418,7 +418,7 @@ static struct sst_ops cnl_ops = {
 	.free = cnl_dsp_free,
 };
 
-static struct sst_dsp_device cnl_dev = {
+static struct sst_pdata cnl_dev = {
 	.ops = &cnl_ops,
 };
 

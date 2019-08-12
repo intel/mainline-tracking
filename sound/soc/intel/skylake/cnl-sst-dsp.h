@@ -9,7 +9,7 @@
 #define __CNL_SST_DSP_H__
 
 struct sst_dsp;
-struct sst_dsp_device;
+struct sst_pdata;
 struct sst_generic_ipc;
 
 /* Intel HD Audio General DSP Registers */

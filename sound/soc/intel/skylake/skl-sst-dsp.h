@@ -15,7 +15,7 @@
 #include "skl-sst-cldma.h"
 
 struct sst_dsp;
-struct sst_dsp_device;
+struct sst_pdata;
 struct skl_lib_info;
 struct skl_dev;
 
@@ -210,7 +210,7 @@ int skl_cldma_wait_interruptible(struct sst_dsp *ctx);
 
 void skl_dsp_set_state_locked(struct sst_dsp *ctx, int state);
 struct sst_dsp *skl_dsp_ctx_init(struct device *dev,
-		struct sst_dsp_device *sst_dev, int irq);
+		struct sst_pdata *pdata, int irq);
 int skl_dsp_acquire_irq(struct sst_dsp *sst);
 bool is_skl_dsp_running(struct sst_dsp *ctx);
 
@@ -258,7 +258,7 @@ void skl_dsp_set_astate_cfg(struct skl_dev *skl, u32 cnt, void *data);
 
 int skl_sst_ctx_init(struct device *dev, int irq, const char *fw_name,
 		struct skl_dsp_loader_ops dsp_ops, struct skl_dev **dsp,
-		struct sst_dsp_device *skl_dev);
+		struct sst_pdata *pdata);
 int skl_prepare_lib_load(struct skl_dev *skl, struct skl_lib_info *linfo,
 			struct firmware *stripped_fw,
 			unsigned int hdr_offset, int index);
