@@ -140,72 +140,19 @@ int skl_dsp_cleanup(struct device *dev,
 	return 0;
 }
 
-static const struct skl_dsp_ops dsp_ops[] = {
-	{
-		.id = 0x9d70,
-		.init = skl_sst_dsp_init,
-	},
-	{
-		.id = 0x9d71,
-		.init = skl_sst_dsp_init,
-	},
-	{
-		.id = 0x5a98,
-		.init = bxt_sst_dsp_init,
-	},
-	{
-		.id = 0x3198,
-		.init = bxt_sst_dsp_init,
-	},
-	{
-		.id = 0x9dc8,
-		.init = cnl_sst_dsp_init,
-	},
-	{
-		.id = 0xa348,
-		.init = cnl_sst_dsp_init,
-	},
-	{
-		.id = 0x02c8,
-		.init = cnl_sst_dsp_init,
-	},
-	{
-		.id = 0x06c8,
-		.init = cnl_sst_dsp_init,
-	},
-};
-
-const struct skl_dsp_ops *skl_get_dsp_ops(int pci_id)
-{
-	int i;
-
-	for (i = 0; i < ARRAY_SIZE(dsp_ops); i++) {
-		if (dsp_ops[i].id == pci_id)
-			return &dsp_ops[i];
-	}
-
-	return NULL;
-}
-
 int skl_init_dsp(struct skl_dev *skl, struct sst_pdata *pdata)
 {
 	struct hdac_bus *bus = skl_to_bus(skl);
-	const struct skl_dsp_ops *ops;
 	int ret;
 
 	/* enable ppcap interrupt */
 	snd_hdac_ext_bus_ppcap_enable(bus, true);
 	snd_hdac_ext_bus_ppcap_int_enable(bus, true);
 
-	ops = skl_get_dsp_ops(skl->pci->device);
-	if (!ops)
-		return -EIO;
-
 	ret = skl_sst_ctx_init(skl, pdata);
 	if (ret < 0)
 		return ret;
 
-	skl->dsp_ops = ops;
 	dev_dbg(bus->dev, "dsp registration status=%d\n", ret);
 
 	return 0;

@@ -134,8 +134,6 @@ struct skl_dev {
 
 	struct skl_d0i3_data d0i3;
 
-	const struct skl_dsp_ops *dsp_ops;
-
 	/* Callback to update dynamic clock and power gating registers */
 	void (*clock_power_gating)(struct device *dev, bool enable);
 };
@@ -156,11 +154,6 @@ struct skl_machine_pdata {
 	bool use_tplg_pcm; /* use dais and dai links from topology */
 };
 
-struct skl_dsp_ops {
-	int id;
-	int (*init)(struct sst_dsp *dsp, struct sst_pdata *pdata);
-};
-
 int skl_platform_unregister(struct device *dev);
 int skl_platform_register(struct device *dev);
 
@@ -177,7 +170,6 @@ int skl_suspend_late_dsp(struct skl_dev *skl);
 int skl_suspend_dsp(struct skl_dev *skl);
 int skl_resume_dsp(struct skl_dev *skl);
 void skl_cleanup_resources(struct skl_dev *skl);
-const struct skl_dsp_ops *skl_get_dsp_ops(int pci_id);
 void skl_update_d0i3c(struct device *dev, bool enable);
 int skl_nhlt_create_sysfs(struct skl_dev *skl);
 void skl_nhlt_remove_sysfs(struct skl_dev *skl);
