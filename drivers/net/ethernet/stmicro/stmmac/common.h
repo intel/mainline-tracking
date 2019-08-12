@@ -21,6 +21,7 @@
 #include <linux/if_vlan.h>
 #endif
 
+#include "stmmac_tsn.h"
 #include "descs.h"
 #include "hwif.h"
 #include "mmc.h"
@@ -36,9 +37,16 @@
 
 #define STMMAC_CHAN0	0	/* Always supported and default for all chips */
 
-/* These need to be power of two, and >= 4 */
-#define DMA_TX_SIZE 512
-#define DMA_RX_SIZE 512
+/* TX and RX Descriptor Length, these need to be power of two.
+ * TX descriptor length less than 64 may cause transmit queue timed out error.
+ * RX descriptor length less than 64 may cause inconsistent Rx chain error.
+ */
+#define DMA_MIN_TX_SIZE		64
+#define DMA_MAX_TX_SIZE		1024
+#define DMA_DEFAULT_TX_SIZE	512
+#define DMA_MIN_RX_SIZE		64
+#define DMA_MAX_RX_SIZE		1024
+#define DMA_DEFAULT_RX_SIZE	512
 #define STMMAC_GET_ENTRY(x, size)	((x + 1) & (size - 1))
 
 #undef FRAME_FILTER_DEBUG
@@ -239,6 +247,9 @@ struct stmmac_safety_stats {
 #define DMA_HW_FEAT_ACTPHYIF	0x70000000	/* Active/selected PHY iface */
 #define DEFAULT_DMA_PBL		8
 
+/* MSI defines */
+#define STMMAC_MSI_VEC_MAX	32
+
 /* PCS status and mask defines */
 #define	PCS_ANE_IRQ		BIT(2)	/* PCS Auto-Negotiation */
 #define	PCS_LINK_IRQ		BIT(1)	/* PCS Link */
@@ -286,6 +297,12 @@ enum dma_irq_status {
 	tx_hard_error_bump_tc = 0x2,
 	handle_rx = 0x4,
 	handle_tx = 0x8,
+};
+
+enum dma_irq_dir {
+	DMA_DIR_RX = 0x1,
+	DMA_DIR_TX = 0x2,
+	DMA_DIR_RXTX = 0x3,
 };
 
 /* EEE and LPI defines */
@@ -416,6 +433,7 @@ struct mii_regs {
 
 struct mac_device_info {
 	const struct stmmac_ops *mac;
+	const struct stmmac_serdes_ops *serdes;
 	const struct stmmac_desc_ops *desc;
 	const struct stmmac_dma_ops *dma;
 	const struct stmmac_mode_ops *mode;
@@ -432,6 +450,15 @@ struct mac_device_info {
 	unsigned int pcs;
 	unsigned int pmt;
 	unsigned int ps;
+	bool mdio_intr_en;
+	wait_queue_head_t mdio_busy_wait;
+	unsigned int num_vlan;
+	u32 vlan_filter[32];
+	unsigned int promisc;
+	bool vlan_fail_q_en;
+	u8 vlan_fail_q;
+	const struct tsnif_ops *tsnif;
+	struct tsnif_info tsn_info;
 };
 
 struct stmmac_rx_routing {
