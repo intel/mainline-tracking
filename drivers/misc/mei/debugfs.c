@@ -27,7 +27,7 @@ static int mei_dbgfs_meclients_show(struct seq_file *m, void *unused)
 
 	down_read(&dev->me_clients_rwsem);
 
-	seq_puts(m, "  |id|fix|         UUID                       |con|msg len|sb|refc|\n");
+	seq_puts(m, "  |id|fix|         UUID                       |con|msg len|sb|refc|vt|\n");
 
 	/*  if the driver is not enabled the list won't be consistent */
 	if (dev->dev_state != MEI_DEV_ENABLED)
@@ -37,14 +37,15 @@ static int mei_dbgfs_meclients_show(struct seq_file *m, void *unused)
 		if (!mei_me_cl_get(me_cl))
 			continue;
 
-		seq_printf(m, "%2d|%2d|%3d|%pUl|%3d|%7d|%2d|%4d|\n",
+		seq_printf(m, "%2d|%2d|%3d|%pUl|%3d|%7d|%2d|%4d|%2d|\n",
 			   i++, me_cl->client_id,
 			   me_cl->props.fixed_address,
 			   &me_cl->props.protocol_name,
 			   me_cl->props.max_number_of_connections,
 			   me_cl->props.max_msg_length,
 			   me_cl->props.single_recv_buf,
-			   kref_read(&me_cl->refcnt));
+			   kref_read(&me_cl->refcnt),
+			   me_cl->props.vt_supported);
 		mei_me_cl_put(me_cl);
 	}
 
@@ -103,6 +104,8 @@ static int mei_dbgfs_devstate_show(struct seq_file *m, void *unused)
 		seq_printf(m, "\tFA: %01d\n", dev->hbm_f_fa_supported);
 		seq_printf(m, "\tOS: %01d\n", dev->hbm_f_os_supported);
 		seq_printf(m, "\tDR: %01d\n", dev->hbm_f_dr_supported);
+		seq_printf(m, "\tVT: %01d\n", dev->hbm_f_vt_supported);
+		seq_printf(m, "\tCAP: %01d\n", dev->hbm_f_cap_supported);
 	}
 
 	seq_printf(m, "pg:  %s, %s\n",
@@ -136,6 +139,113 @@ static const struct file_operations mei_dbgfs_allow_fa_fops = {
 	.llseek = generic_file_llseek,
 };
 
+static ssize_t mei_dbgfs_read_reset(struct file *fp, char __user *ubuf,
+				    size_t cnt, loff_t *ppos)
+{
+	char buf[250];
+	int pos = 0;
+
+	pos += scnprintf(buf, 100, "%s\n%s\n%s\n",
+			"reset", "stall-init", "stall-cl");
+
+	return simple_read_from_buffer(ubuf, cnt, ppos, buf, pos);
+}
+
+static ssize_t mei_dbgfs_write_reset(struct file *file,
+				     const char __user *ubuf,
+				     size_t count, loff_t *ppos)
+{
+	char buf[48] = {};
+	size_t bufsz = min(count, sizeof(buf) -  1);
+	struct mei_device *dev = file->private_data;
+
+	if (copy_from_user(buf, ubuf, bufsz))
+		return -EFAULT;
+
+	if (sysfs_streq("reset", buf)) {
+		dev_info(dev->dev, "debug reset\n");
+		schedule_work(&dev->reset_work);
+		goto out;
+	}
+
+	if (sysfs_streq("stall-init", buf)) {
+		dev_info(dev->dev, "init: stall\n");
+		dev->stall_timer_init = 1;
+		goto out;
+	}
+
+	if (sysfs_streq("stall-cl", buf)) {
+		dev_info(dev->dev, "cl: stall\n");
+		dev->stall_timer_cl = 1;
+		goto out;
+	}
+
+out:
+	return count;
+}
+
+static const struct file_operations mei_dbgfs_fops_reset = {
+	.open = simple_open,
+	.read = mei_dbgfs_read_reset,
+	.write = mei_dbgfs_write_reset,
+	.llseek = generic_file_llseek,
+};
+
+static ssize_t mei_dbgfs_read_pg_enter(struct file *fp, char __user *ubuf,
+				       size_t cnt, loff_t *ppos)
+{
+	struct mei_device *dev = fp->private_data;
+	const size_t bufsz = 1024;
+	char *buf = kzalloc(bufsz, GFP_KERNEL);
+	int pos = 0;
+	int ret;
+
+	if  (!buf)
+		return -ENOMEM;
+
+	mutex_lock(&dev->device_lock);
+	ret = mei_pg_enter_sync(dev);
+	mutex_unlock(&dev->device_lock);
+
+	pos += scnprintf(buf + pos, bufsz - pos, "ret: %d\n", ret);
+	ret = simple_read_from_buffer(ubuf, cnt, ppos, buf, pos);
+	kfree(buf);
+	return ret;
+}
+
+static const struct file_operations mei_dbgfs_fops_pg_enter = {
+	.open = simple_open,
+	.read = mei_dbgfs_read_pg_enter,
+	.llseek = generic_file_llseek,
+};
+
+static ssize_t mei_dbgfs_read_pg_exit(struct file *fp, char __user *ubuf,
+				      size_t cnt, loff_t *ppos)
+{
+	struct mei_device *dev = fp->private_data;
+	const size_t bufsz = 1024;
+	char *buf = kzalloc(bufsz, GFP_KERNEL);
+	int pos = 0;
+	int ret;
+
+	if  (!buf)
+		return -ENOMEM;
+
+	mutex_lock(&dev->device_lock);
+	ret = mei_pg_exit_sync(dev);
+	mutex_unlock(&dev->device_lock);
+
+	pos += scnprintf(buf + pos, bufsz - pos, "ret: %d\n", ret);
+	ret = simple_read_from_buffer(ubuf, cnt, ppos, buf, pos);
+	kfree(buf);
+	return ret;
+}
+
+static const struct file_operations mei_dbgfs_fops_pg_exit = {
+	.open = simple_open,
+	.read = mei_dbgfs_read_pg_exit,
+	.llseek = generic_file_llseek,
+};
 /**
  * mei_dbgfs_deregister - Remove the debugfs files and directories
  *
@@ -171,4 +281,11 @@ void mei_dbgfs_register(struct mei_device *dev, const char *name)
 	debugfs_create_file("allow_fixed_address", S_IRUSR | S_IWUSR, dir,
 			    &dev->allow_fixed_address,
 			    &mei_dbgfs_allow_fa_fops);
+	debugfs_create_file("reset", 0400, dir,
+			    dev, &mei_dbgfs_fops_reset);
+	debugfs_create_file("pg_enter", 0400, dir,
+			    dev, &mei_dbgfs_fops_pg_enter);
+
+	debugfs_create_file("pg_exit", 0400, dir,
+			    dev, &mei_dbgfs_fops_pg_exit);
 }
