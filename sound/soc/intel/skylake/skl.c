@@ -985,6 +985,7 @@ static int skl_probe(struct pci_dev *pci,
 {
 	struct skl_dev *skl;
 	struct hdac_bus *bus = NULL;
+	struct sst_pdata *desc;
 	int err;
 
 	switch (skl_pci_binding) {
@@ -1064,7 +1065,8 @@ static int skl_probe(struct pci_dev *pci,
 
 	pci_set_drvdata(skl->pci, bus);
 
-	err = skl_find_machine(skl, (void *)pci_id->driver_data);
+	desc = (struct sst_pdata *)pci_id->driver_data;
+	err = skl_find_machine(skl, desc->boards);
 	if (err < 0) {
 		dev_err(bus->dev, "skl_find_machine failed with err: %d\n", err);
 		goto out_nhlt_free;
@@ -1194,42 +1196,42 @@ static const struct pci_device_id skl_ids[] = {
 #if IS_ENABLED(CONFIG_SND_SOC_INTEL_SKL)
 	/* Sunrise Point-LP */
 	{ PCI_DEVICE(0x8086, 0x9d70),
-		.driver_data = (unsigned long)&snd_soc_acpi_intel_skl_machines},
+		.driver_data = (unsigned long)&skl_desc },
 #endif
 #if IS_ENABLED(CONFIG_SND_SOC_INTEL_APL)
 	/* BXT-P */
 	{ PCI_DEVICE(0x8086, 0x5a98),
-		.driver_data = (unsigned long)&snd_soc_acpi_intel_bxt_machines},
+		.driver_data = (unsigned long)&apl_desc },
 #endif
 #if IS_ENABLED(CONFIG_SND_SOC_INTEL_KBL)
 	/* KBL */
 	{ PCI_DEVICE(0x8086, 0x9D71),
-		.driver_data = (unsigned long)&snd_soc_acpi_intel_kbl_machines},
+		.driver_data = (unsigned long)&kbl_desc },
 #endif
 #if IS_ENABLED(CONFIG_SND_SOC_INTEL_GLK)
 	/* GLK */
 	{ PCI_DEVICE(0x8086, 0x3198),
-		.driver_data = (unsigned long)&snd_soc_acpi_intel_glk_machines},
+		.driver_data = (unsigned long)&glk_desc },
 #endif
 #if IS_ENABLED(CONFIG_SND_SOC_INTEL_CNL)
 	/* CNL */
 	{ PCI_DEVICE(0x8086, 0x9dc8),
-		.driver_data = (unsigned long)&snd_soc_acpi_intel_cnl_machines},
+		.driver_data = (unsigned long)&cnl_desc },
 #endif
 #if IS_ENABLED(CONFIG_SND_SOC_INTEL_CFL)
 	/* CFL */
 	{ PCI_DEVICE(0x8086, 0xa348),
-		.driver_data = (unsigned long)&snd_soc_acpi_intel_cnl_machines},
+		.driver_data = (unsigned long)&cnl_desc },
 #endif
 #if IS_ENABLED(CONFIG_SND_SOC_INTEL_CML_LP)
 	/* CML-LP */
 	{ PCI_DEVICE(0x8086, 0x02c8),
-		.driver_data = (unsigned long)&snd_soc_acpi_intel_cnl_machines},
+		.driver_data = (unsigned long)&cnl_desc },
 #endif
 #if IS_ENABLED(CONFIG_SND_SOC_INTEL_CML_H)
 	/* CML-H */
 	{ PCI_DEVICE(0x8086, 0x06c8),
-		.driver_data = (unsigned long)&snd_soc_acpi_intel_cnl_machines},
+		.driver_data = (unsigned long)&cnl_desc },
 #endif
 	{ 0, }
 };
