@@ -1072,7 +1072,7 @@ static int skl_probe(struct pci_dev *pci,
 		goto out_nhlt_free;
 	}
 
-	err = skl_init_dsp(skl);
+	err = skl_init_dsp(skl, desc);
 	if (err < 0) {
 		dev_dbg(bus->dev, "error failed to register dsp\n");
 		goto out_nhlt_free;

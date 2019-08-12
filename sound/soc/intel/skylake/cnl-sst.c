@@ -414,24 +414,17 @@ struct sst_ops cnl_sst_ops = {
 	.read = sst_shim32_read,
 	.ram_read = sst_memcpy_fromio_32,
 	.ram_write = sst_memcpy_toio_32,
+	.init = cnl_sst_dsp_init,
 	.free = cnl_dsp_free,
 };
 
-static struct sst_pdata cnl_dev = {
-	.ops = &cnl_sst_ops,
-};
-
-int cnl_sst_dsp_init(struct skl_dev *cnl, const char *fw_name)
+int cnl_sst_dsp_init(struct sst_dsp *sst, struct sst_pdata *pdata)
 {
-	struct sst_dsp *sst;
+	struct skl_dev *cnl = sst->thread_context;
 	void __iomem *mmio;
 	int ret;
 
-	ret = skl_sst_ctx_init(cnl, fw_name, &cnl_dev);
-	if (ret < 0)
-		return ret;
-
-	sst = cnl->dsp;
+	cnl->dsp = sst;
 	sst->fw_ops = cnl_fw_ops;
 	mmio = pci_ioremap_bar(cnl->pci, 4);
 	if (!mmio)

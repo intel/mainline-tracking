@@ -158,7 +158,7 @@ struct skl_machine_pdata {
 
 struct skl_dsp_ops {
 	int id;
-	int (*init)(struct skl_dev *skl, const char *fw_name);
+	int (*init)(struct sst_dsp *dsp, struct sst_pdata *pdata);
 };
 
 int skl_platform_unregister(struct device *dev);
@@ -169,7 +169,7 @@ struct nhlt_specific_cfg *skl_get_ep_blob(struct skl_dev *skl, u32 instance,
 					u32 s_rate, u8 dirn, u8 dev_type);
 
 int skl_nhlt_update_topology_bin(struct skl_dev *skl);
-int skl_init_dsp(struct skl_dev *skl);
+int skl_init_dsp(struct skl_dev *skl, struct sst_pdata *pdata);
 int skl_free_dsp(struct skl_dev *skl);
 int skl_sst_init_fw(struct skl_dev *skl);
 void skl_sst_dsp_cleanup(struct skl_dev *skl);

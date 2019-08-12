@@ -187,7 +187,7 @@ const struct skl_dsp_ops *skl_get_dsp_ops(int pci_id)
 	return NULL;
 }
 
-int skl_init_dsp(struct skl_dev *skl)
+int skl_init_dsp(struct skl_dev *skl, struct sst_pdata *pdata)
 {
 	struct hdac_bus *bus = skl_to_bus(skl);
 	const struct skl_dsp_ops *ops;
@@ -201,7 +201,7 @@ int skl_init_dsp(struct skl_dev *skl)
 	if (!ops)
 		return -EIO;
 
-	ret = ops->init(skl, skl->fw_name);
+	ret = skl_sst_ctx_init(skl, skl->fw_name, pdata);
 	if (ret < 0)
 		return ret;
 

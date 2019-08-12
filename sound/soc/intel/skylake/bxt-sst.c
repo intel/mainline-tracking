@@ -538,24 +538,17 @@ struct sst_ops apl_sst_ops = {
 	.read = sst_shim32_read,
 	.ram_read = sst_memcpy_fromio_32,
 	.ram_write = sst_memcpy_toio_32,
+	.init = bxt_sst_dsp_init,
 	.free = skl_dsp_free,
 };
 
-static struct sst_pdata skl_dev = {
-	.ops = &apl_sst_ops,
-};
-
-int bxt_sst_dsp_init(struct skl_dev *skl, const char *fw_name)
+int bxt_sst_dsp_init(struct sst_dsp *sst, struct sst_pdata *pdata)
 {
-	struct sst_dsp *sst;
+	struct skl_dev *skl = sst->thread_context;
 	void __iomem *mmio;
 	int ret;
 
-	ret = skl_sst_ctx_init(skl, fw_name, &skl_dev);
-	if (ret)
-		return ret;
-
-	sst = skl->dsp;
+	skl->dsp = sst;
 	sst->fw_ops = bxt_fw_ops;
 	mmio = pci_ioremap_bar(skl->pci, 4);
 	if (!mmio)
