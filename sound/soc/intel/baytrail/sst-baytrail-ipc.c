@@ -293,7 +293,7 @@ static int sst_byt_process_notification(struct sst_byt *byt,
 	return 1;
 }
 
-static irqreturn_t sst_byt_irq_thread(int irq, void *context)
+irqreturn_t sst_byt_irq_thread(int irq, void *context)
 {
 	struct sst_dsp *sst = (struct sst_dsp *) context;
 	struct sst_byt *byt = sst_dsp_get_thread_context(sst);
@@ -557,7 +557,6 @@ struct sst_dsp *sst_byt_get_dsp(struct sst_byt *byt)
 }
 
 static struct sst_dsp_device byt_dev = {
-	.thread = sst_byt_irq_thread,
 	.ops = &sst_byt_ops,
 };
 

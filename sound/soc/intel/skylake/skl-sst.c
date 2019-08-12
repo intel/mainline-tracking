@@ -504,6 +504,7 @@ static const struct skl_dsp_fw_ops skl_fw_ops = {
 
 static struct sst_ops skl_ops = {
 	.irq_handler = skl_dsp_sst_interrupt,
+	.thread_fn = skl_dsp_irq_thread_handler,
 	.write = sst_shim32_write,
 	.read = sst_shim32_read,
 	.ram_read = sst_memcpy_fromio_32,
@@ -512,7 +513,6 @@ static struct sst_ops skl_ops = {
 };
 
 static struct sst_dsp_device skl_dev = {
-	.thread = skl_dsp_irq_thread_handler,
 	.ops = &skl_ops,
 };
 

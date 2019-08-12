@@ -699,6 +699,7 @@ struct sst_ops haswell_ops = {
 	.ram_read = sst_memcpy_fromio_32,
 	.ram_write = sst_memcpy_toio_32,
 	.irq_handler = hsw_irq,
+	.thread_fn = hsw_irq_thread,
 	.init = hsw_init,
 	.free = hsw_free,
 	.parse_fw = hsw_parse_fw_image,

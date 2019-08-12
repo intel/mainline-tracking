@@ -757,7 +757,7 @@ static int hsw_process_notification(struct sst_hsw *hsw)
 	return handled;
 }
 
-static irqreturn_t hsw_irq_thread(int irq, void *context)
+irqreturn_t hsw_irq_thread(int irq, void *context)
 {
 	struct sst_dsp *sst = (struct sst_dsp *) context;
 	struct sst_hsw *hsw = sst_dsp_get_thread_context(sst);
@@ -2046,7 +2046,6 @@ int sst_hsw_module_set_param(struct sst_hsw *hsw,
 }
 
 static struct sst_dsp_device hsw_dev = {
-	.thread = hsw_irq_thread,
 	.ops = &haswell_ops,
 };
 

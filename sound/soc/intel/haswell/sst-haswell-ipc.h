@@ -8,6 +8,7 @@
 #ifndef __SST_HASWELL_IPC_H
 #define __SST_HASWELL_IPC_H
 
+#include <linux/irqreturn.h>
 #include <linux/types.h>
 #include <linux/kernel.h>
 #include <linux/platform_device.h>
@@ -396,6 +397,7 @@ struct sst_hsw_ipc_fw_version;
 struct sst_hsw *sst_hsw_new(struct device *dev, const u8 *fw, size_t fw_length,
 	u32 fw_offset);
 void sst_hsw_free(struct sst_hsw *hsw);
+irqreturn_t hsw_irq_thread(int irq, void *context);
 int sst_hsw_fw_get_version(struct sst_hsw *hsw,
 	struct sst_hsw_ipc_fw_version *version);
 u32 create_channel_map(enum sst_hsw_channel_config config);

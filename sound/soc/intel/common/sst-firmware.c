@@ -1237,7 +1237,7 @@ struct sst_dsp *sst_dsp_new(struct device *dev,
 
 	/* Register the ISR */
 	err = request_threaded_irq(sst->irq, sst->ops->irq_handler,
-		sst_dev->thread, IRQF_SHARED, "AudioDSP", sst);
+		sst->ops->thread_fn, IRQF_SHARED, "AudioDSP", sst);
 	if (err)
 		goto irq_err;
 

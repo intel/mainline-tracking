@@ -352,6 +352,7 @@ struct sst_ops sst_byt_ops = {
 	.ram_read = sst_memcpy_fromio_32,
 	.ram_write = sst_memcpy_toio_32,
 	.irq_handler = sst_byt_irq,
+	.thread_fn = sst_byt_irq_thread,
 	.init = sst_byt_init,
 	.free = sst_byt_free,
 	.parse_fw = sst_byt_parse_fw_image,

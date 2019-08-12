@@ -175,7 +175,6 @@ struct sst_dsp;
 struct sst_dsp_device {
 	/* Mandatory fields */
 	struct sst_ops *ops;
-	irqreturn_t (*thread)(int irq, void *context);
 	void *thread_context;
 };
 

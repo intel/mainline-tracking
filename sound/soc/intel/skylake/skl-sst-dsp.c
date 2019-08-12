@@ -448,12 +448,11 @@ struct sst_dsp *skl_dsp_ctx_init(struct device *dev,
 
 int skl_dsp_acquire_irq(struct sst_dsp *sst)
 {
-	struct sst_dsp_device *sst_dev = sst->sst_dev;
 	int ret;
 
 	/* Register the ISR */
 	ret = request_threaded_irq(sst->irq, sst->ops->irq_handler,
-		sst_dev->thread, IRQF_SHARED, "AudioDSP", sst);
+		sst->ops->thread_fn, IRQF_SHARED, "AudioDSP", sst);
 	if (ret)
 		dev_err(sst->dev, "unable to grab threaded IRQ %d, disabling device\n",
 			       sst->irq);

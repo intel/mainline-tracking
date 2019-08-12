@@ -285,15 +285,6 @@ static const struct skl_dsp_fw_ops cnl_fw_ops = {
 	.load_library = bxt_load_library,
 };
 
-static struct sst_ops cnl_ops = {
-	.irq_handler = cnl_dsp_sst_interrupt,
-	.write = sst_shim32_write,
-	.read = sst_shim32_read,
-	.ram_read = sst_memcpy_fromio_32,
-	.ram_write = sst_memcpy_toio_32,
-	.free = cnl_dsp_free,
-};
-
 #define CNL_IPC_GLB_NOTIFY_RSP_SHIFT	29
 #define CNL_IPC_GLB_NOTIFY_RSP_MASK	0x1
 #define CNL_IPC_GLB_NOTIFY_RSP_TYPE(x)	(((x) >> CNL_IPC_GLB_NOTIFY_RSP_SHIFT) \
@@ -369,11 +360,6 @@ static irqreturn_t cnl_dsp_irq_thread_handler(int irq, void *context)
 	return IRQ_HANDLED;
 }
 
-static struct sst_dsp_device cnl_dev = {
-	.thread = cnl_dsp_irq_thread_handler,
-	.ops = &cnl_ops,
-};
-
 static void cnl_ipc_tx_msg(struct sst_generic_ipc *ipc, struct ipc_message *msg)
 {
 	struct skl_ipc_header *header = (struct skl_ipc_header *)(&msg->tx.header);
@@ -421,6 +407,20 @@ static int cnl_ipc_init(struct device *dev, struct skl_dev *cnl)
 
 	return 0;
 }
+
+static struct sst_ops cnl_ops = {
+	.irq_handler = cnl_dsp_sst_interrupt,
+	.thread_fn = cnl_dsp_irq_thread_handler,
+	.write = sst_shim32_write,
+	.read = sst_shim32_read,
+	.ram_read = sst_memcpy_fromio_32,
+	.ram_write = sst_memcpy_toio_32,
+	.free = cnl_dsp_free,
+};
+
+static struct sst_dsp_device cnl_dev = {
+	.ops = &cnl_ops,
+};
 
 int cnl_sst_dsp_init(struct device *dev, void __iomem *mmio_base, int irq,
 		     const char *fw_name, struct skl_dsp_loader_ops dsp_ops,
