@@ -9,7 +9,6 @@
 #define __CNL_SST_DSP_H__
 
 struct sst_dsp;
-struct skl_sst;
 struct sst_dsp_device;
 struct sst_generic_ipc;
 
@@ -47,9 +46,6 @@ struct sst_generic_ipc;
 
 /* CNL HIPCT */
 #define CNL_ADSP_REG_HIPCT_BUSY		BIT(31)
-
-/* Intel HD Audio SRAM Window 1 */
-#define CNL_ADSP_SRAM1_BASE		0xa0000
 
 #define CNL_ADSP_MMIO_LEN		0x10000
 
@@ -93,12 +89,9 @@ void cnl_ipc_int_disable(struct sst_dsp *ctx);
 void cnl_ipc_op_int_enable(struct sst_dsp *ctx);
 void cnl_ipc_op_int_disable(struct sst_dsp *ctx);
 bool cnl_ipc_int_status(struct sst_dsp *ctx);
-void cnl_ipc_free(struct sst_generic_ipc *ipc);
 
 int cnl_sst_dsp_init(struct device *dev, void __iomem *mmio_base, int irq,
 		     const char *fw_name, struct skl_dsp_loader_ops dsp_ops,
-		     struct skl_sst **dsp);
-int cnl_sst_init_fw(struct device *dev, struct skl_sst *ctx);
-void cnl_sst_dsp_cleanup(struct device *dev, struct skl_sst *ctx);
+		     struct skl_dev **dsp);
 
 #endif /*__CNL_SST_DSP_H__*/

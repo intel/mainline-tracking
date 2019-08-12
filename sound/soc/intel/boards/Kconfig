@@ -274,18 +274,110 @@ config SND_SOC_INTEL_BXT_DA7219_MAX98357A_MACH
 	   If unsure select "N".
 
 config SND_SOC_INTEL_BXT_RT298_MACH
-	tristate "Broxton with RT298 I2S mode"
-	depends on I2C && ACPI
-	depends on MFD_INTEL_LPSS || COMPILE_TEST
+	tristate
 	select SND_SOC_RT298
 	select SND_SOC_DMIC
 	select SND_SOC_HDAC_HDMI
 	select SND_HDA_DSP_LOADER
+
+config SND_SOC_INTEL_BXTP_IVI_RSE_MACH
+	tristate
+
+config SND_SOC_INTEL_BXTP_IVI_HU_MACH
+	tristate
+
+config SND_SOC_INTEL_BXTP_IVI_M3_MACH
+	tristate
+
+config SND_SOC_INTEL_BXTP_IVI_GENERIC_MACH
+	tristate
+
+choice SND_SOC_INTEL_BXT_RT298_I2S
+	tristate "Broxton with RT298 in I2S mode drivers"
+	depends on I2C && ACPI
+	depends on MFD_INTEL_LPSS || COMPILE_TEST
+	optional
+
+config SND_SOC_INTEL_BXT_RT298
+	prompt "Broxton with RT298 in I2S mode"
+	select SND_SOC_INTEL_BXT_RT298_MACH
 	help
-	   This adds support for ASoC machine driver for Broxton platforms
-	   with RT286 I2S audio codec.
-	   Say Y or m if you have such a device. This is a recommended option.
-	   If unsure select "N".
+	  This adds support for ASoC machine driver for Broxton platforms
+	  with RT286 I2S audio codec.
+	  Say Y or m if you have such a device. This is a recommended option.
+	  If unsure select "N".
+
+config SND_SOC_INTEL_BXTP_IVI_DUMMY_RSE
+	prompt "BXTP with Dummy codec for RSE"
+	select SND_SOC_INTEL_BXTP_IVI_RSE_MACH
+	help
+	  This adds support for ASoC machine driver for Broxton-P platforms
+	  with Dummy I2S audio codec for IVI Rear Seat Unit.
+	  Say Y or m if you have such a device. This is a recommended option.
+	  If unsure select "N".
+
+config SND_SOC_INTEL_BXTP_IVI_DUMMY_HU
+	prompt "BXTP with Dummy codec for HU"
+	select SND_SOC_INTEL_BXTP_IVI_HU_MACH
+	help
+	  This adds support for ASoC machine driver for Broxton-P platforms
+	  with Dummy I2S audio codec for IVI Head Unit.
+	  Say Y or m if you have such a device. This is a recommended option.
+	  If unsure select "N".
+
+config SND_SOC_INTEL_BXTP_IVI_DUMMY_M3
+	prompt "BXTP with Dummy codec for M3"
+	select SND_SOC_INTEL_BXTP_IVI_M3_MACH
+	help
+	  This adds support for ASoC machine driver for Broxton-P platforms
+	  with Dummy I2S audio codec for IVI M3 topology.
+	  Say Y or m if you have such a device. This is a recommended option.
+	  If unsure select "N".
+
+config SND_SOC_INTEL_BXTP_IVI_DUMMY_GENERIC
+	prompt "BXTP with Dummy codec for GENERIC"
+	select SND_SOC_INTEL_BXTP_IVI_GENERIC_MACH
+	help
+	  This adds support for ASoC machine driver for Broxton-P platforms
+	  with Dummy I2S audio codec for IVI generic topology.
+	  Say Y or m if you have such a device. This is a recommended option.
+	  If unsure select "N".
+
+endchoice ## SND_SOC_INTEL_BXT_RT298_I2S
+
+config SND_SOC_INTEL_BXT_TDF8532_MACH
+	tristate
+	select SND_SOC_TDF8532
+
+config SND_SOC_INTEL_BXT_ULL_MACH
+	tristate
+
+choice SND_SOC_INTEL_BXT_TDF8532_I2S
+	tristate "Broxton with TDF8532 in I2S mode drivers"
+	depends on I2C && ACPI
+	depends on MFD_INTEL_LPSS || COMPILE_TEST
+	optional
+
+
+config SND_SOC_INTEL_BXT_TDF8532
+	prompt "Broxton with TDF8532 in I2S mode"
+	select SND_SOC_INTEL_BXT_TDF8532_MACH
+	help
+	  This adds support for ASoC machine driver for Broxton IVI GP MRB
+	  platforms with TDF8532 I2S audio codec.
+	  Say Y or m if you have such a device. This is a recommended option.
+	  If unsure select "N".
+
+config SND_SOC_INTEL_BXT_ULL
+	prompt "Broxton with Dummy codec for ULL"
+	select SND_SOC_INTEL_BXT_ULL_MACH
+	help
+	  This adds support for ASoC machine driver for Broxton ULL GP MRB
+	  platform.
+	  Say Y or m if you have such a device. This is a recommended option.
+	  If unsure select "N".
+
+endchoice ## SND_SOC_INTEL_BXT_TDF8532_I2S
 
 endif ## SND_SOC_INTEL_APL
 
@@ -365,6 +457,19 @@ endif ## SND_SOC_INTEL_KBL
 
 if SND_SOC_INTEL_GLK || (SND_SOC_SOF_GEMINILAKE  && SND_SOC_SOF_HDA_LINK)
 
+config SND_SOC_INTEL_KBLR_RT298_MACH
+	tristate "KBL-R with RT298 in I2S mode"
+	depends on I2C && ACPI
+	depends on MFD_INTEL_LPSS || COMPILE_TEST
+	select SND_SOC_RT298
+	select SND_SOC_DMIC
+	select SND_SOC_HDAC_HDMI
+	help
+	  This adds support for ASoC machine driver for Kabylake-R platform
+	  with RT298 I2S audio codec.
+	  Say Y if you have such a device.
+	  If unsure select "N".
+
 config SND_SOC_INTEL_GLK_RT5682_MAX98357A_MACH
 	tristate "GLK with RT5682 and MAX98357A in I2S Mode"
 	depends on I2C && ACPI
@@ -381,6 +486,53 @@ config SND_SOC_INTEL_GLK_RT5682_MAX98357A_MACH
 	   If unsure select "N".
 
 endif ## SND_SOC_INTEL_GLK || (SND_SOC_SOF_GEMINILAKE  && SND_SOC_SOF_HDA_LINK)
+
+if SND_SOC_INTEL_CNL
+
+config SND_SOC_INTEL_CNL_RT274_MACH
+	tristate "Cannonlake with RT274 I2S mode"
+	depends on I2C && ACPI
+	depends on MFD_INTEL_LPSS || COMPILE_TEST
+	select SND_SOC_RT274
+	select SND_SOC_DMIC
+	select SND_SOC_HDAC_HDMI
+	help
+	  This adds support for ASoC machine driver for Cannonlake platform
+	  with RT274 I2S audio codec.
+	  Say Y or m if you have such a device. This is a recommended option.
+	  If unsure select "N".
+
+endif ## SND_SOC_INTEL_CNL
+
+config SND_SOC_INTEL_EHL_RT5660_MACH
+	tristate "EHL with RT5660 in I2S mode"
+	depends on I2C && ACPI
+	depends on MFD_INTEL_LPSS || COMPILE_TEST
+	select SND_SOC_RT5660
+	help
+	  This adds support for ASoC machine driver for Elkhart Lake platform
+	  with RT5660 I2S audio codec.
+	  Say Y or m if you have such a device. This is a recommended option.
+	  If unsure select "N".
+
+config SND_SOC_INTEL_EHL_RT5660_FPGA
+	tristate "RT5660 on IP FPGA"
+	depends on SND_SOC_INTEL_EHL_RT5660_MACH
+	help
+	 This option will be reverded after power on.
+	 It's only for testing purposes.
+	 Select this option if testing RT5660 on IP FPGA
+	 If unsure select "N".
+
+config SND_SOC_INTEL_SSP_TEST_MACH
+	tristate "SSP-TEST mode"
+	depends on MFD_INTEL_LPSS && ACPI
+	help
+	  This adds support for ASoC test machine driver.
+	  This will create a dummy sound card. In order to load test driver
+	  correctly you must also provide the appropriate topology.
+	  Say m if you want to load test driver on demand using module params.
+	  If unsure select "N".
 
 if SND_SOC_INTEL_SKYLAKE_HDAUDIO_CODEC || SND_SOC_SOF_HDA_AUDIO_CODEC
 
