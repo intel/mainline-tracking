@@ -1738,21 +1738,24 @@ static int skl_get_module_info(struct skl_dev *skl,
 	struct skl_module_inst_id *pin_id;
 	guid_t *uuid_mod, *uuid_tplg;
 	struct skl_module *skl_module;
-	struct uuid_module *module;
-	int i, ret = -EIO;
+	struct skl_module_entry *mod_entries;
+	int i, j, ret = -EIO;
+
+	mod_entries = skl->fw_modules_info->module_entry;
 
 	uuid_mod = (guid_t *)mconfig->guid;
 
-	if (list_empty(&skl->module_list)) {
+	if (skl->fw_modules_info->count == 0) {
 		dev_err(skl->dev, "Module list is empty\n");
 		return -EIO;
 	}
 
-	list_for_each_entry(module, &skl->module_list, list) {
-		if (guid_equal(uuid_mod, &module->uuid)) {
-			mconfig->id.module_id = module->id;
+	for (i = 0; i < skl->fw_modules_info->count; i++) {
+		if (guid_equal(&mod_entries[i].uuid, uuid_mod)) {
+			mconfig->id.module_id = mod_entries[i].module_id;
 			if (mconfig->module)
-				mconfig->module->loadable = module->is_loadable;
+				mconfig->module->loadable =
+					mod_entries[i].type.load_type;
 			ret = 0;
 			break;
 		}
@@ -1761,7 +1764,7 @@ static int skl_get_module_info(struct skl_dev *skl,
 	if (ret)
 		return ret;
 
-	uuid_mod = &module->uuid;
+	uuid_mod = &mod_entries[i].uuid;
 	ret = -EIO;
 	for (i = 0; i < skl->nr_modules; i++) {
 		skl_module = skl->modules[i];
@@ -1775,17 +1778,17 @@ static int skl_get_module_info(struct skl_dev *skl,
 	if (skl->nr_modules && ret)
 		return ret;
 
-	list_for_each_entry(module, &skl->module_list, list) {
-		for (i = 0; i < MAX_IN_QUEUE; i++) {
-			pin_id = &mconfig->m_in_pin[i].id;
-			if (guid_equal(&pin_id->mod_uuid, &module->uuid))
-				pin_id->module_id = module->id;
+	for (i = 0; i < skl->fw_modules_info->count; i++) {
+		for (j = 0; j < MAX_IN_QUEUE; j++) {
+			pin_id = &mconfig->m_in_pin[j].id;
+			if (guid_equal(&mod_entries[i].uuid, &pin_id->mod_uuid))
+				pin_id->module_id = mod_entries[i].module_id;
 		}
 
-		for (i = 0; i < MAX_OUT_QUEUE; i++) {
-			pin_id = &mconfig->m_out_pin[i].id;
-			if (guid_equal(&pin_id->mod_uuid, &module->uuid))
-				pin_id->module_id = module->id;
+		for (j = 0; j < MAX_OUT_QUEUE; j++) {
+			pin_id = &mconfig->m_out_pin[j].id;
+			if (guid_equal(&mod_entries[i].uuid, &pin_id->mod_uuid))
+				pin_id->module_id = mod_entries[i].module_id;
 		}
 	}
 
