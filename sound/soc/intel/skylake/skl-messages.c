@@ -142,18 +142,27 @@ int skl_dsp_cleanup(struct device *dev,
 
 int skl_init_dsp(struct skl_dev *skl, struct sst_pdata *pdata)
 {
+	struct sst_dsp *dsp;
 	struct hdac_bus *bus = skl_to_bus(skl);
-	int ret;
+	struct device *dev = skl->dev;
 
 	/* enable ppcap interrupt */
 	snd_hdac_ext_bus_ppcap_enable(bus, true);
 	snd_hdac_ext_bus_ppcap_int_enable(bus, true);
 
-	ret = skl_sst_ctx_init(skl, pdata);
-	if (ret < 0)
-		return ret;
+	skl->is_first_boot = true;
+	INIT_LIST_HEAD(&skl->module_list);
+	init_waitqueue_head(&skl->mod_load_wait);
 
-	dev_dbg(bus->dev, "dsp registration status=%d\n", ret);
+	pdata->id = skl->pci->device;
+	pdata->irq = skl->pci->irq;
+	pdata->dma_base = -1;
+	pdata->dsp = skl;
+	dsp = sst_dsp_new(dev, pdata);
+	if (!dsp) {
+		dev_err(dev, "%s: no device\n", __func__);
+		return -ENODEV;
+	}
 
 	return 0;
 }

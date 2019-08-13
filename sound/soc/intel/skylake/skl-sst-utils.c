@@ -394,29 +394,6 @@ int skl_dsp_strip_extended_manifest(struct firmware *fw)
 	return 0;
 }
 
-int skl_sst_ctx_init(struct skl_dev *skl, struct sst_pdata *pdata)
-{
-	struct sst_dsp *sst;
-	struct device *dev = skl->dev;
-
-	pdata->id = skl->pci->device;
-	pdata->irq = skl->pci->irq;
-	pdata->dma_base = -1;
-	pdata->dsp = skl;
-	INIT_LIST_HEAD(&skl->module_list);
-	sst = sst_dsp_new(dev, pdata);
-	if (!sst) {
-		dev_err(dev, "%s: no device\n", __func__);
-		return -ENODEV;
-	}
-
-	skl->dsp = sst;
-	init_waitqueue_head(&skl->mod_load_wait);
-	skl->is_first_boot = true;
-
-	return 0;
-}
-
 int skl_prepare_lib_load(struct skl_dev *skl, struct skl_lib_info *linfo,
 		struct firmware *stripped_fw,
 		unsigned int hdr_offset, int index)
