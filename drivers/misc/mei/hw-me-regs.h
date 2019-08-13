@@ -103,6 +103,8 @@
 #define MEI_DEV_ID_CMP_LP     0x02e0 /* Comet Lake LP */
 #define MEI_DEV_ID_CMP_H      0x06e0 /* Comet Lake H */
 
+#define MEI_DEV_ID_EGLS       0x18E0 /* Eagle Stream WS */
+
 /*
  * MEI HW Section
  */
