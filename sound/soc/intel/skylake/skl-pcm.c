@@ -1853,9 +1853,6 @@ static int skl_platform_soc_probe(struct snd_soc_component *component)
 					skl->cfg.astate_cfg->count,
 					skl->cfg.astate_cfg);
 		}
-
-		/* create sysfs to list modules downloaded by driver */
-		skl_module_sysfs_init(skl, &component->dev->kobj);
 	}
 	pm_runtime_mark_last_busy(component->dev);
 	pm_runtime_put_autosuspend(component->dev);

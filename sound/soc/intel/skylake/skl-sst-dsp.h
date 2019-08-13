@@ -122,8 +122,6 @@ enum skl_log_enable;
 #define SKL_ADSPCS_CPA_SHIFT		24
 #define SKL_ADSPCS_CPA_MASK(cm)		((cm) << SKL_ADSPCS_CPA_SHIFT)
 
-#define DEFAULT_HASH_SHA256_LEN 32
-
 /* DSP Core state */
 enum skl_dsp_states {
 	SKL_DSP_RUNNING = 1,
@@ -184,7 +182,6 @@ struct uuid_module {
 	int num_configs;
 
 	struct list_head list;
-	u8 hash[DEFAULT_HASH_SHA256_LEN];
 };
 
 struct skl_notify_data {
@@ -275,10 +272,6 @@ int bxt_set_dsp_D0i0(struct sst_dsp *ctx);
 int bxt_schedule_dsp_D0i3(struct sst_dsp *ctx);
 
 void bxt_set_dsp_D0i3(struct work_struct *work);
-
-int skl_module_sysfs_init(struct skl_dev *skl, struct kobject *fw_modules_kobj);
-
-void skl_module_sysfs_exit(struct skl_dev *skl);
 
 int skl_dsp_cb_event(struct skl_dev *skl, unsigned int event,
 			struct skl_notify_data *notify_data);

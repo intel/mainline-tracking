@@ -185,7 +185,6 @@ int skl_free_dsp(struct skl_dev *skl)
 	/* disable  ppcap interrupt */
 	snd_hdac_ext_bus_ppcap_int_enable(bus, false);
 
-	skl_module_sysfs_exit(skl);
 	skl_sst_dsp_cleanup(skl);
 
 	kfree(skl->hw_cfg.i2s_caps.ctrl_base_addr);
@@ -1199,7 +1198,7 @@ static void skl_module_format_mismatch_detection(struct skl_dev *skl,
 	src_fmt = skl_get_pin_format(src_mcfg, SKL_OUTPUT_PIN, src_index);
 	dst_fmt = skl_get_pin_format(dst_mcfg, SKL_INPUT_PIN, dst_index);
 
-	if (memcmp(src_fmt, dst_fmt, sizeof(*src_fmt))) {
+	if(memcmp(src_fmt, dst_fmt, sizeof(*src_fmt))) {
 		dev_warn(skl->dev, "#### src and dst format mismatch: ####\n");
 		dev_warn(skl->dev, "pipe=%d src module_id=%d src instance_id=%d\n",
 					src_mcfg->pipe->ppl_id,
@@ -1218,13 +1217,11 @@ static void skl_module_format_mismatch_detection(struct skl_dev *skl,
 		dev_warn(skl->dev, "bit_depth: src=%d dst=%d\n",
 				src_fmt->bit_depth, dst_fmt->bit_depth);
 		dev_warn(skl->dev, "valid_bit_depth: src=%d dst=%d\n",
-				src_fmt->valid_bit_depth,
-				dst_fmt->valid_bit_depth);
+				src_fmt->valid_bit_depth, dst_fmt->valid_bit_depth);
 		dev_warn(skl->dev, "ch_cfg: src=%d dst=%d\n",
 				src_fmt->ch_cfg, dst_fmt->ch_cfg);
 		dev_warn(skl->dev, "interleaving_style: src=%d dst=%d\n",
-				src_fmt->interleaving_style,
-				dst_fmt->interleaving_style);
+				src_fmt->interleaving_style, dst_fmt->interleaving_style);
 		dev_warn(skl->dev, "sample_type: src=%d dst=%d\n",
 				src_fmt->sample_type, dst_fmt->sample_type);
 		dev_warn(skl->dev, "ch_map: src=0x%08x dst=0x%08x\n",

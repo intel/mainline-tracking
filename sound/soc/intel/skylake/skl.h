@@ -186,9 +186,6 @@ struct skl_dev {
 	/* Callback to update dynamic clock and power gating registers */
 	void (*clock_power_gating)(struct device *dev, bool enable);
 
-	/* sysfs for module info */
-	struct skl_sysfs_tree *sysfs_tree;
-
 	struct ep_group_cnt grp_cnt;
 
 	struct snd_kcontrol *kcontrol;
