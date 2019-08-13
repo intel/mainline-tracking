@@ -82,6 +82,7 @@ struct taprio_sched {
 	struct hrtimer advance_timer;
 	struct list_head taprio_list;
 	u32 txtime_delay;
+	u32 fpe_q_mask;
 };
 
 static ktime_t sched_base_time(const struct sched_gate_list *sched)
@@ -761,6 +762,7 @@ static const struct nla_policy taprio_policy[TCA_TAPRIO_ATTR_MAX + 1] = {
 	[TCA_TAPRIO_ATTR_SCHED_CLOCKID]              = { .type = NLA_S32 },
 	[TCA_TAPRIO_ATTR_SCHED_CYCLE_TIME]           = { .type = NLA_S64 },
 	[TCA_TAPRIO_ATTR_SCHED_CYCLE_TIME_EXTENSION] = { .type = NLA_S64 },
+	[TCA_TAPRIO_ATTR_FPE_QMASK]                  = { .type = NLA_S32 },
 };
 
 static int fill_sched_entry(struct nlattr **tb, struct sched_entry *entry,
@@ -1209,6 +1211,8 @@ static int taprio_enable_offload(struct net_device *dev,
 	taprio->enable = 1;
 	taprio_sched_to_offload(q, sched, taprio);
 
+	taprio->frame_preemption_queue_mask = q->fpe_q_mask;
+
 	err = ops->ndo_setup_tc(dev, TC_SETUP_QDISC_TAPRIO, taprio);
 	if (err < 0) {
 		NL_SET_ERR_MSG(extack, "Specified device failed to setup taprio hardware offload");
@@ -1264,6 +1268,21 @@ static int taprio_change(struct Qdisc *sch, struct nlattr *opt,
 		}
 
 		q->flags = taprio_flags;
+	}
+
+	if (tb[TCA_TAPRIO_ATTR_FPE_QMASK]) {
+		q->fpe_q_mask = nla_get_u32(tb[TCA_TAPRIO_ATTR_FPE_QMASK]);
+		if (FULL_OFFLOAD_IS_ENABLED(q->flags) && !q->fpe_q_mask) {
+			NL_SET_ERR_MSG_MOD(extack,
+					   "Invalid FPE Queue Mask - all 0s");
+
+			return -EINVAL;
+		}
+	} else {
+		/* If 'fpe-qmask' is not set, mark fpe_q_mask=0 to indicate
+		 * FPE is disabled.
+		 */
+		q->fpe_q_mask = 0;
 	}
 
 	err = taprio_parse_mqprio_opt(dev, mqprio, extack, taprio_flags);
