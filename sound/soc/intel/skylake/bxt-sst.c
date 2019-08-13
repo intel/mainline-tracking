@@ -200,13 +200,6 @@ static int bxt_load_base_firmware(struct sst_dsp *ctx)
 		}
 	}
 
-	if (skl->is_first_boot) {
-		ret = snd_skl_parse_manifest(ctx, pdata->fw,
-						BXT_ADSP_FW_BIN_HDR_OFFSET, 0);
-		if (ret < 0)
-			goto sst_load_base_firmware_failed;
-	}
-
 	stripped_fw.data = pdata->fw->data;
 	stripped_fw.size = pdata->fw->size;
 	skl_dsp_strip_extended_manifest(&stripped_fw);

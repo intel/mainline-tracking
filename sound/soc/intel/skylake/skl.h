@@ -161,7 +161,6 @@ struct skl_dev {
 	bool miscbdcg_disabled;
 
 	/* Populate module information */
-	struct list_head module_list;
 	struct skl_fw_cfg fw_cfg;
 	struct skl_hw_cfg hw_cfg;
 	struct skl_modules_info *fw_modules_info;

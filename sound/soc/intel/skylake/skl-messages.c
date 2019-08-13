@@ -159,7 +159,6 @@ int skl_init_dsp(struct skl_dev *skl, struct sst_pdata *pdata)
 
 	skl->is_first_boot = true;
 	spin_lock_init(&skl->trace_lock);
-	INIT_LIST_HEAD(&skl->module_list);
 	INIT_LIST_HEAD(&skl->notify_kctls);
 	INIT_LIST_HEAD(&skl->cfg.dmactrl_list);
 	init_waitqueue_head(&skl->trace_waitq);

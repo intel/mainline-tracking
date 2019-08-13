@@ -84,17 +84,6 @@ static int skl_load_base_firmware(struct sst_dsp *ctx)
 		}
 	}
 
-	if (skl->is_first_boot) {
-		ret = snd_skl_parse_manifest(ctx, pdata->fw,
-						SKL_ADSP_FW_BIN_HDR_OFFSET, 0);
-		if (ret < 0) {
-			dev_err(ctx->dev, "Manifest parsing err: %d\n", ret);
-			release_firmware(pdata->fw);
-			skl_dsp_disable_core(ctx, SKL_DSP_CORE0_MASK);
-			return ret;
-		}
-	}
-
 	/* check for extended manifest */
 	stripped_fw.data = pdata->fw->data;
 	stripped_fw.size = pdata->fw->size;
@@ -686,7 +675,6 @@ void skl_sst_dsp_cleanup(struct skl_dev *skl)
 	skl_free_pvt_id(skl);
 	kfree(skl->fw_modules_info);
 
-	list_del_init(&skl->module_list);
 	sst_dsp_free(dsp);
 
 	if (skl->boot_complete && dsp->cl_dev.bufsize) {

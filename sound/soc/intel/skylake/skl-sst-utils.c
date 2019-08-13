@@ -13,206 +13,8 @@
 #include "../common/sst-dsp-priv.h"
 #include "skl.h"
 
-#define DEFAULT_HASH_SHA256_LEN 32
-
 /* FW Extended Manifest Header id = $AE1 */
 #define SKL_EXT_MANIFEST_HEADER_MAGIC   0x31454124
-
-union seg_flags {
-	u32 ul;
-	struct {
-		u32 contents : 1;
-		u32 alloc    : 1;
-		u32 load     : 1;
-		u32 read_only : 1;
-		u32 code     : 1;
-		u32 data     : 1;
-		u32 _rsvd0   : 2;
-		u32 type     : 4;
-		u32 _rsvd1   : 4;
-		u32 length   : 16;
-	} r;
-} __packed;
-
-struct segment_desc {
-	union seg_flags flags;
-	u32 v_base_addr;
-	u32 file_offset;
-};
-
-struct module_type {
-	u32 load_type  : 4;
-	u32 auto_start : 1;
-	u32 domain_ll  : 1;
-	u32 domain_dp  : 1;
-	u32 rsvd       : 25;
-} __packed;
-
-struct adsp_module_entry {
-	u32 struct_id;
-	u8  name[8];
-	u8  uuid[16];
-	struct module_type type;
-	u8  hash1[DEFAULT_HASH_SHA256_LEN];
-	u32 entry_point;
-	u16 cfg_offset;
-	u16 cfg_count;
-	u32 affinity_mask;
-	u16 instance_max_count;
-	u16 instance_bss_size;
-	struct segment_desc segments[3];
-} __packed;
-
-struct adsp_fw_hdr {
-	u32 id;
-	u32 len;
-	u8  name[8];
-	u32 preload_page_count;
-	u32 fw_image_flags;
-	u32 feature_mask;
-	u16 major;
-	u16 minor;
-	u16 hotfix;
-	u16 build;
-	u32 num_modules;
-	u32 hw_buf_base;
-	u32 hw_buf_length;
-	u32 load_offset;
-} __packed;
-
-struct skl_ext_manifest_hdr {
-	u32 id;
-	u32 len;
-	u16 version_major;
-	u16 version_minor;
-	u32 entries;
-};
-
-/*
- * Parse the firmware binary to get the UUID, module id
- * and loadable flags
- */
-int snd_skl_parse_manifest(struct sst_dsp *ctx, const struct firmware *fw,
-			unsigned int offset, int index)
-{
-	struct adsp_fw_hdr *adsp_hdr;
-	struct adsp_module_entry *mod_entry;
-	int i, num_entry, size;
-	guid_t *uuid_bin;
-	const char *buf;
-	struct skl_dev *skl = ctx->thread_context;
-	struct uuid_module *module;
-	struct firmware stripped_fw;
-	unsigned int safe_file;
-	struct adsp_module_config *mod_configs;
-
-	/* Get the FW pointer to derive ADSP header */
-	stripped_fw.data = fw->data;
-	stripped_fw.size = fw->size;
-
-	skl_dsp_strip_extended_manifest(&stripped_fw);
-
-	buf = stripped_fw.data;
-
-	/* check if we have enough space in file to move to header */
-	safe_file = sizeof(*adsp_hdr) + offset;
-	if (stripped_fw.size <= safe_file) {
-		dev_err(ctx->dev, "Small fw file size, No space for hdr\n");
-		return -EINVAL;
-	}
-
-	adsp_hdr = (struct adsp_fw_hdr *)(buf + offset);
-	if (adsp_hdr->len != sizeof(*adsp_hdr)) {
-		dev_err(ctx->dev, "Header corrupted or unsupported FW version\n");
-		return -EINVAL;
-	}
-
-	dev_info(ctx->dev, "ADSP FW Name: %.*s, Version: %d.%d.%d.%d\n",
-		 (int) sizeof(adsp_hdr->name), adsp_hdr->name, adsp_hdr->major,
-		 adsp_hdr->minor, adsp_hdr->hotfix, adsp_hdr->build);
-
-	num_entry = adsp_hdr->num_modules;
-
-	/* check all entries are in file */
-	safe_file += num_entry * sizeof(*mod_entry);
-	if (stripped_fw.size <= safe_file) {
-		dev_err(ctx->dev, "Small fw file size, No modules\n");
-		return -EINVAL;
-	}
-
-	mod_entry = (struct adsp_module_entry *)
-		(buf + offset + adsp_hdr->len);
-	mod_configs = (struct adsp_module_config *)
-		(buf + safe_file);
-
-	/*
-	 * Read modules data from FW Manifest.
-	 *
-	 * The 16 byte UUID format is: XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXX
-	 * Populate the table to store module_id, loadable flags and
-	 * configurations array for the module.
-	 *
-	 * Manifest structure:
-	 * header
-	 * N * module entry (N specified in header)
-	 * M * module configuration
-	 *
-	 * Each module entry can have 0 or more configurations. Configurations
-	 * are linked to entries by offset and counter stored in entry
-	 * (offset + conter <= M).
-	 */
-
-	for (i = 0; i < num_entry; i++, mod_entry++) {
-		uuid_bin = (guid_t *)mod_entry->uuid;
-		if (guid_is_null(uuid_bin))
-			continue;
-
-		module = devm_kzalloc(ctx->dev, sizeof(*module), GFP_KERNEL);
-		if (!module) {
-			list_del_init(&skl->module_list);
-			return -ENOMEM;
-		}
-
-		guid_copy(&module->uuid, uuid_bin);
-
-		module->id = (i | (index << 12));
-		module->is_loadable = mod_entry->type.load_type;
-		module->max_instance = mod_entry->instance_max_count;
-		size = sizeof(int) * mod_entry->instance_max_count;
-		module->instance_id = devm_kzalloc(ctx->dev, size, GFP_KERNEL);
-		if (!module->instance_id) {
-			list_del_init(&skl->module_list);
-			return -ENOMEM;
-		}
-
-		if (mod_entry->cfg_count) {
-			size = sizeof(*mod_configs) * (mod_entry->cfg_offset
-				+ mod_entry->cfg_count);
-			if (stripped_fw.size <= safe_file + size) {
-				dev_err(ctx->dev, "Small fw file size, no space for module cfgs\n");
-				return -EINVAL;
-			}
-			module->num_configs = mod_entry->cfg_count;
-			size = sizeof(*mod_configs) * mod_entry->cfg_count;
-			module->configs = devm_kmemdup(ctx->dev,
-					&mod_configs[mod_entry->cfg_offset],
-					size, GFP_KERNEL);
-			if (!module->configs) {
-				list_del_init(&skl->module_list);
-				return -ENOMEM;
-			}
-		}
-
-		list_add_tail(&module->list, &skl->module_list);
-
-		dev_dbg(ctx->dev,
-			"Adding uuid :%pUL   mod id: %d  Loadable: %d\n",
-			&module->uuid, module->id, module->is_loadable);
-	}
-
-	return 0;
-}
-EXPORT_SYMBOL(snd_skl_parse_manifest);
 
 struct skl_module_entry *skl_find_module(struct skl_dev *skl,
 		const guid_t *uuid)
@@ -237,6 +39,14 @@ int skl_get_module_id(struct skl_dev *skl, const guid_t *uuid)
 	return module ? module->module_id : -ENOENT;
 }
 EXPORT_SYMBOL(skl_get_module_id);
+
+struct skl_ext_manifest_hdr {
+	u32 id;
+	u32 len;
+	u16 version_major;
+	u16 version_minor;
+	u32 entries;
+};
 
 /*
  * some firmware binary contains some extended manifest. This needs
@@ -270,7 +80,6 @@ int skl_prepare_lib_load(struct skl_dev *skl, struct skl_lib_info *linfo,
 		unsigned int hdr_offset, int index)
 {
 	int ret;
-	struct sst_dsp *dsp = skl->dsp;
 
 	if (linfo->fw == NULL) {
 		ret = request_firmware(&linfo->fw, linfo->name,
@@ -280,13 +89,6 @@ int skl_prepare_lib_load(struct skl_dev *skl, struct skl_lib_info *linfo,
 				linfo->name, ret);
 			return ret;
 		}
-	}
-
-	if (skl->is_first_boot) {
-		ret = snd_skl_parse_manifest(dsp, linfo->fw, hdr_offset,
-						index);
-		if (ret < 0)
-			return ret;
 	}
 
 	stripped_fw->data = linfo->fw->data;

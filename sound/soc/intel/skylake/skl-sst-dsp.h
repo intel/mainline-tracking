@@ -158,32 +158,6 @@ struct skl_dsp_fw_ops {
 		struct skl_notify_msg notif);
 };
 
-struct adsp_module_config {
-	u32 par[4];		/* module parameters */
-	u32 is_bytes;		/* actual size of instance .bss (bytes) */
-	u32 cps;		/* cycles per second */
-	u32 ibs;		/* input buffer size (bytes) */
-	u32 obs;		/* output buffer size (bytes) */
-	u32 module_flags;	/* flags, res for future use */
-	u32 cpc;		/* cycles per single run */
-	u32 obls;		/* output block size, res for future use */
-} __packed;
-
-#define MAX_INSTANCE_BUFF 2
-
-struct uuid_module {
-	guid_t uuid;
-	int id;
-	int is_loadable;
-	int max_instance;
-	u64 pvt_id[MAX_INSTANCE_BUFF];
-	int *instance_id;
-	struct adsp_module_config *configs;
-	int num_configs;
-
-	struct list_head list;
-};
-
 struct skl_notify_data {
 	u32 type;
 	u32 length;
@@ -247,8 +221,6 @@ int skl_dsp_boot(struct sst_dsp *ctx);
 int bxt_load_library(struct sst_dsp *ctx, struct skl_lib_info *linfo,
 		int lib_count);
 
-int snd_skl_parse_manifest(struct sst_dsp *ctx, const struct firmware *fw,
-			      unsigned int offset, int index);
 struct skl_module_entry *skl_find_module(struct skl_dev *skl,
 		const guid_t *uuid);
 int skl_get_module_id(struct skl_dev *skl, const guid_t *uuid);
