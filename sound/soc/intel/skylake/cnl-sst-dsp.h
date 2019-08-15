@@ -52,12 +52,6 @@ struct sst_generic_ipc;
 
 #define CNL_ADSP_MMIO_LEN		0x10000
 
-#define CNL_ADSP_W0_STAT_SZ		0x1000
-
-#define CNL_ADSP_W0_UP_SZ		0x1000
-
-#define CNL_ADSP_W1_SZ			0x1000
-
 #define CNL_FW_STS_MASK			0xf
 
 #define CNL_ADSPIC_IPC			0x1

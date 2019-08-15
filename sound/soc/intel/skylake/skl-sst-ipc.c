@@ -606,8 +606,8 @@ int skl_ipc_init(struct device *dev, struct skl_dev *skl)
 	ipc->dsp = skl->dsp;
 	ipc->dev = dev;
 
-	ipc->tx_data_max_size = SKL_ADSP_W1_SZ;
-	ipc->rx_data_max_size = SKL_ADSP_W0_UP_SZ;
+	ipc->tx_data_max_size = SKL_MAILBOX_SIZE;
+	ipc->rx_data_max_size = SKL_MAILBOX_SIZE;
 
 	err = sst_ipc_init(ipc);
 	if (err)
@@ -922,8 +922,8 @@ int skl_ipc_set_large_config(struct sst_generic_ipc *ipc,
 	sz_remaining = msg->param_data_size;
 	data_offset = 0;
 	while (sz_remaining != 0) {
-		tx_size = sz_remaining > SKL_ADSP_W1_SZ
-				? SKL_ADSP_W1_SZ : sz_remaining;
+		tx_size = sz_remaining > SKL_MAILBOX_SIZE
+				? SKL_MAILBOX_SIZE : sz_remaining;
 		if (tx_size == sz_remaining)
 			header.extension |= IPC_FINAL_BLOCK(1);
 
@@ -965,7 +965,7 @@ int skl_ipc_get_large_config(struct sst_generic_ipc *ipc,
 	unsigned int *buf;
 	int ret;
 
-	reply.data = kzalloc(SKL_ADSP_W1_SZ, GFP_KERNEL);
+	reply.data = kzalloc(SKL_MAILBOX_SIZE, GFP_KERNEL);
 	if (!reply.data)
 		return -ENOMEM;
 
@@ -983,7 +983,7 @@ int skl_ipc_get_large_config(struct sst_generic_ipc *ipc,
 	request.header = *(u64 *)&header;
 	request.data = *payload;
 	request.size = *bytes;
-	reply.size = SKL_ADSP_W1_SZ;
+	reply.size = SKL_MAILBOX_SIZE;
 
 	ret = sst_ipc_tx_message_wait(ipc, request, &reply);
 	if (ret < 0)

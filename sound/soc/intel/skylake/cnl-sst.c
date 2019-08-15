@@ -389,8 +389,8 @@ static int cnl_ipc_init(struct device *dev, struct skl_dev *cnl)
 	ipc->dsp = cnl->dsp;
 	ipc->dev = dev;
 
-	ipc->tx_data_max_size = CNL_ADSP_W1_SZ;
-	ipc->rx_data_max_size = CNL_ADSP_W0_UP_SZ;
+	ipc->tx_data_max_size = SKL_MAILBOX_SIZE;
+	ipc->rx_data_max_size = SKL_MAILBOX_SIZE;
 
 	err = sst_ipc_init(ipc);
 	if (err)
@@ -442,9 +442,9 @@ int cnl_sst_dsp_init(struct device *dev, void __iomem *mmio_base, int irq,
 	sst->addr.sram0_base = CNL_ADSP_SRAM0_BASE;
 	sst->addr.sram1_base = CNL_ADSP_SRAM1_BASE;
 
-	sst_dsp_mailbox_init(sst, (CNL_ADSP_SRAM0_BASE + CNL_ADSP_W0_STAT_SZ),
-			     CNL_ADSP_W0_UP_SZ, CNL_ADSP_SRAM1_BASE,
-			     CNL_ADSP_W1_SZ);
+	sst_dsp_mailbox_init(sst,
+		(CNL_ADSP_SRAM0_BASE + SKL_FW_REGS_SIZE), SKL_MAILBOX_SIZE,
+		CNL_ADSP_SRAM1_BASE, SKL_MAILBOX_SIZE);
 
 	ret = cnl_ipc_init(dev, cnl);
 	if (ret) {

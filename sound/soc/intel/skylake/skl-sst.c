@@ -536,8 +536,9 @@ int skl_sst_dsp_init(struct device *dev, void __iomem *mmio_base, int irq,
 	sst->addr.sram0_base = SKL_ADSP_SRAM0_BASE;
 	sst->addr.sram1_base = SKL_ADSP_SRAM1_BASE;
 
-	sst_dsp_mailbox_init(sst, (SKL_ADSP_SRAM0_BASE + SKL_ADSP_W0_STAT_SZ),
-			SKL_ADSP_W0_UP_SZ, SKL_ADSP_SRAM1_BASE, SKL_ADSP_W1_SZ);
+	sst_dsp_mailbox_init(sst,
+		(SKL_ADSP_SRAM0_BASE + SKL_FW_REGS_SIZE), SKL_MAILBOX_SIZE,
+		SKL_ADSP_SRAM1_BASE, SKL_MAILBOX_SIZE);
 
 	ret = skl_ipc_init(dev, skl);
 	if (ret) {
