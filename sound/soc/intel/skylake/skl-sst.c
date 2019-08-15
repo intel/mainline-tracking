@@ -622,7 +622,7 @@ void skl_sst_dsp_cleanup(struct skl_dev *skl)
 	skl_clear_module_table(dsp);
 
 	list_del_init(&skl->module_list);
-	dsp->ops->free(dsp);
+	sst_dsp_free(dsp);
 
 	if (skl->boot_complete && dsp->cl_dev.bufsize) {
 		dsp->cl_dev.ops.cl_cleanup_controller(dsp);

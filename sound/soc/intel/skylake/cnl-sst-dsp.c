@@ -215,7 +215,6 @@ void cnl_dsp_free(struct sst_dsp *dsp)
 	sst_ipc_fini(&skl->ipc);
 	cnl_ipc_int_disable(dsp);
 
-	free_irq(dsp->irq, dsp);
 	cnl_dsp_disable_core(dsp, SKL_DSP_CORE0_MASK);
 }
 EXPORT_SYMBOL_GPL(cnl_dsp_free);
