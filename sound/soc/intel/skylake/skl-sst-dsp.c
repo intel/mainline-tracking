@@ -418,20 +418,6 @@ int skl_dsp_sleep(struct sst_dsp *ctx)
 }
 EXPORT_SYMBOL_GPL(skl_dsp_sleep);
 
-int skl_dsp_acquire_irq(struct sst_dsp *sst)
-{
-	int ret;
-
-	/* Register the ISR */
-	ret = request_threaded_irq(sst->irq, sst->ops->irq_handler,
-		sst->ops->thread_fn, IRQF_SHARED, "AudioDSP", sst);
-	if (ret)
-		dev_err(sst->dev, "unable to grab threaded IRQ %d, disabling device\n",
-			       sst->irq);
-
-	return ret;
-}
-
 void skl_dsp_free(struct sst_dsp *dsp)
 {
 	struct skl_dev *skl = dsp->thread_context;
