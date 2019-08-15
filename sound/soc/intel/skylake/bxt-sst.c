@@ -563,8 +563,6 @@ int bxt_sst_dsp_init(struct device *dev, void __iomem *mmio_base, int irq,
 	sst->fw_ops = bxt_fw_ops;
 	sst->addr.lpe = mmio_base;
 	sst->addr.shim = mmio_base;
-	sst->addr.sram0_base = BXT_ADSP_SRAM0_BASE;
-	sst->addr.sram1_base = BXT_ADSP_SRAM1_BASE;
 
 	sst_dsp_mailbox_init(sst,
 		(BXT_ADSP_SRAM0_BASE + SKL_FW_REGS_SIZE), SKL_MAILBOX_SIZE,

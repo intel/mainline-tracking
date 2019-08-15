@@ -533,8 +533,6 @@ int skl_sst_dsp_init(struct device *dev, void __iomem *mmio_base, int irq,
 	sst = skl->dsp;
 	sst->addr.lpe = mmio_base;
 	sst->addr.shim = mmio_base;
-	sst->addr.sram0_base = SKL_ADSP_SRAM0_BASE;
-	sst->addr.sram1_base = SKL_ADSP_SRAM1_BASE;
 
 	sst_dsp_mailbox_init(sst,
 		(SKL_ADSP_SRAM0_BASE + SKL_FW_REGS_SIZE), SKL_MAILBOX_SIZE,

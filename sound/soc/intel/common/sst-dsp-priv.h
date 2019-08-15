@@ -69,8 +69,6 @@ struct sst_addr {
 	u32 dram_offset;
 	u32 dsp_iram_offset;
 	u32 dsp_dram_offset;
-	u32 sram0_base;
-	u32 sram1_base;
 	void __iomem *lpe;
 	void __iomem *shim;
 	void __iomem *pci_cfg;
