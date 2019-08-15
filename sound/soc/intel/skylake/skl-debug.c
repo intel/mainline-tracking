@@ -173,7 +173,7 @@ static ssize_t fw_softreg_read(struct file *file, char __user *user_buf,
 {
 	struct skl_debug *d = file->private_data;
 	struct sst_dsp *sst = d->skl->dsp;
-	size_t w0_stat_sz = sst->addr.w0_stat_sz;
+	size_t w0_stat_sz = SKL_FW_REGS_SIZE;
 	void __iomem *in_base = sst->mailbox.in_base;
 	void __iomem *fw_reg_addr;
 	unsigned int offset;

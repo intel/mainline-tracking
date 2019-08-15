@@ -441,8 +441,6 @@ int cnl_sst_dsp_init(struct device *dev, void __iomem *mmio_base, int irq,
 	sst->addr.shim = mmio_base;
 	sst->addr.sram0_base = CNL_ADSP_SRAM0_BASE;
 	sst->addr.sram1_base = CNL_ADSP_SRAM1_BASE;
-	sst->addr.w0_stat_sz = CNL_ADSP_W0_STAT_SZ;
-	sst->addr.w0_up_sz = CNL_ADSP_W0_UP_SZ;
 
 	sst_dsp_mailbox_init(sst, (CNL_ADSP_SRAM0_BASE + CNL_ADSP_W0_STAT_SZ),
 			     CNL_ADSP_W0_UP_SZ, CNL_ADSP_SRAM1_BASE,

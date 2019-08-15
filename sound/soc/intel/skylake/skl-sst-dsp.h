@@ -63,6 +63,7 @@ struct skl_dev;
 
 #define SKL_ADSP_W1_SZ			0x1000
 
+#define SKL_FW_REGS_SIZE		PAGE_SIZE
 #define SKL_FW_STS_MASK			0xf
 
 #define SKL_FW_INIT			0x1
