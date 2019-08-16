@@ -171,16 +171,13 @@ struct platform_device;
 /* Descriptor for setting up SST platform data */
 struct sst_acpi_desc {
 	const char *drv_name;
-	struct snd_soc_acpi_mach *machines;
+	struct sst_pdata *pdata;
 	/* Platform resource indexes. Must set to -1 if not used */
 	int resindex_lpe_base;
 	int resindex_pcicfg_base;
 	int resindex_fw_base;
 	int irqindex_host_ipc;
 	int resindex_dma_base;
-	/* Unique number identifying the SST core on platform */
-	int sst_id;
-	/* DMA only valid when resindex_dma_base != -1*/
 	int dma_engine;
 	int dma_size;
 };
@@ -205,8 +202,7 @@ struct sst_pdata {
 	const struct firmware *fw;
 
 	/* DMA */
-	int resindex_dma_base; /* other fields invalid if equals to -1 */
-	u32 dma_base;
+	int dma_base; /* other fields invalid if equals to -1 */
 	u32 dma_size;
 	int dma_engine;
 	struct device *dma_dev;

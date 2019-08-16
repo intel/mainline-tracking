@@ -403,7 +403,7 @@ int skl_sst_ctx_init(struct device *dev, int irq, const char *fw_name,
 
 	pdata->id = skl->pci->device;
 	pdata->irq = irq;
-	pdata->resindex_dma_base = -1;
+	pdata->dma_base = -1;
 	skl->dev = dev;
 	pdata->dsp = skl;
 	INIT_LIST_HEAD(&skl->module_list);

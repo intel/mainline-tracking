@@ -17,7 +17,6 @@
 struct sst_acpi_priv {
 	struct platform_device *pdev_mach;
 	struct platform_device *pdev_pcm;
-	struct sst_pdata sst_pdata;
 	struct sst_acpi_desc *desc;
 	struct snd_soc_acpi_mach *mach;
 };
@@ -27,8 +26,8 @@ static void sst_acpi_fw_cb(const struct firmware *fw, void *context)
 	struct platform_device *pdev = context;
 	struct device *dev = &pdev->dev;
 	struct sst_acpi_priv *sst_acpi = platform_get_drvdata(pdev);
-	struct sst_pdata *sst_pdata = &sst_acpi->sst_pdata;
 	struct sst_acpi_desc *desc = sst_acpi->desc;
+	struct sst_pdata *sst_pdata = desc->pdata;
 	struct snd_soc_acpi_mach *mach = sst_acpi->mach;
 
 	sst_pdata->fw = fw;
@@ -51,7 +50,6 @@ static void sst_acpi_fw_cb(const struct firmware *fw, void *context)
 
 int sst_dsp_acpi_probe(struct platform_device *pdev)
 {
-	const struct acpi_device_id *id;
 	struct device *dev = &pdev->dev;
 	struct sst_acpi_priv *sst_acpi;
 	struct sst_pdata *sst_pdata;
@@ -64,27 +62,20 @@ int sst_dsp_acpi_probe(struct platform_device *pdev)
 	if (sst_acpi == NULL)
 		return -ENOMEM;
 
-	id = acpi_match_device(dev->driver->acpi_match_table, dev);
-	if (!id)
-		return -ENODEV;
-
-	desc = (struct sst_acpi_desc *)id->driver_data;
-	mach = snd_soc_acpi_find_machine(desc->machines);
+	desc = platform_get_drvdata(pdev);
+	sst_pdata = desc->pdata;
+	mach = snd_soc_acpi_find_machine(sst_pdata->boards);
 	if (mach == NULL) {
 		dev_err(dev, "No matching ASoC machine driver found\n");
 		return -ENODEV;
 	}
 
-	sst_pdata = &sst_acpi->sst_pdata;
-	sst_pdata->id = desc->sst_id;
 	sst_pdata->dma_dev = dev;
 	sst_acpi->desc = desc;
 	sst_acpi->mach = mach;
 
-	sst_pdata->resindex_dma_base = desc->resindex_dma_base;
-	if (desc->resindex_dma_base >= 0) {
+	if (sst_pdata->dma_base >= 0) {
 		sst_pdata->dma_engine = desc->dma_engine;
-		sst_pdata->dma_base = desc->resindex_dma_base;
 		sst_pdata->dma_size = desc->dma_size;
 	}
 
@@ -141,7 +132,7 @@ EXPORT_SYMBOL_GPL(sst_dsp_acpi_probe);
 int sst_dsp_acpi_remove(struct platform_device *pdev)
 {
 	struct sst_acpi_priv *sst_acpi = platform_get_drvdata(pdev);
-	struct sst_pdata *sst_pdata = &sst_acpi->sst_pdata;
+	struct sst_pdata *sst_pdata = sst_acpi->desc->pdata;
 
 	platform_device_unregister(sst_acpi->pdev_mach);
 	if (!IS_ERR_OR_NULL(sst_acpi->pdev_pcm))

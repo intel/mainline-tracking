@@ -268,7 +268,7 @@ static int sst_dma_new(struct sst_dsp *sst)
 	struct resource mem;
 	int ret = 0;
 
-	if (sst->pdata->resindex_dma_base == -1)
+	if (sst->pdata->dma_base == -1)
 		/* DMA is not used, return and squelsh error messages */
 		return 0;
 
