@@ -13,7 +13,6 @@
 #include <linux/dma-mapping.h>
 #include <linux/platform_device.h>
 #include <linux/firmware.h>
-
 #include "../common/sst-dsp.h"
 #include "../common/sst-dsp-priv.h"
 #include "sst-baytrail-ipc.h"

@@ -13,7 +13,6 @@
 
 #include "sst-dsp.h"
 #include <sound/soc-acpi.h>
-#include <sound/soc-acpi-intel-match.h>
 
 struct sst_acpi_priv {
 	struct platform_device *pdev_mach;
@@ -152,38 +151,3 @@ int sst_dsp_acpi_remove(struct platform_device *pdev)
 	return 0;
 }
 EXPORT_SYMBOL_GPL(sst_dsp_acpi_remove);
-
-#if !IS_ENABLED(CONFIG_SND_SST_IPC_ACPI)
-static struct sst_acpi_desc sst_acpi_baytrail_desc = {
-	.drv_name = "baytrail-pcm-audio",
-	.machines = snd_soc_acpi_intel_baytrail_legacy_machines,
-	.resindex_lpe_base = 0,
-	.resindex_pcicfg_base = 1,
-	.resindex_fw_base = 2,
-	.irqindex_host_ipc = 5,
-	.sst_id = SST_DEV_ID_BYT,
-	.resindex_dma_base = -1,
-};
-#endif
-
-static const struct acpi_device_id sst_acpi_match[] = {
-#if !IS_ENABLED(CONFIG_SND_SST_IPC_ACPI)
-	{ "80860F28", (unsigned long)&sst_acpi_baytrail_desc },
-#endif
-	{ }
-};
-MODULE_DEVICE_TABLE(acpi, sst_acpi_match);
-
-static struct platform_driver sst_acpi_driver = {
-	.probe = sst_dsp_acpi_probe,
-	.remove = sst_dsp_acpi_remove,
-	.driver = {
-		.name = "sst-acpi",
-		.acpi_match_table = ACPI_PTR(sst_acpi_match),
-	},
-};
-module_platform_driver(sst_acpi_driver);
-
-MODULE_AUTHOR("Jarkko Nikula <jarkko.nikula@linux.intel.com>");
-MODULE_DESCRIPTION("Intel SST loader on ACPI systems");
-MODULE_LICENSE("GPL v2");
