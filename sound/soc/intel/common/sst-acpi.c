@@ -19,23 +19,6 @@
 #define SST_WPT_DSP_DMA_ADDR_OFFSET	0x0FE000
 #define SST_LPT_DSP_DMA_SIZE		(1024 - 1)
 
-/* Descriptor for setting up SST platform data */
-struct sst_acpi_desc {
-	const char *drv_name;
-	struct snd_soc_acpi_mach *machines;
-	/* Platform resource indexes. Must set to -1 if not used */
-	int resindex_lpe_base;
-	int resindex_pcicfg_base;
-	int resindex_fw_base;
-	int irqindex_host_ipc;
-	int resindex_dma_base;
-	/* Unique number identifying the SST core on platform */
-	int sst_id;
-	/* DMA only valid when resindex_dma_base != -1*/
-	int dma_engine;
-	int dma_size;
-};
-
 struct sst_acpi_priv {
 	struct platform_device *pdev_mach;
 	struct platform_device *pdev_pcm;
@@ -71,7 +54,7 @@ static void sst_acpi_fw_cb(const struct firmware *fw, void *context)
 	return;
 }
 
-static int sst_acpi_probe(struct platform_device *pdev)
+int sst_dsp_acpi_probe(struct platform_device *pdev)
 {
 	const struct acpi_device_id *id;
 	struct device *dev = &pdev->dev;
@@ -158,8 +141,9 @@ static int sst_acpi_probe(struct platform_device *pdev)
 
 	return ret;
 }
+EXPORT_SYMBOL_GPL(sst_dsp_acpi_probe);
 
-static int sst_acpi_remove(struct platform_device *pdev)
+int sst_dsp_acpi_remove(struct platform_device *pdev)
 {
 	struct sst_acpi_priv *sst_acpi = platform_get_drvdata(pdev);
 	struct sst_pdata *sst_pdata = &sst_acpi->sst_pdata;
@@ -171,6 +155,7 @@ static int sst_acpi_remove(struct platform_device *pdev)
 
 	return 0;
 }
+EXPORT_SYMBOL_GPL(sst_dsp_acpi_remove);
 
 static struct sst_acpi_desc sst_acpi_haswell_desc = {
 	.drv_name = "haswell-pcm-audio",
@@ -222,8 +207,8 @@ static const struct acpi_device_id sst_acpi_match[] = {
 MODULE_DEVICE_TABLE(acpi, sst_acpi_match);
 
 static struct platform_driver sst_acpi_driver = {
-	.probe = sst_acpi_probe,
-	.remove = sst_acpi_remove,
+	.probe = sst_dsp_acpi_probe,
+	.remove = sst_dsp_acpi_remove,
 	.driver = {
 		.name = "sst-acpi",
 		.acpi_match_table = ACPI_PTR(sst_acpi_match),
