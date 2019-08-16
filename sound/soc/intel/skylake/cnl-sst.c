@@ -407,7 +407,7 @@ static int cnl_ipc_init(struct device *dev, struct skl_dev *cnl)
 	return 0;
 }
 
-static struct sst_ops cnl_ops = {
+struct sst_ops cnl_sst_ops = {
 	.irq_handler = cnl_dsp_sst_interrupt,
 	.thread_fn = cnl_dsp_irq_thread_handler,
 	.write = sst_shim32_write,
@@ -418,7 +418,7 @@ static struct sst_ops cnl_ops = {
 };
 
 static struct sst_pdata cnl_dev = {
-	.ops = &cnl_ops,
+	.ops = &cnl_sst_ops,
 };
 
 int cnl_sst_dsp_init(struct skl_dev *cnl, const char *fw_name)

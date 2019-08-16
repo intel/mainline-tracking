@@ -531,7 +531,7 @@ static const struct skl_dsp_fw_ops bxt_fw_ops = {
 	.load_library = bxt_load_library,
 };
 
-static struct sst_ops skl_ops = {
+struct sst_ops apl_sst_ops = {
 	.irq_handler = skl_dsp_sst_interrupt,
 	.thread_fn = skl_dsp_irq_thread_handler,
 	.write = sst_shim32_write,
@@ -542,7 +542,7 @@ static struct sst_ops skl_ops = {
 };
 
 static struct sst_pdata skl_dev = {
-	.ops = &skl_ops,
+	.ops = &apl_sst_ops,
 };
 
 int bxt_sst_dsp_init(struct skl_dev *skl, const char *fw_name)

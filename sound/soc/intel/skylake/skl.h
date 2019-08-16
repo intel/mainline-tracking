@@ -42,6 +42,9 @@
 #define AZX_REG_VS_EM2_L1SEN		BIT(13)
 
 struct skl_debug;
+extern struct sst_ops skl_sst_ops;
+extern struct sst_ops apl_sst_ops;
+extern struct sst_ops cnl_sst_ops;
 
 struct skl_astate_param {
 	u32 kcps;

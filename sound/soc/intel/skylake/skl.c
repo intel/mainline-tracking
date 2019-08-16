@@ -27,6 +27,7 @@
 #include <sound/hda_i915.h>
 #include <sound/hda_codec.h>
 #include <sound/intel-nhlt.h>
+#include "../common/sst-dsp.h"
 #include "skl.h"
 #include "skl-sst-dsp.h"
 #include "skl-sst-ipc.h"
@@ -1063,7 +1064,6 @@ static int skl_probe(struct pci_dev *pci,
 
 	pci_set_drvdata(skl->pci, bus);
 
-
 	err = skl_find_machine(skl, (void *)pci_id->driver_data);
 	if (err < 0) {
 		dev_err(bus->dev, "skl_find_machine failed with err: %d\n", err);
@@ -1152,6 +1152,42 @@ static void skl_remove(struct pci_dev *pci)
 	skl_free(bus);
 	dev_set_drvdata(&pci->dev, NULL);
 }
+
+static struct sst_pdata skl_desc = {
+	.fw_name = "intel/dsp_fw_release.bin",
+	.ops = &skl_sst_ops,
+	.boards = snd_soc_acpi_intel_skl_machines,
+};
+
+static struct sst_pdata kbl_desc = {
+	.fw_name = "intel/dsp_fw_kbl.bin",
+	.ops = &skl_sst_ops,
+	.boards = snd_soc_acpi_intel_kbl_machines,
+};
+
+static struct sst_pdata apl_desc = {
+	.fw_name = "intel/dsp_fw_bxtn.bin",
+	.ops = &apl_sst_ops,
+	.boards = snd_soc_acpi_intel_bxt_machines,
+};
+
+static struct sst_pdata glk_desc = {
+	.fw_name = "intel/dsp_fw_glk.bin",
+	.ops = &apl_sst_ops,
+	.boards = snd_soc_acpi_intel_glk_machines,
+};
+
+static struct sst_pdata cnl_desc = {
+	.fw_name = "intel/dsp_fw_cnl.bin",
+	.ops = &cnl_sst_ops,
+	.boards = snd_soc_acpi_intel_cnl_machines,
+};
+
+static struct sst_pdata icl_desc = {
+	.fw_name = "intel/dsp_fw_icl.bin",
+	.ops = &cnl_sst_ops,
+	.boards = snd_soc_acpi_intel_icl_machines,
+};
 
 /* PCI IDs */
 static const struct pci_device_id skl_ids[] = {
