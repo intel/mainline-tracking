@@ -15,10 +15,6 @@
 #include <sound/soc-acpi.h>
 #include <sound/soc-acpi-intel-match.h>
 
-#define SST_LPT_DSP_DMA_ADDR_OFFSET	0x0F0000
-#define SST_WPT_DSP_DMA_ADDR_OFFSET	0x0FE000
-#define SST_LPT_DSP_DMA_SIZE		(1024 - 1)
-
 struct sst_acpi_priv {
 	struct platform_device *pdev_mach;
 	struct platform_device *pdev_pcm;
@@ -157,32 +153,6 @@ int sst_dsp_acpi_remove(struct platform_device *pdev)
 }
 EXPORT_SYMBOL_GPL(sst_dsp_acpi_remove);
 
-static struct sst_acpi_desc sst_acpi_haswell_desc = {
-	.drv_name = "haswell-pcm-audio",
-	.machines = snd_soc_acpi_intel_haswell_machines,
-	.resindex_lpe_base = 0,
-	.resindex_pcicfg_base = 1,
-	.resindex_fw_base = -1,
-	.irqindex_host_ipc = 0,
-	.sst_id = SST_DEV_ID_LYNX_POINT,
-	.dma_engine = SST_DMA_TYPE_DW,
-	.resindex_dma_base = SST_LPT_DSP_DMA_ADDR_OFFSET,
-	.dma_size = SST_LPT_DSP_DMA_SIZE,
-};
-
-static struct sst_acpi_desc sst_acpi_broadwell_desc = {
-	.drv_name = "haswell-pcm-audio",
-	.machines = snd_soc_acpi_intel_broadwell_machines,
-	.resindex_lpe_base = 0,
-	.resindex_pcicfg_base = 1,
-	.resindex_fw_base = -1,
-	.irqindex_host_ipc = 0,
-	.sst_id = SST_DEV_ID_WILDCAT_POINT,
-	.dma_engine = SST_DMA_TYPE_DW,
-	.resindex_dma_base = SST_WPT_DSP_DMA_ADDR_OFFSET,
-	.dma_size = SST_LPT_DSP_DMA_SIZE,
-};
-
 #if !IS_ENABLED(CONFIG_SND_SST_IPC_ACPI)
 static struct sst_acpi_desc sst_acpi_baytrail_desc = {
 	.drv_name = "baytrail-pcm-audio",
@@ -197,8 +167,6 @@ static struct sst_acpi_desc sst_acpi_baytrail_desc = {
 #endif
 
 static const struct acpi_device_id sst_acpi_match[] = {
-	{ "INT33C8", (unsigned long)&sst_acpi_haswell_desc },
-	{ "INT3438", (unsigned long)&sst_acpi_broadwell_desc },
 #if !IS_ENABLED(CONFIG_SND_SST_IPC_ACPI)
 	{ "80860F28", (unsigned long)&sst_acpi_baytrail_desc },
 #endif

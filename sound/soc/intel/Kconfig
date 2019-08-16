@@ -31,6 +31,10 @@ config SND_SST_IPC_ACPI
 	# This option controls the ACPI-based IPC for HiFi2 platforms
 	# (Baytrail, Cherrytrail)
 
+config SND_SOC_INTEL_HASWELL_ACPI
+	tristate
+	# This option controls the ACPI-based on HSW/BDW platforms
+
 config SND_SOC_INTEL_SST_ACPI
 	tristate
 	# This option controls ACPI-based probing on
@@ -52,7 +56,7 @@ config SND_SOC_INTEL_HASWELL
 	depends on SND_DMA_SGBUF
 	depends on DMADEVICES && ACPI
 	select SND_SOC_INTEL_SST
-	select SND_SOC_INTEL_SST_ACPI
+	select SND_SOC_INTEL_HASWELL_ACPI
 	select SND_SOC_INTEL_SST_FIRMWARE
 	select SND_SOC_ACPI_INTEL_MATCH
 	help
