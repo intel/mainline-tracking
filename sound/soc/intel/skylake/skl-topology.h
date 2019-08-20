@@ -13,19 +13,20 @@
 #define __SKL_TOPOLOGY_H__
 
 #include <linux/types.h>
+#include <linux/completion.h>
 
 #include <sound/hdaudio_ext.h>
 #include <sound/soc.h>
-#include <uapi/sound/skl-tplg-interface.h>
 #include "skl.h"
+
+#define SKL_FIRST_PIPE		0
+#define SKL_LAST_PIPE		1
+#define SKL_INTERMEDIATE_PIPE	2
 
 #define BITS_PER_BYTE 8
 #define MAX_TS_GROUPS 8
 #define MAX_DMIC_TS_GROUPS 4
 #define MAX_FIXED_DMIC_PARAMS_SIZE 727
-
-/* Maximum number of coefficients up down mixer module */
-#define UP_DOWN_MIXER_MAX_COEFF		8
 
 #define MODULE_MAX_IN_PINS	8
 #define MODULE_MAX_OUT_PINS	8
@@ -37,49 +38,12 @@
 
 #define SKL_OUTPUT_PIN		0
 #define SKL_INPUT_PIN		1
-#define SKL_MAX_PATH_CONFIGS	8
+#define SKL_MAX_PATH_CONFIGS	32
 #define SKL_MAX_MODULES_IN_PIPE	8
-#define SKL_MAX_MODULE_FORMATS		32
+#define SKL_MAX_MODULE_FORMATS		64
 #define SKL_MAX_MODULE_RESOURCES	32
-
-enum skl_channel_index {
-	SKL_CHANNEL_LEFT = 0,
-	SKL_CHANNEL_RIGHT = 1,
-	SKL_CHANNEL_CENTER = 2,
-	SKL_CHANNEL_LEFT_SURROUND = 3,
-	SKL_CHANNEL_CENTER_SURROUND = 3,
-	SKL_CHANNEL_RIGHT_SURROUND = 4,
-	SKL_CHANNEL_LFE = 7,
-	SKL_CHANNEL_INVALID = 0xF,
-};
-
-enum skl_bitdepth {
-	SKL_DEPTH_8BIT = 8,
-	SKL_DEPTH_16BIT = 16,
-	SKL_DEPTH_24BIT = 24,
-	SKL_DEPTH_32BIT = 32,
-	SKL_DEPTH_INVALID
-};
-
-
-enum skl_s_freq {
-	SKL_FS_8000 = 8000,
-	SKL_FS_11025 = 11025,
-	SKL_FS_12000 = 12000,
-	SKL_FS_16000 = 16000,
-	SKL_FS_22050 = 22050,
-	SKL_FS_24000 = 24000,
-	SKL_FS_32000 = 32000,
-	SKL_FS_44100 = 44100,
-	SKL_FS_48000 = 48000,
-	SKL_FS_64000 = 64000,
-	SKL_FS_88200 = 88200,
-	SKL_FS_96000 = 96000,
-	SKL_FS_128000 = 128000,
-	SKL_FS_176400 = 176400,
-	SKL_FS_192000 = 192000,
-	SKL_FS_INVALID
-};
+#define MAX_NUM_CHANNELS	8
+#define SKL_MAX_PARAMS_TYPES	4
 
 enum skl_widget_type {
 	SKL_WIDGET_VMIXER = 1,
@@ -88,81 +52,10 @@ enum skl_widget_type {
 	SKL_WIDGET_MUX = 4
 };
 
-struct skl_audio_data_format {
-	enum skl_s_freq s_freq;
-	enum skl_bitdepth bit_depth;
-	u32 channel_map;
-	enum skl_ch_cfg ch_cfg;
-	enum skl_interleaving interleaving;
-	u8 number_of_channels;
-	u8 valid_bit_depth;
-	u8 sample_type;
-	u8 reserved[1];
-} __packed;
-
-struct skl_base_cfg {
-	u32 cps;
-	u32 ibs;
-	u32 obs;
-	u32 is_pages;
-	struct skl_audio_data_format audio_fmt;
-};
-
-struct skl_cpr_gtw_cfg {
-	u32 node_id;
-	u32 dma_buffer_size;
-	u32 config_length;
-	/* not mandatory; required only for DMIC/I2S */
-	u32 config_data[1];
-} __packed;
-
 struct skl_dma_control {
 	u32 node_id;
 	u32 config_length;
 	u32 config_data[0];
-} __packed;
-
-struct skl_cpr_cfg {
-	struct skl_base_cfg base_cfg;
-	struct skl_audio_data_format out_fmt;
-	u32 cpr_feature_mask;
-	struct skl_cpr_gtw_cfg gtw_cfg;
-} __packed;
-
-struct skl_cpr_pin_fmt {
-	u32 sink_id;
-	struct skl_audio_data_format src_fmt;
-	struct skl_audio_data_format dst_fmt;
-} __packed;
-
-struct skl_src_module_cfg {
-	struct skl_base_cfg base_cfg;
-	enum skl_s_freq src_cfg;
-} __packed;
-
-struct notification_mask {
-	u32 notify;
-	u32 enable;
-} __packed;
-
-struct skl_up_down_mixer_cfg {
-	struct skl_base_cfg base_cfg;
-	enum skl_ch_cfg out_ch_cfg;
-	/* This should be set to 1 if user coefficients are required */
-	u32 coeff_sel;
-	/* Pass the user coeff in this array */
-	s32 coeff[UP_DOWN_MIXER_MAX_COEFF];
-	u32 ch_map;
-} __packed;
-
-struct skl_algo_cfg {
-	struct skl_base_cfg  base_cfg;
-	char params[0];
-} __packed;
-
-struct skl_base_outfmt_cfg {
-	struct skl_base_cfg base_cfg;
-	struct skl_audio_data_format out_fmt;
 } __packed;
 
 enum skl_dma_type {
@@ -183,15 +76,6 @@ union skl_ssp_dma_node {
 		u8 time_slot_index:4;
 		u8 i2s_instance:4;
 	} dma_node;
-};
-
-union skl_connector_node_id {
-	u32 val;
-	struct {
-		u32 vindex:8;
-		u32 dma_type:4;
-		u32 rsvd:20;
-	} node;
 };
 
 struct skl_module_fmt {
@@ -311,6 +195,7 @@ struct skl_pipe {
 	struct skl_path_config configs[SKL_MAX_PATH_CONFIGS];
 	struct list_head w_list;
 	bool passthru;
+	u32 pipe_config_idx;
 };
 
 enum skl_module_state {
@@ -348,7 +233,6 @@ struct skl_module_pin_resources {
 struct skl_module_res {
 	u8 id;
 	u32 is_pages;
-	u32 cps;
 	u32 ibs;
 	u32 obs;
 	u32 dma_buffer_size;
@@ -372,12 +256,26 @@ struct skl_module {
 	struct skl_module_iface formats[SKL_MAX_MODULE_FORMATS];
 };
 
+struct skl_event_timestamp {
+	u32 isoffset;
+	u64 local_sample;
+	u64 local_walclk;
+	u64 time_stamp_cnt;
+} __packed;
+
+struct skl_gain_data {
+	u64 ramp_duration;
+	u32 ramp_type;
+	u32 volume[MAX_NUM_CHANNELS];
+};
+
 struct skl_module_cfg {
 	u8 guid[16];
 	struct skl_module_inst_id id;
 	struct skl_module *module;
 	int res_idx;
 	int fmt_idx;
+	int fmt_cfg_idx;
 	u8 domain;
 	bool homogenous_inputs;
 	bool homogenous_outputs;
@@ -389,9 +287,6 @@ struct skl_module_cfg {
 	u8 out_queue_mask;
 	u8 in_queue;
 	u8 out_queue;
-	u32 mcps;
-	u32 ibs;
-	u32 obs;
 	u8 is_loadable;
 	u8 core_id;
 	u8 dev_type;
@@ -411,8 +306,11 @@ struct skl_module_cfg {
 	enum skl_hw_conn_type  hw_conn_type;
 	enum skl_module_state m_state;
 	struct skl_pipe *pipe;
-	struct skl_specific_cfg formats_config;
+	struct skl_specific_cfg formats_config[SKL_MAX_PARAMS_TYPES];
 	struct skl_pipe_mcfg mod_cfg[SKL_MAX_MODULES_IN_PIPE];
+	struct skl_event_timestamp ts;
+	struct completion ts_completion;
+	struct skl_gain_data *gain_data;
 };
 
 struct skl_algo_data {
@@ -447,7 +345,7 @@ enum skl_channel {
 	SKL_CH_QUATRO = 4,
 };
 
-static inline struct skl *get_skl_ctx(struct device *dev)
+static inline struct skl_dev *get_skl_ctx(struct device *dev)
 {
 	struct hdac_bus *bus = dev_get_drvdata(dev);
 
@@ -456,7 +354,8 @@ static inline struct skl *get_skl_ctx(struct device *dev)
 
 int skl_tplg_be_update_params(struct snd_soc_dai *dai,
 	struct skl_pipe_params *params);
-int skl_dsp_set_dma_control(struct skl_sst *ctx, u32 *caps,
+int skl_dsp_set_dma_clk_controls(struct skl_dev *skl);
+int skl_dsp_set_dma_control(struct skl_dev *skl, u32 *caps,
 			u32 caps_size, u32 node_id);
 void skl_tplg_set_be_dmic_config(struct snd_soc_dai *dai,
 	struct skl_pipe_params *params, int stream);
@@ -469,32 +368,32 @@ struct skl_module_cfg *skl_tplg_fe_get_cpr_module(
 int skl_tplg_update_pipe_params(struct device *dev,
 		struct skl_module_cfg *mconfig, struct skl_pipe_params *params);
 
-void skl_tplg_d0i3_get(struct skl *skl, enum d0i3_capability caps);
-void skl_tplg_d0i3_put(struct skl *skl, enum d0i3_capability caps);
+void skl_tplg_d0i3_get(struct skl_dev *skl, enum d0i3_capability caps);
+void skl_tplg_d0i3_put(struct skl_dev *skl, enum d0i3_capability caps);
 
-int skl_create_pipeline(struct skl_sst *ctx, struct skl_pipe *pipe);
+int skl_create_pipeline(struct skl_dev *skl, struct skl_pipe *pipe);
 
-int skl_run_pipe(struct skl_sst *ctx, struct skl_pipe *pipe);
+int skl_run_pipe(struct skl_dev *skl, struct skl_pipe *pipe);
 
-int skl_pause_pipe(struct skl_sst *ctx, struct skl_pipe *pipe);
+int skl_pause_pipe(struct skl_dev *skl, struct skl_pipe *pipe);
 
-int skl_delete_pipe(struct skl_sst *ctx, struct skl_pipe *pipe);
+int skl_delete_pipe(struct skl_dev *skl, struct skl_pipe *pipe);
 
-int skl_stop_pipe(struct skl_sst *ctx, struct skl_pipe *pipe);
+int skl_stop_pipe(struct skl_dev *skl, struct skl_pipe *pipe);
 
-int skl_reset_pipe(struct skl_sst *ctx, struct skl_pipe *pipe);
+int skl_reset_pipe(struct skl_dev *skl, struct skl_pipe *pipe);
 
-int skl_init_module(struct skl_sst *ctx, struct skl_module_cfg *module_config);
+int skl_init_module(struct skl_dev *skl, struct skl_module_cfg *module_config);
 
-int skl_bind_modules(struct skl_sst *ctx, struct skl_module_cfg
+int skl_bind_modules(struct skl_dev *skl, struct skl_module_cfg
 	*src_module, struct skl_module_cfg *dst_module);
 
-int skl_unbind_modules(struct skl_sst *ctx, struct skl_module_cfg
+int skl_unbind_modules(struct skl_dev *skl, struct skl_module_cfg
 	*src_module, struct skl_module_cfg *dst_module);
 
-int skl_set_module_params(struct skl_sst *ctx, u32 *params, int size,
+int skl_set_module_params(struct skl_dev *skl, u32 *params, int size,
 			u32 param_id, struct skl_module_cfg *mcfg);
-int skl_get_module_params(struct skl_sst *ctx, u32 *params, int size,
+int skl_get_module_params(struct skl_dev *skl, u32 *params, int size,
 			  u32 param_id, struct skl_module_cfg *mcfg);
 
 struct skl_module_cfg *skl_tplg_be_get_cpr_module(struct snd_soc_dai *dai,
@@ -508,6 +407,16 @@ int skl_pcm_link_dma_prepare(struct device *dev,
 int skl_dai_load(struct snd_soc_component *cmp, int index,
 		struct snd_soc_dai_driver *dai_drv,
 		struct snd_soc_tplg_pcm *pcm, struct snd_soc_dai *dai);
-void skl_tplg_add_moduleid_in_bind_params(struct skl *skl,
+void skl_tplg_add_moduleid_in_bind_params(struct skl_dev *skl,
 				struct snd_soc_dapm_widget *w);
+
+int skl_tplg_change_notification_get(struct snd_kcontrol *kcontrol,
+			unsigned int __user *data, unsigned int size);
+struct snd_kcontrol *skl_search_notify_kctl(struct skl_dev *skl, u32 notify_id);
+int skl_create_notify_kctl_list(struct skl_dev *skl, struct snd_card *card);
+void skl_delete_notify_kctl_list(struct skl_dev *skl);
+struct snd_kcontrol *skl_get_notify_kcontrol(struct skl_dev *skl,
+				struct snd_card *card, u32 notify_id);
+void skl_tplg_fw_cfg_set(struct skl_dev *skl);
+
 #endif
