@@ -20,6 +20,7 @@
 
 #define IS_BXT(pci) ((pci)->vendor == 0x8086 && (pci)->device == 0x5a98)
 #define IS_CFL(pci) ((pci)->vendor == 0x8086 && (pci)->device == 0xa348)
+#define IS_EHL(pci) ((pci)->vendor == 0x8086 && (pci)->device == 0x4b55)
 
 /*
  * Structures
