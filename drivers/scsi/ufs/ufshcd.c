@@ -241,6 +241,10 @@ static struct ufs_dev_fix ufs_fixups[] = {
 	END_FIX
 };
 
+static int max_gear;
+static int dflt_hs_rate;
+static int dflt_hs_mode;
+
 static void ufshcd_tmc_handler(struct ufs_hba *hba);
 static void ufshcd_async_scan(void *data, async_cookie_t cookie);
 static int ufshcd_reset_and_restore(struct ufs_hba *hba);
@@ -406,7 +410,13 @@ static void ufshcd_print_uic_err_hist(struct ufs_hba *hba,
 
 static void ufshcd_print_host_regs(struct ufs_hba *hba)
 {
-	ufshcd_dump_regs(hba, 0, UFSHCI_REG_SPACE_SIZE, "host_regs: ");
+	unsigned int sz;
+
+	sz = hba->capabilities & MASK_DEVICE_BUS_MASTER_MODE_SUPPORT ?
+		UFSHCI_UMA_REG_SPACE_SIZE :
+		UFSHCI_REG_SPACE_SIZE;
+
+	ufshcd_dump_regs(hba, 0, sz, "host_regs: ");
 	dev_err(hba->dev, "hba->ufs_version = 0x%x, hba->capabilities = 0x%x\n",
 		hba->ufs_version, hba->capabilities);
 	dev_err(hba->dev,
@@ -2831,11 +2841,13 @@ out_unlock:
  * @index: index field
  * @selector: selector field
  * @attr_val: the attribute value after the query request completes
+ * @quiet: suppress error message
  *
  * Returns 0 for success, non-zero in case of failure
 */
-int ufshcd_query_attr(struct ufs_hba *hba, enum query_opcode opcode,
-		      enum attr_idn idn, u8 index, u8 selector, u32 *attr_val)
+int __ufshcd_query_attr(struct ufs_hba *hba, enum query_opcode opcode,
+			enum attr_idn idn, u8 index, u8 selector, u32 *attr_val,
+			bool quiet)
 {
 	struct ufs_query_req *request = NULL;
 	struct ufs_query_res *response = NULL;
@@ -2873,7 +2885,8 @@ int ufshcd_query_attr(struct ufs_hba *hba, enum query_opcode opcode,
 	err = ufshcd_exec_dev_cmd(hba, DEV_CMD_TYPE_QUERY, QUERY_REQ_TIMEOUT);
 
 	if (err) {
-		dev_err(hba->dev, "%s: opcode 0x%.2x for idn %d failed, index %d, err = %d\n",
+		if (!quiet)
+			dev_err(hba->dev, "%s: opcode 0x%.2x for idn %d failed, index %d, err = %d\n",
 				__func__, opcode, idn, index, err);
 		goto out_unlock;
 	}
@@ -2885,6 +2898,13 @@ out_unlock:
 out:
 	ufshcd_release(hba);
 	return err;
+}
+
+int ufshcd_query_attr(struct ufs_hba *hba, enum query_opcode opcode,
+		      enum attr_idn idn, u8 index, u8 selector, u32 *attr_val)
+{
+	return __ufshcd_query_attr(hba, opcode, idn, index, selector, attr_val,
+				   false);
 }
 
 /**
@@ -3863,6 +3883,39 @@ static int ufshcd_link_recovery(struct ufs_hba *hba)
 	return ret;
 }
 
+static int ufshcd_uma_suspend(struct ufs_hba *hba)
+{
+	bool flag_res = 0;
+	int ret;
+	int i;
+
+	ret = ufshcd_query_flag_retry(hba, UPIU_QUERY_OPCODE_SET_FLAG,
+				      QUERY_FLAG_IDN_SUSPEND_UM, NULL);
+
+	/* Poll for max. 1000 iterations for fUMSuspended flag to set */
+	for (i = 0; i < 1000 && !ret && !flag_res; i++)
+		ret = ufshcd_query_flag_retry(hba, UPIU_QUERY_OPCODE_READ_FLAG,
+					      QUERY_FLAG_IDN_UM_SUSPENDED, &flag_res);
+	if (!ret && !flag_res)
+		ret = -ETIMEDOUT;
+	if (ret)
+		dev_err(hba->dev, "UMA suspend failed. ret = %d\n", ret);
+
+	return ret;
+}
+
+static int ufshcd_uma_unsuspend(struct ufs_hba *hba)
+{
+	int ret;
+
+	ret = ufshcd_query_flag_retry(hba, UPIU_QUERY_OPCODE_CLEAR_FLAG,
+				      QUERY_FLAG_IDN_SUSPEND_UM, NULL);
+	if (ret)
+		dev_err(hba->dev, "UMA unsuspend failed. ret = %d\n", ret);
+
+	return ret;
+}
+
 static int __ufshcd_uic_hibern8_enter(struct ufs_hba *hba)
 {
 	int ret;
@@ -3896,6 +3949,15 @@ static int __ufshcd_uic_hibern8_enter(struct ufs_hba *hba)
 static int ufshcd_uic_hibern8_enter(struct ufs_hba *hba)
 {
 	int ret = 0, retries;
+	bool uma_suspended = false;
+
+	/* UMA must be suspended prior to hibernate */
+	if (hba->uma && ufshcd_is_ufs_dev_active(hba)) {
+		ret = ufshcd_uma_suspend(hba);
+		if (ret)
+			return ret;
+		uma_suspended = true;
+	}
 
 	for (retries = UIC_HIBERN8_ENTER_RETRIES; retries > 0; retries--) {
 		ret = __ufshcd_uic_hibern8_enter(hba);
@@ -3903,6 +3965,9 @@ static int ufshcd_uic_hibern8_enter(struct ufs_hba *hba)
 			goto out;
 	}
 out:
+	if (ret && ret != -ENOLINK && uma_suspended)
+		ufshcd_uma_unsuspend(hba);
+
 	return ret;
 }
 
@@ -3923,26 +3988,48 @@ static int ufshcd_uic_hibern8_exit(struct ufs_hba *hba)
 		dev_err(hba->dev, "%s: hibern8 exit failed. ret = %d\n",
 			__func__, ret);
 		ret = ufshcd_link_recovery(hba);
+
+		if (!ret && hba->uma && ufshcd_is_ufs_dev_active(hba))
+			ufshcd_uma_unsuspend(hba);
 	} else {
 		ufshcd_vops_hibern8_notify(hba, UIC_CMD_DME_HIBER_EXIT,
 								POST_CHANGE);
 		hba->ufs_stats.last_hibern8_exit_tstamp = ktime_get();
 		hba->ufs_stats.hibern8_exit_cnt++;
+
+		/* UMA is suspended prior to hibernate and unsuspended here */
+		if (hba->uma && ufshcd_is_ufs_dev_active(hba))
+			ufshcd_uma_unsuspend(hba);
 	}
 
 	return ret;
 }
 
-static void ufshcd_auto_hibern8_enable(struct ufs_hba *hba)
+static void __ufshcd_auto_hibern8_disable(struct ufs_hba *hba, bool disable)
 {
 	unsigned long flags;
+	u32 val;
 
-	if (!ufshcd_is_auto_hibern8_supported(hba) || !hba->ahit)
+	if (!ufshcd_is_auto_hibern8_supported(hba))
 		return;
 
 	spin_lock_irqsave(hba->host->host_lock, flags);
-	ufshcd_writel(hba, hba->ahit, REG_AUTO_HIBERNATE_IDLE_TIMER);
+	hba->ahit_disabled = disable;
+	if (hba->ahit) {
+		val = disable ? 0 : hba->ahit;
+		ufshcd_writel(hba, val, REG_AUTO_HIBERNATE_IDLE_TIMER);
+	}
 	spin_unlock_irqrestore(hba->host->host_lock, flags);
+}
+
+static void ufshcd_auto_hibern8_enable(struct ufs_hba *hba)
+{
+	__ufshcd_auto_hibern8_disable(hba, false);
+}
+
+static void ufshcd_auto_hibern8_disable(struct ufs_hba *hba)
+{
+	__ufshcd_auto_hibern8_disable(hba, true);
 }
 
  /**
@@ -3972,9 +4059,15 @@ static int ufshcd_get_max_pwr_mode(struct ufs_hba *hba)
 	if (hba->max_pwr_info.is_valid)
 		return 0;
 
-	pwr_info->pwr_tx = FAST_MODE;
-	pwr_info->pwr_rx = FAST_MODE;
-	pwr_info->hs_rate = PA_HS_MODE_B;
+	if (dflt_hs_mode != FAST_MODE && dflt_hs_mode != FASTAUTO_MODE)
+		dflt_hs_mode = FAST_MODE;
+
+	if (dflt_hs_rate != PA_HS_MODE_A && dflt_hs_rate != PA_HS_MODE_B)
+		dflt_hs_rate = PA_HS_MODE_B;
+
+	pwr_info->pwr_tx = dflt_hs_mode;
+	pwr_info->pwr_rx = dflt_hs_mode;
+	pwr_info->hs_rate = dflt_hs_rate;
 
 	/* Get the connected lane count */
 	ufshcd_dme_get(hba, UIC_ARG_MIB(PA_CONNECTEDRXDATALANES),
@@ -4018,6 +4111,12 @@ static int ufshcd_get_max_pwr_mode(struct ufs_hba *hba)
 			return -EINVAL;
 		}
 		pwr_info->pwr_tx = SLOW_MODE;
+	}
+
+	if (max_gear > 0 &&
+	    (pwr_info->gear_rx > max_gear || pwr_info->gear_tx > max_gear)) {
+		pwr_info->gear_rx = max_gear;
+		pwr_info->gear_tx = max_gear;
 	}
 
 	hba->max_pwr_info.is_valid = true;
@@ -6705,13 +6804,14 @@ static int ufs_get_device_desc(struct ufs_hba *hba,
 	size_t buff_len;
 	u8 index;
 	u8 *desc_buf;
+	__be32 val;
 
 	if (!dev_desc)
 		return -EINVAL;
 
 	buff_len = max_t(size_t, hba->desc_size.dev_desc,
 			 QUERY_DESC_MAX_SIZE + 1);
-	desc_buf = kmalloc(buff_len, GFP_KERNEL);
+	desc_buf = kzalloc(buff_len, GFP_KERNEL);
 	if (!desc_buf) {
 		err = -ENOMEM;
 		goto out;
@@ -6723,6 +6823,11 @@ static int ufs_get_device_desc(struct ufs_hba *hba,
 			__func__, err);
 		goto out;
 	}
+
+	dev_desc->subclass = desc_buf[DEVICE_DESC_PARAM_DEVICE_SUB_CLASS];
+
+	memcpy(&val, desc_buf + DEVICE_DESC_PARAM_MIN_UMA_SZ, sizeof(val));
+	dev_desc->min_uma_sz = be32_to_cpu(val);
 
 	/*
 	 * getting vendor (manufacturerID) and Bank Index in big endian
@@ -7081,6 +7186,129 @@ out:
 	return err;
 }
 
+static int __ufshcd_uma_reenable(struct ufs_hba *hba, bool init_dev)
+{
+	u32 max_umpiu_reqs;
+	u32 config;
+	int err;
+
+	config = ufshcd_readl(hba, REG_UMA_CONFIG);
+
+	if (!(config & UFSHCI_UMA_ENABLE)) {
+		/* Set UMA address and size for the host controller */
+		ufshcd_writel(hba, lower_32_bits(hba->uma_addr),
+			      REG_UMA_BASE_ADDR_L);
+		ufshcd_writel(hba, upper_32_bits(hba->uma_addr),
+			      REG_UMA_BASE_ADDR_H);
+		ufshcd_writel(hba, hba->uma_size, REG_UMA_OFFSET_MAX);
+	}
+
+	if (init_dev) {
+		u32 retries;
+
+		/*
+		 * Set UMA size for the device. This is valid only after a power
+		 * cycle or hardware reset. Here it is assumed that if it has
+		 * already been written, then it has the correct value.
+		 */
+		for (retries = QUERY_REQ_RETRIES; retries > 0; retries--) {
+			err = __ufshcd_query_attr(hba,
+				UPIU_QUERY_OPCODE_WRITE_ATTR,
+				QUERY_ATTR_IDN_UM_AREA_SIZE, 0, 0,
+				&hba->uma_size, true);
+			if (err == QUERY_RESULT_ALREADY_WRITTEN) {
+				err = 0;
+				break;
+			}
+		}
+		if (err)
+			return err;
+
+		/* Set max. UMPIU requests */
+		max_umpiu_reqs = ufshcd_readl(hba, REG_UMA_CAP) &
+				 UFSHCI_UMA_MNOOUR;
+		err = ufshcd_query_attr_retry(hba, UPIU_QUERY_OPCODE_WRITE_ATTR,
+					      QUERY_ATTR_IDN_MAX_UMPIU_REQS, 0,
+					      0, &max_umpiu_reqs);
+		if (err)
+			return err;
+	}
+
+	/* Enable UMA for the host controller */
+	if (!(config & UFSHCI_UMA_ENABLE)) {
+		config |= UFSHCI_UMA_ENABLE;
+		ufshcd_writel(hba, config, REG_UMA_CONFIG);
+	}
+
+	if (init_dev) {
+		bool flag_res = 1;
+		int i;
+
+		/* Enable UMA for the device */
+		err = ufshcd_query_flag_retry(hba, UPIU_QUERY_OPCODE_SET_FLAG,
+					QUERY_FLAG_IDN_UNIFIED_MEMORY, NULL);
+
+		/* Poll for max. 1000 iterations for fUM flag to clear */
+		for (i = 0; i < 1000 && !err && flag_res; i++)
+			err = ufshcd_query_flag_retry(hba,
+					UPIU_QUERY_OPCODE_READ_FLAG,
+					QUERY_FLAG_IDN_UNIFIED_MEMORY,
+					&flag_res);
+		if (err)
+			return err;
+
+		if (flag_res)
+			dev_err(hba->dev, "fUM was not cleared by the device\n");
+	}
+
+	return 0;
+}
+
+static void ufshcd_uma_reenable(struct ufs_hba *hba)
+{
+	if (!hba->uma)
+		return;
+
+	__ufshcd_uma_reenable(hba, false);
+}
+
+static int ufshcd_uma_enable(struct ufs_hba *hba, struct ufs_dev_desc *dev_desc)
+{
+	int err;
+
+	if (!(hba->capabilities & MASK_DEVICE_BUS_MASTER_MODE_SUPPORT) ||
+	    !(dev_desc->subclass & UFS_DEVICE_SUB_CLASS_UM_SUPPORT))
+		return 0;
+
+	if (!hba->uma_size) {
+		gfp_t flags = GFP_KERNEL | __GFP_NOWARN | __GFP_NORETRY;
+		u32 sz = PAGE_ALIGN(dev_desc->min_uma_sz);
+
+		if (!sz)
+			return 0;
+
+		hba->uma_base_addr = dmam_alloc_coherent(hba->dev, sz,
+							 &hba->uma_addr, flags);
+		if (!hba->uma_base_addr) {
+			dev_err(hba->dev, "Failed to allocate unified memory area\n");
+			return -ENOMEM;
+		}
+
+		hba->uma_size = sz;
+	}
+
+	err = __ufshcd_uma_reenable(hba, true);
+	if (err)
+		return err;
+
+	hba->uma = true;
+
+	dev_info(hba->dev, "Enabled %u KiB unified memory area\n",
+		 hba->uma_size / 1024);
+
+	return 0;
+}
+
 /**
  * ufshcd_probe_hba - probe hba to detect device and initialize
  * @hba: per-adapter instance
@@ -7131,6 +7359,12 @@ static int ufshcd_probe_hba(struct ufs_hba *hba)
 	ufs_fixup_device_setup(hba, &card);
 
 	ufshcd_tune_unipro_params(hba);
+
+	ret = ufshcd_uma_enable(hba, &card);
+	if (ret) {
+		dev_err(hba->dev, "Failed to enable unified memory area\n");
+		goto out;
+	}
 
 	/* UFS device is also active now */
 	ufshcd_set_ufs_dev_active(hba);
@@ -7335,6 +7569,9 @@ static inline int ufshcd_config_vreg_lpm(struct ufs_hba *hba,
 static inline int ufshcd_config_vreg_hpm(struct ufs_hba *hba,
 					 struct ufs_vreg *vreg)
 {
+	if (!vreg)
+		return 0;
+
 	return ufshcd_config_vreg_load(hba->dev, vreg, vreg->max_uA);
 }
 
@@ -7763,6 +8000,9 @@ out:
  *
  * Returns 0 if requested power mode is set successfully
  * Returns non-zero if failed to set the requested power mode
+ *
+ * Note for UMA, power transitions have IMMED==0 so no polling is needed to
+ * prevent subsequently entering HIBERNATE while there are outstanding UMPIUs.
  */
 static int ufshcd_set_dev_pwr_mode(struct ufs_hba *hba,
 				     enum ufs_dev_pwr_mode pwr_mode)
@@ -8037,6 +8277,13 @@ static int ufshcd_suspend(struct ufs_hba *hba, enum ufs_pm_op pm_op)
 	       !ufshcd_is_runtime_pm(pm_op))) {
 		/* ensure that bkops is disabled */
 		ufshcd_disable_auto_bkops(hba);
+		/*
+		 * If UMA is enabled, auto-hibernate is not permitted during
+		 * power mode transitions.
+		 */
+		if (hba->uma)
+			ufshcd_auto_hibern8_disable(hba);
+
 		ret = ufshcd_set_dev_pwr_mode(hba, req_dev_pwr_mode);
 		if (ret)
 			goto enable_gating;
@@ -8091,6 +8338,8 @@ enable_gating:
 		ufshcd_resume_clkscaling(hba);
 	hba->clk_gating.is_suspended = false;
 	ufshcd_release(hba);
+	if (hba->uma)
+		ufshcd_auto_hibern8_enable(hba);
 out:
 	hba->pm_op_in_progress = 0;
 	return ret;
@@ -8110,6 +8359,7 @@ static int ufshcd_resume(struct ufs_hba *hba, enum ufs_pm_op pm_op)
 {
 	int ret;
 	enum uic_link_state old_link_state;
+	bool reinit = true;
 
 	hba->pm_op_in_progress = 1;
 	old_link_state = hba->uic_link_state;
@@ -8152,7 +8402,11 @@ static int ufshcd_resume(struct ufs_hba *hba, enum ufs_pm_op pm_op)
 		 */
 		if (ret || !ufshcd_is_link_active(hba))
 			goto vendor_suspend;
+		reinit = false;
 	}
+
+	if (reinit)
+		ufshcd_uma_reenable(hba);
 
 	if (!ufshcd_is_ufs_dev_active(hba)) {
 		ret = ufshcd_set_dev_pwr_mode(hba, UFS_ACTIVE_PWR_MODE);
@@ -8654,6 +8908,14 @@ out_error:
 	return err;
 }
 EXPORT_SYMBOL_GPL(ufshcd_init);
+
+module_param(max_gear, int, 0444);
+module_param(dflt_hs_rate, int, 0444);
+module_param(dflt_hs_mode, int, 0444);
+
+MODULE_PARM_DESC(, "Maximum gear: 1, 2 , 3 ...");
+MODULE_PARM_DESC(, "Default high speed rate series : 1 (= rate A), 2 (= rate B)");
+MODULE_PARM_DESC(, "Default high speed power mode: 1 (= FAST), 4 (= FASTAUTO)");
 
 MODULE_AUTHOR("Santosh Yaragnavi <santosh.sy@samsung.com>");
 MODULE_AUTHOR("Vinayak Holikatti <h.vinayak@samsung.com>");
