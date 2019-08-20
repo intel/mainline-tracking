@@ -74,7 +74,9 @@ static u64 get_prefetch_disable_bits(void)
 		return 0;
 
 	switch (boot_cpu_data.x86_model) {
+	/* Assume that 0x8C follows register use of Skylake Architecture */
 	case INTEL_FAM6_BROADWELL_X:
+	case 0x8C:
 		/*
 		 * SDM defines bits of MSR_MISC_FEATURE_CONTROL register
 		 * as:
@@ -87,6 +89,7 @@ static u64 get_prefetch_disable_bits(void)
 		return 0xF;
 	case INTEL_FAM6_ATOM_GOLDMONT:
 	case INTEL_FAM6_ATOM_GOLDMONT_PLUS:
+	case 0x96:
 		/*
 		 * SDM defines bits of MSR_MISC_FEATURE_CONTROL register
 		 * as:
@@ -96,6 +99,54 @@ static u64 get_prefetch_disable_bits(void)
 		 * 63:3  Reserved
 		 */
 		return 0x5;
+	}
+
+	return 0;
+}
+
+/**
+ * get_cache_line_size - Determine the cache coherency line size
+ * @cpu: CPU with which cache is associated
+ * @level: Cache level
+ *
+ * Context: @cpu has to be online.
+ * Return: The cache coherency line size for cache level @level associated
+ * with CPU @cpu. Zero on failure.
+ */
+static unsigned int get_cache_line_size(unsigned int cpu, int level)
+{
+	struct cpu_cacheinfo *ci;
+	int i;
+
+	ci = get_cpu_cacheinfo(cpu);
+
+	for (i = 0; i < ci->num_leaves; i++) {
+		if (ci->info_list[i].level == level)
+			return ci->info_list[i].coherency_line_size;
+	}
+
+	return 0;
+}
+
+/**
+ * get_cache_inclusive - Determine if cache is inclusive of lower levels
+ * @cpu: CPU with which cache is associated
+ * @level: Cache level
+ *
+ * Context: @cpu has to be online.
+ * Return: 1 if cache is inclusive of lower cache levels, 0 if cache is not
+ *         inclusive of lower cache levels or on failure.
+ */
+static unsigned int get_cache_inclusive(unsigned int cpu, int level)
+{
+	struct cpu_cacheinfo *ci;
+	int i;
+
+	ci = get_cpu_cacheinfo(cpu);
+
+	for (i = 0; i < ci->num_leaves; i++) {
+		if (ci->info_list[i].level == level)
+			return ci->info_list[i].inclusive;
 	}
 
 	return 0;
@@ -175,6 +226,9 @@ static void pseudo_lock_cstates_relax(struct pseudo_lock_region *plr)
 {
 	struct pseudo_lock_pm_req *pm_req, *next;
 
+	if (list_empty(&plr->pm_reqs))
+		return;
+
 	list_for_each_entry_safe(pm_req, next, &plr->pm_reqs, list) {
 		dev_pm_qos_remove_request(&pm_req->req);
 		list_del(&pm_req->list);
@@ -184,6 +238,8 @@ static void pseudo_lock_cstates_relax(struct pseudo_lock_region *plr)
 
 /**
  * pseudo_lock_cstates_constrain - Restrict cores from entering C6
+ * @plr: pseudo-lock region requiring the C-states to be restricted
+ * @cpu_mask: the CPUs that should have their C-states restricted
  *
  * To prevent the cache from being affected by power management entering
  * C6 has to be avoided. This is accomplished by requesting a latency
@@ -197,13 +253,14 @@ static void pseudo_lock_cstates_relax(struct pseudo_lock_region *plr)
  * may be set to map to deeper sleep states. In this case the latency
  * requirement needs to prevent entering C2 also.
  */
-static int pseudo_lock_cstates_constrain(struct pseudo_lock_region *plr)
+static int pseudo_lock_cstates_constrain(struct pseudo_lock_region *plr,
+					 struct cpumask *cpu_mask)
 {
 	struct pseudo_lock_pm_req *pm_req;
 	int cpu;
 	int ret;
 
-	for_each_cpu(cpu, &plr->d->cpu_mask) {
+	for_each_cpu(cpu, cpu_mask) {
 		pm_req = kzalloc(sizeof(*pm_req), GFP_KERNEL);
 		if (!pm_req) {
 			rdt_last_cmd_puts("Failure to allocate memory for PM QoS\n");
@@ -240,18 +297,175 @@ out_err:
  *
  * Return: void
  */
-static void pseudo_lock_region_clear(struct pseudo_lock_region *plr)
+void pseudo_lock_region_clear(struct pseudo_lock_region *plr)
 {
+	struct pseudo_lock_portion *p, *tmp;
+
 	plr->size = 0;
 	plr->line_size = 0;
 	kfree(plr->kmem);
 	plr->kmem = NULL;
-	plr->r = NULL;
-	if (plr->d)
-		plr->d->plr = NULL;
-	plr->d = NULL;
-	plr->cbm = 0;
+	pseudo_lock_cstates_relax(plr);
+	if (!list_empty(&plr->portions)) {
+		list_for_each_entry_safe(p, tmp, &plr->portions, list) {
+			list_del(&p->list);
+			kfree(p);
+		}
+	}
 	plr->debugfs_dir = NULL;
+}
+
+/**
+ * pseudo_lock_single_portion_valid - Verify properties of pseudo-lock region
+ * @plr: the main pseudo-lock region
+ * @p: the single portion that makes up the pseudo-locked region
+ *
+ * Verify and initialize properties of the pseudo-locked region.
+ *
+ * Return: -1 if portion of cache unable to be used for pseudo-locking
+ *         0 if portion of cache can be used for pseudo-locking, in
+ *         addition the CPU on which pseudo-locking will be performed will
+ *         be initialized as well as the size and cache line size of the region
+ */
+static int pseudo_lock_single_portion_valid(struct pseudo_lock_region *plr,
+					    struct pseudo_lock_portion *p)
+{
+	struct rdt_domain *d;
+
+	d = rdt_find_domain(p->r, p->d_id, NULL);
+	if (IS_ERR_OR_NULL(d)) {
+		rdt_last_cmd_puts("Cannot find cache domain\n");
+		return -1;
+	}
+
+	plr->cpu = cpumask_first(&d->cpu_mask);
+	if (!cpu_online(plr->cpu)) {
+		rdt_last_cmd_printf("CPU %u not online\n", plr->cpu);
+		goto err_cpu;
+	}
+
+	if (p->r->cache_level == 3 &&
+	    !get_cache_inclusive(plr->cpu, p->r->cache_level)) {
+		rdt_last_cmd_puts("L3 cache not inclusive\n");
+		goto err_cpu;
+	}
+
+	plr->line_size = get_cache_line_size(plr->cpu, p->r->cache_level);
+	if (plr->line_size == 0) {
+		rdt_last_cmd_puts("Unable to compute cache line length\n");
+		goto err_cpu;
+	}
+
+	if (pseudo_lock_cstates_constrain(plr, &d->cpu_mask)) {
+		rdt_last_cmd_puts("Cannot limit C-states\n");
+		goto err_line;
+	}
+
+	plr->size = rdtgroup_cbm_to_size(p->r, d, p->cbm);
+
+	return 0;
+
+err_line:
+	plr->line_size = 0;
+err_cpu:
+	plr->cpu = 0;
+	return -1;
+}
+
+/**
+ * pseudo_lock_l2_l3_portions_valid - Verify region across L2 and L3
+ * @plr: Pseudo-Locked region
+ * @l2_portion: L2 Cache portion of pseudo-locked region
+ * @l3_portion: L3 Cache portion of pseudo-locked region
+ *
+ * User requested a pseudo-locked region consisting of a L2 as well as L3
+ * cache portion. The portions are tested as follows:
+ *   - L2 and L3 cache instances have to be in the same cache hierarchy.
+ *     This is tested by ensuring that the L2 portion's cpumask is a
+ *     subset of the L3 portion's cpumask.
+ *   - L3 portion must be same size or larger than L2 portion.
+ *
+ * Return: -1 if the portions are unable to be used for a pseudo-locked
+ *         region, 0 if the portions could be used for a pseudo-locked
+ *         region. When returning 0:
+ *         - the pseudo-locked region's size, line_size (cache line length)
+ *           and CPU on which locking thread will be run are set.
+ *         - CPUs associated with L2 cache portion are constrained from
+ *           entering C-state that will affect the pseudo-locked region.
+ */
+static int pseudo_lock_l2_l3_portions_valid(struct pseudo_lock_region *plr,
+					    struct pseudo_lock_portion *l2_p,
+					    struct pseudo_lock_portion *l3_p)
+{
+	struct rdt_domain *l2_d, *l3_d;
+	unsigned int l2_size, l3_size;
+
+	l2_d = rdt_find_domain(l2_p->r, l2_p->d_id, NULL);
+	if (IS_ERR_OR_NULL(l2_d)) {
+		rdt_last_cmd_puts("Cannot locate L2 cache domain\n");
+		return -1;
+	}
+
+	l3_d = rdt_find_domain(l3_p->r, l3_p->d_id, NULL);
+	if (IS_ERR_OR_NULL(l3_d)) {
+		rdt_last_cmd_puts("Cannot locate L3 cache domain\n");
+		return -1;
+	}
+
+	if (!cpumask_subset(&l2_d->cpu_mask, &l3_d->cpu_mask)) {
+		rdt_last_cmd_puts("L2 and L3 caches need to be in same hierarchy\n");
+		return -1;
+	}
+
+	if (pseudo_lock_cstates_constrain(plr, &l2_d->cpu_mask)) {
+		rdt_last_cmd_puts("Cannot limit C-states\n");
+		return -1;
+	}
+
+	l2_size = rdtgroup_cbm_to_size(l2_p->r, l2_d, l2_p->cbm);
+	l3_size = rdtgroup_cbm_to_size(l3_p->r, l3_d, l3_p->cbm);
+
+	if (l2_size > l3_size) {
+		rdt_last_cmd_puts("L3 cache portion has to be same size or larger than L2 cache portion\n");
+		goto err_size;
+	}
+
+	plr->size = l2_size;
+
+	l2_size = get_cache_line_size(cpumask_first(&l2_d->cpu_mask),
+				      l2_p->r->cache_level);
+	l3_size = get_cache_line_size(cpumask_first(&l3_d->cpu_mask),
+				      l3_p->r->cache_level);
+	if (l2_size != l3_size) {
+		rdt_last_cmd_puts("L2 and L3 caches have different coherency cache line sizes\n");
+		goto err_line;
+	}
+
+	plr->line_size = l2_size;
+
+	plr->cpu = cpumask_first(&l2_d->cpu_mask);
+
+	if (!cpu_online(plr->cpu)) {
+		rdt_last_cmd_printf("CPU %u associated with cache not online\n",
+				    plr->cpu);
+		goto err_cpu;
+	}
+
+	if (!get_cache_inclusive(plr->cpu, l3_p->r->cache_level)) {
+		rdt_last_cmd_puts("L3 cache not inclusive\n");
+		goto err_cpu;
+	}
+
+	return 0;
+
+err_cpu:
+	plr->line_size = 0;
+	plr->cpu = 0;
+err_line:
+	plr->size = 0;
+err_size:
+	pseudo_lock_cstates_relax(plr);
+	return -1;
 }
 
 /**
@@ -260,50 +474,110 @@ static void pseudo_lock_region_clear(struct pseudo_lock_region *plr)
  *
  * Called after user provided a schemata to be pseudo-locked. From the
  * schemata the &struct pseudo_lock_region is on entry already initialized
- * with the resource, domain, and capacity bitmask. Here the information
- * required for pseudo-locking is deduced from this data and &struct
- * pseudo_lock_region initialized further. This information includes:
+ * with the resource(s), domain(s), and capacity bitmask(s). Here the
+ * provided data is validated and information required for pseudo-locking
+ * deduced, and &struct pseudo_lock_region initialized further. This
+ * information includes:
  * - size in bytes of the region to be pseudo-locked
  * - cache line size to know the stride with which data needs to be accessed
  *   to be pseudo-locked
  * - a cpu associated with the cache instance on which the pseudo-locking
  *   flow can be executed
  *
+ * A user provides a schemata for a pseudo-locked region. This schemata may
+ * contain portions that span different resources, for example, a cache
+ * pseudo-locked region that spans L2 and L3 cache. After the schemata is
+ * parsed into portions it needs to be verified that the provided portions
+ * are valid with the following tests:
+ *
+ * - L2 only portion on system that has only L2 resource - OK
+ * - L3 only portion on any system that supports it - OK
+ * - L2 portion on system that has L3 resource - require L3 portion
+ **
+ *
  * Return: 0 on success, <0 on failure. Descriptive error will be written
  * to last_cmd_status buffer.
  */
 static int pseudo_lock_region_init(struct pseudo_lock_region *plr)
 {
-	struct cpu_cacheinfo *ci;
+	struct rdt_resource *l3_resource = &rdt_resources_all[RDT_RESOURCE_L3];
+	struct pseudo_lock_portion *p, *n_p, *tmp;
 	int ret;
-	int i;
 
-	/* Pick the first cpu we find that is associated with the cache. */
-	plr->cpu = cpumask_first(&plr->d->cpu_mask);
-
-	if (!cpu_online(plr->cpu)) {
-		rdt_last_cmd_printf("CPU %u associated with cache not online\n",
-				    plr->cpu);
-		ret = -ENODEV;
+	if (list_empty(&plr->portions)) {
+		rdt_last_cmd_puts("No pseudo-lock portions provided\n");
 		goto out_region;
 	}
 
-	ci = get_cpu_cacheinfo(plr->cpu);
-
-	plr->size = rdtgroup_cbm_to_size(plr->r, plr->d, plr->cbm);
-
-	for (i = 0; i < ci->num_leaves; i++) {
-		if (ci->info_list[i].level == plr->r->cache_level) {
-			plr->line_size = ci->info_list[i].coherency_line_size;
-			return 0;
+	/* Cache Pseudo-Locking only supported on L2 and L3 resources */
+	list_for_each_entry(p, &plr->portions, list) {
+		if (p->r->rid != RDT_RESOURCE_L2 &&
+		    p->r->rid != RDT_RESOURCE_L3) {
+			rdt_last_cmd_puts("Unsupported resource\n");
+			goto out_region;
 		}
 	}
 
-	ret = -1;
-	rdt_last_cmd_puts("Unable to determine cache line size\n");
+	/*
+	 * If only one resource requested to be pseudo-locked then:
+	 * - Just a L3 cache portion is valid
+	 * - Just a L2 cache portion on system without L3 cache is valid
+	 */
+	if (list_is_singular(&plr->portions)) {
+		p = list_first_entry(&plr->portions, struct pseudo_lock_portion,
+				     list);
+		if (p->r->rid == RDT_RESOURCE_L3 ||
+		    (p->r->rid == RDT_RESOURCE_L2 &&
+		     !l3_resource->alloc_capable)) {
+			ret = pseudo_lock_single_portion_valid(plr, p);
+			if (ret < 0)
+				goto out_region;
+			return 0;
+		} else {
+			rdt_last_cmd_puts("Invalid resource or just L2 provided when L3 is required\n");
+			goto out_region;
+		}
+	}
+
+	/*
+	 * List is neither empty nor singular, process first and second portions
+	 */
+	p = list_first_entry(&plr->portions, struct pseudo_lock_portion, list);
+	n_p = list_next_entry(p, list);
+
+	/*
+	 * If the second portion is not also the last portion user provided
+	 * more portions than can be supported.
+	 */
+	tmp = list_last_entry(&plr->portions, struct pseudo_lock_portion, list);
+	if (n_p != tmp) {
+		rdt_last_cmd_puts("Only two pseudo-lock portions supported\n");
+		goto out_region;
+	}
+
+	if (p->r->rid == RDT_RESOURCE_L2 && n_p->r->rid == RDT_RESOURCE_L3) {
+		ret = pseudo_lock_l2_l3_portions_valid(plr, p, n_p);
+		if (ret < 0)
+			goto out_region;
+		return 0;
+	} else if (p->r->rid == RDT_RESOURCE_L3 &&
+		   n_p->r->rid == RDT_RESOURCE_L2) {
+		if (pseudo_lock_l2_l3_portions_valid(plr, n_p, p) == 0) {
+			/*
+			 * Let L2 and L3 portions appear in order in the
+			 * portions list in support of consistent output to
+			 * user space.
+			 */
+			list_rotate_left(&plr->portions);
+			return 0;
+		}
+	} else {
+		rdt_last_cmd_puts("Invalid combination of resources\n");
+	}
+
 out_region:
 	pseudo_lock_region_clear(plr);
-	return ret;
+	return -1;
 }
 
 /**
@@ -325,6 +599,7 @@ static int pseudo_lock_init(struct rdtgroup *rdtgrp)
 	if (!plr)
 		return -ENOMEM;
 
+	INIT_LIST_HEAD(&plr->portions);
 	init_waitqueue_head(&plr->lock_thread_wq);
 	INIT_LIST_HEAD(&plr->pm_reqs);
 	rdtgrp->plr = plr;
@@ -700,6 +975,22 @@ int rdtgroup_locksetup_enter(struct rdtgroup *rdtgrp)
 		return -EINVAL;
 	}
 
+	/*
+	 * Add extra check for 0x8C platform until all SKUs are
+	 * understood.
+	 * Prefetch disable bits will be known but only
+	 * some of its SKUs support Cache Pseudo-Locking. Goal is to have
+	 * this be determined generically (L2 CAT and L3 CAT supported and
+	 * cache is inclusive) but some SKUs that do not support cache
+	 * pseudo-locking only support L2 CAT, which is
+	 * a valid resource to pseudo-lock.
+	 */
+	if (boot_cpu_data.x86_model == 0x8C &&
+	    !get_cache_inclusive(0, 3)) {
+		rdt_last_cmd_puts("Pseudo-locking not supported\n");
+		return -EINVAL;
+	}
+
 	if (rdtgroup_monitor_in_progress(rdtgrp)) {
 		rdt_last_cmd_puts("Monitoring in progress\n");
 		return -EINVAL;
@@ -777,6 +1068,7 @@ int rdtgroup_locksetup_exit(struct rdtgroup *rdtgrp)
 
 /**
  * rdtgroup_cbm_overlaps_pseudo_locked - Test if CBM or portion is pseudo-locked
+ * @r: RDT resource to which @d belongs
  * @d: RDT domain
  * @cbm: CBM to test
  *
@@ -790,22 +1082,23 @@ int rdtgroup_locksetup_exit(struct rdtgroup *rdtgrp)
  * Return: true if @cbm overlaps with pseudo-locked region on @d, false
  * otherwise.
  */
-bool rdtgroup_cbm_overlaps_pseudo_locked(struct rdt_domain *d, unsigned long cbm)
+bool rdtgroup_cbm_overlaps_pseudo_locked(struct rdt_resource *r,
+					 struct rdt_domain *d,
+					 unsigned long cbm)
 {
+	unsigned long pseudo_locked;
 	unsigned int cbm_len;
-	unsigned long cbm_b;
 
-	if (d->plr) {
-		cbm_len = d->plr->r->cache.cbm_len;
-		cbm_b = d->plr->cbm;
-		if (bitmap_intersects(&cbm, &cbm_b, cbm_len))
-			return true;
-	}
+	pseudo_locked = rdtgroup_pseudo_locked_bits(r, d);
+	cbm_len = r->cache.cbm_len;
+	if (bitmap_intersects(&cbm, &pseudo_locked, cbm_len))
+		return true;
 	return false;
 }
 
 /**
  * rdtgroup_pseudo_locked_in_hierarchy - Pseudo-locked region in cache hierarchy
+ * @selfgrp: current resource group testing for overlap
  * @d: RDT domain under test
  *
  * The setup of a pseudo-locked region affects all cache instances within
@@ -814,13 +1107,15 @@ bool rdtgroup_cbm_overlaps_pseudo_locked(struct rdt_domain *d, unsigned long cbm
  * attempts to create new pseudo-locked regions in the same hierarchy.
  *
  * Return: true if a pseudo-locked region exists in the hierarchy of @d or
- *         if it is not possible to test due to memory allocation issue,
- *         false otherwise.
+ *         if it is not possible to test due to memory allocation or other
+ *         failure, false otherwise.
  */
-bool rdtgroup_pseudo_locked_in_hierarchy(struct rdt_domain *d)
+bool rdtgroup_pseudo_locked_in_hierarchy(struct rdtgroup *selfgrp,
+					 struct rdt_domain *d)
 {
+	struct pseudo_lock_portion *p;
 	cpumask_var_t cpu_with_psl;
-	struct rdt_resource *r;
+	struct rdtgroup *rdtgrp;
 	struct rdt_domain *d_i;
 	bool ret = false;
 
@@ -831,11 +1126,16 @@ bool rdtgroup_pseudo_locked_in_hierarchy(struct rdt_domain *d)
 	 * First determine which cpus have pseudo-locked regions
 	 * associated with them.
 	 */
-	for_each_alloc_enabled_rdt_resource(r) {
-		list_for_each_entry(d_i, &r->domains, list) {
-			if (d_i->plr)
-				cpumask_or(cpu_with_psl, cpu_with_psl,
-					   &d_i->cpu_mask);
+	list_for_each_entry(rdtgrp, &rdt_all_groups, rdtgroup_list) {
+		if (!rdtgrp->plr || rdtgrp == selfgrp)
+			continue;
+		list_for_each_entry(p, &rdtgrp->plr->portions, list) {
+			d_i = rdt_find_domain(p->r, p->d_id, NULL);
+			if (IS_ERR_OR_NULL(d_i)) {
+				ret = true;
+				goto out;
+			}
+			cpumask_or(cpu_with_psl, cpu_with_psl, &d_i->cpu_mask);
 		}
 	}
 
@@ -846,6 +1146,7 @@ bool rdtgroup_pseudo_locked_in_hierarchy(struct rdt_domain *d)
 	if (cpumask_intersects(&d->cpu_mask, cpu_with_psl))
 		ret = true;
 
+out:
 	free_cpumask_var(cpu_with_psl);
 	return ret;
 }
@@ -1060,6 +1361,8 @@ static int measure_l2_residency(void *_plr)
 	switch (boot_cpu_data.x86_model) {
 	case INTEL_FAM6_ATOM_GOLDMONT:
 	case INTEL_FAM6_ATOM_GOLDMONT_PLUS:
+	case 0x96:
+	case 0x8C:
 		perf_miss_attr.config = X86_CONFIG(.event = 0xd1,
 						   .umask = 0x10);
 		perf_hit_attr.config = X86_CONFIG(.event = 0xd1,
@@ -1103,6 +1406,13 @@ static int measure_l3_residency(void *_plr)
 						  .umask = 0x4f);
 		perf_miss_attr.config = X86_CONFIG(.event = 0x2e,
 						   .umask = 0x41);
+		break;
+	case 0x8C:
+	case 0x96:
+		perf_miss_attr.config = X86_CONFIG(.event = 0xd1,
+						   .umask = 0x20);
+		perf_hit_attr.config = X86_CONFIG(.event = 0xd1,
+						  .umask = 0x4);
 		break;
 	default:
 		goto out;
@@ -1151,7 +1461,9 @@ out:
 static int pseudo_lock_measure_cycles(struct rdtgroup *rdtgrp, int sel)
 {
 	struct pseudo_lock_region *plr = rdtgrp->plr;
+	struct pseudo_lock_portion *p;
 	struct task_struct *thread;
+	struct rdt_domain *d;
 	unsigned int cpu;
 	int ret = -1;
 
@@ -1163,13 +1475,23 @@ static int pseudo_lock_measure_cycles(struct rdtgroup *rdtgrp, int sel)
 		goto out;
 	}
 
-	if (!plr->d) {
+	/*
+	 * Ensure test is run on CPU associated with the pseudo-locked
+	 * region. If pseudo-locked region spans L2 and L3, L2 portion
+	 * would be first in the list and all CPUs associated with the
+	 * L2 cache instance would be associated with pseudo-locked
+	 * region.
+	 */
+	p = list_first_entry(&plr->portions, struct pseudo_lock_portion, list);
+
+	d = rdt_find_domain(p->r, p->d_id, NULL);
+	if (IS_ERR_OR_NULL(d)) {
 		ret = -ENODEV;
 		goto out;
 	}
 
 	plr->thread_done = 0;
-	cpu = cpumask_first(&plr->d->cpu_mask);
+	cpu = cpumask_first(&d->cpu_mask);
 	if (!cpu_online(cpu)) {
 		ret = -ENODEV;
 		goto out;
@@ -1280,12 +1602,6 @@ int rdtgroup_pseudo_lock_create(struct rdtgroup *rdtgrp)
 	if (ret < 0)
 		return ret;
 
-	ret = pseudo_lock_cstates_constrain(plr);
-	if (ret < 0) {
-		ret = -EINVAL;
-		goto out_region;
-	}
-
 	plr->thread_done = 0;
 
 	thread = kthread_create_on_node(pseudo_lock_fn, rdtgrp,
@@ -1294,7 +1610,7 @@ int rdtgroup_pseudo_lock_create(struct rdtgroup *rdtgrp)
 	if (IS_ERR(thread)) {
 		ret = PTR_ERR(thread);
 		rdt_last_cmd_printf("Locking thread returned error %d\n", ret);
-		goto out_cstates;
+		goto out_region;
 	}
 
 	kthread_bind(thread, plr->cpu);
@@ -1312,13 +1628,13 @@ int rdtgroup_pseudo_lock_create(struct rdtgroup *rdtgrp)
 		 * empty pseudo-locking loop.
 		 */
 		rdt_last_cmd_puts("Locking thread interrupted\n");
-		goto out_cstates;
+		goto out_region;
 	}
 
 	ret = pseudo_lock_minor_get(&new_minor);
 	if (ret < 0) {
 		rdt_last_cmd_puts("Unable to obtain a new minor number\n");
-		goto out_cstates;
+		goto out_region;
 	}
 
 	/*
@@ -1375,8 +1691,6 @@ out_device:
 out_debugfs:
 	debugfs_remove_recursive(plr->debugfs_dir);
 	pseudo_lock_minor_release(new_minor);
-out_cstates:
-	pseudo_lock_cstates_relax(plr);
 out_region:
 	pseudo_lock_region_clear(plr);
 out:
@@ -1410,7 +1724,6 @@ void rdtgroup_pseudo_lock_remove(struct rdtgroup *rdtgrp)
 		goto free;
 	}
 
-	pseudo_lock_cstates_relax(plr);
 	debugfs_remove_recursive(rdtgrp->plr->debugfs_dir);
 	device_destroy(pseudo_lock_class, MKDEV(pseudo_lock_major, plr->minor));
 	pseudo_lock_minor_release(plr->minor);
@@ -1473,8 +1786,10 @@ static int pseudo_lock_dev_mmap(struct file *filp, struct vm_area_struct *vma)
 	unsigned long vsize = vma->vm_end - vma->vm_start;
 	unsigned long off = vma->vm_pgoff << PAGE_SHIFT;
 	struct pseudo_lock_region *plr;
+	struct pseudo_lock_portion *p;
 	struct rdtgroup *rdtgrp;
 	unsigned long physical;
+	struct rdt_domain *d;
 	unsigned long psize;
 
 	mutex_lock(&rdtgroup_mutex);
@@ -1488,7 +1803,17 @@ static int pseudo_lock_dev_mmap(struct file *filp, struct vm_area_struct *vma)
 
 	plr = rdtgrp->plr;
 
-	if (!plr->d) {
+	/*
+	 * If pseudo-locked region spans one cache level, there will be
+	 * only one portion to consider. If pseudo-locked region spans two
+	 * cache levels then the L2 cache portion will be the first entry
+	 * and a CPU associated with it is what a task is required to be run
+	 * on.
+	 */
+	p = list_first_entry(&plr->portions, struct pseudo_lock_portion, list);
+
+	d = rdt_find_domain(p->r, p->d_id, NULL);
+	if (IS_ERR_OR_NULL(d)) {
 		mutex_unlock(&rdtgroup_mutex);
 		return -ENODEV;
 	}
@@ -1499,7 +1824,7 @@ static int pseudo_lock_dev_mmap(struct file *filp, struct vm_area_struct *vma)
 	 * may be scheduled elsewhere and invalidate entries in the
 	 * pseudo-locked region.
 	 */
-	if (!cpumask_subset(current->cpus_ptr, &plr->d->cpu_mask)) {
+	if (!cpumask_subset(current->cpus_ptr, &d->cpu_mask)) {
 		mutex_unlock(&rdtgroup_mutex);
 		return -EINVAL;
 	}
@@ -1585,4 +1910,29 @@ void rdt_pseudo_lock_release(void)
 	pseudo_lock_class = NULL;
 	unregister_chrdev(pseudo_lock_major, "pseudo_lock");
 	pseudo_lock_major = 0;
+}
+
+/**
+ * rdt_pseudo_locked_bits - Portions of cache instance used for pseudo-locking
+ * @r:		RDT resource to which cache instance belongs
+ * @d:		Cache instance
+ *
+ * Return: bits in CBM of @d that are used for cache pseudo-locking
+ */
+u32 rdtgroup_pseudo_locked_bits(struct rdt_resource *r, struct rdt_domain *d)
+{
+	struct pseudo_lock_portion *p;
+	struct rdtgroup *rdtgrp;
+	u32 pseudo_locked = 0;
+
+	list_for_each_entry(rdtgrp, &rdt_all_groups, rdtgroup_list) {
+		if (!rdtgrp->plr)
+			continue;
+		list_for_each_entry(p, &rdtgrp->plr->portions, list) {
+			if (p->r->rid == r->rid && p->d_id == d->id)
+				pseudo_locked |= p->cbm;
+		}
+	}
+
+	return pseudo_locked;
 }
