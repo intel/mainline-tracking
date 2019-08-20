@@ -114,7 +114,6 @@ struct drm_i915_gem_object {
 	unsigned int userfault_count;
 	struct list_head userfault_link;
 
-	struct list_head batch_pool_link;
 	I915_SELFTEST_DECLARE(struct list_head st_link);
 
 	/*
@@ -154,7 +153,6 @@ struct drm_i915_gem_object {
 
 	/** Count of VMA actually bound by this object */
 	atomic_t bind_count;
-	unsigned int active_count;
 	/** Count of how many global VMA are currently pinned for use by HW */
 	unsigned int pin_global;
 
