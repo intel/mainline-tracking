@@ -27,6 +27,7 @@ struct vm86;
 #include <asm/unwind_hints.h>
 #include <asm/vmxfeatures.h>
 #include <asm/vdso/processor.h>
+#include <asm/cet.h>
 
 #include <linux/personality.h>
 #include <linux/cache.h>
@@ -541,6 +542,10 @@ struct thread_struct {
 	mm_segment_t		addr_limit;
 
 	unsigned int		sig_on_uaccess_err:1;
+
+#ifdef CONFIG_X86_CET
+	struct cet_status	cet;
+#endif
 
 	/* Floating point and extended processor state */
 	struct fpu		fpu;
