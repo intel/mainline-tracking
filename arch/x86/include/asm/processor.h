@@ -27,6 +27,7 @@ struct vm86;
 #include <asm/unwind_hints.h>
 #include <asm/vmxfeatures.h>
 #include <asm/vdso/processor.h>
+#include <asm/cet.h>
 
 #include <linux/personality.h>
 #include <linux/cache.h>
@@ -526,6 +527,10 @@ struct thread_struct {
 	 * PKRU is the hardware itself.
 	 */
 	u32			pkru;
+
+#ifdef CONFIG_X86_SHADOW_STACK
+	struct thread_shstk	shstk;
+#endif
 
 	/* Floating point and extended processor state */
 	struct fpu		fpu;
