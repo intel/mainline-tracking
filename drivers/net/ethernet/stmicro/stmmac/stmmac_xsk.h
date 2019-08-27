@@ -18,4 +18,6 @@ static inline bool stmmac_enabled_xdp(struct stmmac_priv *priv)
 	return !!priv->xdp_prog;
 }
 
+int stmmac_xdp_xmit_queue(struct stmmac_priv *priv, u32 queue,
+			  struct xdp_frame *xdpf);
 #endif /* __STMMAC_XSK_H__ */
