@@ -230,16 +230,14 @@ static int fence_update(struct i915_fence_reg *fence,
 			 i915_gem_object_get_tiling(vma->obj)))
 			return -EINVAL;
 
-		ret = i915_active_request_retire(&vma->last_fence,
-					     &vma->obj->base.dev->struct_mutex);
+		ret = i915_active_wait(&vma->active);
 		if (ret)
 			return ret;
 	}
 
 	old = xchg(&fence->vma, NULL);
 	if (old) {
-		ret = i915_active_request_retire(&old->last_fence,
-					     &old->obj->base.dev->struct_mutex);
+		ret = i915_active_wait(&old->active);
 		if (ret) {
 			fence->vma = old;
 			return ret;
@@ -833,4 +831,36 @@ void i915_ggtt_init_fences(struct i915_ggtt *ggtt)
 	ggtt->num_fences = num_fences;
 
 	i915_gem_restore_fences(i915);
+}
+
+void intel_gt_init_swizzling(struct intel_gt *gt)
+{
+	struct drm_i915_private *i915 = gt->i915;
+	struct intel_uncore *uncore = gt->uncore;
+
+	if (INTEL_GEN(i915) < 5 ||
+	    i915->mm.bit_6_swizzle_x == I915_BIT_6_SWIZZLE_NONE)
+		return;
+
+	intel_uncore_rmw(uncore, DISP_ARB_CTL, 0, DISP_TILE_SURFACE_SWIZZLING);
+
+	if (IS_GEN(i915, 5))
+		return;
+
+	intel_uncore_rmw(uncore, TILECTL, 0, TILECTL_SWZCTL);
+
+	if (IS_GEN(i915, 6))
+		intel_uncore_write(uncore,
+				   ARB_MODE,
+				   _MASKED_BIT_ENABLE(ARB_MODE_SWIZZLE_SNB));
+	else if (IS_GEN(i915, 7))
+		intel_uncore_write(uncore,
+				   ARB_MODE,
+				   _MASKED_BIT_ENABLE(ARB_MODE_SWIZZLE_IVB));
+	else if (IS_GEN(i915, 8))
+		intel_uncore_write(uncore,
+				   GAMTARBMODE,
+				   _MASKED_BIT_ENABLE(ARB_MODE_SWIZZLE_BDW));
+	else
+		MISSING_CASE(INTEL_GEN(i915));
 }

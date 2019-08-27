@@ -7,12 +7,14 @@
 #include <linux/mman.h>
 #include <linux/sizes.h>
 
+#include "gt/intel_gt.h"
+
 #include "i915_drv.h"
 #include "i915_gem_gtt.h"
 #include "i915_gem_ioctls.h"
 #include "i915_gem_object.h"
+#include "i915_trace.h"
 #include "i915_vma.h"
-#include "intel_drv.h"
 
 static inline bool
 __vma_matches(struct vm_area_struct *vma, struct file *filp,
@@ -99,9 +101,6 @@ i915_gem_mmap_ioctl(struct drm_device *dev, void *data,
 		up_write(&mm->mmap_sem);
 		if (IS_ERR_VALUE(addr))
 			goto err;
-
-		/* This may race, but that's ok, it only gets set */
-		WRITE_ONCE(obj->frontbuffer_ggtt_origin, ORIGIN_CPU);
 	}
 	i915_gem_object_put(obj);
 
@@ -246,7 +245,7 @@ vm_fault_t i915_gem_fault(struct vm_fault *vmf)
 
 	wakeref = intel_runtime_pm_get(rpm);
 
-	srcu = i915_reset_trylock(i915);
+	srcu = intel_gt_reset_trylock(ggtt->vm.gt);
 	if (srcu < 0) {
 		ret = srcu;
 		goto err_rpm;
@@ -281,7 +280,6 @@ vm_fault_t i915_gem_fault(struct vm_fault *vmf)
 		 * Userspace is now writing through an untracked VMA, abandon
 		 * all hope that the hardware is able to track future writes.
 		 */
-		obj->frontbuffer_ggtt_origin = ORIGIN_CPU;
 
 		vma = i915_gem_object_ggtt_pin(obj, &view, 0, 0, flags);
 		if (IS_ERR(vma) && !view.type) {
@@ -326,7 +324,7 @@ err_unpin:
 err_unlock:
 	mutex_unlock(&dev->struct_mutex);
 err_reset:
-	i915_reset_unlock(i915, srcu);
+	intel_gt_reset_unlock(ggtt->vm.gt, srcu);
 err_rpm:
 	intel_runtime_pm_put(rpm, wakeref);
 	i915_gem_object_unpin_pages(obj);
@@ -339,7 +337,7 @@ err:
 		 * fail). But any other -EIO isn't ours (e.g. swap in failure)
 		 * and so needs to be reported.
 		 */
-		if (!i915_terminally_wedged(i915))
+		if (!intel_gt_is_wedged(ggtt->vm.gt))
 			return VM_FAULT_SIGBUS;
 		/* else, fall through */
 	case -EAGAIN:
