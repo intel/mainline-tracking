@@ -81,6 +81,8 @@
 
 #define MEI_DEV_ID_ICP_LP     0x34E0  /* Ice Lake Point LP */
 
+#define MEI_DEV_ID_TGP_LP     0xA0E0  /* Tiger Lake Point LP */
+
 #define MEI_DEV_ID_MCC        0x4B70  /* Mule Creek Canyon (EHL) */
 #define MEI_DEV_ID_MCC_4      0x4B75  /* Mule Creek Canyon 4 (EHL) */
 
@@ -157,7 +159,8 @@ access to ME_CBD */
 #define ME_IS_HRA         0x00000002
 /* ME Interrupt Enable HRA - host read only access to ME_IE */
 #define ME_IE_HRA         0x00000001
-
+/* TRC control shadow register */
+#define ME_TRC            0x00000030
 
 /* H_HPG_CSR register bits */
 #define H_HPG_CSR_PGIHEXR 0x00000001

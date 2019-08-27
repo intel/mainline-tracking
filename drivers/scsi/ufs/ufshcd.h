@@ -458,6 +458,7 @@ struct ufs_stats {
  * @utmrdl_dma_addr: UTMRDL DMA address
  * @host: Scsi_Host instance of the driver
  * @dev: device handle
+ * @sdev_ufs_rpmb: reference to RPMB device W-LU
  * @lrb: local reference block
  * @lrb_in_use: lrb in use
  * @outstanding_tasks: Bits representing outstanding task requests
@@ -522,6 +523,7 @@ struct ufs_hba {
 	 * "UFS device" W-LU.
 	 */
 	struct scsi_device *sdev_ufs_device;
+	struct scsi_device *sdev_ufs_rpmb;
 
 	enum ufs_dev_pwr_mode curr_dev_pwr_mode;
 	enum uic_link_state uic_link_state;
@@ -535,6 +537,13 @@ struct ufs_hba {
 
 	/* Auto-Hibernate Idle Timer register value */
 	u32 ahit;
+	bool ahit_disabled;
+
+	/* Unified memory area */
+	void *uma_base_addr;
+	dma_addr_t uma_addr;
+	u32 uma_size;
+	bool uma;
 
 	struct ufshcd_lrb *lrb;
 	unsigned long lrb_in_use;
@@ -885,14 +894,20 @@ int ufshcd_read_desc_param(struct ufs_hba *hba,
 			   enum desc_idn desc_id,
 			   int desc_index,
 			   u8 param_offset,
-			   u8 *param_read_buf,
+			   void *param_read_buf,
 			   u8 param_size);
+int __ufshcd_query_attr(struct ufs_hba *hba, enum query_opcode opcode,
+		      enum attr_idn idn, u8 index, u8 selector, u32 *attr_val,
+		      bool quiet);
 int ufshcd_query_attr(struct ufs_hba *hba, enum query_opcode opcode,
 		      enum attr_idn idn, u8 index, u8 selector, u32 *attr_val);
 int ufshcd_query_flag(struct ufs_hba *hba, enum query_opcode opcode,
 	enum flag_idn idn, bool *flag_res);
-int ufshcd_read_string_desc(struct ufs_hba *hba, int desc_index,
-			    u8 *buf, u32 size, bool ascii);
+
+#define SD_ASCII_STD true
+#define SD_RAW false
+int ufshcd_read_string_desc(struct ufs_hba *hba, u8 desc_index,
+			    char **buf, bool ascii);
 
 int ufshcd_hold(struct ufs_hba *hba, bool async);
 void ufshcd_release(struct ufs_hba *hba);
