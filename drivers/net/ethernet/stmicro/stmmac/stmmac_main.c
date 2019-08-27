@@ -1432,6 +1432,9 @@ static void init_dma_tx_desc_ring_q(struct stmmac_priv *priv, u32 queue)
 		tx_q->tx_skbuff_dma[i].len = 0;
 		tx_q->tx_skbuff_dma[i].last_segment = false;
 		tx_q->tx_skbuff[i] = NULL;
+
+		if (stmmac_enabled_xdp(priv))
+			tx_q->xdpf[i] = NULL;
 	}
 
 	tx_q->dirty_tx = 0;
@@ -1703,6 +1706,12 @@ static int alloc_dma_tx_desc_resources_q(struct stmmac_priv *priv, u32 queue)
 	if (!tx_q->tx_skbuff)
 		goto err_dma;
 
+	tx_q->xdpf = kcalloc(priv->dma_tx_size,
+			     sizeof(struct xdp_frame *),
+			     GFP_KERNEL);
+	if (!tx_q->xdpf)
+		goto err_dma;
+
 	if (priv->extend_desc) {
 		tx_q->dma_etx = dma_alloc_coherent(priv->device,
 						   priv->dma_tx_size *
@@ -1730,9 +1739,13 @@ static int alloc_dma_tx_desc_resources_q(struct stmmac_priv *priv, u32 queue)
 		if (!tx_q->dma_tx)
 			goto err_dma;
 	}
+
+	return 0;
 err_dma:
 	kfree(tx_q->tx_skbuff);
+	kfree(tx_q->xdpf);
 	tx_q->tx_skbuff = NULL;
+	tx_q->xdpf = NULL;
 	return -ENOMEM;
 }
 
@@ -2315,6 +2328,11 @@ static int stmmac_tx_clean(struct stmmac_priv *priv, int budget, u32 queue)
 			bytes_compl += skb->len;
 			dev_consume_skb_any(skb);
 			tx_q->tx_skbuff[entry] = NULL;
+		} else if (is_queue_xdp(queue) && tx_q->xdpf[entry]) {
+			pkts_compl++;
+			bytes_compl += tx_q->xdpf[entry]->len;
+			xdp_return_frame(tx_q->xdpf[entry]);
+			tx_q->xdpf[entry] = NULL;
 		}
 
 		stmmac_release_tx_desc(priv, p, priv->mode);
