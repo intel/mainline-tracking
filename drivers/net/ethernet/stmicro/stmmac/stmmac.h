@@ -21,6 +21,8 @@
 #include <linux/net_tstamp.h>
 #include <linux/reset.h>
 #include <net/page_pool.h>
+#include <net/xdp.h>
+#include <linux/filter.h>
 
 struct stmmac_resources {
 	void __iomem *addr;
@@ -82,6 +84,9 @@ struct stmmac_rx_queue {
 	u32 rx_zeroc_thresh;
 	dma_addr_t dma_rx_phy;
 	u32 rx_tail_addr;
+	struct bpf_prog *xdp_prog;
+	struct xdp_rxq_info xdp_rxq;
+	u16 next_to_alloc;
 };
 
 struct stmmac_channel {
@@ -152,6 +157,9 @@ struct stmmac_priv {
 	/* TX Queue */
 	struct stmmac_tx_queue tx_queue[MTL_MAX_TX_QUEUES];
 	unsigned int dma_tx_size;
+
+	/* XDP Queue */
+	bool is_xdp[STMMAC_CH_MAX];
 
 	/* Generic channel for NAPI */
 	struct stmmac_channel channel[STMMAC_CH_MAX];
@@ -240,6 +248,9 @@ struct stmmac_priv {
 
 	/* Pulse Per Second output */
 	struct stmmac_pps_cfg pps[STMMAC_PPS_MAX];
+
+	/* XDP */
+	struct bpf_prog *xdp_prog;
 };
 
 enum stmmac_state {
