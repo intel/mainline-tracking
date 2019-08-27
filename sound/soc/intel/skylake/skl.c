@@ -29,12 +29,21 @@
 #include "skl.h"
 #include "skl-sst-dsp.h"
 #include "skl-sst-ipc.h"
+#include "skl-topology.h"
 #if IS_ENABLED(CONFIG_SND_SOC_INTEL_SKYLAKE_HDAUDIO_CODEC)
 #include "../../../soc/codecs/hdac_hda.h"
 #endif
 static int skl_pci_binding;
 module_param_named(pci_binding, skl_pci_binding, int, 0444);
 MODULE_PARM_DESC(pci_binding, "PCI binding (0=auto, 1=only legacy, 2=only asoc");
+static char *tplg_name;
+module_param(tplg_name, charp, 0444);
+MODULE_PARM_DESC(tplg_name, "Name of topology binary file");
+static bool is_dummy_driver;
+#if IS_ENABLED(CONFIG_SND_SOC_INTEL_SSP_TEST_MACH)
+module_param(is_dummy_driver, bool, 0444);
+MODULE_PARM_DESC(is_dummy_driver, "Enable use of test driver (Default: false)");
+#endif
 
 /*
  * initialize the PCI registers
@@ -50,7 +59,7 @@ static void skl_update_pci_byte(struct pci_dev *pci, unsigned int reg,
 	pci_write_config_byte(pci, reg, data);
 }
 
-static void skl_init_pci(struct skl *skl)
+static void skl_init_pci(struct skl_dev *skl)
 {
 	struct hdac_bus *bus = skl_to_bus(skl);
 
@@ -203,26 +212,50 @@ static void skl_dum_set(struct hdac_bus *bus)
 	snd_hdac_chip_updatel(bus, VS_EM2, AZX_VS_EM2_DUM, AZX_VS_EM2_DUM);
 }
 
+static void skl_set_total_bytes_transferred(struct hdac_stream *hstream)
+{
+	int pos, no_of_bytes;
+	unsigned int prev_pos;
+	u64 buffer_size = hstream->cstream->runtime->buffer_size;
+
+	div_u64_rem(hstream->curr_pos, buffer_size, &prev_pos);
+	pos = snd_hdac_stream_get_pos_posbuf(hstream);
+
+	if (pos < prev_pos)
+		no_of_bytes = (buffer_size - prev_pos) +  pos;
+	else
+		no_of_bytes = pos - prev_pos;
+
+	hstream->curr_pos += no_of_bytes;
+}
+
 /* called from IRQ */
 static void skl_stream_update(struct hdac_bus *bus, struct hdac_stream *hstr)
 {
-	snd_pcm_period_elapsed(hstr->substream);
+	if (hstr->substream) {
+		snd_pcm_period_elapsed(hstr->substream);
+	} else if (hstr->cstream) {
+		skl_set_total_bytes_transferred(hstr);
+		snd_compr_fragment_elapsed(hstr->cstream);
+	}
 }
 
 static irqreturn_t skl_interrupt(int irq, void *dev_id)
 {
 	struct hdac_bus *bus = dev_id;
 	u32 status;
+	u32 mask, int_enable;
+	int ret = IRQ_NONE;
 
 	if (!pm_runtime_active(bus->dev))
-		return IRQ_NONE;
+		return ret;
 
 	spin_lock(&bus->reg_lock);
 
 	status = snd_hdac_chip_readl(bus, INTSTS);
 	if (status == 0 || status == 0xffffffff) {
 		spin_unlock(&bus->reg_lock);
-		return IRQ_NONE;
+		return ret;
 	}
 
 	/* clear rirb int */
@@ -233,26 +266,47 @@ static irqreturn_t skl_interrupt(int irq, void *dev_id)
 		snd_hdac_chip_writeb(bus, RIRBSTS, RIRB_INT_MASK);
 	}
 
-	spin_unlock(&bus->reg_lock);
+	mask = (0x1 << bus->num_streams) - 1;
 
-	return snd_hdac_chip_readl(bus, INTSTS) ? IRQ_WAKE_THREAD : IRQ_HANDLED;
+	status = snd_hdac_chip_readl(bus, INTSTS);
+	status &= mask;
+	if (status) {
+		/* Disable stream interrupts; Re-enable in bottom half */
+		int_enable = snd_hdac_chip_readl(bus, INTCTL);
+		snd_hdac_chip_writel(bus, INTCTL, (int_enable & (~mask)));
+		ret = IRQ_WAKE_THREAD;
+	} else
+		ret = IRQ_HANDLED;
+
+	spin_unlock(&bus->reg_lock);
+	return ret;
+
 }
 
 static irqreturn_t skl_threaded_handler(int irq, void *dev_id)
 {
 	struct hdac_bus *bus = dev_id;
 	u32 status;
+	u32 int_enable;
+	u32 mask;
+	unsigned long flags;
 
 	status = snd_hdac_chip_readl(bus, INTSTS);
 
 	snd_hdac_bus_handle_stream_irq(bus, status, skl_stream_update);
 
+	/* Re-enable stream interrupts */
+	mask = (0x1 << bus->num_streams) - 1;
+	spin_lock_irqsave(&bus->reg_lock, flags);
+	int_enable = snd_hdac_chip_readl(bus, INTCTL);
+	snd_hdac_chip_writel(bus, INTCTL, (int_enable | mask));
+	spin_unlock_irqrestore(&bus->reg_lock, flags);
 	return IRQ_HANDLED;
 }
 
 static int skl_acquire_irq(struct hdac_bus *bus, int do_disconnect)
 {
-	struct skl *skl = bus_to_skl(bus);
+	struct skl_dev *skl = bus_to_skl(bus);
 	int ret;
 
 	ret = request_threaded_irq(skl->pci->irq, skl_interrupt,
@@ -276,7 +330,7 @@ static int skl_suspend_late(struct device *dev)
 {
 	struct pci_dev *pci = to_pci_dev(dev);
 	struct hdac_bus *bus = pci_get_drvdata(pci);
-	struct skl *skl = bus_to_skl(bus);
+	struct skl_dev *skl = bus_to_skl(bus);
 
 	return skl_suspend_late_dsp(skl);
 }
@@ -284,7 +338,7 @@ static int skl_suspend_late(struct device *dev)
 #ifdef CONFIG_PM
 static int _skl_suspend(struct hdac_bus *bus)
 {
-	struct skl *skl = bus_to_skl(bus);
+	struct skl_dev *skl = bus_to_skl(bus);
 	struct pci_dev *pci = to_pci_dev(bus->dev);
 	int ret;
 
@@ -307,7 +361,7 @@ static int _skl_suspend(struct hdac_bus *bus)
 
 static int _skl_resume(struct hdac_bus *bus)
 {
-	struct skl *skl = bus_to_skl(bus);
+	struct skl_dev *skl = bus_to_skl(bus);
 
 	skl_init_pci(skl);
 	skl_dum_set(bus);
@@ -325,7 +379,7 @@ static int skl_suspend(struct device *dev)
 {
 	struct pci_dev *pci = to_pci_dev(dev);
 	struct hdac_bus *bus = pci_get_drvdata(pci);
-	struct skl *skl  = bus_to_skl(bus);
+	struct skl_dev *skl  = bus_to_skl(bus);
 	int ret;
 
 	/*
@@ -345,7 +399,7 @@ static int skl_suspend(struct device *dev)
 		ret = _skl_suspend(bus);
 		if (ret < 0)
 			return ret;
-		skl->skl_sst->fw_loaded = false;
+		skl->fw_loaded = false;
 	}
 
 	return 0;
@@ -355,7 +409,7 @@ static int skl_resume(struct device *dev)
 {
 	struct pci_dev *pci = to_pci_dev(dev);
 	struct hdac_bus *bus = pci_get_drvdata(pci);
-	struct skl *skl  = bus_to_skl(bus);
+	struct skl_dev *skl  = bus_to_skl(bus);
 	struct hdac_ext_link *hlink = NULL;
 	int ret;
 
@@ -430,7 +484,7 @@ static const struct dev_pm_ops skl_pm = {
  */
 static int skl_free(struct hdac_bus *bus)
 {
-	struct skl *skl  = bus_to_skl(bus);
+	struct skl_dev *skl  = bus_to_skl(bus);
 
 	skl->init_done = 0; /* to be sure */
 
@@ -475,7 +529,7 @@ static struct skl_ssp_clk skl_ssp_clks[] = {
 						{.name = "ssp5_sclkfs"},
 };
 
-static struct snd_soc_acpi_mach *skl_find_hda_machine(struct skl *skl,
+static struct snd_soc_acpi_mach *skl_find_hda_machine(struct skl_dev *skl,
 					struct snd_soc_acpi_mach *machines)
 {
 	struct hdac_bus *bus = skl_to_bus(skl);
@@ -494,25 +548,44 @@ static struct snd_soc_acpi_mach *skl_find_hda_machine(struct skl *skl,
 	return mach;
 }
 
-static int skl_find_machine(struct skl *skl, void *driver_data)
+static int skl_find_machine(struct skl_dev *skl, void *driver_data)
 {
 	struct hdac_bus *bus = skl_to_bus(skl);
 	struct snd_soc_acpi_mach *mach = driver_data;
-	struct skl_machine_pdata *pdata;
+	struct skl_machine_pdata *pdata = mach->pdata;
+
+	if (pdata && pdata->dummy_codec)
+		goto out;
 
 	mach = snd_soc_acpi_find_machine(mach);
 	if (!mach) {
 		dev_dbg(bus->dev, "No matching I2S machine driver found\n");
 		mach = skl_find_hda_machine(skl, driver_data);
-		if (!mach) {
+		if (!mach && !is_dummy_driver) {
 			dev_err(bus->dev, "No matching machine driver found\n");
 			return -ENODEV;
 		}
 	}
 
+out:
+#if IS_ENABLED(CONFIG_SND_SOC_INTEL_SSP_TEST_MACH)
+	if (is_dummy_driver) {
+		struct snd_soc_acpi_mach *temp_mach = mach;
+
+		mach = &snd_soc_acpi_intel_ssp_test_machine;
+
+		if (temp_mach)
+			mach->fw_filename = temp_mach->fw_filename;
+
+		pdata = mach->pdata;
+	}
+#endif
+
+	if (!mach)
+		return -ENODEV;
+
 	skl->mach = mach;
 	skl->fw_name = mach->fw_filename;
-	pdata = mach->pdata;
 
 	if (pdata) {
 		skl->use_tplg_pcm = pdata->use_tplg_pcm;
@@ -522,7 +595,7 @@ static int skl_find_machine(struct skl *skl, void *driver_data)
 	return 0;
 }
 
-static int skl_machine_device_register(struct skl *skl)
+static int skl_machine_device_register(struct skl_dev *skl)
 {
 	struct snd_soc_acpi_mach *mach = skl->mach;
 	struct hdac_bus *bus = skl_to_bus(skl);
@@ -558,13 +631,13 @@ static int skl_machine_device_register(struct skl *skl)
 	return 0;
 }
 
-static void skl_machine_device_unregister(struct skl *skl)
+static void skl_machine_device_unregister(struct skl_dev *skl)
 {
 	if (skl->i2s_dev)
 		platform_device_unregister(skl->i2s_dev);
 }
 
-static int skl_dmic_device_register(struct skl *skl)
+static int skl_dmic_device_register(struct skl_dev *skl)
 {
 	struct hdac_bus *bus = skl_to_bus(skl);
 	struct platform_device *pdev;
@@ -588,7 +661,7 @@ static int skl_dmic_device_register(struct skl *skl)
 	return 0;
 }
 
-static void skl_dmic_device_unregister(struct skl *skl)
+static void skl_dmic_device_unregister(struct skl_dev *skl)
 {
 	if (skl->dmic_dev)
 		platform_device_unregister(skl->dmic_dev);
@@ -626,7 +699,7 @@ static void init_skl_xtal_rate(int pci_id)
 	}
 }
 
-static int skl_clock_device_register(struct skl *skl)
+static int skl_clock_device_register(struct skl_dev *skl)
 {
 	struct platform_device_info pdevinfo = {NULL};
 	struct skl_clk_pdata *clk_pdata;
@@ -656,7 +729,7 @@ static int skl_clock_device_register(struct skl *skl)
 	return PTR_ERR_OR_ZERO(skl->clk_dev);
 }
 
-static void skl_clock_device_unregister(struct skl *skl)
+static void skl_clock_device_unregister(struct skl_dev *skl)
 {
 	if (skl->clk_dev)
 		platform_device_unregister(skl->clk_dev);
@@ -692,7 +765,7 @@ static int probe_codec(struct hdac_bus *bus, int addr)
 	unsigned int cmd = (addr << 28) | (AC_NODE_ROOT << 20) |
 		(AC_VERB_PARAMETERS << 8) | AC_PAR_VENDOR_ID;
 	unsigned int res = -1;
-	struct skl *skl = bus_to_skl(bus);
+	struct skl_dev *skl = bus_to_skl(bus);
 #if IS_ENABLED(CONFIG_SND_SOC_INTEL_SKYLAKE_HDAUDIO_CODEC)
 	struct hdac_hda_priv *hda_codec;
 	int err;
@@ -792,7 +865,7 @@ static int skl_i915_init(struct hdac_bus *bus)
 
 static void skl_probe_work(struct work_struct *work)
 {
-	struct skl *skl = container_of(work, struct skl, probe_work);
+	struct skl_dev *skl = container_of(work, struct skl_dev, probe_work);
 	struct hdac_bus *bus = skl_to_bus(skl);
 	struct hdac_ext_link *hlink = NULL;
 	int err;
@@ -835,6 +908,11 @@ static void skl_probe_work(struct work_struct *work)
 	list_for_each_entry(hlink, &bus->hlink_list, list)
 		snd_hdac_ext_bus_link_put(bus, hlink);
 
+	if (!bus->cmd_dma_state) {
+		snd_hdac_bus_init_cmd_io(bus);
+		bus->cmd_dma_state = true;
+	}
+
 	if (IS_ENABLED(CONFIG_SND_SOC_HDAC_HDMI))
 		snd_hdac_display_power(bus, HDA_CODEC_IDX_CONTROLLER, false);
 
@@ -855,10 +933,10 @@ out_err:
  */
 static int skl_create(struct pci_dev *pci,
 		      const struct hdac_io_ops *io_ops,
-		      struct skl **rskl)
+		      struct skl_dev **rskl)
 {
 	struct hdac_ext_bus_ops *ext_ops = NULL;
-	struct skl *skl;
+	struct skl_dev *skl;
 	struct hdac_bus *bus;
 	struct hda_bus *hbus;
 	int err;
@@ -902,7 +980,7 @@ static int skl_create(struct pci_dev *pci,
 
 static int skl_first_init(struct hdac_bus *bus)
 {
-	struct skl *skl = bus_to_skl(bus);
+	struct skl_dev *skl = bus_to_skl(bus);
 	struct pci_dev *pci = skl->pci;
 	int err;
 	unsigned short gcap;
@@ -978,7 +1056,7 @@ static int skl_first_init(struct hdac_bus *bus)
 static int skl_probe(struct pci_dev *pci,
 		     const struct pci_device_id *pci_id)
 {
-	struct skl *skl;
+	struct skl_dev *skl;
 	struct hdac_bus *bus = NULL;
 	int err;
 
@@ -1029,6 +1107,8 @@ static int skl_probe(struct pci_dev *pci,
 
 	device_disable_async_suspend(bus->dev);
 
+	pci_set_drvdata(skl->pci, bus);
+
 	skl->nhlt = skl_nhlt_init(bus->dev);
 
 	if (skl->nhlt == NULL) {
@@ -1043,11 +1123,17 @@ static int skl_probe(struct pci_dev *pci,
 
 		err = skl_nhlt_create_sysfs(skl);
 		if (err < 0) {
-			dev_err(bus->dev, "skl_nhlt_create_sysfs failed with err: %d\n", err);
-			goto out_nhlt_free;
+			dev_err(bus->dev,
+				"skl_nhlt_create_sysfs failed with err: %d\n",
+				err);
+			goto out_free;
 		}
 
-		skl_nhlt_update_topology_bin(skl);
+		if (!tplg_name || strlen(tplg_name) >= sizeof(skl->tplg_name))
+			skl_nhlt_update_topology_bin(skl);
+		else
+			snprintf(skl->tplg_name, sizeof(skl->tplg_name), "%s",
+				tplg_name);
 
 		/* create device for dsp clk */
 		err = skl_clock_device_register(skl);
@@ -1059,20 +1145,20 @@ static int skl_probe(struct pci_dev *pci,
 
 	pci_set_drvdata(skl->pci, bus);
 
-
 	err = skl_find_machine(skl, (void *)pci_id->driver_data);
 	if (err < 0) {
-		dev_err(bus->dev, "skl_find_machine failed with err: %d\n", err);
-		goto out_nhlt_free;
+		dev_err(bus->dev, "skl_find_machine failed with err: %d\n",
+			err);
+		goto out_free;
 	}
 
 	err = skl_init_dsp(skl);
 	if (err < 0) {
 		dev_dbg(bus->dev, "error failed to register dsp\n");
-		goto out_nhlt_free;
+		goto out_free;
 	}
-	skl->skl_sst->enable_miscbdcge = skl_enable_miscbdcge;
-	skl->skl_sst->clock_power_gating = skl_clock_power_gating;
+	skl->enable_miscbdcge = skl_enable_miscbdcge;
+	skl->clock_power_gating = skl_clock_power_gating;
 
 	if (bus->mlcap)
 		snd_hdac_ext_bus_get_ml_capabilities(bus);
@@ -1094,8 +1180,6 @@ out_dsp_free:
 	skl_free_dsp(skl);
 out_clk_free:
 	skl_clock_device_unregister(skl);
-out_nhlt_free:
-	skl_nhlt_free(skl->nhlt);
 out_free:
 	skl_free(bus);
 
@@ -1107,7 +1191,7 @@ static void skl_shutdown(struct pci_dev *pci)
 	struct hdac_bus *bus = pci_get_drvdata(pci);
 	struct hdac_stream *s;
 	struct hdac_ext_stream *stream;
-	struct skl *skl;
+	struct skl_dev *skl;
 
 	if (!bus)
 		return;
@@ -1118,6 +1202,17 @@ static void skl_shutdown(struct pci_dev *pci)
 		return;
 
 	snd_hdac_ext_stop_streams(bus);
+	snd_hdac_ext_bus_link_power_down_all(bus);
+	skl_dsp_sleep(skl->dsp);
+	/* While doing the warm reboot testing, some times dsp core is on
+	 * when system goes to shutdown. When cores.usage_count is
+	 * equal to zero then driver puts the dsp core to zero. On few
+	 * warm reboots cores.usage_count is not equal to zero and dsp
+	 * core is ON even system goes to shutdown. Force the dsp cores
+	 * off without checking the usage_count.
+	 */
+	skl_dsp_disable_core(skl->dsp, SKL_DSP_CORE0_ID);
+
 	list_for_each_entry(s, &bus->stream_list, list) {
 		stream = stream_to_hdac_ext_stream(s);
 		snd_hdac_ext_stream_decouple(bus, stream, false);
@@ -1129,10 +1224,9 @@ static void skl_shutdown(struct pci_dev *pci)
 static void skl_remove(struct pci_dev *pci)
 {
 	struct hdac_bus *bus = pci_get_drvdata(pci);
-	struct skl *skl = bus_to_skl(bus);
+	struct skl_dev *skl = bus_to_skl(bus);
 
 	cancel_work_sync(&skl->probe_work);
-
 	pm_runtime_get_noresume(&pci->dev);
 
 	/* codec removal, invoke bus_device_remove */
@@ -1144,7 +1238,6 @@ static void skl_remove(struct pci_dev *pci)
 	skl_dmic_device_unregister(skl);
 	skl_clock_device_unregister(skl);
 	skl_nhlt_remove_sysfs(skl);
-	skl_nhlt_free(skl->nhlt);
 	skl_free(bus);
 	dev_set_drvdata(&pci->dev, NULL);
 }
@@ -1191,6 +1284,12 @@ static const struct pci_device_id skl_ids[] = {
 	{ PCI_DEVICE(0x8086, 0x06c8),
 		.driver_data = (unsigned long)&snd_soc_acpi_intel_cnl_machines},
 #endif
+	/* ICL */
+	{ PCI_DEVICE(0x8086, 0x34c8),
+		.driver_data = (unsigned long)&snd_soc_acpi_intel_icl_machines},
+	/* EHL */
+	{ PCI_DEVICE(0x8086, 0x4b55),
+		.driver_data = (unsigned long)&snd_soc_acpi_intel_ehl_machines},
 	{ 0, }
 };
 MODULE_DEVICE_TABLE(pci, skl_ids);
