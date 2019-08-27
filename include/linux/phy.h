@@ -1139,6 +1139,8 @@ int phy_ethtool_ksettings_set(struct phy_device *phydev,
 			      const struct ethtool_link_ksettings *cmd);
 int phy_mii_ioctl(struct phy_device *phydev, struct ifreq *ifr, int cmd);
 void phy_request_interrupt(struct phy_device *phydev);
+int phy_disable_interrupts(struct phy_device *phydev);
+int phy_enable_interrupts(struct phy_device *phydev);
 void phy_free_interrupt(struct phy_device *phydev);
 void phy_print_status(struct phy_device *phydev);
 int phy_set_max_speed(struct phy_device *phydev, u32 max_speed);
@@ -1239,9 +1241,16 @@ struct mdio_board_info {
 #if IS_ENABLED(CONFIG_MDIO_DEVICE)
 int mdiobus_register_board_info(const struct mdio_board_info *info,
 				unsigned int n);
+int mdiobus_create_device(struct mii_bus *bus, struct mdio_board_info *bi);
 #else
 static inline int mdiobus_register_board_info(const struct mdio_board_info *i,
 					      unsigned int n)
+{
+	return 0;
+}
+
+static inline int mdiobus_create_device(struct mii_bus *bus,
+					struct mdio_board_info *bi)
 {
 	return 0;
 }

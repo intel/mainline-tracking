@@ -28,6 +28,14 @@ struct stmmac_resources {
 	int wol_irq;
 	int lpi_irq;
 	int irq;
+	int phy_conv_irq;
+	int sfty_ce_irq;
+	int sfty_ue_irq;
+	int rx_irq[MTL_MAX_RX_QUEUES];
+	int tx_irq[MTL_MAX_TX_QUEUES];
+#ifdef CONFIG_STMMAC_NETWORK_PROXY
+	int netprox_irq;
+#endif
 };
 
 struct stmmac_tx_info {
@@ -44,6 +52,7 @@ struct stmmac_tx_queue {
 	struct timer_list txtimer;
 	u32 queue_index;
 	struct stmmac_priv *priv_data;
+	struct dma_enhanced_tx_desc *dma_enhtx ____cacheline_aligned_in_smp;
 	struct dma_extended_desc *dma_etx ____cacheline_aligned_in_smp;
 	struct dma_desc *dma_tx;
 	struct sk_buff **tx_skbuff;
@@ -138,9 +147,11 @@ struct stmmac_priv {
 
 	/* RX Queue */
 	struct stmmac_rx_queue rx_queue[MTL_MAX_RX_QUEUES];
+	unsigned int dma_rx_size;
 
 	/* TX Queue */
 	struct stmmac_tx_queue tx_queue[MTL_MAX_TX_QUEUES];
+	unsigned int dma_tx_size;
 
 	/* Generic channel for NAPI */
 	struct stmmac_channel channel[STMMAC_CH_MAX];
@@ -172,6 +183,7 @@ struct stmmac_priv {
 	int tx_lpi_timer;
 	unsigned int mode;
 	unsigned int chain_mode;
+	int enhanced_tx_desc;
 	int extend_desc;
 	struct hwtstamp_config tstamp_config;
 	struct ptp_clock *ptp_clock;
@@ -185,6 +197,25 @@ struct stmmac_priv {
 	spinlock_t ptp_lock;
 	void __iomem *mmcaddr;
 	void __iomem *ptpaddr;
+	int phy_conv_irq;
+	int sfty_ce_irq;
+	int sfty_ue_irq;
+	int rx_irq[MTL_MAX_RX_QUEUES];
+	int tx_irq[MTL_MAX_TX_QUEUES];
+#ifdef CONFIG_STMMAC_NETWORK_PROXY
+	int netprox_irq;
+#endif
+	/*irq name */
+	char int_name_mac[IFNAMSIZ + 9];
+	char int_name_wol[IFNAMSIZ + 9];
+	char int_name_lpi[IFNAMSIZ + 9];
+	char int_name_sfty_ce[IFNAMSIZ + 9];
+	char int_name_sfty_ue[IFNAMSIZ + 9];
+	char int_name_rx_irq[MTL_MAX_TX_QUEUES][IFNAMSIZ + 9];
+	char int_name_tx_irq[MTL_MAX_TX_QUEUES][IFNAMSIZ + 9];
+#ifdef CONFIG_STMMAC_NETWORK_PROXY
+	char int_name_netprox_irq[IFNAMSIZ + 9];
+#endif
 
 #ifdef CONFIG_DEBUG_FS
 	struct dentry *dbgfs_dir;
@@ -195,6 +226,12 @@ struct stmmac_priv {
 	unsigned long state;
 	struct workqueue_struct *wq;
 	struct work_struct service_task;
+#ifdef CONFIG_STMMAC_NETWORK_PROXY
+	/* Network Proxy A2H Worker */
+	struct workqueue_struct *netprox_wq;
+	struct work_struct netprox_task;
+	bool networkproxy_exit;
+#endif
 
 	/* TC Handling */
 	unsigned int tc_entries_max;
@@ -227,6 +264,15 @@ int stmmac_dvr_probe(struct device *device,
 		     struct stmmac_resources *res);
 void stmmac_disable_eee_mode(struct stmmac_priv *priv);
 bool stmmac_eee_init(struct stmmac_priv *priv);
+int stmmac_reinit_queues(struct net_device *dev, u32 rx_cnt, u32 tx_cnt);
+int stmmac_reinit_ringparam(struct net_device *dev, u32 rx_size, u32 tx_size);
+#ifdef CONFIG_STMMAC_NETWORK_PROXY
+int stmmac_config_dma_channel(struct stmmac_priv *priv);
+int stmmac_suspend_common(struct stmmac_priv *priv, struct net_device *ndev);
+int stmmac_resume_common(struct stmmac_priv *priv, struct net_device *ndev);
+int stmmac_suspend_main(struct stmmac_priv *priv, struct net_device *ndev);
+int stmmac_resume_main(struct stmmac_priv *priv, struct net_device *ndev);
+#endif
 
 #if IS_ENABLED(CONFIG_STMMAC_SELFTESTS)
 void stmmac_selftest_run(struct net_device *dev,

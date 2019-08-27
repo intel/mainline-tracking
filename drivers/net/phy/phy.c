@@ -746,7 +746,7 @@ static void phy_error(struct phy_device *phydev)
  * phy_disable_interrupts - Disable the PHY interrupts from the PHY side
  * @phydev: target phy_device struct
  */
-static int phy_disable_interrupts(struct phy_device *phydev)
+int phy_disable_interrupts(struct phy_device *phydev)
 {
 	int err;
 
@@ -758,6 +758,7 @@ static int phy_disable_interrupts(struct phy_device *phydev)
 	/* Clear the interrupt */
 	return phy_clear_interrupt(phydev);
 }
+EXPORT_SYMBOL(phy_disable_interrupts);
 
 /**
  * phy_interrupt - PHY interrupt handler
@@ -794,7 +795,7 @@ phy_err:
  * phy_enable_interrupts - Enable the interrupts from the PHY side
  * @phydev: target phy_device struct
  */
-static int phy_enable_interrupts(struct phy_device *phydev)
+int phy_enable_interrupts(struct phy_device *phydev)
 {
 	int err = phy_clear_interrupt(phydev);
 
@@ -803,6 +804,7 @@ static int phy_enable_interrupts(struct phy_device *phydev)
 
 	return phy_config_interrupt(phydev, PHY_INTERRUPT_ENABLED);
 }
+EXPORT_SYMBOL(phy_enable_interrupts);
 
 /**
  * phy_request_interrupt - request and enable interrupt for a PHY device
@@ -1036,6 +1038,7 @@ int phy_init_eee(struct phy_device *phydev, bool clk_stop_enable)
 		__ETHTOOL_DECLARE_LINK_MODE_MASK(lp);
 		__ETHTOOL_DECLARE_LINK_MODE_MASK(adv);
 		int eee_lp, eee_cap, eee_adv;
+		int fake_adv = 0xFFFF;
 		int status;
 		u32 cap;
 
@@ -1058,6 +1061,12 @@ int phy_init_eee(struct phy_device *phydev, bool clk_stop_enable)
 		 */
 		eee_lp = phy_read_mmd(phydev, MDIO_MMD_AN, MDIO_AN_EEE_LPABLE);
 		if (eee_lp <= 0)
+			goto eee_exit_err;
+
+		/* To advertised EEE link modes */
+		eee_adv = phy_write_mmd(phydev, MDIO_MMD_AN, MDIO_AN_EEE_ADV,
+					fake_adv);
+		if (eee_adv <= 0)
 			goto eee_exit_err;
 
 		eee_adv = phy_read_mmd(phydev, MDIO_MMD_AN, MDIO_AN_EEE_ADV);

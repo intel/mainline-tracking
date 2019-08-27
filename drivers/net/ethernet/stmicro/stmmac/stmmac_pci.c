@@ -9,10 +9,14 @@
   Author: Giuseppe Cavallaro <peppe.cavallaro@st.com>
 *******************************************************************************/
 
+#include <linux/clk-provider.h>
+#include <linux/phy.h>
 #include <linux/pci.h>
 #include <linux/dmi.h>
-
+#include <linux/dwxpcs.h>
+#include "dwmac4.h"
 #include "stmmac.h"
+#include "stmmac_ptp.h"
 
 /*
  * This struct is used to associate PCI Function of MAC controller on a board,
@@ -105,6 +109,411 @@ static int stmmac_default_data(struct pci_dev *pdev,
 
 static const struct stmmac_pci_info stmmac_pci_info = {
 	.setup = stmmac_default_data,
+};
+
+static struct dwxpcs_platform_data intel_mgbe_pdata = {
+	.mode = DWXPCS_MODE_SGMII_AN,
+	.ext_phy_addr = 0x0,
+};
+
+static struct mdio_board_info intel_mgbe_bdinfo = {
+	.bus_id = "stmmac-1",
+	.modalias = "dwxpcs",
+	.mdio_addr = 0x16,
+	.platform_data = &intel_mgbe_pdata,
+};
+
+static int setup_intel_mgbe_phy_conv(struct mii_bus *bus, int irq,
+				     bool speed_2500_en)
+{
+	struct dwxpcs_platform_data *pdata = &intel_mgbe_pdata;
+
+	pdata->irq = irq;
+	pdata->speed_2500_en = speed_2500_en;
+
+	return mdiobus_create_device(bus, &intel_mgbe_bdinfo);
+}
+
+static int remove_intel_mgbe_phy_conv(struct mii_bus *bus)
+{
+	struct mdio_board_info *bdinfo = &intel_mgbe_bdinfo;
+	struct mdio_device *mdiodev;
+
+	mdiodev = mdiobus_get_mdio_device(bus, bdinfo->mdio_addr);
+
+	if (!mdiodev)
+		return -1;
+
+	mdio_device_remove(mdiodev);
+
+	return 0;
+}
+
+static int intel_mgbe_common_data(struct pci_dev *pdev,
+				  struct plat_stmmacenet_data *plat)
+{
+	int i;
+
+	plat->clk_csr = 5;
+	plat->clk_trail_n = 2;
+	plat->has_gmac = 0;
+	plat->has_gmac4 = 1;
+	plat->has_tbs = 1;
+	plat->has_safety_feat = 0;
+	plat->force_sf_dma_mode = 0;
+	plat->tso_en = 1;
+	plat->tsn_est_en = 1;
+	plat->tsn_fpe_en = 1;
+	plat->tsn_tbs_en = 1;
+	/* FPE HW Tunable */
+	plat->fprq = 1;
+	plat->afsz = 0;  /* Adjustable Fragment Size */
+	plat->hadv = 0;  /* Hold Advance */
+	plat->radv = 0;  /* Release Advance*/
+	/* TBS HW Tunable */
+	plat->estm = 0;  /* Absolute Mode */
+	plat->leos = 0;  /* Launch Expiry Offset */
+	plat->legos = 0; /* Launch Expiry GSN Offset */
+	plat->ftos = 0;  /* Fetch Time Offset */
+	plat->fgos = 0;  /* Fetch GSN Offset */
+
+	plat->rx_sched_algorithm = MTL_RX_ALGORITHM_SP;
+
+	for (i = 0; i < plat->rx_queues_to_use; i++) {
+		plat->rx_queues_cfg[i].mode_to_use = MTL_QUEUE_DCB;
+		plat->rx_queues_cfg[i].chan = i;
+
+		/* Disable Priority config by default */
+		plat->rx_queues_cfg[i].use_prio = false;
+
+		/* Disable RX queues routing by default */
+		plat->rx_queues_cfg[i].pkt_route = 0x0;
+	}
+
+	for (i = 0; i < plat->tx_queues_to_use; i++) {
+		plat->tx_queues_cfg[i].mode_to_use = MTL_QUEUE_DCB;
+
+		/* Disable Priority config by default */
+		plat->tx_queues_cfg[i].use_prio = false;
+	}
+
+	/* FIFO size is 4096 bytes for 1 tx/rx queue */
+	plat->tx_fifo_size = plat->tx_queues_to_use * 4096;
+	plat->rx_fifo_size = plat->rx_queues_to_use * 4096;
+
+	plat->tx_sched_algorithm = MTL_TX_ALGORITHM_WRR;
+	plat->tx_queues_cfg[0].weight = 0x09;
+	plat->tx_queues_cfg[1].weight = 0x0A;
+	plat->tx_queues_cfg[2].weight = 0x0B;
+	plat->tx_queues_cfg[3].weight = 0x0C;
+	plat->tx_queues_cfg[4].weight = 0x0D;
+	plat->tx_queues_cfg[5].weight = 0x0E;
+	plat->tx_queues_cfg[6].weight = 0x0F;
+	plat->tx_queues_cfg[7].weight = 0x10;
+
+	plat->mdio_bus_data->phy_mask = 0;
+
+	plat->dma_cfg->pbl = 32;
+	plat->dma_cfg->pblx8 = true;
+	plat->dma_cfg->fixed_burst = 0;
+	plat->dma_cfg->mixed_burst = 0;
+	plat->dma_cfg->aal = 0;
+
+	plat->axi = devm_kzalloc(&pdev->dev, sizeof(*plat->axi),
+				 GFP_KERNEL);
+	if (!plat->axi)
+		return -ENOMEM;
+
+	plat->axi->axi_lpi_en = 0;
+	plat->axi->axi_xit_frm = 0;
+	plat->axi->axi_wr_osr_lmt = 1;
+	plat->axi->axi_rd_osr_lmt = 1;
+	plat->axi->axi_blen[0] = 4;
+	plat->axi->axi_blen[1] = 8;
+	plat->axi->axi_blen[2] = 16;
+
+	plat->ptp_max_adj = plat->clk_ptp_rate;
+	plat->eee_usecs_rate = plat->clk_ptp_rate;
+	/* Set system clock */
+	plat->stmmac_clk = clk_register_fixed_rate(&pdev->dev,
+						   "stmmac-clk", NULL, 0,
+						   plat->clk_ptp_rate);
+
+	if (IS_ERR(plat->stmmac_clk)) {
+		dev_warn(&pdev->dev, "Fail to register stmmac-clk\n");
+		plat->stmmac_clk = NULL;
+	}
+	clk_prepare_enable(plat->stmmac_clk);
+
+	/* Set default value for multicast hash bins */
+	plat->multicast_filter_bins = HASH_TABLE_SIZE;
+
+	/* Set default value for unicast filter entries */
+	plat->unicast_filter_entries = 1;
+
+	/* Set the maxmtu to a default of JUMBO_LEN */
+	plat->maxmtu = JUMBO_LEN;
+
+	if (plat->interface == PHY_INTERFACE_MODE_SGMII) {
+		plat->setup_phy_conv = setup_intel_mgbe_phy_conv;
+		plat->remove_phy_conv = remove_intel_mgbe_phy_conv;
+		plat->has_serdes = 1;
+		/* intel specific adhoc (mdio) address for serdes & etc */
+		plat->intel_adhoc_addr = 0x15;
+	}
+
+	/* Setup MSI vector offset specific to Intel mGbE controller */
+	plat->msi_phy_conv_vec = 30;
+	plat->msi_mac_vec = 29;
+	plat->msi_lpi_vec = 28;
+	plat->msi_sfty_ce_vec = 27;
+	plat->msi_sfty_ue_vec = 26;
+	plat->msi_rx_base_vec = 0;
+	plat->msi_tx_base_vec = 1;
+
+	/* TSN HW tunable data */
+	plat->ctov = 0;
+	plat->ptov = 0;
+	plat->tils = 0;
+
+	plat->int_snapshot_num = AUX_SNAPSHOT1;
+	plat->ext_snapshot_num = AUX_SNAPSHOT0;
+	plat->ext_snapshot_en = 0;
+
+	return 0;
+}
+
+static int ehl_common_data(struct pci_dev *pdev,
+			   struct plat_stmmacenet_data *plat)
+{
+	int ret;
+
+	plat->rx_queues_to_use = 8;
+	plat->tx_queues_to_use = 8;
+	if (plat->is_hfpga)
+		plat->clk_ptp_rate = 20000000;
+	else
+		plat->clk_ptp_rate = 200000000;
+	ret = intel_mgbe_common_data(pdev, plat);
+	if (ret)
+		return ret;
+
+	return 0;
+}
+
+static int ehl_sgmii_data(struct pci_dev *pdev,
+			  struct plat_stmmacenet_data *plat)
+{
+	plat->bus_id = 1;
+	plat->phy_addr = 0;
+	plat->interface = PHY_INTERFACE_MODE_SGMII;
+	return ehl_common_data(pdev, plat);
+}
+
+static struct stmmac_pci_info ehl_sgmii1g_pci_info = {
+	.setup = ehl_sgmii_data,
+};
+
+static int ehl_rgmii_data(struct pci_dev *pdev,
+			  struct plat_stmmacenet_data *plat)
+{
+	plat->bus_id = 1;
+	plat->phy_addr = 0;
+	plat->interface = PHY_INTERFACE_MODE_RGMII;
+	return ehl_common_data(pdev, plat);
+}
+
+static struct stmmac_pci_info ehl_rgmii1g_pci_info = {
+	.setup = ehl_rgmii_data,
+};
+
+#define EHL_PSE_ETH_DMA_MISC_OFFSET	0x10000
+#define EHL_PSE_ETH_DMA_MISC_DTM_DRAM	3
+#define EHL_PSE_ETH_DMA_TOTAL_CH	16
+static void ehl_pse_work_around(struct pci_dev *pdev,
+				struct plat_stmmacenet_data *plat)
+{
+	void __iomem *tempaddr = pcim_iomap_table(pdev)[0];
+	int i;
+
+	for (i = 0; i < EHL_PSE_ETH_DMA_TOTAL_CH; i++) {
+		writel(EHL_PSE_ETH_DMA_MISC_DTM_DRAM, tempaddr
+		       + EHL_PSE_ETH_DMA_MISC_OFFSET + i * sizeof(u32));
+	}
+	plat->is_hfpga = 1;
+}
+
+static int ehl_pse0_common_data(struct pci_dev *pdev,
+				struct plat_stmmacenet_data *plat)
+{
+	plat->bus_id = 2;
+	plat->phy_addr = 1;
+	ehl_pse_work_around(pdev, plat);
+
+	/* store A2H packets in L2 SRAM, access through BAR0 + 128KB */
+#ifdef CONFIG_STMMAC_NETWORK_PROXY
+#if (CONFIG_STMMAC_NETWORK_PROXY_PORT == 0)
+	plat->has_netproxy = 1;
+	plat->msi_network_proxy_vec = 24;
+#endif /* CONFIG_STMMAC_NETWORK_PROXY_PORT */
+#endif /* CONFIG_STMMAC_NETWORK_PROXY */
+
+	return ehl_common_data(pdev, plat);
+}
+
+static int ehl_pse0_rgmii1g_data(struct pci_dev *pdev,
+				 struct plat_stmmacenet_data *plat)
+{
+	plat->interface = PHY_INTERFACE_MODE_RGMII_ID;
+	return ehl_pse0_common_data(pdev, plat);
+}
+
+static struct stmmac_pci_info ehl_pse0_rgmii1g_pci_info = {
+	.setup = ehl_pse0_rgmii1g_data,
+};
+
+static int ehl_pse0_sgmii1g_data(struct pci_dev *pdev,
+				 struct plat_stmmacenet_data *plat)
+{
+	plat->interface = PHY_INTERFACE_MODE_SGMII;
+	return ehl_pse0_common_data(pdev, plat);
+}
+
+static struct stmmac_pci_info ehl_pse0_sgmii1g_pci_info = {
+	.setup = ehl_pse0_sgmii1g_data,
+};
+
+static int ehl_pse1_common_data(struct pci_dev *pdev,
+				struct plat_stmmacenet_data *plat)
+{
+	plat->bus_id = 3;
+	plat->phy_addr = 1;
+	ehl_pse_work_around(pdev, plat);
+
+	/* store A2H packets in L2 SRAM, access through BAR0 + 128KB */
+#ifdef CONFIG_STMMAC_NETWORK_PROXY
+#if (CONFIG_STMMAC_NETWORK_PROXY_PORT == 1)
+	plat->has_netproxy = 1;
+	plat->msi_network_proxy_vec = 24;
+#endif /* CONFIG_STMMAC_NETWORK_PROXY_PORT */
+#endif /* CONFIG_STMMAC_NETWORK_PROXY */
+
+	return ehl_common_data(pdev, plat);
+}
+
+static int ehl_pse1_rgmii1g_data(struct pci_dev *pdev,
+				 struct plat_stmmacenet_data *plat)
+{
+	plat->interface = PHY_INTERFACE_MODE_RGMII_ID;
+	return ehl_pse1_common_data(pdev, plat);
+}
+
+static struct stmmac_pci_info ehl_pse1_rgmii1g_pci_info = {
+	.setup = ehl_pse1_rgmii1g_data,
+};
+
+static int ehl_pse1_sgmii1g_data(struct pci_dev *pdev,
+				 struct plat_stmmacenet_data *plat)
+{
+	plat->interface = PHY_INTERFACE_MODE_SGMII;
+	return ehl_pse1_common_data(pdev, plat);
+}
+
+static struct stmmac_pci_info ehl_pse1_sgmii1g_pci_info = {
+	.setup = ehl_pse1_sgmii1g_data,
+};
+
+static int tgl_common_data(struct pci_dev *pdev,
+			   struct plat_stmmacenet_data *plat)
+{
+	int ret;
+
+	plat->rx_queues_to_use = 6;
+	plat->tx_queues_to_use = 4;
+	plat->clk_ptp_rate = 200000000;
+	ret = intel_mgbe_common_data(pdev, plat);
+	if (ret)
+		return ret;
+
+	return 0;
+}
+
+static int tgl_sgmii_data(struct pci_dev *pdev,
+			  struct plat_stmmacenet_data *plat)
+{
+	plat->bus_id = 1;
+	plat->phy_addr = 0;
+	plat->interface = PHY_INTERFACE_MODE_SGMII;
+	return tgl_common_data(pdev, plat);
+}
+
+static struct stmmac_pci_info tgl_sgmii1g_pci_info = {
+	.setup = tgl_sgmii_data,
+};
+
+static int synp_haps_sgmii_data(struct pci_dev *pdev,
+				struct plat_stmmacenet_data *plat)
+{
+	int ret;
+
+	plat->bus_id = 1;
+	plat->phy_addr = 0;
+	plat->interface = PHY_INTERFACE_MODE_SGMII;
+
+	plat->rx_queues_to_use = 6;
+	plat->tx_queues_to_use = 4;
+	/* Set PTP clock rate for HAPS as 62.5MHz */
+	plat->clk_ptp_rate = 62500000;
+	ret = intel_mgbe_common_data(pdev, plat);
+	if (ret)
+		return ret;
+
+	/* Override: HAPS does not have xPCS   */
+	plat->setup_phy_conv = NULL;
+	plat->has_serdes = 0;
+	plat->intel_adhoc_addr = 0;
+
+	/* Override: HAPS does not support MSI */
+	plat->msi_phy_conv_vec = STMMAC_MSI_VEC_MAX;
+	plat->msi_mac_vec = STMMAC_MSI_VEC_MAX;
+	plat->msi_lpi_vec = STMMAC_MSI_VEC_MAX;
+	plat->msi_sfty_ce_vec = STMMAC_MSI_VEC_MAX;
+	plat->msi_sfty_ue_vec = STMMAC_MSI_VEC_MAX;
+	plat->msi_rx_base_vec = STMMAC_MSI_VEC_MAX;
+	plat->msi_tx_base_vec = STMMAC_MSI_VEC_MAX;
+
+	return 0;
+}
+
+static struct stmmac_pci_info synp_haps_pci_info = {
+	.setup = synp_haps_sgmii_data,
+};
+
+static int icl_sgmii_data(struct pci_dev *pdev,
+			  struct plat_stmmacenet_data *plat)
+{
+	int ret;
+
+	plat->bus_id = 1;
+	plat->phy_addr = 1;
+	plat->interface = PHY_INTERFACE_MODE_SGMII;
+
+	plat->rx_queues_to_use = 4;
+	plat->tx_queues_to_use = 4;
+	/* Set PTP clock rate for ICL as 200MHz */
+	plat->clk_ptp_rate = 200000000;
+	ret = intel_mgbe_common_data(pdev, plat);
+	if (ret)
+		return ret;
+
+	/* Override: ICL B0 SoC does not have TBS */
+	plat->has_tbs = 0;
+
+	return 0;
+}
+
+static struct stmmac_pci_info icl_pci_info = {
+	.setup = icl_sgmii_data,
 };
 
 static const struct stmmac_pci_func_data galileo_stmmac_func_data[] = {
@@ -213,6 +622,91 @@ static const struct stmmac_pci_info quark_pci_info = {
 	.setup = quark_default_data,
 };
 
+static int stmmac_config_single_msi(struct pci_dev *pdev,
+				    struct plat_stmmacenet_data *plat,
+				    struct stmmac_resources *res)
+{
+	int ret;
+
+	ret = pci_alloc_irq_vectors(pdev, 1, 1,
+				    PCI_IRQ_LEGACY | PCI_IRQ_MSI);
+	if (ret < 0) {
+		dev_info(&pdev->dev, "%s: Single IRQ enablement failed\n",
+			 __func__);
+		return ret;
+	}
+
+	res->irq = pci_irq_vector(pdev, 0);
+	res->wol_irq = res->irq;
+	res->wol_irq = res->irq;
+	res->phy_conv_irq = res->irq;
+	plat->multi_msi_en = 0;
+	dev_info(&pdev->dev, "%s: Single IRQ enablement successful\n",
+		 __func__);
+
+	return 0;
+}
+
+static int stmmac_config_multi_msi(struct pci_dev *pdev,
+				   struct plat_stmmacenet_data *plat,
+				   struct stmmac_resources *res)
+{
+	int ret;
+	int i;
+
+	ret = pci_alloc_irq_vectors(pdev, 1, STMMAC_MSI_VEC_MAX,
+				    PCI_IRQ_MSI);
+	if (ret < 0) {
+		dev_info(&pdev->dev, "%s: multi MSI enablement failed\n",
+			 __func__);
+		return ret;
+	}
+
+	if (plat->msi_rx_base_vec >= STMMAC_MSI_VEC_MAX ||
+	    plat->msi_tx_base_vec >= STMMAC_MSI_VEC_MAX) {
+		dev_info(&pdev->dev, "%s: Invalid RX & TX vector defined\n",
+			 __func__);
+		return -1;
+	}
+
+	/* For RX MSI */
+	for (i = 0; i < plat->rx_queues_to_use; i++) {
+		res->rx_irq[i] = pci_irq_vector(pdev,
+						plat->msi_rx_base_vec + i * 2);
+	}
+
+	/* For TX MSI */
+	for (i = 0; i < plat->tx_queues_to_use; i++) {
+		res->tx_irq[i] = pci_irq_vector(pdev,
+						plat->msi_tx_base_vec + i * 2);
+	}
+
+	if (plat->msi_mac_vec < STMMAC_MSI_VEC_MAX)
+		res->irq = pci_irq_vector(pdev, plat->msi_mac_vec);
+	if (plat->msi_wol_vec < STMMAC_MSI_VEC_MAX)
+		res->wol_irq = pci_irq_vector(pdev, plat->msi_wol_vec);
+	if (plat->msi_lpi_vec < STMMAC_MSI_VEC_MAX)
+		res->lpi_irq = pci_irq_vector(pdev, plat->msi_lpi_vec);
+	if (plat->msi_phy_conv_vec < STMMAC_MSI_VEC_MAX)
+		res->phy_conv_irq = pci_irq_vector(pdev,
+						   plat->msi_phy_conv_vec);
+	if (plat->msi_sfty_ce_vec < STMMAC_MSI_VEC_MAX)
+		res->sfty_ce_irq = pci_irq_vector(pdev, plat->msi_sfty_ce_vec);
+	if (plat->msi_sfty_ue_vec < STMMAC_MSI_VEC_MAX)
+		res->sfty_ue_irq = pci_irq_vector(pdev, plat->msi_sfty_ue_vec);
+#ifdef CONFIG_STMMAC_NETWORK_PROXY
+	if (plat->msi_network_proxy_vec < STMMAC_MSI_VEC_MAX &&
+	    plat->has_netproxy)
+		res->netprox_irq =
+			pci_irq_vector(pdev, plat->msi_network_proxy_vec);
+#endif /* CONFIG_STMMAC_NETWORK_PROXY */
+
+	plat->multi_msi_en = 1;
+	dev_info(&pdev->dev, "%s: multi MSI enablement successful\n", __func__);
+
+	return 0;
+}
+
 /**
  * stmmac_pci_probe
  *
@@ -269,17 +763,48 @@ static int stmmac_pci_probe(struct pci_dev *pdev,
 
 	pci_set_master(pdev);
 
+	/* Initialize all MSI vectors to invalid so that it can be set
+	 * according to platform data settings below.
+	 * Note: MSI vector takes value from 0 upto 31 (STMMAC_MSI_VEC_MAX)
+	 */
+	plat->msi_mac_vec = STMMAC_MSI_VEC_MAX;
+	plat->msi_wol_vec = STMMAC_MSI_VEC_MAX;
+	plat->msi_lpi_vec = STMMAC_MSI_VEC_MAX;
+	plat->msi_phy_conv_vec = STMMAC_MSI_VEC_MAX;
+	plat->msi_sfty_ce_vec = STMMAC_MSI_VEC_MAX;
+	plat->msi_sfty_ue_vec = STMMAC_MSI_VEC_MAX;
+	plat->msi_rx_base_vec = STMMAC_MSI_VEC_MAX;
+	plat->msi_tx_base_vec = STMMAC_MSI_VEC_MAX;
+#ifdef CONFIG_STMMAC_NETWORK_PROXY
+	plat->msi_network_proxy_vec = STMMAC_MSI_VEC_MAX;
+#endif /* CONFIG_STMMAC_NETWORK_PROXY */
+
 	ret = info->setup(pdev, plat);
 	if (ret)
 		return ret;
 
-	pci_enable_msi(pdev);
-
 	memset(&res, 0, sizeof(res));
 	res.addr = pcim_iomap_table(pdev)[i];
-	res.wol_irq = pdev->irq;
-	res.irq = pdev->irq;
 
+	if (plat->eee_usecs_rate > 0) {
+		u32 tx_lpi_usec;
+
+		tx_lpi_usec = (plat->eee_usecs_rate / 1000000) - 1;
+		writel(tx_lpi_usec, res.addr + GMAC_1US_TIC_COUNTER);
+	}
+
+	ret = stmmac_config_multi_msi(pdev, plat, &res);
+	if (!ret)
+		goto msi_done;
+
+	ret = stmmac_config_single_msi(pdev, plat, &res);
+	if (!ret) {
+		dev_err(&pdev->dev, "%s: ERROR: failed to enable IRQ\n",
+			__func__);
+		return ret;
+	}
+
+msi_done:
 	return stmmac_dvr_probe(&pdev->dev, plat, &res);
 }
 
@@ -292,9 +817,14 @@ static int stmmac_pci_probe(struct pci_dev *pdev,
  */
 static void stmmac_pci_remove(struct pci_dev *pdev)
 {
+	struct net_device *ndev = dev_get_drvdata(&pdev->dev);
+	struct stmmac_priv *priv = netdev_priv(ndev);
 	int i;
 
 	stmmac_dvr_remove(&pdev->dev);
+
+	if (priv->plat->stmmac_clk)
+		clk_unregister_fixed_rate(priv->plat->stmmac_clk);
 
 	for (i = 0; i <= PCI_STD_RESOURCE_END; i++) {
 		if (pci_resource_len(pdev, i) == 0)
@@ -303,6 +833,7 @@ static void stmmac_pci_remove(struct pci_dev *pdev)
 		break;
 	}
 
+	pci_free_irq_vectors(pdev);
 	pci_disable_device(pdev);
 }
 
@@ -348,6 +879,19 @@ static SIMPLE_DEV_PM_OPS(stmmac_pm_ops, stmmac_pci_suspend, stmmac_pci_resume);
 
 #define STMMAC_QUARK_ID  0x0937
 #define STMMAC_DEVICE_ID 0x1108
+#define STMMAC_EHL_RGMII1G_ID	0x4b30
+#define STMMAC_EHL_SGMII1G_ID	0x4b31
+#define STMMAC_EHL_SGMII2G5_ID	0x4b32
+#define STMMAC_EHL_PSE0_RGMII1G_ID	0x4ba0
+#define STMMAC_EHL_PSE0_SGMII1G_ID	0x4ba1
+#define STMMAC_EHL_PSE0_SGMII2G5_ID	0x4ba2
+#define STMMAC_EHL_PSE1_RGMII1G_ID	0x4bb0
+#define STMMAC_EHL_PSE1_SGMII1G_ID	0x4bb1
+#define STMMAC_EHL_PSE1_SGMII2G5_ID	0x4bb2
+#define STMMAC_TGL_SGMII1G_ID	0xa0ac
+#define DEVICE_ID_HAPS_DX	0x7102
+#define DEVICE_ID_HAPS_6X	0x7101
+#define STMMAC_ICP_LP_ID	0x34ac
 
 #define STMMAC_DEVICE(vendor_id, dev_id, info)	{	\
 	PCI_VDEVICE(vendor_id, dev_id),			\
@@ -358,6 +902,25 @@ static const struct pci_device_id stmmac_id_table[] = {
 	STMMAC_DEVICE(STMMAC, STMMAC_DEVICE_ID, stmmac_pci_info),
 	STMMAC_DEVICE(STMICRO, PCI_DEVICE_ID_STMICRO_MAC, stmmac_pci_info),
 	STMMAC_DEVICE(INTEL, STMMAC_QUARK_ID, quark_pci_info),
+	STMMAC_DEVICE(INTEL, STMMAC_EHL_RGMII1G_ID, ehl_rgmii1g_pci_info),
+	STMMAC_DEVICE(INTEL, STMMAC_EHL_SGMII1G_ID, ehl_sgmii1g_pci_info),
+	STMMAC_DEVICE(INTEL, STMMAC_EHL_SGMII2G5_ID, ehl_sgmii1g_pci_info),
+	STMMAC_DEVICE(INTEL, STMMAC_EHL_PSE0_RGMII1G_ID,
+		      ehl_pse0_rgmii1g_pci_info),
+	STMMAC_DEVICE(INTEL, STMMAC_EHL_PSE0_SGMII1G_ID,
+		      ehl_pse0_sgmii1g_pci_info),
+	STMMAC_DEVICE(INTEL, STMMAC_EHL_PSE0_SGMII2G5_ID,
+		      ehl_pse0_sgmii1g_pci_info),
+	STMMAC_DEVICE(INTEL, STMMAC_EHL_PSE1_RGMII1G_ID,
+		      ehl_pse1_rgmii1g_pci_info),
+	STMMAC_DEVICE(INTEL, STMMAC_EHL_PSE1_SGMII1G_ID,
+		      ehl_pse1_sgmii1g_pci_info),
+	STMMAC_DEVICE(INTEL, STMMAC_EHL_PSE1_SGMII2G5_ID,
+		      ehl_pse1_sgmii1g_pci_info),
+	STMMAC_DEVICE(INTEL, STMMAC_TGL_SGMII1G_ID, tgl_sgmii1g_pci_info),
+	STMMAC_DEVICE(SYNOPSYS, DEVICE_ID_HAPS_DX, synp_haps_pci_info),
+	STMMAC_DEVICE(SYNOPSYS, DEVICE_ID_HAPS_6X, synp_haps_pci_info),
+	STMMAC_DEVICE(INTEL, STMMAC_ICP_LP_ID, icl_pci_info),
 	{}
 };
 

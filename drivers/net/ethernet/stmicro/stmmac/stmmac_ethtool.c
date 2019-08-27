@@ -79,7 +79,23 @@ static const struct stmmac_stats stmmac_gstrings_stats[] = {
 	STMMAC_STAT(rx_early_irq),
 	STMMAC_STAT(threshold),
 	STMMAC_STAT(tx_pkt_n),
+	STMMAC_STAT(q0_tx_pkt_n),
+	STMMAC_STAT(q1_tx_pkt_n),
+	STMMAC_STAT(q2_tx_pkt_n),
+	STMMAC_STAT(q3_tx_pkt_n),
+	STMMAC_STAT(q4_tx_pkt_n),
+	STMMAC_STAT(q5_tx_pkt_n),
+	STMMAC_STAT(q6_tx_pkt_n),
+	STMMAC_STAT(q7_tx_pkt_n),
 	STMMAC_STAT(rx_pkt_n),
+	STMMAC_STAT(q0_rx_pkt_n),
+	STMMAC_STAT(q1_rx_pkt_n),
+	STMMAC_STAT(q2_rx_pkt_n),
+	STMMAC_STAT(q3_rx_pkt_n),
+	STMMAC_STAT(q4_rx_pkt_n),
+	STMMAC_STAT(q5_rx_pkt_n),
+	STMMAC_STAT(q6_rx_pkt_n),
+	STMMAC_STAT(q7_rx_pkt_n),
 	STMMAC_STAT(normal_irq_n),
 	STMMAC_STAT(rx_normal_irq_n),
 	STMMAC_STAT(napi_poll),
@@ -87,6 +103,22 @@ static const struct stmmac_stats stmmac_gstrings_stats[] = {
 	STMMAC_STAT(tx_clean),
 	STMMAC_STAT(tx_set_ic_bit),
 	STMMAC_STAT(irq_receive_pmt_irq_n),
+	STMMAC_STAT(q0_rx_irq_n),
+	STMMAC_STAT(q1_rx_irq_n),
+	STMMAC_STAT(q2_rx_irq_n),
+	STMMAC_STAT(q3_rx_irq_n),
+	STMMAC_STAT(q4_rx_irq_n),
+	STMMAC_STAT(q5_rx_irq_n),
+	STMMAC_STAT(q6_rx_irq_n),
+	STMMAC_STAT(q7_rx_irq_n),
+	STMMAC_STAT(q0_tx_irq_n),
+	STMMAC_STAT(q1_tx_irq_n),
+	STMMAC_STAT(q2_tx_irq_n),
+	STMMAC_STAT(q3_tx_irq_n),
+	STMMAC_STAT(q4_tx_irq_n),
+	STMMAC_STAT(q5_tx_irq_n),
+	STMMAC_STAT(q6_tx_irq_n),
+	STMMAC_STAT(q7_tx_irq_n),
 	/* MMC info */
 	STMMAC_STAT(mmc_tx_irq_n),
 	STMMAC_STAT(mmc_rx_irq_n),
@@ -424,6 +456,33 @@ static int stmmac_nway_reset(struct net_device *dev)
 	return phylink_ethtool_nway_reset(priv->phylink);
 }
 
+static void stmmac_get_ringparam(struct net_device *netdev,
+				 struct ethtool_ringparam *ring)
+{
+	struct stmmac_priv *priv = netdev_priv(netdev);
+
+	ring->rx_max_pending = DMA_MAX_RX_SIZE;
+	ring->tx_max_pending = DMA_MAX_TX_SIZE;
+	ring->rx_pending = priv->dma_rx_size;
+	ring->tx_pending = priv->dma_tx_size;
+}
+
+static int stmmac_set_ringparam(struct net_device *netdev,
+				struct ethtool_ringparam *ring)
+{
+	if (ring->rx_mini_pending || ring->rx_jumbo_pending ||
+	    ring->rx_pending < DMA_MIN_RX_SIZE ||
+	    ring->rx_pending > DMA_MAX_RX_SIZE ||
+	    !is_power_of_2(ring->rx_pending) ||
+	    ring->tx_pending < DMA_MIN_TX_SIZE ||
+	    ring->tx_pending > DMA_MAX_TX_SIZE ||
+	    !is_power_of_2(ring->tx_pending))
+		return -EINVAL;
+
+	return stmmac_reinit_ringparam(netdev, ring->rx_pending,
+				       ring->tx_pending);
+}
+
 static void
 stmmac_get_pauseparam(struct net_device *netdev,
 		      struct ethtool_pauseparam *pause)
@@ -473,7 +532,18 @@ static void stmmac_get_ethtool_stats(struct net_device *dev,
 				data[j++] = count;
 		}
 	}
+	if (priv->hw->tsn_info.cap.est_support ||
+	    priv->hw->tsn_info.cap.fpe_support) {
+		/* Update TSN MMC stats that are not refreshed in interrupt */
+		stmmac_update_tsn_mmc_stat(priv, priv->hw, dev);
 
+		for (i = 0; i < STMMAC_TSN_STAT_SIZE; i++) {
+			if (!stmmac_dump_tsn_mmc(priv,
+						 priv->hw, i,
+						 &count, NULL))
+				data[j++] = count;
+		}
+	}
 	/* Update the DMA HW counters for dwmac10/100 */
 	ret = stmmac_dma_diagnostic_fr(priv, &dev->stats, (void *) &priv->xstats,
 			priv->ioaddr);
@@ -512,7 +582,7 @@ static void stmmac_get_ethtool_stats(struct net_device *dev,
 static int stmmac_get_sset_count(struct net_device *netdev, int sset)
 {
 	struct stmmac_priv *priv = netdev_priv(netdev);
-	int i, len, safety_len = 0;
+	int i, len, safety_len = 0, tsn_len = 0;
 
 	switch (sset) {
 	case ETH_SS_STATS:
@@ -529,6 +599,17 @@ static int stmmac_get_sset_count(struct net_device *netdev, int sset)
 			}
 
 			len += safety_len;
+		}
+		if (priv->hw->tsn_info.cap.est_support ||
+		    priv->hw->tsn_info.cap.fpe_support) {
+			for (i = 0; i < STMMAC_TSN_STAT_SIZE; i++) {
+				if (!stmmac_dump_tsn_mmc(priv,
+							 priv->hw, i,
+							 NULL, NULL))
+					tsn_len++;
+			}
+
+			len += tsn_len;
 		}
 
 		return len;
@@ -553,6 +634,19 @@ static void stmmac_get_strings(struct net_device *dev, u32 stringset, u8 *data)
 				if (!stmmac_safety_feat_dump(priv,
 							&priv->sstats, i,
 							NULL, &desc)) {
+					memcpy(p, desc, ETH_GSTRING_LEN);
+					p += ETH_GSTRING_LEN;
+				}
+			}
+		}
+		if (priv->hw->tsn_info.cap.est_support ||
+		    priv->hw->tsn_info.cap.fpe_support) {
+			for (i = 0; i < STMMAC_TSN_STAT_SIZE; i++) {
+				const char *desc;
+
+				if (!stmmac_dump_tsn_mmc(priv,
+							 priv->hw, i,
+							 NULL, &desc)) {
 					memcpy(p, desc, ETH_GSTRING_LEN);
 					p += ETH_GSTRING_LEN;
 				}
@@ -758,6 +852,30 @@ static int stmmac_set_coalesce(struct net_device *dev,
 	return 0;
 }
 
+static void stmmac_get_channels(struct net_device *dev,
+				struct ethtool_channels *chan)
+{
+	struct stmmac_priv *priv = netdev_priv(dev);
+
+	chan->rx_count = priv->plat->rx_queues_to_use;
+	chan->tx_count = priv->plat->tx_queues_to_use;
+	chan->max_rx = priv->dma_cap.number_rx_queues;
+	chan->max_tx = priv->dma_cap.number_tx_queues;
+}
+
+static int stmmac_set_channels(struct net_device *dev,
+			       struct ethtool_channels *chan)
+{
+	struct stmmac_priv *priv = netdev_priv(dev);
+
+	if (chan->rx_count > priv->dma_cap.number_rx_queues ||
+	    chan->tx_count > priv->dma_cap.number_tx_queues ||
+	    !chan->rx_count || !chan->tx_count)
+		return -EINVAL;
+
+	return stmmac_reinit_queues(dev, chan->rx_count, chan->tx_count);
+}
+
 static int stmmac_get_ts_info(struct net_device *dev,
 			      struct ethtool_ts_info *info)
 {
@@ -839,6 +957,8 @@ static const struct ethtool_ops stmmac_ethtool_ops = {
 	.get_regs_len = stmmac_ethtool_get_regs_len,
 	.get_link = ethtool_op_get_link,
 	.nway_reset = stmmac_nway_reset,
+	.get_ringparam = stmmac_get_ringparam,
+	.set_ringparam = stmmac_set_ringparam,
 	.get_pauseparam = stmmac_get_pauseparam,
 	.set_pauseparam = stmmac_set_pauseparam,
 	.self_test = stmmac_selftest_run,
@@ -852,6 +972,8 @@ static const struct ethtool_ops stmmac_ethtool_ops = {
 	.get_ts_info = stmmac_get_ts_info,
 	.get_coalesce = stmmac_get_coalesce,
 	.set_coalesce = stmmac_set_coalesce,
+	.get_channels = stmmac_get_channels,
+	.set_channels = stmmac_set_channels,
 	.get_tunable = stmmac_get_tunable,
 	.set_tunable = stmmac_set_tunable,
 	.get_link_ksettings = stmmac_ethtool_get_link_ksettings,
