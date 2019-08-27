@@ -4210,6 +4210,69 @@ static int stmmac_xdp_setup(struct net_device *dev, struct bpf_prog *prog)
 }
 
 /**
+ * stmmac_xdp_xmit_queue - takes an xdp_frame and transmit
+ *  @priv : private device structure
+ *  @queue: queue id
+ *  @xdpf: XDP frame to transmit
+ **/
+int stmmac_xdp_xmit_queue(struct stmmac_priv *priv, u32 queue,
+			  struct xdp_frame *xdpf)
+{
+	struct stmmac_tx_queue *tx_q = &priv->tx_queue[queue];
+	struct dma_desc *tx_desc;
+	u16 entry = tx_q->cur_tx;
+	void *data = xdpf->data;
+	u32 size = xdpf->len;
+	dma_addr_t dma;
+
+	if (!unlikely(stmmac_tx_avail(priv, queue)))
+		return STMMAC_XDP_DROP;
+
+	/* TODO: Add driver XDP statistics */
+
+	dma = dma_map_single(priv->device, data, size, DMA_TO_DEVICE);
+	if (dma_mapping_error(priv->device, dma))
+		return STMMAC_XDP_DROP;
+
+	tx_q->tx_skbuff_dma[entry].buf = dma;
+	tx_q->tx_skbuff_dma[entry].len = size;
+	tx_q->tx_skbuff_dma[entry].last_segment = true;
+	tx_q->tx_skbuff_dma[entry].map_as_page = false;
+	tx_q->tx_skbuff_dma[entry].is_jumbo = false;
+	tx_q->xdpf[entry] = xdpf;
+
+	if (priv->extend_desc)
+		tx_desc = (void *)tx_q->dma_etx;
+	else if (priv->enhanced_tx_desc)
+		tx_desc = (void *)tx_q->dma_enhtx;
+	else
+		tx_desc = (void *)tx_q->dma_tx;
+
+	/* Write Tx desc dma buffer address */
+	stmmac_set_desc_addr(priv, tx_desc, dma);
+
+	/* Prepare the descriptor and set the own bit too */
+	stmmac_prepare_tx_desc(priv, tx_desc,
+			       1, /* First Segment */
+			       size,
+			       0, /* No checksum offload */
+			       priv->mode,
+			       1, /* OWN bit */
+			       1, /* Last Segment */
+			       size);
+
+	/* The own bit must be the latest setting done when preparing the
+	 * descriptor and then barrier is needed to make sure that
+	 * all is coherent before granting the DMA engine the packet.
+	 */
+	wmb();
+
+	tx_q->cur_tx = STMMAC_GET_ENTRY(entry, priv->dma_tx_size);
+
+	return STMMAC_XDP_TX;
+}
+
+/**
  * stmmac_xdp - implements ndo_bpf
  * @dev: device pointer
  * @xdp: XDP command
