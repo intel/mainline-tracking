@@ -498,6 +498,7 @@ void pcie_do_recovery(struct pci_dev *dev, enum pci_channel_state state,
 		      u32 service);
 
 bool pcie_wait_for_link(struct pci_dev *pdev, bool active);
+void pcie_wait_downstream_accessible(struct pci_dev *pdev);
 #ifdef CONFIG_PCIEASPM
 void pcie_aspm_init_link_state(struct pci_dev *pdev);
 void pcie_aspm_exit_link_state(struct pci_dev *pdev);
