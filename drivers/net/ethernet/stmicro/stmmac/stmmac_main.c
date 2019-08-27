@@ -37,6 +37,9 @@
 #include <linux/net_tstamp.h>
 #include <linux/phylink.h>
 #include <net/pkt_cls.h>
+#include <linux/bpf.h>
+#include <linux/bpf_trace.h>
+#include <net/xdp_sock.h>
 #include "stmmac_ptp.h"
 #include "stmmac.h"
 #include <linux/reset.h>
@@ -49,6 +52,7 @@
 #ifdef CONFIG_STMMAC_NETWORK_PROXY
 #include "stmmac_netproxy.h"
 #endif
+#include "stmmac_xsk.h"
 
 #define	STMMAC_ALIGN(x)		__ALIGN_KERNEL(x, SMP_CACHE_BYTES)
 #define	TSO_MAX_BUFF_SIZE	(SZ_16K - 1)
@@ -1331,6 +1335,9 @@ static int init_dma_rx_desc_rings(struct net_device *dev, gfp_t flags)
 		netif_dbg(priv, probe, priv->dev,
 			  "(%s) dma_rx_phy=0x%08x\n", __func__,
 			  (u32)rx_q->dma_rx_phy);
+		WARN_ON(xdp_rxq_info_reg_mem_model(&rx_q->xdp_rxq,
+						   MEM_TYPE_PAGE_SHARED,
+						   NULL));
 
 		stmmac_clear_rx_descriptors(priv, queue);
 
@@ -1633,6 +1640,15 @@ static int alloc_dma_rx_desc_resources_q(struct stmmac_priv *priv, u32 queue)
 		if (!rx_q->dma_rx)
 			goto err_dma;
 	}
+
+	/* XDP RX-queue info */
+	if (xdp_rxq_info_reg(&rx_q->xdp_rxq, priv->dev, queue) < 0)
+		goto err_dma;
+
+	rx_q->xdp_prog = priv->xdp_prog;
+
+	return 0;
+
 err_dma:
 	kfree(rx_q->buf_pool);
 	rx_q->buf_pool = NULL;
@@ -1771,6 +1787,86 @@ static int alloc_dma_desc_resources(struct stmmac_priv *priv)
 }
 
 /**
+ * stmmac_alloc_rx_buffers - allocate RX buffers
+ * @rx_q: driver private structure
+ * @cleaned_count: number of buffers to clean
+ * Description: allocate the RX buffers using page_pool
+ */
+void stmmac_alloc_rx_buffers(struct stmmac_rx_queue *rx_q, u16 cleaned_count)
+{
+	struct stmmac_priv *priv = rx_q->priv_data;
+	u32 qid = rx_q->queue_index;
+	u16 entry = rx_q->dirty_rx;
+	u16 i = rx_q->dirty_rx;
+
+	/* nothing to do */
+	if (!cleaned_count)
+		return;
+
+	i -= priv->dma_rx_size;
+
+	do {
+		struct stmmac_rx_buffer *buf = &rx_q->buf_pool[entry];
+		struct dma_desc *p;
+
+		/* Get a Rx descriptor */
+		if (priv->extend_desc)
+			p = &((rx_q->dma_erx + entry)->basic);
+		else
+			p = rx_q->dma_rx + entry;
+
+		/* Alloc Rx buffer and bind it to Rx descriptor */
+		if (stmmac_init_rx_buffers(priv, p, entry, GFP_KERNEL, qid))
+			break;
+
+		/* Initialize Rx descriptor and mark OWN bit */
+		if (priv->extend_desc)
+			stmmac_init_rx_desc(priv, &rx_q->dma_erx[entry].basic,
+					    priv->use_riwt, priv->mode,
+					    (entry == priv->dma_rx_size - 1),
+					    priv->dma_buf_sz);
+		else
+			stmmac_init_rx_desc(priv, p,
+					    priv->use_riwt, priv->mode,
+					    (entry == priv->dma_rx_size - 1),
+					    priv->dma_buf_sz);
+
+		netif_dbg(priv, probe, priv->dev, "[%p]\t[%x]\n",
+			  buf->page, (unsigned int)buf->dma_addr);
+
+		entry = STMMAC_GET_ENTRY(entry,  priv->dma_rx_size);
+
+		i++;
+		if (unlikely(!i))
+			i -= priv->dma_rx_size;
+
+		dma_wmb();
+
+		stmmac_set_rx_owner(priv, p, priv->use_riwt);
+
+		dma_wmb();
+
+		cleaned_count--;
+	} while (cleaned_count);
+
+	i += priv->dma_rx_size;
+
+	if (rx_q->dirty_rx != i) {
+		rx_q->dirty_rx = i;
+
+		/* Update next to alloc since we have filled the ring */
+		rx_q->next_to_alloc = i;
+
+		/* Init Rx DMA - DMA_CHAN_RX_END_ADDR */
+		rx_q->rx_tail_addr = rx_q->dma_rx_phy +
+				     (priv->dma_rx_size *
+				      sizeof(struct dma_desc));
+		stmmac_set_rx_tail_ptr(priv, priv->ioaddr, rx_q->rx_tail_addr,
+				       rx_q->queue_index);
+	}
+}
+
+/**
  * free_dma_desc_resources - free dma desc resources
  * @priv: private structure
  */
@@ -1888,6 +1984,163 @@ static void stmmac_stop_all_dma(struct stmmac_priv *priv)
 
 	for (chan = 0; chan < tx_channels_count; chan++)
 		stmmac_stop_tx_dma(priv, chan);
+}
+
+/* Summary: Free the remaining of Tx skb and its Tx buffers */
+static void stmmac_free_tx_queue(struct stmmac_priv *priv, u16 qid)
+{
+	struct stmmac_tx_queue *tx_q = &priv->tx_queue[qid];
+	unsigned int entry = tx_q->dirty_tx;
+
+	while (entry != tx_q->cur_tx) {
+		struct sk_buff *skb = tx_q->tx_skbuff[entry];
+
+		/* Free all the Tx ring sk_buffs */
+		if (tx_q->xdpf[entry]) {
+			xdp_return_frame(tx_q->xdpf[entry]);
+			tx_q->xdpf[entry] = NULL;
+		} else {
+			dev_kfree_skb_any(skb);
+			tx_q->tx_skbuff[entry] = NULL;
+		}
+
+		dma_rmb();
+
+		if (likely(tx_q->tx_skbuff_dma[entry].buf)) {
+			if (tx_q->tx_skbuff_dma[entry].map_as_page)
+				dma_unmap_page(priv->device,
+					       tx_q->tx_skbuff_dma[entry].buf,
+					       tx_q->tx_skbuff_dma[entry].len,
+					       DMA_TO_DEVICE);
+			else
+				dma_unmap_single(priv->device,
+						 tx_q->tx_skbuff_dma[entry].buf,
+						 tx_q->tx_skbuff_dma[entry].len,
+						 DMA_TO_DEVICE);
+			tx_q->tx_skbuff_dma[entry].buf = 0;
+			tx_q->tx_skbuff_dma[entry].len = 0;
+			tx_q->tx_skbuff_dma[entry].map_as_page = false;
+		}
+
+		tx_q->tx_skbuff_dma[entry].last_segment = false;
+		tx_q->tx_skbuff_dma[entry].is_jumbo = false;
+
+		entry = STMMAC_GET_ENTRY(entry, priv->dma_tx_size);
+	}
+
+	/* Reset Byte Queue Limits (BQL) for the queue */
+	netdev_tx_reset_queue(netdev_get_tx_queue(priv->dev, qid));
+
+	/* Reset cur_tx and dirty_tx */
+	tx_q->cur_tx = 0;
+	tx_q->dirty_tx = 0;
+}
+
+/* Summary: Free the remaining of Rx buffers */
+static void stmmac_free_rx_queue(struct stmmac_priv *priv, u16 qid)
+{
+	struct stmmac_rx_queue *rx_q = &priv->rx_queue[qid];
+
+	/* Free all the Rx ring sk_buffs */
+	dma_free_rx_skbufs(priv, qid);
+
+	rx_q->cur_rx = 0;
+	rx_q->dirty_rx = 0;
+	rx_q->next_to_alloc = 0;
+}
+
+static void stmmac_configure_tx_queue(struct stmmac_priv *priv, u16 qid)
+{
+	struct stmmac_tx_queue *tx_q = &priv->tx_queue[qid];
+
+	/* Init Tx descriptor */
+	init_dma_tx_desc_ring_q(priv, qid);
+	stmmac_clear_tx_descriptors(priv, qid);
+
+	/* Init Tx DMA */
+	stmmac_init_tx_chan(priv, priv->ioaddr, priv->plat->dma_cfg,
+			    tx_q->dma_tx_phy, qid);
+
+	tx_q->tx_tail_addr = tx_q->dma_tx_phy;
+	stmmac_set_tx_tail_ptr(priv, priv->ioaddr,
+			       tx_q->tx_tail_addr, qid);
+}
+
+/* Reconfigure the rx queue when transitioning into OR out of XDP modes */
+static void stmmac_configure_rx_queue(struct stmmac_priv *priv, u16 qid)
+{
+	struct stmmac_rx_queue *rx_q = &priv->rx_queue[qid];
+
+	xdp_rxq_info_unreg_mem_model(&rx_q->xdp_rxq);
+	WARN_ON(xdp_rxq_info_reg_mem_model(&rx_q->xdp_rxq,
+					   MEM_TYPE_PAGE_SHARED,
+					   NULL));
+
+	/* Init Rx DMA - DMA_CHAN_RX_BASE_ADDR */
+	stmmac_init_rx_chan(priv, priv->ioaddr, priv->plat->dma_cfg,
+			    rx_q->dma_rx_phy, qid);
+
+	/* Init Rx DMA - DMA_CHAN_RX_RING_LEN */
+	stmmac_set_rx_ring_len(priv, priv->ioaddr, (priv->dma_rx_size - 1),
+			       qid);
+
+	/* Populate Rx Buffers to Rx DMA Ring */
+	stmmac_alloc_rx_buffers(rx_q, priv->dma_rx_size);
+}
+
+/**
+ *  stmmac_txrx_ring_disable - HW DMA operation mode
+ *  @priv: driver private structure
+ *  @qid: queue id
+ *  Description: it is used to disable a specific ring by
+ *  stopping dma activity and clearing the ring buffers. Used by XDP and UMEM
+ *  setup to allocate between kernel system memory and UMEM.
+ */
+void stmmac_txrx_ring_enable(struct stmmac_priv *priv, u16 qid)
+{
+	struct stmmac_channel *ch = &priv->channel[qid];
+
+	/* Enable napi context. */
+	napi_enable(&ch->rx_napi);
+	napi_enable(&ch->tx_napi);
+
+	/* Reenable MAC DMA Engine */
+	stmmac_configure_tx_queue(priv, qid);
+	stmmac_configure_rx_queue(priv, qid);
+
+	/* Reenable Rx DMA*/
+	stmmac_start_rx_dma(priv, qid);
+	/* Enable Tx DMA*/
+	stmmac_start_tx_dma(priv, qid);
+}
+
+/**
+ *  stmmac_txrx_ring_disable - HW DMA operation mode
+ *  @priv: driver private structure
+ *  @qid: queue id
+ *  Description: it is used to disable a specific ring by stopping dma activity
+ *  and clearing the last set of data in the buffers. Used by XDP setup.
+ */
+void stmmac_txrx_ring_disable(struct stmmac_priv *priv, u16 qid)
+{
+	struct stmmac_channel *ch = &priv->channel[qid];
+
+	/* Disable the associated DMA Engine for Rx & Tx */
+	stmmac_stop_rx_dma(priv, qid);
+	stmmac_stop_tx_dma(priv, qid);
+
+	if (is_queue_xdp(qid))
+		synchronize_rcu();
+
+	/* Disable napi context. */
+	napi_disable(&ch->rx_napi);
+	napi_disable(&ch->tx_napi);
+
+	/* Free associated Tx Ring and Rx Ring buffers */
+	stmmac_free_tx_queue(priv, qid);
+	stmmac_free_rx_queue(priv, qid);
+
+	/* TODO: Free Tx and Rx ring stats */
 }
 
 /**
@@ -2676,6 +2929,7 @@ static int stmmac_hw_setup(struct net_device *dev, bool init_ptp)
 	u32 tx_cnt = priv->plat->tx_queues_to_use;
 	u32 chan;
 	int ret;
+	int i;
 
 	/* Power up Serdes */
 	if (priv->plat->has_serdes)
@@ -2819,6 +3073,15 @@ static int stmmac_hw_setup(struct net_device *dev, bool init_ptp)
 		if (priv->hw->cached_fpe_en)
 			stmmac_fpe_set_enable(priv, priv->hw, dev, true);
 	}
+	/* XSK expects driver to enable all queues to be XDP compatible.
+	 * This sets all queues, assuming rx_q count is always the higher, to
+	 * be usable with AF_XDP Native-Copy or Zero-Copy mode. Future devices,
+	 * may opt to limit this.
+	 */
+	for (i = 0; i < priv->plat->rx_queues_to_use; i++)
+		enable_queue_xdp(i);
+
+	priv->xdp_prog = NULL;
 
 	return 0;
 }
@@ -3898,6 +4161,57 @@ static inline void stmmac_rx_refill(struct stmmac_priv *priv, u32 queue)
 }
 
 /**
+ * stmmac_xdp_setup - add/remove an XDP program
+ *  @dev : device pointer
+ *  @prog: XDP program
+ **/
+static int stmmac_xdp_setup(struct net_device *dev, struct bpf_prog *prog)
+{
+	struct stmmac_priv *priv = netdev_priv(dev);
+	struct bpf_prog *old_prog;
+	bool need_reset;
+	u32 i;
+
+	old_prog = xchg(&priv->xdp_prog, prog);
+	need_reset = (!!prog != !!old_prog);
+
+	/* Reconfigure rings if transitioning XDP modes */
+	if (need_reset)
+		for (i = 0; i < priv->plat->rx_queues_to_use; i++) {
+			stmmac_txrx_ring_disable(priv, i);
+			stmmac_txrx_ring_enable(priv, i);
+		}
+
+	for (i = 0; i < priv->plat->rx_queues_to_use; i++)
+		(void)xchg(&priv->rx_queue[i].xdp_prog, priv->xdp_prog);
+
+	if (old_prog)
+		bpf_prog_put(old_prog);
+
+	return 0;
+}
+
+/**
+ * stmmac_xdp - implements ndo_bpf
+ * @dev: device pointer
+ * @xdp: XDP command
+ **/
+static int stmmac_xdp(struct net_device *dev, struct netdev_bpf *xdp)
+{
+	struct stmmac_priv *priv = netdev_priv(dev);
+
+	switch (xdp->command) {
+	case XDP_SETUP_PROG:
+		return stmmac_xdp_setup(dev, xdp->prog);
+	case XDP_QUERY_PROG:
+		xdp->prog_id = priv->xdp_prog ? priv->xdp_prog->aux->id : 0;
+		return 0;
+	default:
+		return -EINVAL;
+	}
+}
+
+/**
  * stmmac_rx - manage the receive process
  * @priv: driver private structure
  * @limit: napi bugget
@@ -4832,6 +5146,7 @@ static const struct net_device_ops stmmac_netdev_ops = {
 	.ndo_set_mac_address = stmmac_set_mac_address,
 	.ndo_vlan_rx_add_vid = stmmac_vlan_rx_add_vid,
 	.ndo_vlan_rx_kill_vid = stmmac_vlan_rx_kill_vid,
+	.ndo_bpf = stmmac_xdp,
 };
 
 static void stmmac_reset_subtask(struct stmmac_priv *priv)
