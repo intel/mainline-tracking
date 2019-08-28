@@ -30,31 +30,50 @@ static struct np_netdev np_netdev = { 0 };
 static struct np_shm np_shm = { NULL };
 
 /**
- * netprox_submit_a2h_task - stmmac network proxy submit a2h task
+ * netprox_resume_task - stmmac network proxy resume task
  * @work: work item to retrieve stmmac_priv
- * Description: Add task to continue processing packets sent from
- * Network Proxy Agent to Host.
+ * Description: Add task to resume stmmac Ethernet driver.
  */
-static void netprox_submit_a2h_task(struct work_struct *work)
+static void netprox_resume_task(struct work_struct *work)
 {
 	struct stmmac_priv *priv = container_of(work, struct stmmac_priv,
 						netprox_task);
+	struct net_device *ndev = priv->dev;
+
+	rtnl_lock();
+	priv->networkproxy_exit = 1;
+	stmmac_resume_common(priv, ndev);
+	priv->networkproxy_exit = 0;
+	rtnl_unlock();
+}
+
+/*  netproxy_irq - Network Proxy interrupt handling
+ *  @irq: interrupt number.
+ *  @dev_id: to pass the net device pointer.
+ *  Description: ISR to service Network Proxy interrupt.
+ */
+irqreturn_t netproxy_irq(int irq, void *dev_id)
+{
+	struct net_device *ndev = (struct net_device *)dev_id;
+	struct stmmac_priv *priv = netdev_priv(ndev);
+	struct stmmac_channel *ch = &priv->channel[0];
 	struct sk_buff *skb;
 	struct np_a2h_pool_header a2h_hdr;
 	struct np_a2h_packet_header a2h_pkt_hdr;
-	void __iomem *pkt_content;
-	int i;
-
-	struct net_device *ndev = priv->dev;
-	struct stmmac_channel *ch = &priv->channel[0];
 	int a2h_hdr_len = sizeof(struct np_a2h_pool_header);
 	int a2h_pkt_hdr_len = sizeof(struct np_a2h_packet_header);
+	int i;
+	void __iomem *pkt_content;
 	void __iomem *a2h_mem_ptr = priv->ioaddr + NETWORK_PROXY_SHMEM_OFFSET;
+	u32 value;
+
+	value = readl(priv->ioaddr + GBE_PROXYMODE_EXIT_STS_REG);
+	writel(value, priv->ioaddr + GBE_PROXYMODE_EXIT_STS_REG);
 
 	if (!netif_running(ndev)) {
 		netdev_err(priv->dev,
 			   "Netprox exit failed: netdev is not running\n");
-		return;
+		return IRQ_HANDLED;
 	}
 
 	netif_device_attach(ndev);
@@ -104,25 +123,6 @@ static void netprox_submit_a2h_task(struct work_struct *work)
 	}
 
 err_skb:
-	priv->networkproxy_exit = 1;
-	stmmac_resume_common(priv, ndev);
-	priv->networkproxy_exit = 0;
-}
-
-/*  netproxy_irq - Network Proxy interrupt handling
- *  @irq: interrupt number.
- *  @dev_id: to pass the net device pointer.
- *  Description: ISR to service Network Proxy interrupt.
- */
-irqreturn_t netproxy_irq(int irq, void *dev_id)
-{
-	struct net_device *ndev = (struct net_device *)dev_id;
-	struct stmmac_priv *priv = netdev_priv(ndev);
-	u32 value;
-
-	value = readl(priv->ioaddr + GBE_PROXYMODE_EXIT_STS_REG);
-	writel(value, priv->ioaddr + GBE_PROXYMODE_EXIT_STS_REG);
-
 	queue_work(priv->netprox_wq, &priv->netprox_task);
 
 	return IRQ_HANDLED;
@@ -223,7 +223,7 @@ int stmmac_netproxy_register(struct net_device *ndev)
 		return -1;
 	}
 
-	INIT_WORK(&priv->netprox_task, netprox_submit_a2h_task);
+	INIT_WORK(&priv->netprox_task, netprox_resume_task);
 
 	np_netdev.netdev = ndev;
 	np_netdev.proxy_enter = &stmmac_netproxy_enter;
