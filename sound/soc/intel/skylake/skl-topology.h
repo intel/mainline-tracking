@@ -368,6 +368,9 @@ struct skl_module_cfg *skl_tplg_fe_get_cpr_module(
 int skl_tplg_update_pipe_params(struct device *dev,
 		struct skl_module_cfg *mconfig, struct skl_pipe_params *params);
 
+int skl_init_pvt_id(struct skl_dev *skl);
+void skl_free_pvt_id(struct skl_dev *skl);
+
 void skl_tplg_d0i3_get(struct skl_dev *skl, enum d0i3_capability caps);
 void skl_tplg_d0i3_put(struct skl_dev *skl, enum d0i3_capability caps);
 

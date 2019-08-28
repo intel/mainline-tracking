@@ -18,6 +18,7 @@
 #include "../common/sst-dsp-priv.h"
 #include "../common/sst-ipc.h"
 #include "skl.h"
+#include "skl-topology.h"
 
 #define SKL_BASEFW_TIMEOUT	300
 #define SKL_INIT_TIMEOUT	1000
@@ -656,6 +657,12 @@ library_load:
 		goto exit;
 	}
 
+	ret = skl_init_pvt_id(skl);
+	if (ret < 0) {
+		dev_err(dev, "Failed to init private IDs: %d\n", ret);
+		goto exit;
+	}
+
 	skl->is_first_boot = false;
 exit:
 	skl->ipc.ops.check_dsp_lp_on = lp_check;
@@ -676,6 +683,7 @@ void skl_sst_dsp_cleanup(struct skl_dev *skl)
 		release_firmware(pdata->fw);
 	skl_clear_module_table(dsp);
 
+	skl_free_pvt_id(skl);
 	kfree(skl->fw_modules_info);
 
 	list_del_init(&skl->module_list);

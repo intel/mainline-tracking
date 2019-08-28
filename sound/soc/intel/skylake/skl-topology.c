@@ -310,72 +310,62 @@ static u32 linear_gain[] = {
 static void skl_init_single_module_pipe(struct snd_soc_dapm_widget *w,
 						struct skl_dev *skl);
 
-static int skl_get_pvtid_map(struct uuid_module *module, int instance_id)
+int skl_init_pvt_id(struct skl_dev *skl)
 {
-	int pvt_id;
+	struct skl_modules_info *fmi = skl->fw_modules_info;
+	int i, j;
 
-	for (pvt_id = 0; pvt_id < module->max_instance; pvt_id++) {
-		if (module->instance_id[pvt_id] == instance_id)
-			return pvt_id;
+	skl->module_instance = kcalloc(fmi->count, sizeof(int *), GFP_KERNEL);
+	if (!skl->module_instance)
+		return -ENOMEM;
+
+	for (i = 0; i < fmi->count; i++) {
+		int max_count;
+
+		max_count = fmi->module_entry[i].instance_max_count;
+		skl->module_instance[i] = kcalloc(max_count,
+				sizeof(int), GFP_KERNEL);
+		if (!skl->module_instance[i])
+			goto err;
+		for (j = 0; j < max_count; j++)
+			skl->module_instance[i][j] = -1;
 	}
-	return -EINVAL;
+
+	return 0;
+err:
+	for (i--; i >= 0; i--)
+		kfree(skl->module_instance[i]);
+	kfree(skl->module_instance);
+
+	return -ENOMEM;
 }
+EXPORT_SYMBOL_GPL(skl_init_pvt_id);
+
+void skl_free_pvt_id(struct skl_dev *skl)
+{
+	int i;
+
+	for (i = skl->fw_modules_info->count; i >= 0; i--)
+		kfree(skl->module_instance[i]);
+	kfree(skl->module_instance);
+}
+EXPORT_SYMBOL_GPL(skl_free_pvt_id);
 
 static int skl_get_pvt_instance_id_map(struct skl_dev *skl,
-				int module_id, int instance_id)
+		int module_id, int instance_id)
 {
-	struct uuid_module *module;
+	struct skl_modules_info *fmi = skl->fw_modules_info;
+	int i, pvt_id;
 
-	list_for_each_entry(module, &skl->module_list, list) {
-		if (module->id == module_id)
-			return skl_get_pvtid_map(module, instance_id);
-	}
-
-	return -EINVAL;
-}
-
-static inline int skl_getid_32(struct uuid_module *module, u64 *val,
-				int word1_mask, int word2_mask)
-{
-	int index, max_inst, pvt_id;
-	u32 mask_val;
-
-	max_inst =  module->max_instance;
-	mask_val = (u32)(*val >> word1_mask);
-
-	if (mask_val != 0xffffffff) {
-		index = ffz(mask_val);
-		pvt_id = index + word1_mask + word2_mask;
-		if (pvt_id <= (max_inst - 1)) {
-			*val |= 1ULL << (index + word1_mask);
-			return pvt_id;
+	for (i = 0; i < fmi->count; i++) {
+		struct skl_module_entry *me = &fmi->module_entry[i];
+		if (me->module_id == module_id) {
+			int max_count = me->instance_max_count;
+			for (pvt_id = 0; pvt_id < max_count; pvt_id++)
+				if (skl->module_instance[i][pvt_id]
+						== instance_id)
+					return pvt_id;
 		}
-	}
-
-	return -EINVAL;
-}
-
-static inline int skl_pvtid_128(struct uuid_module *module)
-{
-	int j, i, word1_mask, word2_mask = 0, pvt_id;
-
-	for (j = 0; j < MAX_INSTANCE_BUFF; j++) {
-		word1_mask = 0;
-
-		for (i = 0; i < 2; i++) {
-			pvt_id = skl_getid_32(module, &module->pvt_id[j],
-						word1_mask, word2_mask);
-			if (pvt_id >= 0)
-				return pvt_id;
-
-			word1_mask += 32;
-			if ((word1_mask + word2_mask) >= module->max_instance)
-				return -EINVAL;
-		}
-
-		word2_mask += 64;
-		if (word2_mask >= module->max_instance)
-			return -EINVAL;
 	}
 
 	return -EINVAL;
@@ -385,27 +375,31 @@ static inline int skl_pvtid_128(struct uuid_module *module)
  * skl_get_pvt_id: generate a private id for use as module id
  *
  * @skl: driver context
- * @uuid_mod: module's uuid
+ * @uuid: module's uuid
  * @instance_id: module's instance id
  *
- * This generates a 128 bit private unique id for a module TYPE so that
- * module instance is unique
+ * This generates a private unique id for a module TYPE so that
+ * module instance is unique and assigns this instance to private id
  */
-static int skl_get_pvt_id(struct skl_dev *skl, guid_t *uuid_mod, int instance_id)
+static int skl_get_pvt_id(struct skl_dev *skl, guid_t *uuid, int instance_id)
 {
-	struct uuid_module *module;
-	int pvt_id;
+	struct skl_modules_info *fmi = skl->fw_modules_info;
+	int max_count = 0;
+	int i, mod_id;
 
-	list_for_each_entry(module, &skl->module_list, list) {
-		if (guid_equal(uuid_mod, &module->uuid)) {
-			pvt_id = skl_pvtid_128(module);
-			if (pvt_id >= 0) {
-				module->instance_id[pvt_id] = instance_id;
-
-				return pvt_id;
-			}
+	for (i = 0; i < fmi->count; i++)
+		if (guid_equal(&fmi->module_entry[i].uuid, uuid)) {
+			max_count = fmi->module_entry[i].instance_max_count;
+			mod_id = i;
+			break;
 		}
-	}
+
+	/* max_count > 0  =>  we found our module, so we can loop */
+	for (i = 0; i < max_count; i++)
+		if (skl->module_instance[mod_id][i] == -1) {
+			skl->module_instance[mod_id][i] = instance_id;
+			return i;
+		}
 
 	return -EINVAL;
 }
@@ -414,27 +408,26 @@ static int skl_get_pvt_id(struct skl_dev *skl, guid_t *uuid_mod, int instance_id
  * skl_put_pvt_id: free up the private id allocated
  *
  * @skl: driver context
- * @uuid_mod: module's uuid
+ * @uuid: module's uuid
  * @pvt_id: module pvt id
  *
- * This frees a 128 bit private unique id previously generated
+ * This frees a private unique id previously assigned
  */
-static int skl_put_pvt_id(struct skl_dev *skl, guid_t *uuid_mod, int *pvt_id)
+static int skl_put_pvt_id(struct skl_dev *skl, guid_t *uuid, int *pvt_id)
 {
+	struct skl_modules_info *fmi = skl->fw_modules_info;
+	int mod_id = -1;
 	int i;
-	struct uuid_module *module;
 
-	list_for_each_entry(module, &skl->module_list, list) {
-		if (guid_equal(uuid_mod, &module->uuid)) {
-			if (*pvt_id != 0)
-				i = (*pvt_id) / 64;
-			else
-				i = 0;
-
-			module->pvt_id[i] &= ~(1 << (*pvt_id));
-			*pvt_id = -1;
-			return 0;
+	for (i = 0; i < fmi->count; i++)
+		if (guid_equal(&fmi->module_entry[i].uuid, uuid)) {
+			mod_id = i;
+			break;
 		}
+
+	if (mod_id >= 0 && *pvt_id >= 0) {
+		skl->module_instance[mod_id][*pvt_id] = -1;
+		return 0;
 	}
 
 	return -EINVAL;
