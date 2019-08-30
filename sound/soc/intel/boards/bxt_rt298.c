@@ -139,9 +139,6 @@ static const struct snd_soc_dapm_route geminilake_rt298_map[] = {
 	{ "dmic01_hifi", NULL, "DMIC01 Rx" },
 	{ "DMIC01 Rx", NULL, "Capture" },
 
-	{ "dmic_voice", NULL, "DMIC16k Rx" },
-	{ "DMIC16k Rx", NULL, "Capture" },
-
 	{ "hifi3", NULL, "iDisp3 Tx"},
 	{ "iDisp3 Tx", NULL, "iDisp3_out"},
 	{ "hifi2", NULL, "iDisp2 Tx"},
@@ -357,9 +354,6 @@ SND_SOC_DAILINK_DEF(dmic_codec,
 	DAILINK_COMP_ARRAY(COMP_CODEC("dmic-codec",
 				      "dmic-hifi")));
 
-SND_SOC_DAILINK_DEF(dmic16k,
-	DAILINK_COMP_ARRAY(COMP_CPU("DMIC16k Pin")));
-
 SND_SOC_DAILINK_DEF(idisp1_pin,
 	DAILINK_COMP_ARRAY(COMP_CPU("iDisp1 Pin")));
 SND_SOC_DAILINK_DEF(idisp1_codec,
@@ -489,17 +483,8 @@ static struct snd_soc_dai_link broxton_rt298_dais[] = {
 		SND_SOC_DAILINK_REG(dmic_pin, dmic_codec, platform),
 	},
 	{
-		.name = "dmic16k",
-		.id = 2,
-		.be_hw_params_fixup = broxton_dmic_fixup,
-		.ignore_suspend = 1,
-		.dpcm_capture = 1,
-		.no_pcm = 1,
-		SND_SOC_DAILINK_REG(dmic16k, dmic_codec, platform),
-	},
-	{
 		.name = "iDisp1",
-		.id = 3,
+		.id = 2,
 		.init = broxton_hdmi_init,
 		.dpcm_playback = 1,
 		.no_pcm = 1,
@@ -507,7 +492,7 @@ static struct snd_soc_dai_link broxton_rt298_dais[] = {
 	},
 	{
 		.name = "iDisp2",
-		.id = 4,
+		.id = 3,
 		.init = broxton_hdmi_init,
 		.dpcm_playback = 1,
 		.no_pcm = 1,
@@ -515,7 +500,7 @@ static struct snd_soc_dai_link broxton_rt298_dais[] = {
 	},
 	{
 		.name = "iDisp3",
-		.id = 5,
+		.id = 4,
 		.init = broxton_hdmi_init,
 		.dpcm_playback = 1,
 		.no_pcm = 1,
