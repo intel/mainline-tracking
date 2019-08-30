@@ -94,7 +94,6 @@ static const struct snd_soc_dapm_route skylake_rt286_map[] = {
 	{ "ssp0 Tx", NULL, "codec1_out"},
 
 	{ "codec0_in", NULL, "ssp0 Rx" },
-	{ "codec1_in", NULL, "ssp0 Rx" },
 	{ "ssp0 Rx", NULL, "AIF1 Capture" },
 
 	{ "dmic01_hifi", NULL, "DMIC01 Rx" },
