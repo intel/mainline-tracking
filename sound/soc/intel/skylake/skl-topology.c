@@ -23,6 +23,8 @@
 #include "../common/sst-dsp.h"
 #include "../common/sst-dsp-priv.h"
 
+#define SKL_CURVE_NONE	0
+#define SKL_MAX_GAIN	0x7FFFFFFF
 #define SKL_CH_FIXUP_MASK		(1 << 0)
 #define SKL_RATE_FIXUP_MASK		(1 << 1)
 #define SKL_FMT_FIXUP_MASK		(1 << 2)
@@ -45,9 +47,271 @@ static const int mic_quatro_list[][SKL_CH_QUATRO] = {
 #define CHECK_HW_PARAMS(ch, freq, bps, prm_ch, prm_freq, prm_bps) \
 	((ch == prm_ch) && (bps == prm_bps) && (freq == prm_freq))
 
-void skl_tplg_d0i3_get(struct skl *skl, enum d0i3_capability caps)
+#define GET_PIPE(ppl, skl, node, pipe_id, pipe) \
+	do { list_for_each_entry(ppl, &skl->ppl_list, node) { \
+		if (ppl->pipe->ppl_id == pipe_id) { \
+			pipe = ppl->pipe; \
+			break; } \
+		} \
+	} while (0)
+
+/*
+ * The following table provides the gain in linear scale corresponding to
+ * gain in dB scale in the range of -144 dB to 0 dB with 0.1 dB resolution.
+ * The real number linear gain is scaled by 0x7FFFFFFFF to convert it to a
+ * 32 bit integer as required by FW.
+ * linear_gain[i] = 0   for i = 0 ; (Mapped as mute)
+ *		  = 0x7FFFFFFF*Round(10^(-144+0.1*i)/20) for i = 1 ... 1440
+ */
+static u32 linear_gain[] = {
+0x00000000, 0x00000089, 0x0000008B, 0x0000008C, 0x0000008E, 0x00000090,
+0x00000091, 0x00000093, 0x00000095, 0x00000096, 0x00000098, 0x0000009A,
+0x0000009C, 0x0000009D, 0x0000009F, 0x000000A1, 0x000000A3, 0x000000A5,
+0x000000A7, 0x000000A9, 0x000000AB, 0x000000AD, 0x000000AF, 0x000000B1,
+0x000000B3, 0x000000B5, 0x000000B7, 0x000000B9, 0x000000BB, 0x000000BD,
+0x000000BF, 0x000000C2, 0x000000C4, 0x000000C6, 0x000000C8, 0x000000CB,
+0x000000CD, 0x000000CF, 0x000000D2, 0x000000D4, 0x000000D7, 0x000000D9,
+0x000000DC, 0x000000DE, 0x000000E1, 0x000000E3, 0x000000E6, 0x000000E9,
+0x000000EB, 0x000000EE, 0x000000F1, 0x000000F4, 0x000000F7, 0x000000F9,
+0x000000FC, 0x000000FF, 0x00000102, 0x00000105, 0x00000108, 0x0000010B,
+0x0000010E, 0x00000111, 0x00000115, 0x00000118, 0x0000011B, 0x0000011E,
+0x00000122, 0x00000125, 0x00000128, 0x0000012C, 0x0000012F, 0x00000133,
+0x00000136, 0x0000013A, 0x0000013E, 0x00000141, 0x00000145, 0x00000149,
+0x0000014D, 0x00000150, 0x00000154, 0x00000158, 0x0000015C, 0x00000160,
+0x00000164, 0x00000169, 0x0000016D, 0x00000171, 0x00000175, 0x0000017A,
+0x0000017E, 0x00000182, 0x00000187, 0x0000018B, 0x00000190, 0x00000195,
+0x00000199, 0x0000019E, 0x000001A3, 0x000001A8, 0x000001AC, 0x000001B1,
+0x000001B6, 0x000001BC, 0x000001C1, 0x000001C6, 0x000001CB, 0x000001D0,
+0x000001D6, 0x000001DB, 0x000001E1, 0x000001E6, 0x000001EC, 0x000001F2,
+0x000001F7, 0x000001FD, 0x00000203, 0x00000209, 0x0000020F, 0x00000215,
+0x0000021B, 0x00000222, 0x00000228, 0x0000022E, 0x00000235, 0x0000023B,
+0x00000242, 0x00000249, 0x0000024F, 0x00000256, 0x0000025D, 0x00000264,
+0x0000026B, 0x00000273, 0x0000027A, 0x00000281, 0x00000289, 0x00000290,
+0x00000298, 0x0000029F, 0x000002A7, 0x000002AF, 0x000002B7, 0x000002BF,
+0x000002C7, 0x000002CF, 0x000002D8, 0x000002E0, 0x000002E9, 0x000002F1,
+0x000002FA, 0x00000303, 0x0000030C, 0x00000315, 0x0000031E, 0x00000327,
+0x00000330, 0x0000033A, 0x00000343, 0x0000034D, 0x00000357, 0x00000361,
+0x0000036B, 0x00000375, 0x0000037F, 0x0000038A, 0x00000394, 0x0000039F,
+0x000003A9, 0x000003B4, 0x000003BF, 0x000003CA, 0x000003D6, 0x000003E1,
+0x000003EC, 0x000003F8, 0x00000404, 0x00000410, 0x0000041C, 0x00000428,
+0x00000434, 0x00000441, 0x0000044D, 0x0000045A, 0x00000467, 0x00000474,
+0x00000481, 0x0000048F, 0x0000049C, 0x000004AA, 0x000004B8, 0x000004C6,
+0x000004D4, 0x000004E2, 0x000004F1, 0x000004FF, 0x0000050E, 0x0000051D,
+0x0000052C, 0x0000053B, 0x0000054B, 0x0000055B, 0x0000056B, 0x0000057B,
+0x0000058B, 0x0000059B, 0x000005AC, 0x000005BD, 0x000005CE, 0x000005DF,
+0x000005F0, 0x00000602, 0x00000614, 0x00000626, 0x00000638, 0x0000064A,
+0x0000065D, 0x00000670, 0x00000683, 0x00000696, 0x000006AA, 0x000006BE,
+0x000006D2, 0x000006E6, 0x000006FA, 0x0000070F, 0x00000724, 0x00000739,
+0x0000074E, 0x00000764, 0x0000077A, 0x00000790, 0x000007A7, 0x000007BD,
+0x000007D4, 0x000007EB, 0x00000803, 0x0000081B, 0x00000833, 0x0000084B,
+0x00000863, 0x0000087C, 0x00000896, 0x000008AF, 0x000008C9, 0x000008E3,
+0x000008FD, 0x00000918, 0x00000933, 0x0000094E, 0x0000096A, 0x00000985,
+0x000009A2, 0x000009BE, 0x000009DB, 0x000009F8, 0x00000A16, 0x00000A34,
+0x00000A52, 0x00000A71, 0x00000A90, 0x00000AAF, 0x00000ACE, 0x00000AEF,
+0x00000B0F, 0x00000B30, 0x00000B51, 0x00000B72, 0x00000B94, 0x00000BB7,
+0x00000BD9, 0x00000BFD, 0x00000C20, 0x00000C44, 0x00000C68, 0x00000C8D,
+0x00000CB2, 0x00000CD8, 0x00000CFE, 0x00000D25, 0x00000D4C, 0x00000D73,
+0x00000D9B, 0x00000DC3, 0x00000DEC, 0x00000E15, 0x00000E3F, 0x00000E69,
+0x00000E94, 0x00000EBF, 0x00000EEB, 0x00000F17, 0x00000F44, 0x00000F71,
+0x00000F9F, 0x00000FCD, 0x00000FFC, 0x0000102B, 0x0000105B, 0x0000108C,
+0x000010BD, 0x000010EE, 0x00001121, 0x00001153, 0x00001187, 0x000011BB,
+0x000011EF, 0x00001224, 0x0000125A, 0x00001291, 0x000012C8, 0x000012FF,
+0x00001338, 0x00001371, 0x000013AA, 0x000013E4, 0x0000141F, 0x0000145B,
+0x00001497, 0x000014D4, 0x00001512, 0x00001551, 0x00001590, 0x000015D0,
+0x00001610, 0x00001652, 0x00001694, 0x000016D7, 0x0000171B, 0x0000175F,
+0x000017A4, 0x000017EB, 0x00001831, 0x00001879, 0x000018C2, 0x0000190B,
+0x00001955, 0x000019A0, 0x000019EC, 0x00001A39, 0x00001A87, 0x00001AD6,
+0x00001B25, 0x00001B76, 0x00001BC7, 0x00001C19, 0x00001C6D, 0x00001CC1,
+0x00001D16, 0x00001D6C, 0x00001DC4, 0x00001E1C, 0x00001E75, 0x00001ECF,
+0x00001F2B, 0x00001F87, 0x00001FE5, 0x00002043, 0x000020A3, 0x00002103,
+0x00002165, 0x000021C8, 0x0000222C, 0x00002292, 0x000022F8, 0x00002360,
+0x000023C9, 0x00002433, 0x0000249E, 0x0000250B, 0x00002578, 0x000025E8,
+0x00002658, 0x000026CA, 0x0000273D, 0x000027B1, 0x00002827, 0x0000289E,
+0x00002916, 0x00002990, 0x00002A0B, 0x00002A88, 0x00002B06, 0x00002B85,
+0x00002C06, 0x00002C89, 0x00002D0D, 0x00002D92, 0x00002E19, 0x00002EA2,
+0x00002F2C, 0x00002FB8, 0x00003045, 0x000030D5, 0x00003165, 0x000031F8,
+0x0000328C, 0x00003322, 0x000033B9, 0x00003453, 0x000034EE, 0x0000358B,
+0x00003629, 0x000036CA, 0x0000376C, 0x00003811, 0x000038B7, 0x0000395F,
+0x00003A09, 0x00003AB5, 0x00003B63, 0x00003C13, 0x00003CC5, 0x00003D79,
+0x00003E30, 0x00003EE8, 0x00003FA2, 0x0000405F, 0x0000411E, 0x000041DF,
+0x000042A2, 0x00004368, 0x0000442F, 0x000044FA, 0x000045C6, 0x00004695,
+0x00004766, 0x0000483A, 0x00004910, 0x000049E8, 0x00004AC3, 0x00004BA1,
+0x00004C81, 0x00004D64, 0x00004E49, 0x00004F32, 0x0000501C, 0x0000510A,
+0x000051FA, 0x000052ED, 0x000053E3, 0x000054DC, 0x000055D7, 0x000056D6,
+0x000057D7, 0x000058DB, 0x000059E3, 0x00005AED, 0x00005BFB, 0x00005D0B,
+0x00005E1F, 0x00005F36, 0x00006050, 0x0000616E, 0x0000628F, 0x000063B3,
+0x000064DA, 0x00006605, 0x00006734, 0x00006866, 0x0000699B, 0x00006AD4,
+0x00006C11, 0x00006D51, 0x00006E95, 0x00006FDD, 0x00007129, 0x00007278,
+0x000073CC, 0x00007523, 0x0000767E, 0x000077DD, 0x00007941, 0x00007AA8,
+0x00007C14, 0x00007D83, 0x00007EF7, 0x00008070, 0x000081ED, 0x0000836E,
+0x000084F3, 0x0000867D, 0x0000880C, 0x0000899F, 0x00008B37, 0x00008CD4,
+0x00008E76, 0x0000901C, 0x000091C7, 0x00009377, 0x0000952C, 0x000096E6,
+0x000098A6, 0x00009A6A, 0x00009C34, 0x00009E03, 0x00009FD7, 0x0000A1B1,
+0x0000A391, 0x0000A575, 0x0000A760, 0x0000A950, 0x0000AB46, 0x0000AD42,
+0x0000AF43, 0x0000B14B, 0x0000B358, 0x0000B56C, 0x0000B786, 0x0000B9A6,
+0x0000BBCC, 0x0000BDF9, 0x0000C02C, 0x0000C266, 0x0000C4A6, 0x0000C6ED,
+0x0000C93B, 0x0000CB8F, 0x0000CDEA, 0x0000D04D, 0x0000D2B6, 0x0000D527,
+0x0000D79F, 0x0000DA1E, 0x0000DCA5, 0x0000DF33, 0x0000E1C8, 0x0000E466,
+0x0000E70B, 0x0000E9B7, 0x0000EC6C, 0x0000EF29, 0x0000F1EE, 0x0000F4BB,
+0x0000F791, 0x0000FA6F, 0x0000FD55, 0x00010044, 0x0001033C, 0x0001063C,
+0x00010945, 0x00010C58, 0x00010F73, 0x00011298, 0x000115C6, 0x000118FD,
+0x00011C3E, 0x00011F89, 0x000122DD, 0x0001263B, 0x000129A4, 0x00012D16,
+0x00013092, 0x00013419, 0x000137AB, 0x00013B46, 0x00013EED, 0x0001429E,
+0x0001465B, 0x00014A22, 0x00014DF5, 0x000151D3, 0x000155BC, 0x000159B1,
+0x00015DB2, 0x000161BF, 0x000165D7, 0x000169FC, 0x00016E2D, 0x0001726B,
+0x000176B5, 0x00017B0B, 0x00017F6F, 0x000183E0, 0x0001885D, 0x00018CE8,
+0x00019181, 0x00019627, 0x00019ADB, 0x00019F9D, 0x0001A46D, 0x0001A94B,
+0x0001AE38, 0x0001B333, 0x0001B83E, 0x0001BD57, 0x0001C27F, 0x0001C7B6,
+0x0001CCFD, 0x0001D254, 0x0001D7BA, 0x0001DD30, 0x0001E2B7, 0x0001E84E,
+0x0001EDF5, 0x0001F3AD, 0x0001F977, 0x0001FF51, 0x0002053D, 0x00020B3A,
+0x00021149, 0x0002176A, 0x00021D9D, 0x000223E3, 0x00022A3B, 0x000230A6,
+0x00023724, 0x00023DB5, 0x0002445A, 0x00024B12, 0x000251DE, 0x000258BF,
+0x00025FB3, 0x000266BD, 0x00026DDB, 0x0002750F, 0x00027C57, 0x000283B6,
+0x00028B2A, 0x000292B4, 0x00029A55, 0x0002A20C, 0x0002A9DA, 0x0002B1BF,
+0x0002B9BC, 0x0002C1D0, 0x0002C9FD, 0x0002D241, 0x0002DA9E, 0x0002E314,
+0x0002EBA3, 0x0002F44B, 0x0002FD0D, 0x000305E9, 0x00030EDF, 0x000317F0,
+0x0003211B, 0x00032A62, 0x000333C4, 0x00033D42, 0x000346DC, 0x00035093,
+0x00035A66, 0x00036457, 0x00036E65, 0x00037891, 0x000382DB, 0x00038D44,
+0x000397CB, 0x0003A271, 0x0003AD38, 0x0003B81E, 0x0003C324, 0x0003CE4B,
+0x0003D993, 0x0003E4FD, 0x0003F088, 0x0003FC36, 0x00040806, 0x000413F9,
+0x00042010, 0x00042C4B, 0x000438A9, 0x0004452D, 0x000451D5, 0x00045EA4,
+0x00046B98, 0x000478B2, 0x000485F3, 0x0004935C, 0x0004A0EC, 0x0004AEA5,
+0x0004BC86, 0x0004CA90, 0x0004D8C4, 0x0004E722, 0x0004F5AB, 0x0005045F,
+0x0005133E, 0x00052249, 0x00053181, 0x000540E6, 0x00055079, 0x0005603A,
+0x0005702A, 0x00058048, 0x00059097, 0x0005A116, 0x0005B1C6, 0x0005C2A7,
+0x0005D3BB, 0x0005E501, 0x0005F67A, 0x00060827, 0x00061A08, 0x00062C1F,
+0x00063E6B, 0x000650ED, 0x000663A6, 0x00067697, 0x000689BF, 0x00069D21,
+0x0006B0BC, 0x0006C491, 0x0006D8A1, 0x0006ECEC, 0x00070174, 0x00071638,
+0x00072B3A, 0x0007407A, 0x000755FA, 0x00076BB9, 0x000781B8, 0x000797F9,
+0x0007AE7B, 0x0007C541, 0x0007DC49, 0x0007F397, 0x00080B29, 0x00082301,
+0x00083B20, 0x00085386, 0x00086C34, 0x0008852C, 0x00089E6E, 0x0008B7FA,
+0x0008D1D3, 0x0008EBF8, 0x0009066A, 0x0009212B, 0x00093C3B, 0x0009579C,
+0x0009734D, 0x00098F51, 0x0009ABA7, 0x0009C852, 0x0009E552, 0x000A02A7,
+0x000A2054, 0x000A3E58, 0x000A5CB6, 0x000A7B6D, 0x000A9A80, 0x000AB9EF,
+0x000AD9BB, 0x000AF9E5, 0x000B1A6E, 0x000B3B58, 0x000B5CA4, 0x000B7E52,
+0x000BA064, 0x000BC2DB, 0x000BE5B8, 0x000C08FD, 0x000C2CAA, 0x000C50C1,
+0x000C7543, 0x000C9A31, 0x000CBF8C, 0x000CE556, 0x000D0B91, 0x000D323C,
+0x000D595A, 0x000D80ED, 0x000DA8F4, 0x000DD172, 0x000DFA69, 0x000E23D8,
+0x000E4DC3, 0x000E7829, 0x000EA30E, 0x000ECE71, 0x000EFA55, 0x000F26BC,
+0x000F53A6, 0x000F8115, 0x000FAF0A, 0x000FDD88, 0x00100C90, 0x00103C23,
+0x00106C43, 0x00109CF2, 0x0010CE31, 0x00110003, 0x00113267, 0x00116562,
+0x001198F3, 0x0011CD1D, 0x001201E2, 0x00123743, 0x00126D43, 0x0012A3E2,
+0x0012DB24, 0x00131309, 0x00134B94, 0x001384C7, 0x0013BEA3, 0x0013F92B,
+0x00143460, 0x00147044, 0x0014ACDB, 0x0014EA24, 0x00152824, 0x001566DB,
+0x0015A64C, 0x0015E67A, 0x00162765, 0x00166911, 0x0016AB80, 0x0016EEB3,
+0x001732AE, 0x00177772, 0x0017BD02, 0x00180361, 0x00184A90, 0x00189292,
+0x0018DB69, 0x00192518, 0x00196FA2, 0x0019BB09, 0x001A074F, 0x001A5477,
+0x001AA284, 0x001AF179, 0x001B4157, 0x001B9222, 0x001BE3DD, 0x001C368A,
+0x001C8A2C, 0x001CDEC6, 0x001D345B, 0x001D8AED, 0x001DE280, 0x001E3B17,
+0x001E94B4, 0x001EEF5B, 0x001F4B0F, 0x001FA7D2, 0x002005A9, 0x00206496,
+0x0020C49C, 0x002125BE, 0x00218801, 0x0021EB67, 0x00224FF3, 0x0022B5AA,
+0x00231C8E, 0x002384A3, 0x0023EDED, 0x0024586F, 0x0024C42C, 0x00253129,
+0x00259F69, 0x00260EF0, 0x00267FC1, 0x0026F1E1, 0x00276553, 0x0027DA1C,
+0x0028503E, 0x0028C7BF, 0x002940A2, 0x0029BAEB, 0x002A369F, 0x002AB3C1,
+0x002B3257, 0x002BB263, 0x002C33EC, 0x002CB6F4, 0x002D3B81, 0x002DC196,
+0x002E4939, 0x002ED26E, 0x002F5D3A, 0x002FE9A2, 0x003077A9, 0x00310756,
+0x003198AC, 0x00322BB1, 0x0032C06A, 0x003356DC, 0x0033EF0C, 0x003488FF,
+0x003524BB, 0x0035C244, 0x003661A0, 0x003702D4, 0x0037A5E6, 0x00384ADC,
+0x0038F1BB, 0x00399A88, 0x003A454A, 0x003AF206, 0x003BA0C2, 0x003C5184,
+0x003D0452, 0x003DB932, 0x003E702A, 0x003F2940, 0x003FE47B, 0x0040A1E2,
+0x00416179, 0x00422349, 0x0042E757, 0x0043ADAA, 0x00447649, 0x0045413B,
+0x00460E87, 0x0046DE33, 0x0047B046, 0x004884C9, 0x00495BC1, 0x004A3537,
+0x004B1131, 0x004BEFB7, 0x004CD0D1, 0x004DB486, 0x004E9ADE, 0x004F83E1,
+0x00506F97, 0x00515E08, 0x00524F3B, 0x00534339, 0x00543A0B, 0x005533B8,
+0x00563049, 0x00572FC8, 0x0058323B, 0x005937AD, 0x005A4025, 0x005B4BAE,
+0x005C5A4F, 0x005D6C13, 0x005E8102, 0x005F9927, 0x0060B48A, 0x0061D334,
+0x0062F531, 0x00641A89, 0x00654347, 0x00666F74, 0x00679F1C, 0x0068D247,
+0x006A0901, 0x006B4354, 0x006C814B, 0x006DC2F0, 0x006F084F, 0x00705172,
+0x00719E65, 0x0072EF33, 0x007443E8, 0x00759C8E, 0x0076F932, 0x007859DF,
+0x0079BEA2, 0x007B2787, 0x007C9499, 0x007E05E6, 0x007F7B79, 0x0080F560,
+0x008273A6, 0x0083F65A, 0x00857D89, 0x0087093F, 0x0088998A, 0x008A2E77,
+0x008BC815, 0x008D6672, 0x008F099A, 0x0090B19D, 0x00925E89, 0x0094106D,
+0x0095C756, 0x00978355, 0x00994478, 0x009B0ACE, 0x009CD667, 0x009EA752,
+0x00A07DA0, 0x00A25960, 0x00A43AA2, 0x00A62177, 0x00A80DEE, 0x00AA001A,
+0x00ABF80A, 0x00ADF5D1, 0x00AFF97E, 0x00B20324, 0x00B412D4, 0x00B628A1,
+0x00B8449C, 0x00BA66D8, 0x00BC8F67, 0x00BEBE5B, 0x00C0F3C9, 0x00C32FC3,
+0x00C5725D, 0x00C7BBA9, 0x00CA0BBD, 0x00CC62AC, 0x00CEC08A, 0x00D1256C,
+0x00D39167, 0x00D60490, 0x00D87EFC, 0x00DB00C0, 0x00DD89F3, 0x00E01AAB,
+0x00E2B2FD, 0x00E55300, 0x00E7FACC, 0x00EAAA77, 0x00ED6218, 0x00F021C7,
+0x00F2E99C, 0x00F5B9B0, 0x00F89219, 0x00FB72F2, 0x00FE5C54, 0x01014E57,
+0x01044915, 0x01074CA8, 0x010A592A, 0x010D6EB6, 0x01108D67, 0x0113B557,
+0x0116E6A2, 0x011A2164, 0x011D65B9, 0x0120B3BC, 0x01240B8C, 0x01276D45,
+0x012AD904, 0x012E4EE7, 0x0131CF0B, 0x01355991, 0x0138EE96, 0x013C8E39,
+0x0140389A, 0x0143EDD8, 0x0147AE14, 0x014B796F, 0x014F500A, 0x01533205,
+0x01571F82, 0x015B18A5, 0x015F1D8E, 0x01632E61, 0x01674B42, 0x016B7454,
+0x016FA9BB, 0x0173EB9C, 0x01783A1B, 0x017C955F, 0x0180FD8D, 0x018572CB,
+0x0189F540, 0x018E8513, 0x0193226D, 0x0197CD74, 0x019C8651, 0x01A14D2E,
+0x01A62234, 0x01AB058D, 0x01AFF764, 0x01B4F7E3, 0x01BA0735, 0x01BF2588,
+0x01C45306, 0x01C98FDE, 0x01CEDC3D, 0x01D43850, 0x01D9A447, 0x01DF2050,
+0x01E4AC9B, 0x01EA4958, 0x01EFF6B8, 0x01F5B4ED, 0x01FB8428, 0x0201649B,
+0x0207567A, 0x020D59F9, 0x02136F4B, 0x021996A5, 0x021FD03D, 0x02261C4A,
+0x022C7B01, 0x0232EC9A, 0x0239714D, 0x02400952, 0x0246B4E4, 0x024D743B,
+0x02544792, 0x025B2F26, 0x02622B31, 0x02693BF0, 0x027061A1, 0x02779C82,
+0x027EECD2, 0x028652D0, 0x028DCEBC, 0x029560D8, 0x029D0964, 0x02A4C8A5,
+0x02AC9EDD, 0x02B48C50, 0x02BC9142, 0x02C4ADFB, 0x02CCE2BF, 0x02D52FD7,
+0x02DD958A, 0x02E61422, 0x02EEABE8, 0x02F75D27, 0x0300282A, 0x03090D3F,
+0x03120CB1, 0x031B26CF, 0x03245BE9, 0x032DAC4D, 0x0337184E, 0x0340A03D,
+0x034A446D, 0x03540531, 0x035DE2DF, 0x0367DDCC, 0x0371F64E, 0x037C2CBD,
+0x03868173, 0x0390F4C8, 0x039B8719, 0x03A638BF, 0x03B10A19, 0x03BBFB84,
+0x03C70D60, 0x03D2400C, 0x03DD93E9, 0x03E9095B, 0x03F4A0C5, 0x04005A8B,
+0x040C3714, 0x041836C5, 0x04245A09, 0x0430A147, 0x043D0CEB, 0x04499D60,
+0x04565314, 0x04632E76, 0x04702FF4, 0x047D57FF, 0x048AA70B, 0x04981D8B,
+0x04A5BBF3, 0x04B382B9, 0x04C17257, 0x04CF8B44, 0x04DDCDFB, 0x04EC3AF8,
+0x04FAD2B9, 0x050995BB, 0x05188480, 0x05279F89, 0x0536E758, 0x05465C74,
+0x0555FF62, 0x0565D0AB, 0x0575D0D6, 0x05860070, 0x05966005, 0x05A6F023,
+0x05B7B15B, 0x05C8A43D, 0x05D9C95D, 0x05EB2150, 0x05FCACAD, 0x060E6C0B,
+0x06206006, 0x06328938, 0x0644E841, 0x06577DBE, 0x066A4A53, 0x067D4EA2,
+0x06908B50, 0x06A40104, 0x06B7B068, 0x06CB9A26, 0x06DFBEEC, 0x06F41F68,
+0x0708BC4C, 0x071D964A, 0x0732AE18, 0x0748046D, 0x075D9A02, 0x07736F92,
+0x078985DC, 0x079FDD9F, 0x07B6779E, 0x07CD549C, 0x07E47560, 0x07FBDAB4,
+0x08138562, 0x082B7638, 0x0843AE06, 0x085C2D9E, 0x0874F5D6, 0x088E0783,
+0x08A76381, 0x08C10AAC, 0x08DAFDE2, 0x08F53E04, 0x090FCBF7, 0x092AA8A2,
+0x0945D4EE, 0x096151C6, 0x097D201A, 0x099940DB, 0x09B5B4FE, 0x09D27D79,
+0x09EF9B47, 0x0A0D0F64, 0x0A2ADAD1, 0x0A48FE91, 0x0A677BA8, 0x0A865320,
+0x0AA58606, 0x0AC51567, 0x0AE50256, 0x0B054DE8, 0x0B25F937, 0x0B47055D,
+0x0B68737A, 0x0B8A44AF, 0x0BAC7A24, 0x0BCF1501, 0x0BF21673, 0x0C157FA9,
+0x0C3951D8, 0x0C5D8E36, 0x0C8235FF, 0x0CA74A70, 0x0CCCCCCD, 0x0CF2BE5A,
+0x0D192061, 0x0D3FF430, 0x0D673B17, 0x0D8EF66D, 0x0DB7278B, 0x0DDFCFCC,
+0x0E08F094, 0x0E328B46, 0x0E5CA14C, 0x0E873415, 0x0EB24511, 0x0EDDD5B7,
+0x0F09E781, 0x0F367BEE, 0x0F639481, 0x0F9132C3, 0x0FBF583F, 0x0FEE0686,
+0x101D3F2D, 0x104D03D0, 0x107D560D, 0x10AE3787, 0x10DFA9E7, 0x1111AEDB,
+0x11444815, 0x1177774D, 0x11AB3E3F, 0x11DF9EAE, 0x12149A60, 0x124A3321,
+0x12806AC3, 0x12B7431D, 0x12EEBE0C, 0x1326DD70, 0x135FA333, 0x13991141,
+0x13D3298C, 0x140DEE0E, 0x144960C5, 0x148583B6, 0x14C258EA, 0x14FFE273,
+0x153E2266, 0x157D1AE2, 0x15BCCE07, 0x15FD3E01, 0x163E6CFE, 0x16805D35,
+0x16C310E3, 0x17068A4B, 0x174ACBB8, 0x178FD779, 0x17D5AFE8, 0x181C5762,
+0x1863D04D, 0x18AC1D17, 0x18F54033, 0x193F3C1D, 0x198A1357, 0x19D5C86C,
+0x1A225DED, 0x1A6FD673, 0x1ABE349F, 0x1B0D7B1B, 0x1B5DAC97, 0x1BAECBCA,
+0x1C00DB77, 0x1C53DE66, 0x1CA7D768, 0x1CFCC956, 0x1D52B712, 0x1DA9A387,
+0x1E0191A9, 0x1E5A8471, 0x1EB47EE7, 0x1F0F8416, 0x1F6B9715, 0x1FC8BB06,
+0x2026F30F, 0x20864265, 0x20E6AC43, 0x214833EE, 0x21AADCB6, 0x220EA9F4,
+0x22739F0A, 0x22D9BF65, 0x23410E7E, 0x23A98FD5, 0x241346F6, 0x247E3777,
+0x24EA64F9, 0x2557D328, 0x25C685BB, 0x26368073, 0x26A7C71D, 0x271A5D91,
+0x278E47B3, 0x28038970, 0x287A26C4, 0x28F223B6, 0x296B8457, 0x29E64CC5,
+0x2A62812C, 0x2AE025C3, 0x2B5F3ECC, 0x2BDFD098, 0x2C61DF84, 0x2CE56FF9,
+0x2D6A866F, 0x2DF12769, 0x2E795779, 0x2F031B3E, 0x2F8E7765, 0x301B70A8,
+0x30AA0BCF, 0x313A4DB3, 0x31CC3B37, 0x325FD94F, 0x32F52CFF, 0x338C3B56,
+0x34250975, 0x34BF9C8B, 0x355BF9D8, 0x35FA26A9, 0x369A285D, 0x373C0461,
+0x37DFC033, 0x38856163, 0x392CED8E, 0x39D66A63, 0x3A81DDA4, 0x3B2F4D22,
+0x3BDEBEBF, 0x3C90386F, 0x3D43C038, 0x3DF95C32, 0x3EB11285, 0x3F6AE96F,
+0x4026E73C, 0x40E5124F, 0x41A5711B, 0x42680A28, 0x432CE40F, 0x43F4057E,
+0x44BD7539, 0x45893A13, 0x46575AF8, 0x4727DEE6, 0x47FACCF0, 0x48D02C3F,
+0x49A8040F, 0x4A825BB5, 0x4B5F3A99, 0x4C3EA838, 0x4D20AC29, 0x4E054E17,
+0x4EEC95C3, 0x4FD68B07, 0x50C335D3, 0x51B29E2F, 0x52A4CC3A, 0x5399C82D,
+0x54919A57, 0x558C4B22, 0x5689E30E, 0x578A6AB7, 0x588DEAD1, 0x59946C2A,
+0x5A9DF7AB, 0x5BAA9656, 0x5CBA514A, 0x5DCD31BD, 0x5EE34105, 0x5FFC8890,
+0x611911E9, 0x6238E6BA, 0x635C10C5, 0x648299EC, 0x65AC8C2E, 0x66D9F1A7,
+0x680AD491, 0x693F3F45, 0x6A773C39, 0x6BB2D603, 0x6CF2175A, 0x6E350B13,
+0x6F7BBC23, 0x70C6359F, 0x721482BF, 0x7366AEDB, 0x74BCC56B, 0x7616D20D,
+0x7774E07D, 0x78D6FC9E, 0x7A3D3271, 0x7BA78E21, 0x7D161BF7, 0x7E88E865,
+0x7FFFFFFF};
+
+static void skl_init_single_module_pipe(struct snd_soc_dapm_widget *w,
+						struct skl_dev *skl);
+
+void skl_tplg_d0i3_get(struct skl_dev *skl, enum d0i3_capability caps)
 {
-	struct skl_d0i3_data *d0i3 =  &skl->skl_sst->d0i3;
+	struct skl_d0i3_data *d0i3 =  &skl->d0i3;
 
 	switch (caps) {
 	case SKL_D0I3_NONE:
@@ -64,9 +328,9 @@ void skl_tplg_d0i3_get(struct skl *skl, enum d0i3_capability caps)
 	}
 }
 
-void skl_tplg_d0i3_put(struct skl *skl, enum d0i3_capability caps)
+void skl_tplg_d0i3_put(struct skl_dev *skl, enum d0i3_capability caps)
 {
-	struct skl_d0i3_data *d0i3 =  &skl->skl_sst->d0i3;
+	struct skl_d0i3_data *d0i3 =  &skl->d0i3;
 
 	switch (caps) {
 	case SKL_D0I3_NONE:
@@ -109,118 +373,23 @@ static int is_skl_dsp_widget_type(struct snd_soc_dapm_widget *w,
 	}
 }
 
-/*
- * Each pipelines needs memory to be allocated. Check if we have free memory
- * from available pool.
- */
-static bool skl_is_pipe_mem_avail(struct skl *skl,
-				struct skl_module_cfg *mconfig)
-{
-	struct skl_sst *ctx = skl->skl_sst;
-
-	if (skl->resource.mem + mconfig->pipe->memory_pages >
-				skl->resource.max_mem) {
-		dev_err(ctx->dev,
-				"%s: module_id %d instance %d\n", __func__,
-				mconfig->id.module_id,
-				mconfig->id.instance_id);
-		dev_err(ctx->dev,
-				"exceeds ppl memory available %d mem %d\n",
-				skl->resource.max_mem, skl->resource.mem);
-		return false;
-	} else {
-		return true;
-	}
-}
-
-/*
- * Add the mem to the mem pool. This is freed when pipe is deleted.
- * Note: DSP does actual memory management we only keep track for complete
- * pool
- */
-static void skl_tplg_alloc_pipe_mem(struct skl *skl,
-				struct skl_module_cfg *mconfig)
-{
-	skl->resource.mem += mconfig->pipe->memory_pages;
-}
-
-/*
- * Pipeline needs needs DSP CPU resources for computation, this is
- * quantified in MCPS (Million Clocks Per Second) required for module/pipe
- *
- * Each pipelines needs mcps to be allocated. Check if we have mcps for this
- * pipe.
- */
-
-static bool skl_is_pipe_mcps_avail(struct skl *skl,
-				struct skl_module_cfg *mconfig)
-{
-	struct skl_sst *ctx = skl->skl_sst;
-	u8 res_idx = mconfig->res_idx;
-	struct skl_module_res *res = &mconfig->module->resources[res_idx];
-
-	if (skl->resource.mcps + res->cps > skl->resource.max_mcps) {
-		dev_err(ctx->dev,
-			"%s: module_id %d instance %d\n", __func__,
-			mconfig->id.module_id, mconfig->id.instance_id);
-		dev_err(ctx->dev,
-			"exceeds ppl mcps available %d > mem %d\n",
-			skl->resource.max_mcps, skl->resource.mcps);
-		return false;
-	} else {
-		return true;
-	}
-}
-
-static void skl_tplg_alloc_pipe_mcps(struct skl *skl,
-				struct skl_module_cfg *mconfig)
-{
-	u8 res_idx = mconfig->res_idx;
-	struct skl_module_res *res = &mconfig->module->resources[res_idx];
-
-	skl->resource.mcps += res->cps;
-}
-
-/*
- * Free the mcps when tearing down
- */
-static void
-skl_tplg_free_pipe_mcps(struct skl *skl, struct skl_module_cfg *mconfig)
-{
-	u8 res_idx = mconfig->res_idx;
-	struct skl_module_res *res = &mconfig->module->resources[res_idx];
-
-	skl->resource.mcps -= res->cps;
-}
-
-/*
- * Free the memory when tearing down
- */
-static void
-skl_tplg_free_pipe_mem(struct skl *skl, struct skl_module_cfg *mconfig)
-{
-	skl->resource.mem -= mconfig->pipe->memory_pages;
-}
-
-
-static void skl_dump_mconfig(struct skl_sst *ctx,
-					struct skl_module_cfg *mcfg)
+static void skl_dump_mconfig(struct skl_dev *skl, struct skl_module_cfg *mcfg)
 {
 	struct skl_module_iface *iface = &mcfg->module->formats[0];
 
-	dev_dbg(ctx->dev, "Dumping config\n");
-	dev_dbg(ctx->dev, "Input Format:\n");
-	dev_dbg(ctx->dev, "channels = %d\n", iface->inputs[0].fmt.channels);
-	dev_dbg(ctx->dev, "s_freq = %d\n", iface->inputs[0].fmt.s_freq);
-	dev_dbg(ctx->dev, "ch_cfg = %d\n", iface->inputs[0].fmt.ch_cfg);
-	dev_dbg(ctx->dev, "valid bit depth = %d\n",
+	dev_dbg(skl->dev, "Dumping config\n");
+	dev_dbg(skl->dev, "Input Format:\n");
+	dev_dbg(skl->dev, "channels = %d\n", iface->inputs[0].fmt.channels);
+	dev_dbg(skl->dev, "s_freq = %d\n", iface->inputs[0].fmt.s_freq);
+	dev_dbg(skl->dev, "ch_cfg = %d\n", iface->inputs[0].fmt.ch_cfg);
+	dev_dbg(skl->dev, "valid bit depth = %d\n",
 				iface->inputs[0].fmt.valid_bit_depth);
-	dev_dbg(ctx->dev, "Output Format:\n");
-	dev_dbg(ctx->dev, "channels = %d\n", iface->outputs[0].fmt.channels);
-	dev_dbg(ctx->dev, "s_freq = %d\n", iface->outputs[0].fmt.s_freq);
-	dev_dbg(ctx->dev, "valid bit depth = %d\n",
+	dev_dbg(skl->dev, "Output Format:\n");
+	dev_dbg(skl->dev, "channels = %d\n", iface->outputs[0].fmt.channels);
+	dev_dbg(skl->dev, "s_freq = %d\n", iface->outputs[0].fmt.s_freq);
+	dev_dbg(skl->dev, "valid bit depth = %d\n",
 				iface->outputs[0].fmt.valid_bit_depth);
-	dev_dbg(ctx->dev, "ch_cfg = %d\n", iface->outputs[0].fmt.ch_cfg);
+	dev_dbg(skl->dev, "ch_cfg = %d\n", iface->outputs[0].fmt.ch_cfg);
 }
 
 static void skl_tplg_update_chmap(struct skl_module_fmt *fmt, int chs)
@@ -322,7 +491,7 @@ static void skl_tplg_update_params_fixup(struct skl_module_cfg *m_cfg,
  * params, so once we have calculate params, we need buffer calculation as
  * well.
  */
-static void skl_tplg_update_buffer_size(struct skl_sst *ctx,
+static void skl_tplg_update_buffer_size(struct skl_dev *skl,
 				struct skl_module_cfg *mcfg)
 {
 	int multiplier = 1;
@@ -374,22 +543,21 @@ static u8 skl_tplg_be_dev_type(int dev_type)
 }
 
 static int skl_tplg_update_be_blob(struct snd_soc_dapm_widget *w,
-						struct skl_sst *ctx)
+						struct skl_dev *skl)
 {
 	struct skl_module_cfg *m_cfg = w->priv;
 	int link_type, dir;
 	u32 ch, s_freq, s_fmt;
 	struct nhlt_specific_cfg *cfg;
-	struct skl *skl = get_skl_ctx(ctx->dev);
 	u8 dev_type = skl_tplg_be_dev_type(m_cfg->dev_type);
 	int fmt_idx = m_cfg->fmt_idx;
 	struct skl_module_iface *m_iface = &m_cfg->module->formats[fmt_idx];
 
 	/* check if we already have blob */
-	if (m_cfg->formats_config.caps_size > 0)
+	if (m_cfg->formats_config[SKL_PARAM_INIT].caps_size > 0)
 		return 0;
 
-	dev_dbg(ctx->dev, "Applying default cfg blob\n");
+	dev_dbg(skl->dev, "Applying default cfg blob\n");
 	switch (m_cfg->dev_type) {
 	case SKL_DEVICE_DMIC:
 		link_type = NHLT_LINK_DMIC;
@@ -422,12 +590,12 @@ static int skl_tplg_update_be_blob(struct snd_soc_dapm_widget *w,
 	cfg = skl_get_ep_blob(skl, m_cfg->vbus_id, link_type,
 					s_fmt, ch, s_freq, dir, dev_type);
 	if (cfg) {
-		m_cfg->formats_config.caps_size = cfg->size;
-		m_cfg->formats_config.caps = (u32 *) &cfg->caps;
+		m_cfg->formats_config[SKL_PARAM_INIT].caps_size = cfg->size;
+		m_cfg->formats_config[SKL_PARAM_INIT].caps = (u32 *) &cfg->caps;
 	} else {
-		dev_err(ctx->dev, "Blob NULL for id %x type %d dirn %d\n",
+		dev_err(skl->dev, "Blob NULL for id %x type %d dirn %d\n",
 					m_cfg->vbus_id, link_type, dir);
-		dev_err(ctx->dev, "PCM: ch %d, freq %d, fmt %d\n",
+		dev_err(skl->dev, "PCM: ch %d, freq %d, fmt %d\n",
 					ch, s_freq, s_fmt);
 		return -EIO;
 	}
@@ -436,7 +604,7 @@ static int skl_tplg_update_be_blob(struct snd_soc_dapm_widget *w,
 }
 
 static void skl_tplg_update_module_params(struct snd_soc_dapm_widget *w,
-							struct skl_sst *ctx)
+							struct skl_dev *skl)
 {
 	struct skl_module_cfg *m_cfg = w->priv;
 	struct skl_pipe_params *params = m_cfg->pipe->p_params;
@@ -446,10 +614,10 @@ static void skl_tplg_update_module_params(struct snd_soc_dapm_widget *w,
 	if (!m_cfg->params_fixup)
 		return;
 
-	dev_dbg(ctx->dev, "Mconfig for widget=%s BEFORE updation\n",
+	dev_dbg(skl->dev, "Mconfig for widget=%s BEFORE updation\n",
 				w->name);
 
-	skl_dump_mconfig(ctx, m_cfg);
+	skl_dump_mconfig(skl, m_cfg);
 
 	if (p_conn_type == SKL_PIPE_CONN_TYPE_FE)
 		is_fe = true;
@@ -457,12 +625,12 @@ static void skl_tplg_update_module_params(struct snd_soc_dapm_widget *w,
 		is_fe = false;
 
 	skl_tplg_update_params_fixup(m_cfg, params, is_fe);
-	skl_tplg_update_buffer_size(ctx, m_cfg);
+	skl_tplg_update_buffer_size(skl, m_cfg);
 
-	dev_dbg(ctx->dev, "Mconfig for widget=%s AFTER updation\n",
+	dev_dbg(skl->dev, "Mconfig for widget=%s AFTER updation\n",
 				w->name);
 
-	skl_dump_mconfig(ctx, m_cfg);
+	skl_dump_mconfig(skl, m_cfg);
 }
 
 /*
@@ -471,7 +639,7 @@ static void skl_tplg_update_module_params(struct snd_soc_dapm_widget *w,
  * set module params will be done after module is initialised.
  */
 static int skl_tplg_set_module_params(struct snd_soc_dapm_widget *w,
-						struct skl_sst *ctx)
+						struct skl_dev *skl)
 {
 	int i, ret;
 	struct skl_module_cfg *mconfig = w->priv;
@@ -480,10 +648,11 @@ static int skl_tplg_set_module_params(struct snd_soc_dapm_widget *w,
 	struct skl_algo_data *bc;
 	struct skl_specific_cfg *sp_cfg;
 
-	if (mconfig->formats_config.caps_size > 0 &&
-		mconfig->formats_config.set_params == SKL_PARAM_SET) {
-		sp_cfg = &mconfig->formats_config;
-		ret = skl_set_module_params(ctx, sp_cfg->caps,
+	if (mconfig->formats_config[SKL_PARAM_SET].caps_size > 0 &&
+		mconfig->formats_config[SKL_PARAM_SET].set_params ==
+							SKL_PARAM_SET) {
+		sp_cfg = &mconfig->formats_config[SKL_PARAM_SET];
+		ret = skl_set_module_params(skl, sp_cfg->caps,
 					sp_cfg->caps_size,
 					sp_cfg->param_id, mconfig);
 		if (ret < 0)
@@ -497,7 +666,7 @@ static int skl_tplg_set_module_params(struct snd_soc_dapm_widget *w,
 			bc = (struct skl_algo_data *)sb->dobj.private;
 
 			if (bc->set_params == SKL_PARAM_SET) {
-				ret = skl_set_module_params(ctx,
+				ret = skl_set_module_params(skl,
 						(u32 *)bc->params, bc->size,
 						bc->param_id, mconfig);
 				if (ret < 0)
@@ -532,8 +701,10 @@ static int skl_tplg_set_module_init_data(struct snd_soc_dapm_widget *w)
 			if (bc->set_params != SKL_PARAM_INIT)
 				continue;
 
-			mconfig->formats_config.caps = (u32 *)bc->params;
-			mconfig->formats_config.caps_size = bc->size;
+			mconfig->formats_config[SKL_PARAM_INIT].caps =
+							(u32 *)bc->params;
+			mconfig->formats_config[SKL_PARAM_INIT].caps_size =
+								bc->size;
 
 			break;
 		}
@@ -542,15 +713,15 @@ static int skl_tplg_set_module_init_data(struct snd_soc_dapm_widget *w)
 	return 0;
 }
 
-static int skl_tplg_module_prepare(struct skl_sst *ctx, struct skl_pipe *pipe,
+static int skl_tplg_module_prepare(struct skl_dev *skl, struct skl_pipe *pipe,
 		struct snd_soc_dapm_widget *w, struct skl_module_cfg *mcfg)
 {
 	switch (mcfg->dev_type) {
 	case SKL_DEVICE_HDAHOST:
-		return skl_pcm_host_dma_prepare(ctx->dev, pipe->p_params);
+		return skl_pcm_host_dma_prepare(skl->dev, pipe->p_params);
 
 	case SKL_DEVICE_HDALINK:
-		return skl_pcm_link_dma_prepare(ctx->dev, pipe->p_params);
+		return skl_pcm_link_dma_prepare(skl->dev, pipe->p_params);
 	}
 
 	return 0;
@@ -562,12 +733,11 @@ static int skl_tplg_module_prepare(struct skl_sst *ctx, struct skl_pipe *pipe,
  * skl_init_module() routine, so invoke that for all modules in a pipeline
  */
 static int
-skl_tplg_init_pipe_modules(struct skl *skl, struct skl_pipe *pipe)
+skl_tplg_init_pipe_modules(struct skl_dev *skl, struct skl_pipe *pipe)
 {
 	struct skl_pipe_module *w_module;
 	struct snd_soc_dapm_widget *w;
 	struct skl_module_cfg *mconfig;
-	struct skl_sst *ctx = skl->skl_sst;
 	u8 cfg_idx;
 	int ret = 0;
 
@@ -578,7 +748,7 @@ skl_tplg_init_pipe_modules(struct skl *skl, struct skl_pipe *pipe)
 
 		/* check if module ids are populated */
 		if (mconfig->id.module_id < 0) {
-			dev_err(skl->skl_sst->dev,
+			dev_err(skl->dev,
 					"module %pUL id not populated\n",
 					(guid_t *)mconfig->guid);
 			return -EIO;
@@ -588,12 +758,8 @@ skl_tplg_init_pipe_modules(struct skl *skl, struct skl_pipe *pipe)
 		mconfig->fmt_idx = mconfig->mod_cfg[cfg_idx].fmt_idx;
 		mconfig->res_idx = mconfig->mod_cfg[cfg_idx].res_idx;
 
-		/* check resource available */
-		if (!skl_is_pipe_mcps_avail(skl, mconfig))
-			return -ENOMEM;
-
-		if (mconfig->module->loadable && ctx->dsp->fw_ops.load_mod) {
-			ret = ctx->dsp->fw_ops.load_mod(ctx->dsp,
+		if (mconfig->module->loadable && skl->dsp->fw_ops.load_mod) {
+			ret = skl->dsp->fw_ops.load_mod(skl->dsp,
 				mconfig->id.module_id, mconfig->guid);
 			if (ret < 0)
 				return ret;
@@ -602,50 +768,50 @@ skl_tplg_init_pipe_modules(struct skl *skl, struct skl_pipe *pipe)
 		}
 
 		/* prepare the DMA if the module is gateway cpr */
-		ret = skl_tplg_module_prepare(ctx, pipe, w, mconfig);
+		ret = skl_tplg_module_prepare(skl, pipe, w, mconfig);
 		if (ret < 0)
 			return ret;
 
 		/* update blob if blob is null for be with default value */
-		skl_tplg_update_be_blob(w, ctx);
+		skl_tplg_update_be_blob(w, skl);
 
 		/*
 		 * apply fix/conversion to module params based on
 		 * FE/BE params
 		 */
-		skl_tplg_update_module_params(w, ctx);
+		skl_tplg_update_module_params(w, skl);
 		uuid_mod = (guid_t *)mconfig->guid;
-		mconfig->id.pvt_id = skl_get_pvt_id(ctx, uuid_mod,
+		mconfig->id.pvt_id = skl_get_pvt_id(skl, uuid_mod,
 						mconfig->id.instance_id);
 		if (mconfig->id.pvt_id < 0)
 			return ret;
 		skl_tplg_set_module_init_data(w);
 
-		ret = skl_dsp_get_core(ctx->dsp, mconfig->core_id);
+		ret = skl_dsp_get_core(skl->dsp, mconfig->core_id);
 		if (ret < 0) {
-			dev_err(ctx->dev, "Failed to wake up core %d ret=%d\n",
+			dev_err(skl->dev, "Failed to wake up core %d ret=%d\n",
 						mconfig->core_id, ret);
 			return ret;
 		}
 
-		ret = skl_init_module(ctx, mconfig);
+		ret = skl_init_module(skl, mconfig);
 		if (ret < 0) {
-			skl_put_pvt_id(ctx, uuid_mod, &mconfig->id.pvt_id);
+			skl_put_pvt_id(skl, uuid_mod, &mconfig->id.pvt_id);
 			goto err;
 		}
-		skl_tplg_alloc_pipe_mcps(skl, mconfig);
-		ret = skl_tplg_set_module_params(w, ctx);
+
+		ret = skl_tplg_set_module_params(w, skl);
 		if (ret < 0)
 			goto err;
 	}
 
 	return 0;
 err:
-	skl_dsp_put_core(ctx->dsp, mconfig->core_id);
+	skl_dsp_put_core(skl->dsp, mconfig->core_id);
 	return ret;
 }
 
-static int skl_tplg_unload_pipe_modules(struct skl_sst *ctx,
+static int skl_tplg_unload_pipe_modules(struct skl_dev *skl,
 	 struct skl_pipe *pipe)
 {
 	int ret = 0;
@@ -657,25 +823,54 @@ static int skl_tplg_unload_pipe_modules(struct skl_sst *ctx,
 		mconfig  = w_module->w->priv;
 		uuid_mod = (guid_t *)mconfig->guid;
 
-		if (mconfig->module->loadable && ctx->dsp->fw_ops.unload_mod &&
+		if (mconfig->module->loadable && skl->dsp->fw_ops.unload_mod &&
 			mconfig->m_state > SKL_MODULE_UNINIT) {
-			ret = ctx->dsp->fw_ops.unload_mod(ctx->dsp,
+			ret = skl->dsp->fw_ops.unload_mod(skl->dsp,
 						mconfig->id.module_id);
 			if (ret < 0)
 				return -EIO;
 		}
-		skl_put_pvt_id(ctx, uuid_mod, &mconfig->id.pvt_id);
+		skl_put_pvt_id(skl, uuid_mod, &mconfig->id.pvt_id);
 
-		ret = skl_dsp_put_core(ctx->dsp, mconfig->core_id);
+		ret = skl_dsp_put_core(skl->dsp, mconfig->core_id);
 		if (ret < 0) {
 			/* don't return; continue with other modules */
-			dev_err(ctx->dev, "Failed to sleep core %d ret=%d\n",
+			dev_err(skl->dev, "Failed to sleep core %d ret=%d\n",
 				mconfig->core_id, ret);
 		}
 	}
 
 	/* no modules to unload in this path, so return */
 	return ret;
+}
+
+static bool is_skl_tplg_multi_fmt(struct skl_dev *skl, struct skl_pipe *pipe)
+{
+	int i;
+	struct skl_pipe_fmt *cur_fmt;
+	struct skl_pipe_fmt *next_fmt;
+
+	if (pipe->conn_type == SKL_PIPE_CONN_TYPE_FE &&
+			pipe->nr_cfgs > 1) {
+		for (i = 0; i < pipe->nr_cfgs-1; i++) {
+			if (pipe->direction == SNDRV_PCM_STREAM_PLAYBACK) {
+				cur_fmt = &pipe->configs[i].out_fmt;
+				next_fmt = &pipe->configs[i+1].out_fmt;
+			} else {
+				cur_fmt = &pipe->configs[i].in_fmt;
+				next_fmt = &pipe->configs[i+1].in_fmt;
+			}
+			if (!CHECK_HW_PARAMS(cur_fmt->channels, cur_fmt->freq,
+						cur_fmt->bps,
+						next_fmt->channels,
+						next_fmt->freq,	next_fmt->bps))
+				return true;
+		}
+	} else if (pipe->nr_cfgs > 1) {
+		return true;
+	}
+
+	return false;
 }
 
 /*
@@ -686,23 +881,31 @@ static int skl_tplg_unload_pipe_modules(struct skl_sst *ctx,
  * 0th configuratation by default for such pipes.
  */
 static int
-skl_tplg_get_pipe_config(struct skl *skl, struct skl_module_cfg *mconfig)
+skl_tplg_get_pipe_config(struct skl_dev *skl, struct skl_module_cfg *mconfig)
 {
-	struct skl_sst *ctx = skl->skl_sst;
 	struct skl_pipe *pipe = mconfig->pipe;
 	struct skl_pipe_params *params = pipe->p_params;
 	struct skl_path_config *pconfig = &pipe->configs[0];
 	struct skl_pipe_fmt *fmt = NULL;
 	bool in_fmt = false;
 	int i;
+	bool ret;
 
 	if (pipe->nr_cfgs == 0) {
 		pipe->cur_config_idx = 0;
 		return 0;
 	}
 
+	ret = is_skl_tplg_multi_fmt(skl, pipe);
+	if (ret) {
+		pipe->cur_config_idx = pipe->pipe_config_idx;
+		pipe->memory_pages = pconfig->mem_pages;
+		dev_dbg(skl->dev, "found pipe config idx:%d\n",
+				pipe->cur_config_idx);
+		return 0;
+	}
 	if (pipe->conn_type == SKL_PIPE_CONN_TYPE_NONE) {
-		dev_dbg(ctx->dev, "No conn_type detected, take 0th config\n");
+		dev_dbg(skl->dev, "No conn_type detected, take 0th config\n");
 		pipe->cur_config_idx = 0;
 		pipe->memory_pages = pconfig->mem_pages;
 
@@ -726,13 +929,13 @@ skl_tplg_get_pipe_config(struct skl *skl, struct skl_module_cfg *mconfig)
 				    fmt->channels, fmt->freq, fmt->bps)) {
 			pipe->cur_config_idx = i;
 			pipe->memory_pages = pconfig->mem_pages;
-			dev_dbg(ctx->dev, "Using pipe config: %d\n", i);
+			dev_dbg(skl->dev, "Using pipe config: %d\n", i);
 
 			return 0;
 		}
 	}
 
-	dev_err(ctx->dev, "Invalid pipe config: %d %d %d for pipe: %d\n",
+	dev_err(skl->dev, "Invalid pipe config: %d %d %d for pipe: %d\n",
 		params->ch, params->s_freq, params->s_fmt, pipe->ppl_id);
 	return -EINVAL;
 }
@@ -740,43 +943,42 @@ skl_tplg_get_pipe_config(struct skl *skl, struct skl_module_cfg *mconfig)
 /*
  * Mixer module represents a pipeline. So in the Pre-PMU event of mixer we
  * need create the pipeline. So we do following:
- *   - check the resources
  *   - Create the pipeline
  *   - Initialize the modules in pipeline
  *   - finally bind all modules together
  */
 static int skl_tplg_mixer_dapm_pre_pmu_event(struct snd_soc_dapm_widget *w,
-							struct skl *skl)
+							struct skl_dev *skl)
 {
 	int ret;
 	struct skl_module_cfg *mconfig = w->priv;
 	struct skl_pipe_module *w_module;
 	struct skl_pipe *s_pipe = mconfig->pipe;
 	struct skl_module_cfg *src_module = NULL, *dst_module, *module;
-	struct skl_sst *ctx = skl->skl_sst;
 	struct skl_module_deferred_bind *modules;
+
+	if (mconfig->pipe->state >= SKL_PIPE_CREATED)
+		return 0;
+
+	/*
+	 * This will check for single module in source pipeline. If single
+	 * module pipeline  exists then its going to create source pipeline
+	 * first. This will handle/satisfy source-to-sink pipeline creation
+	 * scenario for single module in any stream
+	 */
+	skl_init_single_module_pipe(w, skl);
 
 	ret = skl_tplg_get_pipe_config(skl, mconfig);
 	if (ret < 0)
 		return ret;
 
-	/* check resource available */
-	if (!skl_is_pipe_mcps_avail(skl, mconfig))
-		return -EBUSY;
-
-	if (!skl_is_pipe_mem_avail(skl, mconfig))
-		return -ENOMEM;
-
 	/*
 	 * Create a list of modules for pipe.
 	 * This list contains modules from source to sink
 	 */
-	ret = skl_create_pipeline(ctx, mconfig->pipe);
+	ret = skl_create_pipeline(skl, mconfig->pipe);
 	if (ret < 0)
 		return ret;
-
-	skl_tplg_alloc_pipe_mem(skl, mconfig);
-	skl_tplg_alloc_pipe_mcps(skl, mconfig);
 
 	/* Init all pipe modules from source to sink */
 	ret = skl_tplg_init_pipe_modules(skl, s_pipe);
@@ -792,7 +994,7 @@ static int skl_tplg_mixer_dapm_pre_pmu_event(struct snd_soc_dapm_widget *w,
 			continue;
 		}
 
-		ret = skl_bind_modules(ctx, src_module, dst_module);
+		ret = skl_bind_modules(skl, src_module, dst_module);
 		if (ret < 0)
 			return ret;
 
@@ -810,7 +1012,7 @@ static int skl_tplg_mixer_dapm_pre_pmu_event(struct snd_soc_dapm_widget *w,
 		list_for_each_entry(modules, &skl->bind_list, node) {
 			module = w_module->w->priv;
 			if (modules->dst == module)
-				skl_bind_modules(ctx, modules->src,
+				skl_bind_modules(skl, modules->src,
 							modules->dst);
 		}
 	}
@@ -818,7 +1020,55 @@ static int skl_tplg_mixer_dapm_pre_pmu_event(struct snd_soc_dapm_widget *w,
 	return 0;
 }
 
-static int skl_fill_sink_instance_id(struct skl_sst *ctx, u32 *params,
+/*
+ * This function returns pipe order in given stream
+ */
+static int skl_get_pipe_order(struct skl_module_cfg *mcfg)
+{
+	struct skl_pipe *pipe = mcfg->pipe;
+
+	switch (pipe->conn_type) {
+	case SKL_PIPE_CONN_TYPE_FE:
+		if (pipe->direction == SNDRV_PCM_STREAM_CAPTURE)
+			return SKL_LAST_PIPE;
+		else if (pipe->direction == SNDRV_PCM_STREAM_PLAYBACK)
+			return SKL_FIRST_PIPE;
+		break;
+	case SKL_PIPE_CONN_TYPE_BE:
+		if (pipe->direction == SNDRV_PCM_STREAM_PLAYBACK)
+			return SKL_LAST_PIPE;
+		else if (pipe->direction == SNDRV_PCM_STREAM_CAPTURE)
+			return SKL_FIRST_PIPE;
+		break;
+	}
+	return SKL_INTERMEDIATE_PIPE;
+}
+
+/*
+ * This function checks for single module source pipeline. If found any then
+ * it will initialize source pipeline and its module
+ */
+static void skl_init_single_module_pipe(struct snd_soc_dapm_widget *w,
+							struct skl_dev *skl)
+{
+	struct snd_soc_dapm_path *p;
+	struct snd_soc_dapm_widget *src_w = NULL;
+	struct skl_module_cfg *mcfg;
+
+	snd_soc_dapm_widget_for_each_source_path(w, p) {
+		src_w = p->source;
+
+		if ((src_w->priv != NULL) && is_skl_dsp_widget_type(src_w, skl->dev)) {
+			mcfg = src_w->priv;
+			if ((list_is_singular(&mcfg->pipe->w_list)) &&
+						(src_w->power_check(src_w)))
+				skl_tplg_mixer_dapm_pre_pmu_event(src_w, skl);
+		}
+		skl_init_single_module_pipe(src_w, skl);
+	}
+}
+
+static int skl_fill_sink_instance_id(struct skl_dev *skl, u32 *params,
 				int size, struct skl_module_cfg *mcfg)
 {
 	int i, pvt_id;
@@ -829,7 +1079,7 @@ static int skl_fill_sink_instance_id(struct skl_sst *ctx, u32 *params,
 		struct skl_mod_inst_map *inst = kpb_params->u.map;
 
 		for (i = 0; i < kpb_params->num_modules; i++) {
-			pvt_id = skl_get_pvt_instance_id_map(ctx, inst->mod_id,
+			pvt_id = skl_get_pvt_instance_id_map(skl, inst->mod_id,
 								inst->inst_id);
 			if (pvt_id < 0)
 				return -EINVAL;
@@ -849,7 +1099,7 @@ static int skl_fill_sink_instance_id(struct skl_sst *ctx, u32 *params,
  * send params after binding
  */
 static int skl_tplg_set_module_bind_params(struct snd_soc_dapm_widget *w,
-			struct skl_module_cfg *mcfg, struct skl_sst *ctx)
+			struct skl_module_cfg *mcfg, struct skl_dev *skl)
 {
 	int i, ret;
 	struct skl_module_cfg *mconfig = w->priv;
@@ -873,10 +1123,11 @@ static int skl_tplg_set_module_bind_params(struct snd_soc_dapm_widget *w,
 			return 0;
 	}
 
-	if (mconfig->formats_config.caps_size > 0 &&
-		mconfig->formats_config.set_params == SKL_PARAM_BIND) {
-		sp_cfg = &mconfig->formats_config;
-		ret = skl_set_module_params(ctx, sp_cfg->caps,
+	if (mconfig->formats_config[SKL_PARAM_BIND].caps_size > 0 &&
+		mconfig->formats_config[SKL_PARAM_BIND].set_params ==
+							SKL_PARAM_BIND) {
+		sp_cfg = &mconfig->formats_config[SKL_PARAM_BIND];
+		ret = skl_set_module_params(skl, sp_cfg->caps,
 					sp_cfg->caps_size,
 					sp_cfg->param_id, mconfig);
 		if (ret < 0)
@@ -894,10 +1145,10 @@ static int skl_tplg_set_module_bind_params(struct snd_soc_dapm_widget *w,
 				if (!params)
 					return -ENOMEM;
 
-				skl_fill_sink_instance_id(ctx, params, bc->max,
+				skl_fill_sink_instance_id(skl, params, bc->max,
 								mconfig);
 
-				ret = skl_set_module_params(ctx, params,
+				ret = skl_set_module_params(skl, params,
 						bc->max, bc->param_id, mconfig);
 				kfree(params);
 
@@ -910,19 +1161,7 @@ static int skl_tplg_set_module_bind_params(struct snd_soc_dapm_widget *w,
 	return 0;
 }
 
-static int skl_get_module_id(struct skl_sst *ctx, guid_t *uuid)
-{
-	struct uuid_module *module;
-
-	list_for_each_entry(module, &ctx->uuid_list, list) {
-		if (guid_equal(uuid, &module->uuid))
-			return module->id;
-	}
-
-	return -EINVAL;
-}
-
-static int skl_tplg_find_moduleid_from_uuid(struct skl *skl,
+static int skl_tplg_find_moduleid_from_uuid(struct skl_dev *skl,
 					const struct snd_kcontrol_new *k)
 {
 	struct soc_bytes_ext *sb = (void *) k->private_value;
@@ -942,7 +1181,7 @@ static int skl_tplg_find_moduleid_from_uuid(struct skl *skl,
 		params->num_modules = uuid_params->num_modules;
 
 		for (i = 0; i < uuid_params->num_modules; i++) {
-			module_id = skl_get_module_id(skl->skl_sst,
+			module_id = skl_get_module_id(skl,
 				&uuid_params->u.map_uuid[i].mod_uuid);
 			if (module_id < 0) {
 				devm_kfree(bus->dev, params);
@@ -966,7 +1205,7 @@ static int skl_tplg_find_moduleid_from_uuid(struct skl *skl,
  * Retrieve the module id from UUID mentioned in the
  * post bind params
  */
-void skl_tplg_add_moduleid_in_bind_params(struct skl *skl,
+void skl_tplg_add_moduleid_in_bind_params(struct skl_dev *skl,
 				struct snd_soc_dapm_widget *w)
 {
 	struct skl_module_cfg *mconfig = w->priv;
@@ -985,12 +1224,12 @@ void skl_tplg_add_moduleid_in_bind_params(struct skl *skl,
 			SNDRV_CTL_ELEM_ACCESS_TLV_CALLBACK) &&
 			(skl_tplg_find_moduleid_from_uuid(skl,
 			&w->kcontrol_news[i]) < 0))
-			dev_err(skl->skl_sst->dev,
+			dev_err(skl->dev,
 				"%s: invalid kpb post bind params\n",
 				__func__);
 }
 
-static int skl_tplg_module_add_deferred_bind(struct skl *skl,
+static int skl_tplg_module_add_deferred_bind(struct skl_dev *skl,
 	struct skl_module_cfg *src, struct skl_module_cfg *dst)
 {
 	struct skl_module_deferred_bind *m_list, *modules;
@@ -1028,26 +1267,27 @@ static int skl_tplg_module_add_deferred_bind(struct skl *skl,
 }
 
 static int skl_tplg_bind_sinks(struct snd_soc_dapm_widget *w,
-				struct skl *skl,
+				struct skl_dev *skl,
 				struct snd_soc_dapm_widget *src_w,
 				struct skl_module_cfg *src_mconfig)
 {
 	struct snd_soc_dapm_path *p;
 	struct snd_soc_dapm_widget *sink = NULL, *next_sink = NULL;
 	struct skl_module_cfg *sink_mconfig;
-	struct skl_sst *ctx = skl->skl_sst;
 	int ret;
 
 	snd_soc_dapm_widget_for_each_sink_path(w, p) {
 		if (!p->connect)
 			continue;
 
-		dev_dbg(ctx->dev, "%s: src widget=%s\n", __func__, w->name);
-		dev_dbg(ctx->dev, "%s: sink widget=%s\n", __func__, p->sink->name);
+		dev_dbg(skl->dev,
+			"%s: src widget=%s\n", __func__, w->name);
+		dev_dbg(skl->dev,
+			"%s: sink widget=%s\n", __func__, p->sink->name);
 
 		next_sink = p->sink;
 
-		if (!is_skl_dsp_widget_type(p->sink, ctx->dev))
+		if (!is_skl_dsp_widget_type(p->sink, skl->dev))
 			return skl_tplg_bind_sinks(p->sink, skl, src_w, src_mconfig);
 
 		/*
@@ -1056,7 +1296,7 @@ static int skl_tplg_bind_sinks(struct snd_soc_dapm_widget *w,
 		 * they are ones used for SKL so check that first
 		 */
 		if ((p->sink->priv != NULL) &&
-				is_skl_dsp_widget_type(p->sink, ctx->dev)) {
+				is_skl_dsp_widget_type(p->sink, skl->dev)) {
 
 			sink = p->sink;
 			sink_mconfig = sink->priv;
@@ -1088,19 +1328,21 @@ static int skl_tplg_bind_sinks(struct snd_soc_dapm_widget *w,
 				continue;
 
 			/* Bind source to sink, mixin is always source */
-			ret = skl_bind_modules(ctx, src_mconfig, sink_mconfig);
+			ret = skl_bind_modules(skl, src_mconfig, sink_mconfig);
 			if (ret)
 				return ret;
 
 			/* set module params after bind */
-			skl_tplg_set_module_bind_params(src_w, src_mconfig, ctx);
-			skl_tplg_set_module_bind_params(sink, sink_mconfig, ctx);
+			skl_tplg_set_module_bind_params(src_w,
+					src_mconfig, skl);
+			skl_tplg_set_module_bind_params(sink,
+					sink_mconfig, skl);
 
 			/* Start sinks pipe first */
 			if (sink_mconfig->pipe->state != SKL_PIPE_STARTED) {
 				if (sink_mconfig->pipe->conn_type !=
 							SKL_PIPE_CONN_TYPE_FE)
-					ret = skl_run_pipe(ctx,
+					ret = skl_run_pipe(skl,
 							sink_mconfig->pipe);
 				if (ret)
 					return ret;
@@ -1125,10 +1367,9 @@ static int skl_tplg_bind_sinks(struct snd_soc_dapm_widget *w,
  *   - Then run current pipe
  */
 static int skl_tplg_pga_dapm_pre_pmu_event(struct snd_soc_dapm_widget *w,
-								struct skl *skl)
+							struct skl_dev *skl)
 {
 	struct skl_module_cfg *src_mconfig;
-	struct skl_sst *ctx = skl->skl_sst;
 	int ret = 0;
 
 	src_mconfig = w->priv;
@@ -1144,25 +1385,24 @@ static int skl_tplg_pga_dapm_pre_pmu_event(struct snd_soc_dapm_widget *w,
 
 	/* Start source pipe last after starting all sinks */
 	if (src_mconfig->pipe->conn_type != SKL_PIPE_CONN_TYPE_FE)
-		return skl_run_pipe(ctx, src_mconfig->pipe);
+		return skl_run_pipe(skl, src_mconfig->pipe);
 
 	return 0;
 }
 
 static struct snd_soc_dapm_widget *skl_get_src_dsp_widget(
-		struct snd_soc_dapm_widget *w, struct skl *skl)
+		struct snd_soc_dapm_widget *w, struct skl_dev *skl)
 {
 	struct snd_soc_dapm_path *p;
 	struct snd_soc_dapm_widget *src_w = NULL;
-	struct skl_sst *ctx = skl->skl_sst;
 
 	snd_soc_dapm_widget_for_each_source_path(w, p) {
 		src_w = p->source;
 		if (!p->connect)
 			continue;
 
-		dev_dbg(ctx->dev, "sink widget=%s\n", w->name);
-		dev_dbg(ctx->dev, "src widget=%s\n", p->source->name);
+		dev_dbg(skl->dev, "sink widget=%s\n", w->name);
+		dev_dbg(skl->dev, "src widget=%s\n", p->source->name);
 
 		/*
 		 * here we will check widgets in sink pipelines, so that can
@@ -1170,7 +1410,7 @@ static struct snd_soc_dapm_widget *skl_get_src_dsp_widget(
 		 * ones used for SKL so check that first
 		 */
 		if ((p->source->priv != NULL) &&
-				is_skl_dsp_widget_type(p->source, ctx->dev)) {
+				is_skl_dsp_widget_type(p->source, skl->dev)) {
 			return p->source;
 		}
 	}
@@ -1191,12 +1431,11 @@ static struct snd_soc_dapm_widget *skl_get_src_dsp_widget(
  *	- start this pipeline
  */
 static int skl_tplg_mixer_dapm_post_pmu_event(struct snd_soc_dapm_widget *w,
-							struct skl *skl)
+							struct skl_dev *skl)
 {
 	int ret = 0;
 	struct snd_soc_dapm_widget *source, *sink;
 	struct skl_module_cfg *src_mconfig, *sink_mconfig;
-	struct skl_sst *ctx = skl->skl_sst;
 	int src_pipe_started = 0;
 
 	sink = w;
@@ -1222,16 +1461,16 @@ static int skl_tplg_mixer_dapm_post_pmu_event(struct snd_soc_dapm_widget *w,
 	}
 
 	if (src_pipe_started) {
-		ret = skl_bind_modules(ctx, src_mconfig, sink_mconfig);
+		ret = skl_bind_modules(skl, src_mconfig, sink_mconfig);
 		if (ret)
 			return ret;
 
 		/* set module params after bind */
-		skl_tplg_set_module_bind_params(source, src_mconfig, ctx);
-		skl_tplg_set_module_bind_params(sink, sink_mconfig, ctx);
+		skl_tplg_set_module_bind_params(source, src_mconfig, skl);
+		skl_tplg_set_module_bind_params(sink, sink_mconfig, skl);
 
 		if (sink_mconfig->pipe->conn_type != SKL_PIPE_CONN_TYPE_FE)
-			ret = skl_run_pipe(ctx, sink_mconfig->pipe);
+			ret = skl_run_pipe(skl, sink_mconfig->pipe);
 	}
 
 	return ret;
@@ -1244,16 +1483,15 @@ static int skl_tplg_mixer_dapm_post_pmu_event(struct snd_soc_dapm_widget *w,
  *   - unbind with source pipelines if still connected
  */
 static int skl_tplg_mixer_dapm_pre_pmd_event(struct snd_soc_dapm_widget *w,
-							struct skl *skl)
+							struct skl_dev *skl)
 {
 	struct skl_module_cfg *src_mconfig, *sink_mconfig;
 	int ret = 0, i;
-	struct skl_sst *ctx = skl->skl_sst;
 
 	sink_mconfig = w->priv;
 
 	/* Stop the pipe */
-	ret = skl_stop_pipe(ctx, sink_mconfig->pipe);
+	ret = skl_stop_pipe(skl, sink_mconfig->pipe);
 	if (ret)
 		return ret;
 
@@ -1263,7 +1501,7 @@ static int skl_tplg_mixer_dapm_pre_pmd_event(struct snd_soc_dapm_widget *w,
 			if (!src_mconfig)
 				continue;
 
-			ret = skl_unbind_modules(ctx,
+			ret = skl_unbind_modules(skl,
 						src_mconfig, sink_mconfig);
 		}
 	}
@@ -1273,27 +1511,21 @@ static int skl_tplg_mixer_dapm_pre_pmd_event(struct snd_soc_dapm_widget *w,
 
 /*
  * in the Post-PMD event of mixer we need to do following:
- *   - Free the mcps used
- *   - Free the mem used
  *   - Unbind the modules within the pipeline
  *   - Delete the pipeline (modules are not required to be explicitly
  *     deleted, pipeline delete is enough here
  */
 static int skl_tplg_mixer_dapm_post_pmd_event(struct snd_soc_dapm_widget *w,
-							struct skl *skl)
+							struct skl_dev *skl)
 {
 	struct skl_module_cfg *mconfig = w->priv;
 	struct skl_pipe_module *w_module;
 	struct skl_module_cfg *src_module = NULL, *dst_module;
-	struct skl_sst *ctx = skl->skl_sst;
 	struct skl_pipe *s_pipe = mconfig->pipe;
 	struct skl_module_deferred_bind *modules, *tmp;
 
 	if (s_pipe->state == SKL_PIPE_INVALID)
 		return -EINVAL;
-
-	skl_tplg_free_pipe_mcps(skl, mconfig);
-	skl_tplg_free_pipe_mem(skl, mconfig);
 
 	list_for_each_entry(w_module, &s_pipe->w_list, node) {
 		if (list_empty(&skl->bind_list))
@@ -1307,7 +1539,7 @@ static int skl_tplg_mixer_dapm_post_pmd_event(struct snd_soc_dapm_widget *w,
 			 * modules from deferred bind list.
 			 */
 			if (modules->dst == src_module) {
-				skl_unbind_modules(ctx, modules->src,
+				skl_unbind_modules(skl, modules->src,
 						modules->dst);
 			}
 
@@ -1327,44 +1559,40 @@ static int skl_tplg_mixer_dapm_post_pmd_event(struct snd_soc_dapm_widget *w,
 	list_for_each_entry(w_module, &s_pipe->w_list, node) {
 		dst_module = w_module->w->priv;
 
-		if (mconfig->m_state >= SKL_MODULE_INIT_DONE)
-			skl_tplg_free_pipe_mcps(skl, dst_module);
 		if (src_module == NULL) {
 			src_module = dst_module;
 			continue;
 		}
 
-		skl_unbind_modules(ctx, src_module, dst_module);
+		skl_unbind_modules(skl, src_module, dst_module);
 		src_module = dst_module;
 	}
 
-	skl_delete_pipe(ctx, mconfig->pipe);
+	skl_delete_pipe(skl, mconfig->pipe);
 
 	list_for_each_entry(w_module, &s_pipe->w_list, node) {
 		src_module = w_module->w->priv;
 		src_module->m_state = SKL_MODULE_UNINIT;
 	}
 
-	return skl_tplg_unload_pipe_modules(ctx, s_pipe);
+	return skl_tplg_unload_pipe_modules(skl, s_pipe);
 }
 
 /*
  * in the Post-PMD event of PGA we need to do following:
- *   - Free the mcps used
  *   - Stop the pipeline
  *   - In source pipe is connected, unbind with source pipelines
  */
 static int skl_tplg_pga_dapm_post_pmd_event(struct snd_soc_dapm_widget *w,
-								struct skl *skl)
+							struct skl_dev *skl)
 {
 	struct skl_module_cfg *src_mconfig, *sink_mconfig;
 	int ret = 0, i;
-	struct skl_sst *ctx = skl->skl_sst;
 
 	src_mconfig = w->priv;
 
 	/* Stop the pipe since this is a mixin module */
-	ret = skl_stop_pipe(ctx, src_mconfig->pipe);
+	ret = skl_stop_pipe(skl, src_mconfig->pipe);
 	if (ret)
 		return ret;
 
@@ -1377,7 +1605,7 @@ static int skl_tplg_pga_dapm_post_pmd_event(struct snd_soc_dapm_widget *w,
 			 * This is a connecter and if path is found that means
 			 * unbind between source and sink has not happened yet
 			 */
-			ret = skl_unbind_modules(ctx, src_mconfig,
+			ret = skl_unbind_modules(skl, src_mconfig,
 							sink_mconfig);
 		}
 	}
@@ -1395,7 +1623,7 @@ static int skl_tplg_mixer_event(struct snd_soc_dapm_widget *w,
 				struct snd_kcontrol *k, int event)
 {
 	struct snd_soc_dapm_context *dapm = w->dapm;
-	struct skl *skl = get_skl_ctx(dapm->dev);
+	struct skl_dev *skl = get_skl_ctx(dapm->dev);
 
 	switch (event) {
 	case SND_SOC_DAPM_PRE_PMU:
@@ -1425,7 +1653,7 @@ static int skl_tplg_pga_event(struct snd_soc_dapm_widget *w,
 
 {
 	struct snd_soc_dapm_context *dapm = w->dapm;
-	struct skl *skl = get_skl_ctx(dapm->dev);
+	struct skl_dev *skl = get_skl_ctx(dapm->dev);
 
 	switch (event) {
 	case SND_SOC_DAPM_PRE_PMU:
@@ -1438,6 +1666,278 @@ static int skl_tplg_pga_event(struct snd_soc_dapm_widget *w,
 	return 0;
 }
 
+/*
+ * In modelling, we assumed that all single module will be PGA leaf. Have
+ * added new event flag POST_PMU. PRE_PMU is going to handle dynamic connection
+ * i.e (dynamic FE or BE connection to already running stream). POST_PMU will
+ * handle the pipeline binding and running from sink to source. POST_PMD
+ * will handle the cleanup of single module pipe.
+ */
+static int skl_tplg_pga_single_module_event(struct snd_soc_dapm_widget *w,
+			struct snd_kcontrol *k, int event)
+
+{
+	struct snd_soc_dapm_context *dapm = w->dapm;
+	struct skl_dev *skl = get_skl_ctx(dapm->dev);
+	struct skl_module_cfg *mcfg = w->priv;
+	int ret;
+
+	switch (event) {
+	case SND_SOC_DAPM_PRE_PMU:
+		ret = skl_tplg_mixer_dapm_pre_pmu_event(w, skl);
+		if ((skl_get_pipe_order(mcfg) == SKL_LAST_PIPE) && (ret == 0))
+			ret = skl_tplg_mixer_dapm_post_pmu_event(w, skl);
+		return ret;
+
+	case SND_SOC_DAPM_POST_PMU:
+		return skl_tplg_pga_dapm_pre_pmu_event(w, skl);
+
+	case SND_SOC_DAPM_POST_PMD:
+		ret = skl_tplg_pga_dapm_post_pmd_event(w, skl);
+		if (ret >= 0)
+			ret = skl_tplg_mixer_dapm_post_pmd_event(w, skl);
+		return ret;
+	}
+
+	return 0;
+}
+
+static int skl_tplg_send_gain_ipc(struct snd_soc_dapm_context *dapm,
+					struct skl_module_cfg *mconfig)
+{
+	struct skl_gain_config *gain_cfg;
+	struct skl_dev *skl = get_skl_ctx(dapm->dev);
+	struct skl_module_iface *m_intf;
+	int num_channel, i, ret = 0;
+
+	m_intf = &mconfig->module->formats[mconfig->fmt_idx];
+	num_channel = (m_intf->outputs[0].fmt.channels >
+				MAX_NUM_CHANNELS) ? MAX_NUM_CHANNELS :
+					m_intf->outputs[0].fmt.channels;
+
+	gain_cfg = kzalloc(sizeof(*gain_cfg), GFP_KERNEL);
+	if (!gain_cfg)
+		return -ENOMEM;
+
+	gain_cfg->ramp_type = mconfig->gain_data->ramp_type;
+	gain_cfg->ramp_duration = mconfig->gain_data->ramp_duration;
+	for (i = 0; i < num_channel; i++) {
+		gain_cfg->channel_id = i;
+		gain_cfg->target_volume = mconfig->gain_data->volume[i];
+		ret = skl_set_module_params(skl, (u32 *)gain_cfg,
+				sizeof(*gain_cfg), 0, mconfig);
+		if (ret < 0) {
+			dev_err(dapm->dev,
+				"set gain for channel:%d failed\n", i);
+			break;
+		}
+	}
+	kfree(gain_cfg);
+
+	return ret;
+}
+
+static int skl_tplg_ramp_duration_get(struct snd_kcontrol *kcontrol,
+			struct snd_ctl_elem_value *ucontrol)
+{
+	struct snd_soc_dapm_widget *w = snd_soc_dapm_kcontrol_widget(kcontrol);
+	struct skl_module_cfg *mconfig = w->priv;
+
+	ucontrol->value.integer.value[0] = mconfig->gain_data->ramp_duration;
+
+	return 0;
+}
+
+static int skl_tplg_ramp_type_get(struct snd_kcontrol *kcontrol,
+			struct snd_ctl_elem_value *ucontrol)
+{
+	struct snd_soc_dapm_widget *w = snd_soc_dapm_kcontrol_widget(kcontrol);
+	struct skl_module_cfg *mconfig = w->priv;
+
+	ucontrol->value.integer.value[0] = mconfig->gain_data->ramp_type;
+
+	return 0;
+}
+
+static int skl_tplg_get_linear_toindex(int val)
+{
+	int i, index = -EINVAL;
+
+	for (i = 0; i < ARRAY_SIZE(linear_gain); i++) {
+		if (val == linear_gain[i]) {
+			index = i;
+			break;
+		}
+	}
+
+	return index;
+}
+
+static int skl_tplg_volume_ctl_info(struct snd_kcontrol *kcontrol,
+		struct snd_ctl_elem_info *uinfo)
+{
+	struct soc_mixer_control *mc;
+	struct snd_soc_dapm_widget *w;
+	struct skl_module_iface *m_intf;
+	struct skl_module_cfg *mconfig;
+
+	mc = (struct soc_mixer_control *)kcontrol->private_value;
+	w = snd_soc_dapm_kcontrol_widget(kcontrol);
+	mconfig = w->priv;
+
+	m_intf = &mconfig->module->formats[mconfig->fmt_idx];
+	uinfo->type = SNDRV_CTL_ELEM_TYPE_INTEGER;
+	uinfo->count = m_intf->outputs[0].fmt.channels;
+	uinfo->value.integer.min = mc->min;
+	uinfo->value.integer.max = mc->max;
+
+	return 0;
+}
+
+static int skl_tplg_volume_get(struct snd_kcontrol *kcontrol,
+			struct snd_ctl_elem_value *ucontrol)
+{
+	struct snd_soc_dapm_widget *w = snd_soc_dapm_kcontrol_widget(kcontrol);
+	struct skl_module_cfg *mconfig = w->priv;
+	struct skl_module_iface *m_intf;
+	int i, max_channels;
+
+	m_intf = &mconfig->module->formats[mconfig->fmt_idx];
+	max_channels = (m_intf->outputs[0].fmt.channels >
+				MAX_NUM_CHANNELS) ? MAX_NUM_CHANNELS :
+					m_intf->outputs[0].fmt.channels;
+	for (i = 0; i < max_channels; i++)
+		ucontrol->value.integer.value[i] =
+			skl_tplg_get_linear_toindex(
+				mconfig->gain_data->volume[i]);
+
+	return 0;
+}
+
+static int skl_tplg_ramp_duration_set(struct snd_kcontrol *kcontrol,
+			struct snd_ctl_elem_value *ucontrol)
+{
+	struct snd_soc_dapm_context *dapm;
+	struct snd_soc_dapm_widget *w;
+	struct skl_module_cfg *mconfig;
+	int ret = 0;
+
+	dapm = snd_soc_dapm_kcontrol_dapm(kcontrol);
+	w = snd_soc_dapm_kcontrol_widget(kcontrol);
+	mconfig = w->priv;
+	mconfig->gain_data->ramp_duration = ucontrol->value.integer.value[0];
+
+	if (w->power)
+		ret = skl_tplg_send_gain_ipc(dapm, mconfig);
+	return ret;
+}
+
+static int skl_tplg_ramp_type_set(struct snd_kcontrol *kcontrol,
+		struct snd_ctl_elem_value *ucontrol)
+{
+	struct snd_soc_dapm_context *dapm;
+	struct snd_soc_dapm_widget *w;
+	struct skl_module_cfg *mconfig;
+	int ret = 0;
+
+	dapm = snd_soc_dapm_kcontrol_dapm(kcontrol);
+	w = snd_soc_dapm_kcontrol_widget(kcontrol);
+	mconfig = w->priv;
+	mconfig->gain_data->ramp_type = ucontrol->value.integer.value[0];
+
+	if (w->power)
+		ret = skl_tplg_send_gain_ipc(dapm, mconfig);
+
+	return ret;
+}
+
+static int skl_tplg_volume_set(struct snd_kcontrol *kcontrol,
+				struct snd_ctl_elem_value *ucontrol)
+{
+	struct snd_soc_dapm_context *dapm;
+	struct snd_soc_dapm_widget *w;
+	struct skl_module_cfg *mconfig;
+	struct skl_module_iface *m_intf;
+	int ret = 0, i, max_channels;
+
+	dapm = snd_soc_dapm_kcontrol_dapm(kcontrol);
+	w = snd_soc_dapm_kcontrol_widget(kcontrol);
+	mconfig = w->priv;
+
+	m_intf = &mconfig->module->formats[mconfig->fmt_idx];
+	max_channels = (m_intf->outputs[0].fmt.channels >
+				MAX_NUM_CHANNELS) ? MAX_NUM_CHANNELS :
+				m_intf->outputs[0].fmt.channels;
+
+	for (i = 0; i < max_channels; i++)
+		if (ucontrol->value.integer.value[i] >=
+					ARRAY_SIZE(linear_gain)) {
+			dev_err(dapm->dev,
+				"Volume requested is out of range!!!\n");
+			return -EINVAL;
+		}
+
+	for (i = 0; i < max_channels; i++)
+		mconfig->gain_data->volume[i] =
+			linear_gain[ucontrol->value.integer.value[i]];
+
+	if (w->power)
+		ret = skl_tplg_send_gain_ipc(dapm, mconfig);
+
+	return ret;
+}
+
+static int skl_tplg_multi_config_get(struct snd_kcontrol *kcontrol,
+			struct snd_ctl_elem_value *ucontrol)
+{
+	struct snd_soc_component *component = snd_soc_kcontrol_component(kcontrol);
+	struct hdac_bus *bus = snd_soc_component_get_drvdata(component);
+	struct skl_dev *skl = bus_to_skl(bus);
+	struct skl_pipeline *ppl;
+	struct skl_pipe *pipe = NULL;
+	u32 *pipe_id;
+	struct soc_enum *ec = (struct soc_enum *)kcontrol->private_value;
+
+	if (!ec)
+		return -EINVAL;
+
+	pipe_id = ec->dobj.private;
+	GET_PIPE(ppl, skl, node, *pipe_id, pipe);
+	if (!pipe)
+		return -EIO;
+
+	ucontrol->value.enumerated.item[0]  =  pipe->pipe_config_idx;
+
+	return 0;
+}
+
+static int skl_tplg_multi_config_set(struct snd_kcontrol *kcontrol,
+			struct snd_ctl_elem_value *ucontrol)
+{
+	struct snd_soc_component *component = snd_soc_kcontrol_component(kcontrol);
+	struct hdac_bus *bus = snd_soc_component_get_drvdata(component);
+	struct skl_dev *skl = bus_to_skl(bus);
+	struct skl_pipeline *ppl;
+	struct skl_pipe *pipe = NULL;
+	struct soc_enum *ec = (struct soc_enum *)kcontrol->private_value;
+	u32 *pipe_id;
+
+	if (!ec)
+		return -EINVAL;
+
+	if (ucontrol->value.enumerated.item[0] > ec->items)
+		return -EINVAL;
+
+	pipe_id = ec->dobj.private;
+	GET_PIPE(ppl, skl, node, *pipe_id, pipe);
+	if (!pipe)
+		return -EIO;
+
+	pipe->pipe_config_idx = ucontrol->value.enumerated.item[0];
+
+	return 0;
+}
+
 static int skl_tplg_tlv_control_get(struct snd_kcontrol *kcontrol,
 			unsigned int __user *data, unsigned int size)
 {
@@ -1446,10 +1946,10 @@ static int skl_tplg_tlv_control_get(struct snd_kcontrol *kcontrol,
 	struct skl_algo_data *bc = (struct skl_algo_data *)sb->dobj.private;
 	struct snd_soc_dapm_widget *w = snd_soc_dapm_kcontrol_widget(kcontrol);
 	struct skl_module_cfg *mconfig = w->priv;
-	struct skl *skl = get_skl_ctx(w->dapm->dev);
+	struct skl_dev *skl = get_skl_ctx(w->dapm->dev);
 
 	if (w->power)
-		skl_get_module_params(skl->skl_sst, (u32 *)bc->params,
+		skl_get_module_params(skl, (u32 *)bc->params,
 				      bc->size, bc->param_id, mconfig);
 
 	/* decrement size for TLV header */
@@ -1481,7 +1981,7 @@ static int skl_tplg_tlv_control_set(struct snd_kcontrol *kcontrol,
 	struct soc_bytes_ext *sb =
 			(struct soc_bytes_ext *)kcontrol->private_value;
 	struct skl_algo_data *ac = (struct skl_algo_data *)sb->dobj.private;
-	struct skl *skl = get_skl_ctx(w->dapm->dev);
+	struct skl_dev *skl = get_skl_ctx(w->dapm->dev);
 
 	if (ac->params) {
 		/*
@@ -1498,7 +1998,7 @@ static int skl_tplg_tlv_control_set(struct snd_kcontrol *kcontrol,
 			return -EFAULT;
 
 		if (w->power)
-			return skl_set_module_params(skl->skl_sst,
+			return skl_set_module_params(skl,
 						(u32 *)ac->params, ac->size,
 						ac->param_id, mconfig);
 	}
@@ -1526,7 +2026,8 @@ static int skl_tplg_mic_control_get(struct snd_kcontrol *kcontrol,
 static int skl_fill_mic_sel_params(struct skl_module_cfg *mconfig,
 	struct skl_mic_sel_config *mic_cfg, struct device *dev)
 {
-	struct skl_specific_cfg *sp_cfg = &mconfig->formats_config;
+	struct skl_specific_cfg *sp_cfg =
+				&mconfig->formats_config[SKL_PARAM_INIT];
 
 	sp_cfg->caps_size = sizeof(struct skl_mic_sel_config);
 	sp_cfg->set_params = SKL_PARAM_SET;
@@ -1659,7 +2160,7 @@ int skl_tplg_update_pipe_params(struct device *dev,
 			struct skl_pipe_params *params)
 {
 	struct skl_module_res *res = &mconfig->module->resources[0];
-	struct skl *skl = get_skl_ctx(dev);
+	struct skl_dev *skl = get_skl_ctx(dev);
 	struct skl_module_fmt *format = NULL;
 	u8 cfg_idx = mconfig->pipe->cur_config_idx;
 
@@ -1856,7 +2357,7 @@ static int skl_tplg_be_fill_pipe_params(struct snd_soc_dai *dai,
 				struct skl_pipe_params *params)
 {
 	struct nhlt_specific_cfg *cfg;
-	struct skl *skl = get_skl_ctx(dai->dev);
+	struct skl_dev *skl = get_skl_ctx(dai->dev);
 	int link_type = skl_tplg_be_link_type(mconfig->dev_type);
 	u8 dev_type = skl_tplg_be_dev_type(mconfig->dev_type);
 
@@ -1866,13 +2367,15 @@ static int skl_tplg_be_fill_pipe_params(struct snd_soc_dai *dai,
 		return 0;
 
 	/* update the blob based on virtual bus_id*/
-	cfg = skl_get_ep_blob(skl, mconfig->vbus_id, link_type,
+	cfg = skl_get_nhlt_specific_cfg(skl, mconfig->vbus_id, link_type,
 					params->s_fmt, params->ch,
 					params->s_freq, params->stream,
 					dev_type);
+
 	if (cfg) {
-		mconfig->formats_config.caps_size = cfg->size;
-		mconfig->formats_config.caps = (u32 *) &cfg->caps;
+		mconfig->formats_config[SKL_PARAM_INIT].caps_size = cfg->size;
+		mconfig->formats_config[SKL_PARAM_INIT].caps =
+							(u32 *) &cfg->caps;
 	} else {
 		dev_err(dai->dev, "Blob NULL for id %x type %d dirn %d\n",
 					mconfig->vbus_id, link_type,
@@ -1960,6 +2463,181 @@ int skl_tplg_be_update_params(struct snd_soc_dai *dai,
 	return 0;
 }
 
+/*
+ * This function searches notification kcontrol list present in skl_sst
+ * context against unique notify_id and returns kcontrol pointer if match
+ * found.
+ */
+struct snd_kcontrol *skl_search_notify_kctl(struct skl_dev *skl, u32 notify_id)
+{
+	struct skl_notify_kctrl_info *kctl_info;
+
+	list_for_each_entry(kctl_info, &skl->notify_kctls, list) {
+		if (notify_id == kctl_info->notify_id)
+			return kctl_info->notify_kctl;
+	}
+	return NULL;
+}
+
+/*
+ * This function creates notification kcontrol list by searching control
+ * list present in snd_card context. It compares kcontrol name with specific
+ * string "notify params" to get notification kcontrols and add it up to the
+ * notification list present in skl_sst context.
+ * NOTE: To use module notification feature, new kcontrol named "notify" should
+ * be added in topology XML for that particular module.
+ */
+int skl_create_notify_kctl_list(struct skl_dev *skl, struct snd_card *card)
+{
+	struct snd_kcontrol *kctl;
+	struct snd_soc_dapm_widget *w;
+	struct skl_module_cfg *mconfig;
+	struct skl_notify_kctrl_info *info;
+	u32 size = sizeof(*info);
+
+	list_for_each_entry(kctl, &card->controls, list) {
+		if (strnstr(kctl->id.name, "notify params",
+						strlen(kctl->id.name))) {
+			info = kzalloc(size, GFP_KERNEL);
+			if (!info)
+				return -ENOMEM;
+
+			w = snd_soc_dapm_kcontrol_widget(kctl);
+			mconfig = w->priv;
+
+			/* Module ID (MS word) + Module Instance ID (LS word) */
+			info->notify_id = ((mconfig->id.module_id << 16) |
+					   (mconfig->id.instance_id));
+			info->notify_kctl = kctl;
+
+			list_add_tail(&info->list, &skl->notify_kctls);
+		}
+	}
+	return 0;
+}
+
+/*
+ * This function deletes notification kcontrol list from skl_sst
+ * context.
+ */
+void skl_delete_notify_kctl_list(struct skl_dev *skl)
+{
+	struct skl_notify_kctrl_info *info, *tmp;
+
+	list_for_each_entry_safe(info, tmp, &skl->notify_kctls, list) {
+		list_del(&info->list);
+		kfree(info);
+	}
+}
+
+/*
+ * This function creates notification kcontrol list on first module
+ * notification from firmware. It also search notification kcontrol
+ * list against unique notify_id sent from firmware and returns the
+ * corresponding kcontrol pointer.
+ */
+struct snd_kcontrol *skl_get_notify_kcontrol(struct skl_dev *skl,
+			struct snd_card *card, u32 notify_id)
+{
+	struct snd_kcontrol *kctl = NULL;
+
+	if (list_empty(&skl->notify_kctls))
+		skl_create_notify_kctl_list(skl, card);
+
+	kctl = skl_search_notify_kctl(skl, notify_id);
+
+	return kctl;
+}
+
+
+
+/*
+ * Get the events along with data stored in notify_data and pass
+ * to kcontrol private data.
+ */
+int skl_dsp_cb_event(struct skl_dev *skl, unsigned int event,
+				struct skl_notify_data *notify_data)
+{
+	struct snd_soc_card *card;
+	struct soc_bytes_ext *sb;
+	struct snd_soc_component *component = skl->component;
+	struct skl_module_notify *m_notification = NULL;
+	struct snd_kcontrol *kcontrol;
+	struct skl_algo_data *bc;
+	u8 param_length;
+
+	switch (event) {
+	case SKL_TPLG_CHG_NOTIFY:
+		card = component->card;
+
+		kcontrol = snd_soc_card_get_kcontrol(card,
+				"Topology Change Notification");
+		if (!kcontrol) {
+			dev_warn(skl->dev,
+				"NOTIFICATION Controls not found\n");
+			return -EINVAL;
+		}
+
+		sb = (struct soc_bytes_ext *)kcontrol->private_value;
+		if (!sb->dobj.private) {
+			sb->dobj.private = devm_kzalloc(skl->dev,
+				sizeof(*notify_data), GFP_KERNEL);
+			if (!sb->dobj.private)
+				return -ENOMEM;
+		}
+
+		memcpy(sb->dobj.private, notify_data, sizeof(*notify_data));
+		snd_ctl_notify(card->snd_card, SNDRV_CTL_EVENT_MASK_VALUE,
+							&kcontrol->id);
+		break;
+	case SKL_EVENT_GLB_MODULE_NOTIFICATION:
+		m_notification = (struct skl_module_notify *)notify_data->data;
+		card = component->card;
+		kcontrol = skl_get_notify_kcontrol(skl, card->snd_card,
+					m_notification->unique_id);
+		if (!kcontrol) {
+			dev_warn(skl->dev, "Module notify control not found\n");
+			return -EINVAL;
+		}
+
+		sb = (struct soc_bytes_ext *)kcontrol->private_value;
+		bc = (struct skl_algo_data *)sb->dobj.private;
+		param_length = sizeof(struct skl_notify_data)
+					+ notify_data->length;
+		memcpy(bc->params, (char *)notify_data, param_length);
+		snd_ctl_notify(card->snd_card,
+				SNDRV_CTL_EVENT_MASK_VALUE, &kcontrol->id);
+		break;
+	default:
+		return -EINVAL;
+	}
+
+	return 0;
+}
+
+/*
+ * Get last topology change events like pipeline start, pipeline delete,
+ * DSP D0/D3 and notify to user along with time at which last change occurred
+ * in topology.
+ */
+int skl_tplg_change_notification_get(struct snd_kcontrol *kcontrol,
+			unsigned int __user *data, unsigned int size)
+{
+	struct skl_notify_data *notify_data;
+	struct soc_bytes_ext *sb =
+			(struct soc_bytes_ext *)kcontrol->private_value;
+
+	if (sb->dobj.private) {
+		notify_data = (struct skl_notify_data *)sb->dobj.private;
+		if (copy_to_user(data, notify_data, sizeof(*notify_data)))
+			return -EFAULT;
+		/* Clear the data after copy to user as per requirement */
+		memset(notify_data, 0, sizeof(*notify_data));
+	}
+
+	return 0;
+}
+
 static const struct snd_soc_tplg_widget_events skl_tplg_widget_ops[] = {
 	{SKL_MIXER_EVENT, skl_tplg_mixer_event},
 	{SKL_VMIXER_EVENT, skl_tplg_mixer_event},
@@ -1976,6 +2654,27 @@ static const struct snd_soc_tplg_kcontrol_ops skl_tplg_kcontrol_ops[] = {
 		.id = SKL_CONTROL_TYPE_MIC_SELECT,
 		.get = skl_tplg_mic_control_get,
 		.put = skl_tplg_mic_control_set,
+	},
+	{
+		.id = SKL_CONTROL_TYPE_MULTI_IO_SELECT,
+		.get = skl_tplg_multi_config_get,
+		.put = skl_tplg_multi_config_set,
+	},
+	{
+		.id = SKL_CONTROL_TYPE_VOLUME,
+		.info = skl_tplg_volume_ctl_info,
+		.get = skl_tplg_volume_get,
+		.put = skl_tplg_volume_set,
+	},
+	{
+		.id = SKL_CONTROL_TYPE_RAMP_DURATION,
+		.get = skl_tplg_ramp_duration_get,
+		.put = skl_tplg_ramp_duration_set,
+	},
+	{
+		.id = SKL_CONTROL_TYPE_RAMP_TYPE,
+		.get = skl_tplg_ramp_type_get,
+		.put = skl_tplg_ramp_type_set,
 	},
 };
 
@@ -2070,7 +2769,7 @@ static int skl_tplg_fill_pipe_tkn(struct device *dev,
  * Return an existing pipe if the pipe already exists.
  */
 static int skl_tplg_add_pipe(struct device *dev,
-		struct skl_module_cfg *mconfig, struct skl *skl,
+		struct skl_module_cfg *mconfig, struct skl_dev *skl,
 		struct snd_soc_tplg_vendor_value_elem *tkn_elem)
 {
 	struct skl_pipeline *ppl;
@@ -2330,10 +3029,6 @@ static int skl_tplg_fill_res_tkn(struct device *dev,
 		return -EINVAL;
 
 	switch (tkn_elem->token) {
-	case SKL_TKN_MM_U32_CPS:
-		res->cps = tkn_elem->value;
-		break;
-
 	case SKL_TKN_MM_U32_DMA_SIZE:
 		res->dma_buffer_size = tkn_elem->value;
 		break;
@@ -2354,16 +3049,17 @@ static int skl_tplg_fill_res_tkn(struct device *dev,
 		res->ibs = tkn_elem->value;
 		break;
 
-	case SKL_TKN_U32_MAX_MCPS:
-		res->cps = tkn_elem->value;
-		break;
-
 	case SKL_TKN_MM_U32_RES_PIN_ID:
 	case SKL_TKN_MM_U32_PIN_BUF:
 		ret = skl_tplg_manifest_pin_res_tkn(dev, tkn_elem, res,
 						    pin_idx, dir);
 		if (ret < 0)
 			return ret;
+		break;
+
+	case SKL_TKN_MM_U32_CPS:
+	case SKL_TKN_U32_MAX_MCPS:
+		/* ignore unused tokens */
 		break;
 
 	default:
@@ -2381,7 +3077,7 @@ static int skl_tplg_fill_res_tkn(struct device *dev,
  */
 static int skl_tplg_get_token(struct device *dev,
 		struct snd_soc_tplg_vendor_value_elem *tkn_elem,
-		struct skl *skl, struct skl_module_cfg *mconfig)
+		struct skl_dev *skl, struct skl_module_cfg *mconfig)
 {
 	int tkn_count = 0;
 	int ret;
@@ -2502,6 +3198,7 @@ static int skl_tplg_get_token(struct device *dev,
 			}
 			return is_pipe_exists;
 		}
+		is_pipe_exists = 0;
 
 		break;
 
@@ -2515,7 +3212,7 @@ static int skl_tplg_get_token(struct device *dev,
 	case SKL_TKN_U32_PMODE:
 	case SKL_TKN_U32_PIPE_DIRECTION:
 	case SKL_TKN_U32_NUM_CONFIGS:
-		if (is_pipe_exists) {
+		if (!is_pipe_exists) {
 			ret = skl_tplg_fill_pipe_tkn(dev, mconfig->pipe,
 					tkn_elem->token, tkn_elem->value);
 			if (ret < 0)
@@ -2584,19 +3281,26 @@ static int skl_tplg_get_token(struct device *dev,
 
 		break;
 
+	case SKL_TKN_U32_FMT_CFG_IDX:
+		if (tkn_elem->value > SKL_MAX_PARAMS_TYPES)
+			return -EINVAL;
+
+		mconfig->fmt_cfg_idx = tkn_elem->value;
+		break;
+
 	case SKL_TKN_U32_CAPS_SIZE:
-		mconfig->formats_config.caps_size =
+		mconfig->formats_config[mconfig->fmt_cfg_idx].caps_size =
 			tkn_elem->value;
 
 		break;
 
 	case SKL_TKN_U32_CAPS_SET_PARAMS:
-		mconfig->formats_config.set_params =
+		mconfig->formats_config[mconfig->fmt_cfg_idx].set_params =
 				tkn_elem->value;
 		break;
 
 	case SKL_TKN_U32_CAPS_PARAMS_ID:
-		mconfig->formats_config.param_id =
+		mconfig->formats_config[mconfig->fmt_cfg_idx].param_id =
 				tkn_elem->value;
 		break;
 
@@ -2631,7 +3335,7 @@ static int skl_tplg_get_token(struct device *dev,
  * module private data
  */
 static int skl_tplg_get_tokens(struct device *dev,
-		char *pvt_data,	struct skl *skl,
+		char *pvt_data,	struct skl_dev *skl,
 		struct skl_module_cfg *mconfig, int block_size)
 {
 	struct snd_soc_tplg_vendor_array *array;
@@ -2727,8 +3431,8 @@ static int skl_tplg_get_desc_blocks(struct device *dev,
  * Otherwise we create a new instance and add into driver list
  */
 static int skl_tplg_add_pipe_v4(struct device *dev,
-				struct skl_module_cfg *mconfig, struct skl *skl,
-				struct skl_dfw_v4_pipe *dfw_pipe)
+			struct skl_module_cfg *mconfig, struct skl_dev *skl,
+			struct skl_dfw_v4_pipe *dfw_pipe)
 {
 	struct skl_pipeline *ppl;
 	struct skl_pipe *pipe;
@@ -2804,12 +3508,13 @@ static void skl_tplg_fill_fmt_v4(struct skl_module_pin_fmt *dst_fmt,
 }
 
 static int skl_tplg_get_pvt_data_v4(struct snd_soc_tplg_dapm_widget *tplg_w,
-				    struct skl *skl, struct device *dev,
+				    struct skl_dev *skl, struct device *dev,
 				    struct skl_module_cfg *mconfig)
 {
 	struct skl_dfw_v4_module *dfw =
 				(struct skl_dfw_v4_module *)tplg_w->priv.data;
 	int ret;
+	int idx = mconfig->fmt_cfg_idx;
 
 	dev_dbg(dev, "Parsing Skylake v4 widget topology data\n");
 
@@ -2818,7 +3523,7 @@ static int skl_tplg_get_pvt_data_v4(struct snd_soc_tplg_dapm_widget *tplg_w,
 		return ret;
 	mconfig->id.module_id = -1;
 	mconfig->id.instance_id = dfw->instance_id;
-	mconfig->module->resources[0].cps = dfw->max_mcps;
+	mconfig->module->resources[0].cpc = dfw->max_mcps / 1000;
 	mconfig->module->resources[0].ibs = dfw->ibs;
 	mconfig->module->resources[0].obs = dfw->obs;
 	mconfig->core_id = dfw->core_id;
@@ -2843,7 +3548,7 @@ static int skl_tplg_get_pvt_data_v4(struct snd_soc_tplg_dapm_widget *tplg_w,
 	mconfig->dev_type = dfw->dev_type;
 	mconfig->hw_conn_type = dfw->hw_conn_type;
 	mconfig->time_slot = dfw->time_slot;
-	mconfig->formats_config.caps_size = dfw->caps.caps_size;
+	mconfig->formats_config[idx].caps_size = dfw->caps.caps_size;
 
 	mconfig->m_in_pin = devm_kcalloc(dev,
 				MAX_IN_QUEUE, sizeof(*mconfig->m_in_pin),
@@ -2864,19 +3569,38 @@ static int skl_tplg_get_pvt_data_v4(struct snd_soc_tplg_dapm_widget *tplg_w,
 				    dfw->is_dynamic_out_pin,
 				    mconfig->module->max_output_pins);
 
-	if (mconfig->formats_config.caps_size) {
-		mconfig->formats_config.set_params = dfw->caps.set_params;
-		mconfig->formats_config.param_id = dfw->caps.param_id;
-		mconfig->formats_config.caps =
-		devm_kzalloc(dev, mconfig->formats_config.caps_size,
+	if (mconfig->formats_config[idx].caps_size) {
+		mconfig->formats_config[idx].set_params = dfw->caps.set_params;
+		mconfig->formats_config[idx].param_id = dfw->caps.param_id;
+		mconfig->formats_config[idx].caps =
+		devm_kzalloc(dev, mconfig->formats_config[idx].caps_size,
 			     GFP_KERNEL);
-		if (!mconfig->formats_config.caps)
+		if (!mconfig->formats_config[idx].caps)
 			return -ENOMEM;
-		memcpy(mconfig->formats_config.caps, dfw->caps.caps,
+		memcpy(mconfig->formats_config[idx].caps, dfw->caps.caps,
 		       dfw->caps.caps_size);
 	}
 
 	return 0;
+}
+
+static int skl_tplg_get_caps_data(struct device *dev, char *data,
+					struct skl_module_cfg *mconfig)
+{
+	int idx;
+
+	idx = mconfig->fmt_cfg_idx;
+	if (mconfig->formats_config[idx].caps_size > 0) {
+		mconfig->formats_config[idx].caps = (u32 *)devm_kzalloc(dev,
+					mconfig->formats_config[idx].caps_size,
+					GFP_KERNEL);
+		if (mconfig->formats_config[idx].caps == NULL)
+			return -ENOMEM;
+		memcpy(mconfig->formats_config[idx].caps, data,
+				mconfig->formats_config[idx].caps_size);
+	}
+
+	return mconfig->formats_config[idx].caps_size;
 }
 
 /*
@@ -2886,7 +3610,7 @@ static int skl_tplg_get_pvt_data_v4(struct snd_soc_tplg_dapm_widget *tplg_w,
  * for the type and size of the suceeding data block.
  */
 static int skl_tplg_get_pvt_data(struct snd_soc_tplg_dapm_widget *tplg_w,
-				struct skl *skl, struct device *dev,
+				struct skl_dev *skl, struct device *dev,
 				struct skl_module_cfg *mconfig)
 {
 	struct snd_soc_tplg_vendor_array *array;
@@ -2939,18 +3663,14 @@ static int skl_tplg_get_pvt_data(struct snd_soc_tplg_dapm_widget *tplg_w,
 		if (block_type == SKL_TYPE_TUPLE) {
 			ret = skl_tplg_get_tokens(dev, data,
 					skl, mconfig, block_size);
-
-			if (ret < 0)
-				return ret;
-
-			--num_blocks;
 		} else {
-			if (mconfig->formats_config.caps_size > 0)
-				memcpy(mconfig->formats_config.caps, data,
-					mconfig->formats_config.caps_size);
-			--num_blocks;
-			ret = mconfig->formats_config.caps_size;
+			ret = skl_tplg_get_caps_data(dev, data, mconfig);
 		}
+
+		if (ret < 0)
+			return ret;
+
+		--num_blocks;
 		off += ret;
 	}
 
@@ -2981,9 +3701,8 @@ static void skl_clear_pin_config(struct snd_soc_component *component,
 	}
 }
 
-void skl_cleanup_resources(struct skl *skl)
+void skl_cleanup_resources(struct skl_dev *skl)
 {
-	struct skl_sst *ctx = skl->skl_sst;
 	struct snd_soc_component *soc_component = skl->component;
 	struct snd_soc_dapm_widget *w;
 	struct snd_soc_card *card;
@@ -2995,15 +3714,12 @@ void skl_cleanup_resources(struct skl *skl)
 	if (!card || !card->instantiated)
 		return;
 
-	skl->resource.mem = 0;
-	skl->resource.mcps = 0;
-
 	list_for_each_entry(w, &card->widgets, list) {
-		if (is_skl_dsp_widget_type(w, ctx->dev) && w->priv != NULL)
+		if (is_skl_dsp_widget_type(w, skl->dev) && w->priv != NULL)
 			skl_clear_pin_config(soc_component, w);
 	}
 
-	skl_clear_module_cnt(ctx->dsp);
+	skl_clear_module_cnt(skl->dsp);
 }
 
 /*
@@ -3017,9 +3733,9 @@ static int skl_tplg_widget_load(struct snd_soc_component *cmpnt, int index,
 				struct snd_soc_dapm_widget *w,
 				struct snd_soc_tplg_dapm_widget *tplg_w)
 {
-	int ret;
+	int ret, i;
 	struct hdac_bus *bus = snd_soc_component_get_drvdata(cmpnt);
-	struct skl *skl = bus_to_skl(bus);
+	struct skl_dev *skl = bus_to_skl(bus);
 	struct skl_module_cfg *mconfig;
 
 	if (!tplg_w->priv.size)
@@ -3029,6 +3745,8 @@ static int skl_tplg_widget_load(struct snd_soc_component *cmpnt, int index,
 
 	if (!mconfig)
 		return -ENOMEM;
+
+	init_completion(&mconfig->ts_completion);
 
 	if (skl->nr_modules == 0) {
 		mconfig->module = devm_kzalloc(bus->dev,
@@ -3045,10 +3763,26 @@ static int skl_tplg_widget_load(struct snd_soc_component *cmpnt, int index,
 	 */
 	mconfig->id.module_id = -1;
 
+	/* To provide backward compatibility, set default as SKL_PARAM_INIT */
+	mconfig->fmt_cfg_idx = SKL_PARAM_INIT;
+
 	/* Parse private data for tuples */
 	ret = skl_tplg_get_pvt_data(tplg_w, skl, bus->dev, mconfig);
 	if (ret < 0)
 		return ret;
+
+	if (mconfig->m_type == SKL_MODULE_TYPE_GAIN) {
+		mconfig->gain_data = devm_kzalloc(bus->dev,
+				sizeof(*mconfig->gain_data), GFP_KERNEL);
+
+		if (!mconfig->gain_data)
+			return -ENOMEM;
+
+		mconfig->gain_data->ramp_duration = 0;
+		mconfig->gain_data->ramp_type = SKL_CURVE_NONE;
+		for (i = 0; i < MAX_NUM_CHANNELS; i++)
+			mconfig->gain_data->volume[i] = SKL_MAX_GAIN;
+	}
 
 	skl_debug_init_module(skl->debugfs, w, mconfig);
 
@@ -3163,21 +3897,21 @@ static int skl_tplg_control_load(struct snd_soc_component *cmpnt,
 
 static int skl_tplg_fill_str_mfest_tkn(struct device *dev,
 		struct snd_soc_tplg_vendor_string_elem *str_elem,
-		struct skl *skl)
+		struct skl_dev *skl)
 {
 	int tkn_count = 0;
 	static int ref_count;
 
 	switch (str_elem->token) {
 	case SKL_TKN_STR_LIB_NAME:
-		if (ref_count > skl->skl_sst->lib_count - 1) {
+		if (ref_count > skl->lib_count - 1) {
 			ref_count = 0;
 			return -EINVAL;
 		}
 
-		strncpy(skl->skl_sst->lib_info[ref_count].name,
+		strncpy(skl->lib_info[ref_count].name,
 			str_elem->string,
-			ARRAY_SIZE(skl->skl_sst->lib_info[ref_count].name));
+			ARRAY_SIZE(skl->lib_info[ref_count].name));
 		ref_count++;
 		break;
 
@@ -3192,7 +3926,7 @@ static int skl_tplg_fill_str_mfest_tkn(struct device *dev,
 
 static int skl_tplg_get_str_tkn(struct device *dev,
 		struct snd_soc_tplg_vendor_array *array,
-		struct skl *skl)
+		struct skl_dev *skl)
 {
 	int tkn_count = 0, ret;
 	struct snd_soc_tplg_vendor_string_elem *str_elem;
@@ -3209,6 +3943,74 @@ static int skl_tplg_get_str_tkn(struct device *dev,
 	}
 
 	return tkn_count;
+}
+
+static int skl_tplg_mfest_fill_dmactrl(struct device *dev,
+		struct snd_soc_tplg_vendor_value_elem *tkn_elem)
+{
+	struct skl_dmactrl_node *hdr_entry;
+	struct skl_dmctrl_hdr *hdr;
+	struct skl_dev *skl = get_skl_ctx(dev);
+	struct list_head *dmactrl_cfg = &skl->cfg.dmactrl_list;
+
+	// cfg_idx is used like preamble - allocate memory for next entry
+	if (tkn_elem->token == SKL_TKN_U32_DMACTRL_CFG_IDX) {
+
+		hdr_entry = devm_kzalloc(dev, sizeof(*hdr_entry), GFP_KERNEL);
+
+		if (!hdr_entry)
+			return -ENOMEM;
+		list_add(&hdr_entry->node, dmactrl_cfg);
+	} else {
+
+		hdr_entry = list_first_entry_or_null(
+				dmactrl_cfg, typeof(*hdr_entry), node);
+
+		if (!hdr_entry)
+			return -EINVAL;
+	}
+
+	hdr = &hdr_entry->hdr;
+
+	switch (tkn_elem->token) {
+	case SKL_TKN_U32_FMT_CH:
+		hdr->ch = tkn_elem->value;
+		break;
+
+	case SKL_TKN_U32_FMT_FREQ:
+		hdr->freq = tkn_elem->value;
+		break;
+
+	case SKL_TKN_U32_FMT_BIT_DEPTH:
+		hdr->fmt = tkn_elem->value;
+		break;
+
+	case SKL_TKN_U32_PIPE_DIRECTION:
+		hdr->direction = tkn_elem->value;
+		break;
+
+	case SKL_TKN_U8_TIME_SLOT:
+		hdr->tdm_slot = tkn_elem->value;
+		break;
+
+	case SKL_TKN_U32_VBUS_ID:
+		hdr->vbus_id = tkn_elem->value;
+		break;
+
+	case SKL_TKN_U32_DMACTRL_CFG_IDX:
+		hdr_entry->idx = tkn_elem->value;
+		break;
+
+	case SKL_TKN_U32_DMACTRL_CFG_SIZE:
+		hdr->data_size = tkn_elem->value;
+		break;
+
+	default:
+		dev_err(dev, "Invalid token %d\n", tkn_elem->token);
+		return -EINVAL;
+	}
+
+	return 0;
 }
 
 static int skl_tplg_manifest_fill_fmt(struct device *dev,
@@ -3299,10 +4101,11 @@ static int skl_tplg_fill_mod_info(struct device *dev,
 
 static int skl_tplg_get_int_tkn(struct device *dev,
 		struct snd_soc_tplg_vendor_value_elem *tkn_elem,
-		struct skl *skl)
+		struct skl_dev *skl)
 {
 	int tkn_count = 0, ret;
 	static int mod_idx, res_val_idx, intf_val_idx, dir, pin_idx;
+	static int dma_cfg_idx;
 	struct skl_module_res *res = NULL;
 	struct skl_module_iface *fmt = NULL;
 	struct skl_module *mod = NULL;
@@ -3319,7 +4122,7 @@ static int skl_tplg_get_int_tkn(struct device *dev,
 
 	switch (tkn_elem->token) {
 	case SKL_TKN_U32_LIB_COUNT:
-		skl->skl_sst->lib_count = tkn_elem->value;
+		skl->lib_count = tkn_elem->value;
 		break;
 
 	case SKL_TKN_U8_NUM_MOD:
@@ -3379,6 +4182,56 @@ static int skl_tplg_get_int_tkn(struct device *dev,
 
 	case SKL_TKN_U32_ASTATE_CLK_SRC:
 		astate_table[astate_cfg_idx].clk_src = tkn_elem->value;
+		break;
+
+	case SKL_TKN_U32_DMA_TYPE:
+		skl->cfg.dmacfg.type = tkn_elem->value;
+		break;
+
+	case SKL_TKN_U32_DMA_SIZE:
+		skl->cfg.dmacfg.size = tkn_elem->value;
+		break;
+
+	case SKL_TKN_U32_DMA_IDX:
+		dma_cfg_idx = tkn_elem->value;
+		break;
+
+	case SKL_TKN_U32_DMA_MIN_SIZE:
+		skl->cfg.dmacfg.dma_cfg[dma_cfg_idx].min_size =
+							tkn_elem->value;
+		break;
+
+	case SKL_TKN_U32_DMA_MAX_SIZE:
+		skl->cfg.dmacfg.dma_cfg[dma_cfg_idx].max_size =
+							tkn_elem->value;
+		break;
+
+	case SKL_TKN_U32_SCH_TYPE:
+		skl->cfg.sch_cfg.type = tkn_elem->value;
+		break;
+
+	case SKL_TKN_U32_SCH_SIZE:
+		skl->cfg.sch_cfg.length = tkn_elem->value;
+		break;
+
+	case SKL_TKN_U32_SCH_SYS_TICK_MUL:
+		skl->cfg.sch_cfg.sys_tick_mul = tkn_elem->value;
+		break;
+
+	case SKL_TKN_U32_SCH_SYS_TICK_DIV:
+		skl->cfg.sch_cfg.sys_tick_div = tkn_elem->value;
+		break;
+
+	case SKL_TKN_U32_SCH_SYS_TICK_LL_SRC:
+		skl->cfg.sch_cfg.sys_tick_ll_src = tkn_elem->value;
+		break;
+
+	case SKL_TKN_U32_SCH_SYS_TICK_CFG_LEN:
+		skl->cfg.sch_cfg.sys_tick_cfg_len = tkn_elem->value;
+		break;
+
+	case SKL_TKN_U32_SCH_SYS_TICK_CFG:
+		skl->cfg.sch_cfg.sys_tick_cfg = tkn_elem->value;
 		break;
 
 	case SKL_TKN_U8_IN_PIN_TYPE:
@@ -3450,8 +4303,16 @@ static int skl_tplg_get_int_tkn(struct device *dev,
 	case SKL_TKN_U32_FMT_SAMPLE_TYPE:
 	case SKL_TKN_U32_FMT_CH_MAP:
 	case SKL_TKN_MM_U32_INTF_PIN_ID:
-		ret = skl_tplg_manifest_fill_fmt(dev, fmt, tkn_elem,
-						 dir, pin_idx);
+	case SKL_TKN_U32_PIPE_DIRECTION:
+	case SKL_TKN_U8_TIME_SLOT:
+	case SKL_TKN_U32_VBUS_ID:
+	case SKL_TKN_U32_DMACTRL_CFG_IDX:
+	case SKL_TKN_U32_DMACTRL_CFG_SIZE:
+		if (skl->modules)
+			ret = skl_tplg_manifest_fill_fmt(dev, fmt, tkn_elem,
+							 dir, pin_idx);
+		else
+			ret = skl_tplg_mfest_fill_dmactrl(dev, tkn_elem);
 		if (ret < 0)
 			return ret;
 		break;
@@ -3465,35 +4326,17 @@ static int skl_tplg_get_int_tkn(struct device *dev,
 	return tkn_count;
 }
 
-static int skl_tplg_get_manifest_uuid(struct device *dev,
-				struct skl *skl,
-				struct snd_soc_tplg_vendor_uuid_elem *uuid_tkn)
-{
-	static int ref_count;
-	struct skl_module *mod;
-
-	if (uuid_tkn->token == SKL_TKN_UUID) {
-		mod = skl->modules[ref_count];
-		guid_copy(&mod->uuid, (guid_t *)&uuid_tkn->uuid);
-		ref_count++;
-	} else {
-		dev_err(dev, "Not an UUID token tkn %d\n", uuid_tkn->token);
-		return -EINVAL;
-	}
-
-	return 0;
-}
-
 /*
  * Fill the manifest structure by parsing the tokens based on the
  * type.
  */
 static int skl_tplg_get_manifest_tkn(struct device *dev,
-		char *pvt_data, struct skl *skl,
+		char *pvt_data, struct skl_dev *skl,
 		int block_size)
 {
 	int tkn_count = 0, ret;
 	int off = 0, tuple_size = 0;
+	u8 uuid_index = 0;
 	struct snd_soc_tplg_vendor_array *array;
 	struct snd_soc_tplg_vendor_value_elem *tkn_elem;
 
@@ -3516,9 +4359,18 @@ static int skl_tplg_get_manifest_tkn(struct device *dev,
 			continue;
 
 		case SND_SOC_TPLG_TUPLE_TYPE_UUID:
-			ret = skl_tplg_get_manifest_uuid(dev, skl, array->uuid);
-			if (ret < 0)
-				return ret;
+			if (array->uuid->token != SKL_TKN_UUID) {
+				dev_err(dev, "Not an UUID token: %d\n",
+					array->uuid->token);
+				return -EINVAL;
+			}
+			if (uuid_index >= skl->nr_modules) {
+				dev_err(dev, "Too many UUID tokens\n");
+				return -EINVAL;
+			}
+			memcpy(&skl->modules[uuid_index++]->uuid,
+			       &array->uuid->uuid,
+			       sizeof(array->uuid->uuid));
 
 			tuple_size += sizeof(*array->uuid);
 			continue;
@@ -3550,12 +4402,12 @@ static int skl_tplg_get_manifest_tkn(struct device *dev,
  * preceded by descriptors for type and size of data block.
  */
 static int skl_tplg_get_manifest_data(struct snd_soc_tplg_manifest *manifest,
-			struct device *dev, struct skl *skl)
+			struct device *dev, struct skl_dev *skl)
 {
 	struct snd_soc_tplg_vendor_array *array;
 	int num_blocks, block_size = 0, block_type, off = 0;
-	char *data;
 	int ret;
+	char *data;
 
 	/* Read the NUM_DATA_BLOCKS descriptor */
 	array = (struct snd_soc_tplg_vendor_array *)manifest->priv.data;
@@ -3600,7 +4452,34 @@ static int skl_tplg_get_manifest_data(struct snd_soc_tplg_manifest *manifest,
 
 			--num_blocks;
 		} else {
-			return -EINVAL;
+			struct skl_dmctrl_hdr *hdr;
+			struct skl_dmactrl_node  *hdr_entry = NULL;
+
+			hdr_entry = list_first_entry_or_null(
+					&skl->cfg.dmactrl_list,
+					typeof(*hdr_entry), node);
+
+			if (!hdr_entry) {
+				dev_err(dev, "error no entry for dmactrl_hdr\n");
+				return -EINVAL;
+			}
+			hdr = &hdr_entry->hdr;
+			if (hdr->data_size == block_size) {
+				hdr->data = devm_kmemdup(dev, data,
+						block_size, GFP_KERNEL);
+				if (!hdr->data) {
+					list_del(&hdr_entry->node);
+					devm_kfree(dev, hdr_entry);
+					return -ENOMEM;
+				}
+			} else {
+				dev_err(dev, "error dmactrl cfg_idx=%u data size not matching\n",
+						hdr_entry->idx);
+				list_del(&hdr_entry->node);
+				devm_kfree(dev, hdr_entry);
+			}
+			ret = block_size;
+			--num_blocks;
 		}
 		off += ret;
 	}
@@ -3612,7 +4491,7 @@ static int skl_manifest_load(struct snd_soc_component *cmpnt, int index,
 				struct snd_soc_tplg_manifest *manifest)
 {
 	struct hdac_bus *bus = snd_soc_component_get_drvdata(cmpnt);
-	struct skl *skl = bus_to_skl(bus);
+	struct skl_dev *skl = bus_to_skl(bus);
 
 	/* proceed only if we have private data defined */
 	if (manifest->priv.size == 0)
@@ -3620,13 +4499,47 @@ static int skl_manifest_load(struct snd_soc_component *cmpnt, int index,
 
 	skl_tplg_get_manifest_data(manifest, bus->dev, skl);
 
-	if (skl->skl_sst->lib_count > SKL_MAX_LIB) {
+	if (skl->lib_count > SKL_MAX_LIB) {
 		dev_err(bus->dev, "Exceeding max Library count. Got:%d\n",
-					skl->skl_sst->lib_count);
+					skl->lib_count);
 		return  -EINVAL;
 	}
 
 	return 0;
+}
+
+/*
+ * This function updates the event flag and fucntiona handler for single module
+ */
+static void skl_update_single_module_event(struct skl_dev *skl,
+					struct skl_pipe *pipe)
+{
+	struct skl_module_cfg *mcfg;
+	struct skl_pipe_module *w_module;
+	struct snd_soc_dapm_widget *w;
+
+	list_for_each_entry(w_module, &pipe->w_list, node) {
+		w = w_module->w;
+		mcfg = w->priv;
+
+		if (list_is_singular(&pipe->w_list)) {
+
+			/*
+			 * If module pipe order is last then we dont need
+			 * POST_PMU, as POST_PMU bind/run sink to source.
+			 * For last pipe order there is no sink pipelne.
+			 */
+			if (skl_get_pipe_order(mcfg) == SKL_LAST_PIPE)
+				w->event_flags = SND_SOC_DAPM_PRE_PMU |
+						 SND_SOC_DAPM_POST_PMD;
+			else
+				w->event_flags = SND_SOC_DAPM_PRE_PMU |
+						 SND_SOC_DAPM_POST_PMU |
+						 SND_SOC_DAPM_POST_PMD;
+
+			w->event = skl_tplg_pga_single_module_event;
+		}
+	}
 }
 
 static struct snd_soc_tplg_ops skl_tplg_ops  = {
@@ -3671,7 +4584,23 @@ static int skl_tplg_create_pipe_widget_list(struct snd_soc_component *component)
 	return 0;
 }
 
-static void skl_tplg_set_pipe_type(struct skl *skl, struct skl_pipe *pipe)
+void skl_tplg_fw_cfg_set(struct skl_dev *skl)
+{
+	/* Set DMA buffer configuration */
+	if (skl->cfg.dmacfg.size)
+		skl_ipc_set_fw_cfg(&skl->ipc, SKL_INSTANCE_ID,
+			SKL_BASE_FW_MODULE_ID, (u32 *)(&skl->cfg.dmacfg));
+
+	/* set scheduler config if available */
+	if (skl->cfg.sch_cfg.length)
+		skl_ipc_set_fw_cfg(&skl->ipc, SKL_INSTANCE_ID,
+			SKL_BASE_FW_MODULE_ID, (u32 *)(&skl->cfg.sch_cfg));
+
+	/* Set DMA clock controls */
+	skl_dsp_set_dma_clk_controls(skl);
+}
+
+static void skl_tplg_set_pipe_type(struct skl_dev *skl, struct skl_pipe *pipe)
 {
 	struct skl_pipe_module *w_module;
 	struct snd_soc_dapm_widget *w;
@@ -3694,10 +4623,6 @@ static void skl_tplg_set_pipe_type(struct skl *skl, struct skl_pipe *pipe)
 		pipe->passthru = false;
 }
 
-/* This will be read from topology manifest, currently defined here */
-#define SKL_MAX_MCPS 30000000
-#define SKL_FW_MAX_MEM 1000000
-
 /*
  * SKL topology init routine
  */
@@ -3705,12 +4630,12 @@ int skl_tplg_init(struct snd_soc_component *component, struct hdac_bus *bus)
 {
 	int ret;
 	const struct firmware *fw;
-	struct skl *skl = bus_to_skl(bus);
+	struct skl_dev *skl = bus_to_skl(bus);
 	struct skl_pipeline *ppl;
 
 	ret = request_firmware(&fw, skl->tplg_name, bus->dev);
 	if (ret < 0) {
-		dev_info(bus->dev, "tplg fw %s load failed with %d, falling back to dfw_sst.bin",
+		dev_warn(bus->dev, "tplg fw %s load failed with %d, falling back to dfw_sst.bin",
 				skl->tplg_name, ret);
 		ret = request_firmware(&fw, "dfw_sst.bin", bus->dev);
 		if (ret < 0) {
@@ -3724,31 +4649,33 @@ int skl_tplg_init(struct snd_soc_component *component, struct hdac_bus *bus)
 	 * The complete tplg for SKL is loaded as index 0, we don't use
 	 * any other index
 	 */
-	ret = snd_soc_tplg_component_load(component,
-					&skl_tplg_ops, fw, 0);
+	ret = snd_soc_tplg_component_load(component, &skl_tplg_ops, fw, 0);
 	if (ret < 0) {
 		dev_err(bus->dev, "tplg component load failed%d\n", ret);
-		release_firmware(fw);
-		return -EINVAL;
+		goto err;
 	}
 
-	skl->resource.max_mcps = SKL_MAX_MCPS;
-	skl->resource.max_mem = SKL_FW_MAX_MEM;
-
-	skl->tplg = fw;
 	ret = skl_tplg_create_pipe_widget_list(component);
-	if (ret < 0)
-		return ret;
+	if (ret < 0) {
+		dev_err(bus->dev, "tplg create pipe widget list failed%d\n",
+				ret);
+		goto err;
+	}
 
 	list_for_each_entry(ppl, &skl->ppl_list, node)
 		skl_tplg_set_pipe_type(skl, ppl->pipe);
 
-	return 0;
+	list_for_each_entry(ppl, &skl->ppl_list, node)
+		skl_update_single_module_event(skl, ppl->pipe);
+
+err:
+	release_firmware(fw);
+	return ret;
 }
 
 void skl_tplg_exit(struct snd_soc_component *component, struct hdac_bus *bus)
 {
-	struct skl *skl = bus_to_skl(bus);
+	struct skl_dev *skl = bus_to_skl(bus);
 	struct skl_pipeline *ppl, *tmp;
 
 	if (!list_empty(&skl->ppl_list))
@@ -3758,5 +4685,5 @@ void skl_tplg_exit(struct snd_soc_component *component, struct hdac_bus *bus)
 	/* clean up topology */
 	snd_soc_tplg_component_remove(component, SND_SOC_TPLG_INDEX_ALL);
 
-	release_firmware(skl->tplg);
+	skl_delete_notify_kctl_list(skl);
 }
