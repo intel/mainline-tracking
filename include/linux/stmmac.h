@@ -12,6 +12,7 @@
 #ifndef __STMMAC_PLATFORM_DATA
 #define __STMMAC_PLATFORM_DATA
 
+#include <linux/phy.h>
 #include <linux/platform_device.h>
 
 #define MTL_MAX_RX_QUEUES	8
@@ -124,11 +125,13 @@ struct stmmac_txq_cfg {
 	u32 low_credit;
 	bool use_prio;
 	u32 prio;
+	bool tbs_en;
 };
 
 struct plat_stmmacenet_data {
 	int bus_id;
 	int phy_addr;
+	int intel_adhoc_addr;
 	int interface;
 	struct stmmac_mdio_bus_data *mdio_bus_data;
 	struct device_node *phy_node;
@@ -137,6 +140,7 @@ struct plat_stmmacenet_data {
 	struct stmmac_dma_cfg *dma_cfg;
 	int clk_csr;
 	int has_gmac;
+	int clk_trail_n;
 	int enh_desc;
 	int tx_coe;
 	int rx_coe;
@@ -161,19 +165,67 @@ struct plat_stmmacenet_data {
 	int (*init)(struct platform_device *pdev, void *priv);
 	void (*exit)(struct platform_device *pdev, void *priv);
 	struct mac_device_info *(*setup)(void *priv);
+	int (*setup_phy_conv)(struct mii_bus *bus, int irq,
+	     bool speed_2500_en);
+	int (*remove_phy_conv)(struct mii_bus *bus);
 	void *bsp_priv;
 	struct clk *stmmac_clk;
 	struct clk *pclk;
 	struct clk *clk_ptp_ref;
+	unsigned int eee_usecs_rate;
 	unsigned int clk_ptp_rate;
 	unsigned int clk_ref_rate;
+	s32 ptp_max_adj;
 	struct reset_control *stmmac_rst;
 	struct stmmac_axi *axi;
 	int has_gmac4;
+	int has_serdes;
+	int has_tbs;
 	bool has_sun8i;
 	bool tso_en;
+	bool tsn_est_en;
+	bool tsn_fpe_en;
+	bool tsn_tbs_en;
 	int mac_port_sel_speed;
 	bool en_tx_lpi_clockgating;
 	int has_xgmac;
+#ifdef CONFIG_STMMAC_NETWORK_PROXY
+	int has_netproxy;
+#endif
+	bool multi_msi_en;
+	int msi_mac_vec;
+	int msi_wol_vec;
+	int msi_lpi_vec;
+	int msi_phy_conv_vec;
+	int msi_sfty_ce_vec;
+	int msi_sfty_ue_vec;
+	int msi_rx_base_vec;
+	int msi_tx_base_vec;
+#ifdef CONFIG_STMMAC_NETWORK_PROXY
+	int msi_network_proxy_vec;
+#endif
+	bool vlan_fail_q_en;
+	u8 vlan_fail_q;
+	bool speed_2500_en;
+	u32 ptov;
+	u32 ctov;
+	u32 tils;
+	/*FPE */
+	u32 fprq;
+	u32 afsz;
+	u32 hadv;
+	u32 radv;
+	/* TBS */
+	u32 estm;
+	u32 leos;
+	u32 legos;
+	u32 ftos;
+	u32 fgos;
+	bool has_art;
+	int int_snapshot_num;
+	int ext_snapshot_num;
+	int ext_snapshot_en;
+	bool has_safety_feat;
+	bool is_hfpga;
 };
 #endif
