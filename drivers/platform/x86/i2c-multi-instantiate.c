@@ -88,6 +88,8 @@ static int i2c_multi_inst_probe(struct platform_device *pdev)
 		return -ENOMEM;
 
 	multi->num_clients = ret;
+	if (multi->num_clients == 1)
+		return -EINVAL;
 
 	for (i = 0; i < multi->num_clients && inst_data[i].type; i++) {
 		memset(&board_info, 0, sizeof(board_info));
@@ -152,6 +154,12 @@ static int i2c_multi_inst_remove(struct platform_device *pdev)
 	return 0;
 }
 
+static const struct i2c_inst_data bosc0200_data[]  = {
+	{ "bmc150_accel" },
+	{ "bmc150_accel" },
+	{}
+};
+
 static const struct i2c_inst_data bsg1160_data[]  = {
 	{ "bmc150_accel", IRQ_RESOURCE_GPIO, 0 },
 	{ "bmc150_magn" },
@@ -180,6 +188,7 @@ static const struct i2c_inst_data int3515_data[]  = {
  * drivers/acpi/scan.c: acpi_device_enumeration_by_parent().
  */
 static const struct acpi_device_id i2c_multi_inst_acpi_ids[] = {
+	{ "BOSC0200", (unsigned long)bosc0200_data },
 	{ "BSG1160", (unsigned long)bsg1160_data },
 	{ "BSG2150", (unsigned long)bsg2150_data },
 	{ "INT3515", (unsigned long)int3515_data },
