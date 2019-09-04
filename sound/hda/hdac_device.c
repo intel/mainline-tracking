@@ -708,8 +708,8 @@ static struct hda_rate_tbl rate_bits[] = {
 	{ 176400, SNDRV_PCM_RATE_176400, HDA_RATE(44, 4, 1) },
 	{ 192000, SNDRV_PCM_RATE_192000, HDA_RATE(48, 4, 1) },
 	{ 24000, SNDRV_PCM_RATE_24000, HDA_RATE(48, 1, 2) },
-
-#define AC_PAR_PCM_RATE_BITS	11
+	{ 64000, SNDRV_PCM_RATE_64000, HDA_RATE(48, 4, 3) },
+#define AC_PAR_PCM_RATE_BITS	13
 	/* up to bits 10, 384kHZ isn't supported properly */
 
 	/* not autodetected value */
