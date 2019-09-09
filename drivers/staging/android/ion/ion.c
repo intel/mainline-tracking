@@ -389,7 +389,7 @@ void ion_device_remove_heap(struct ion_heap *heap)
 			__func__, heap->name);
 	}
 	debugfs_remove_recursive(heap->debugfs_dir);
-	clear_bit(heap->id - 1, dev->heap_ids);
+	clear_bit(heap->id, dev->heap_ids);
 	dev->heap_cnt--;
 	up_write(&dev->lock);
 }
