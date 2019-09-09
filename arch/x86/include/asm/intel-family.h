@@ -95,6 +95,7 @@
 
 #define INTEL_FAM6_ATOM_TREMONT_X	0x86 /* Jacobsville */
 
+#define INTEL_FAM6_ATOM_ELKHART_LAKE	0x96 /* Elkhart lake */
 /* Xeon Phi */
 
 #define INTEL_FAM6_XEON_PHI_KNL		0x57 /* Knights Landing */
