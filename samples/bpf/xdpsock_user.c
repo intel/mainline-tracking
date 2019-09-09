@@ -46,7 +46,7 @@
 #define NUM_FRAMES (4 * 1024)
 #define BATCH_SIZE 64
 
-#define DEBUG_HEXDUMP 0
+#define DEBUG_HEXDUMP 1
 #define MAX_SOCKS 8
 
 typedef __u64 u64;
@@ -67,6 +67,8 @@ static int opt_ifindex;
 static int opt_queue;
 static int opt_poll;
 static int opt_interval = 1;
+static int opt_txtime;
+static int opt_period_ns = 250000;
 static u32 opt_xdp_bind_flags;
 static int opt_xsk_frame_size = XSK_UMEM__DEFAULT_FRAME_SIZE;
 static __u32 prog_id;
@@ -245,26 +247,27 @@ static void hex_dump(void *pkt, size_t length, u64 addr)
 		return;
 
 	sprintf(buf, "addr=%llu", addr);
-	printf("length = %zu\n", length);
-	printf("%s | ", buf);
+	fprintf(stderr, "length = %zu\n", length);
+	fprintf(stderr, "%s | ", buf);
 	while (length-- > 0) {
-		printf("%02X ", *address++);
+		fprintf(stderr, "%02X ", *address++);
 		if (!(++i % line_size) || (length == 0 && i % line_size)) {
 			if (length == 0) {
 				while (i++ % line_size)
-					printf("__ ");
+					fprintf(stderr, "__ ");
 			}
-			printf(" | ");	/* right close */
+			fprintf(stderr, " | ");	/* right close */
 			while (line < address) {
 				c = *line++;
-				printf("%c", (c < 33 || c == 255) ? 0x2E : c);
+				fprintf(stderr, "%c", (c < 33 || c == 255) ?
+						       0x2E : c);
 			}
-			printf("\n");
+			fprintf(stderr, "\n");
 			if (length > 0)
-				printf("%s | ", buf);
+				fprintf(stderr, "%s | ", buf);
 		}
 	}
-	printf("\n");
+	fprintf(stderr, "\n");
 }
 
 static size_t gen_eth_frame(struct xsk_umem_info *umem, u64 addr)
@@ -272,6 +275,17 @@ static size_t gen_eth_frame(struct xsk_umem_info *umem, u64 addr)
 	memcpy(xsk_umem__get_data(umem->buffer, addr), pkt_data,
 	       sizeof(pkt_data) - 1);
 	return sizeof(pkt_data) - 1;
+}
+
+static void add_seqnum(struct xsk_umem_info *umem, u64 addr, u64 count)
+{
+	/* Get offset after ethernet hdr, ip hdr, udp hdr, txq, seq, and
+	 * timestampA to finally get to the position of timestamp B
+	 */
+	int offset = 46; //14 + 20 + 8 + 4
+
+	memcpy(xsk_umem__get_data(umem->buffer, addr) + offset, &count,
+	       sizeof(u64));
 }
 
 static struct xsk_umem_info *xsk_configure_umem(void *buffer, u64 size)
@@ -352,6 +366,8 @@ static struct option long_options[] = {
 	{"zero-copy", no_argument, 0, 'z'},
 	{"copy", no_argument, 0, 'c'},
 	{"frame-size", required_argument, 0, 'f'},
+	{"txtime", no_argument, 0, 'T'},
+	{"period_ns", required_argument, 0, 'P'},
 	{0, 0, 0, 0}
 };
 
@@ -372,6 +388,8 @@ static void usage(const char *prog)
 		"  -z, --zero-copy      Force zero-copy mode.\n"
 		"  -c, --copy           Force copy mode.\n"
 		"  -f, --frame-size=n   Set the frame size (must be a power of two, default is %d).\n"
+		"  -T, --txtime		Specify transmit time in each packet\n"
+		"  -P, --period_ns=n	Set transmit time period (default 250us)\n"
 		"\n";
 	fprintf(stderr, str, prog, XSK_UMEM__DEFAULT_FRAME_SIZE);
 	exit(EXIT_FAILURE);
@@ -384,7 +402,7 @@ static void parse_command_line(int argc, char **argv)
 	opterr = 0;
 
 	for (;;) {
-		c = getopt_long(argc, argv, "Frtli:q:psSNn:czf:", long_options,
+		c = getopt_long(argc, argv, "FrtTli:q:psSNn:czf:", long_options,
 				&option_index);
 		if (c == -1)
 			break;
@@ -429,6 +447,12 @@ static void parse_command_line(int argc, char **argv)
 			break;
 		case 'f':
 			opt_xsk_frame_size = atoi(optarg);
+			break;
+		case 'T':
+			opt_txtime = 1;
+			break;
+		case 'P':
+			opt_period_ns = atoi(optarg);
 			break;
 		default:
 			usage(basename(argv[0]));
@@ -571,16 +595,48 @@ static void rx_drop_all(void)
 	}
 }
 
+/* Get the current time and convert to nanoseconds */
+static u64 get_time_nanosec(clockid_t clkid)
+{
+	struct timespec now;
+
+	clock_gettime(clkid, &now);
+	return now.tv_sec * 1000000000 + now.tv_nsec;
+}
+
+/* Get the current time in seconds */
+static u64 get_time_sec(clockid_t clkid)
+{
+	struct timespec now;
+
+	clock_gettime(clkid, &now);
+	return now.tv_sec * 1000000000;
+}
+
+static u64 txtime_curtime_delta(u64 txtime, clockid_t clkid)
+{
+	u64 curtime;
+
+	curtime = get_time_nanosec(clkid);
+	return (txtime - curtime);
+}
+
 static void tx_only(struct xsk_socket_info *xsk)
 {
 	int timeout, ret, nfds = 1;
 	struct pollfd fds[nfds + 1];
 	u32 idx, frame_nb = 0;
+	u64 tx_timestamp = 0;
 
 	memset(fds, 0, sizeof(fds));
 	fds[0].fd = xsk_socket__fd(xsk->xsk);
 	fds[0].events = POLLOUT;
 	timeout = 1000; /* 1sn */
+
+	if (opt_txtime) {
+		/* Initialize the first packet to 0.5s to the future*/
+		tx_timestamp = get_time_sec(CLOCK_TAI) + 500000000;
+	}
 
 	for (;;) {
 		if (opt_poll) {
@@ -594,13 +650,31 @@ static void tx_only(struct xsk_socket_info *xsk)
 
 		if (xsk_ring_prod__reserve(&xsk->tx, BATCH_SIZE, &idx) ==
 		    BATCH_SIZE) {
-			unsigned int i;
+			unsigned int i, j;
 
 			for (i = 0; i < BATCH_SIZE; i++) {
 				xsk_ring_prod__tx_desc(&xsk->tx, idx + i)->addr
 					= (frame_nb + i) * opt_xsk_frame_size;
 				xsk_ring_prod__tx_desc(&xsk->tx, idx + i)->len =
 					sizeof(pkt_data) - 1;
+
+				j = idx + i;
+
+				if (opt_txtime) {
+					tx_timestamp += opt_period_ns;
+
+					/* Don't transmit beyond 3 seconds */
+					if (txtime_curtime_delta(tx_timestamp,
+								 CLOCK_TAI)
+						> 3000000000)
+						return;
+
+					xsk_ring_prod__tx_desc(&xsk->tx, j)
+						->txtime = tx_timestamp;
+				} else {
+					xsk_ring_prod__tx_desc(&xsk->tx, j)
+						->txtime = 0;
+				}
 			}
 
 			xsk_ring_prod__submit(&xsk->tx, BATCH_SIZE);
@@ -686,8 +760,10 @@ int main(int argc, char **argv)
 	if (opt_bench == BENCH_TXONLY) {
 		int i;
 
-		for (i = 0; i < NUM_FRAMES; i++)
+		for (i = 0; i < NUM_FRAMES; i++) {
 			(void)gen_eth_frame(umem, i * opt_xsk_frame_size);
+			add_seqnum(umem, i * opt_xsk_frame_size, i);
+		}
 	}
 
 	signal(SIGINT, int_exit);
