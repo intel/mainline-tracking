@@ -37,6 +37,7 @@
 #include <linux/net_tstamp.h>
 #include <linux/phylink.h>
 #include <linux/udp.h>
+#include <linux/pci.h>
 #include <net/pkt_cls.h>
 #include "stmmac_ptp.h"
 #include "stmmac.h"
@@ -3138,6 +3139,15 @@ static int stmmac_open(struct net_device *dev)
 
 	stmmac_enable_all_queues(priv);
 	netif_tx_start_all_queues(priv->dev);
+
+	/* EHL A0: Work-around */
+	if (priv->plat->ehl_ao_wa) {
+		struct pci_dev *pdev =
+			container_of(priv->device, struct pci_dev, dev);
+		u32 value = 0xffc00000;
+
+		pci_write_config_dword(pdev, 0xE0, value);
+	}
 
 	return 0;
 
