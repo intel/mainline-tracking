@@ -7,11 +7,38 @@
 #include <linux/module.h>
 #include <linux/device.h>
 #include <sound/soc-acpi.h>
+#include <sound/jack.h>
 #include "../skylake/skl.h"
+#include "../../codecs/hdac_hdmi.h"
 
 static int imr_alloc;
 module_param(imr_alloc, int, 0660);
 MODULE_PARM_DESC(imr_alloc, "imr buffer address needed for FPGA platform");
+
+#define TEST_NAME_SIZE		32
+#define TEST_MAX_HDMI		3
+static struct snd_soc_jack test_hdmi[TEST_MAX_HDMI];
+struct test_hdmi_pcm {
+	struct list_head head;
+	struct snd_soc_dai *codec_dai;
+	int device;
+};
+struct test_private {
+	struct list_head hdmi_pcm_list;
+	int pcm_count;
+};
+static struct snd_soc_dai *test_get_codec_dai(struct snd_soc_card *card,
+						     const char *dai_name)
+{
+	struct snd_soc_pcm_runtime *rtd;
+
+	list_for_each_entry(rtd, &card->rtd_list, list) {
+		if (!strcmp(rtd->codec_dai->name, dai_name))
+			return rtd->codec_dai;
+	}
+
+	return NULL;
+}
 
 SND_SOC_DAILINK_DEF(dummy_codec,
 	DAILINK_COMP_ARRAY(COMP_DUMMY()));
@@ -27,6 +54,22 @@ SND_SOC_DAILINK_DEF(probe_pb,
 	DAILINK_COMP_ARRAY(COMP_CPU("Probe Injection0 CPU DAI")));
 SND_SOC_DAILINK_DEF(probe_cp,
 	DAILINK_COMP_ARRAY(COMP_CPU("Probe Extraction CPU DAI")));
+
+
+SND_SOC_DAILINK_DEF(idisp1_pin,
+	DAILINK_COMP_ARRAY(COMP_CPU("iDisp1 Pin")));
+SND_SOC_DAILINK_DEF(idisp1_codec,
+	DAILINK_COMP_ARRAY(COMP_CODEC("ehdaudio0D2", "intel-hdmi-hifi1")));
+
+SND_SOC_DAILINK_DEF(idisp2_pin,
+	DAILINK_COMP_ARRAY(COMP_CPU("iDisp2 Pin")));
+SND_SOC_DAILINK_DEF(idisp2_codec,
+	DAILINK_COMP_ARRAY(COMP_CODEC("ehdaudio0D2", "intel-hdmi-hifi2")));
+
+SND_SOC_DAILINK_DEF(idisp3_pin,
+	DAILINK_COMP_ARRAY(COMP_CPU("iDisp3 Pin")));
+SND_SOC_DAILINK_DEF(idisp3_codec,
+	DAILINK_COMP_ARRAY(COMP_CODEC("ehdaudio0D2", "intel-hdmi-hifi3")));
 
 #define DAI_LINK(ID)\
 {\
@@ -69,7 +112,45 @@ static const struct snd_soc_dapm_route ssp_test_map[] = {
 	{"loop4_in", NULL, "ssp4 Rx"},
 	{"ssp5 Tx", NULL, "loop5_out"},
 	{"loop5_in", NULL, "ssp5 Rx"},
+	{"hifi1", NULL, "iDisp1 Tx"},
+	{"iDisp1 Tx", NULL, "iDisp1_out"},
+	{"hifi2", NULL, "iDisp2 Tx"},
+	{"iDisp2 Tx", NULL, "iDisp2_out"},
+	{"hifi3", NULL, "iDisp3 Tx"},
+	{"iDisp3 Tx", NULL, "iDisp3_out"},
 };
+
+
+static int
+test_add_dai_link(struct snd_soc_card *card, struct snd_soc_dai_link *link)
+{
+	struct test_private *ctx = snd_soc_card_get_drvdata(card);
+	char hdmi_dai_name[TEST_NAME_SIZE];
+	struct test_hdmi_pcm *pcm;
+
+	link->nonatomic = 1;
+
+	/* Assuming HDMI dai link will consist the string "HDMI" */
+	if (strstr(link->name, "HDMI")) {
+		static int i = 1; /* hdmi codec dai name starts from index 1 */
+
+		pcm = devm_kzalloc(card->dev, sizeof(*pcm), GFP_KERNEL);
+		if (!pcm)
+			return -ENOMEM;
+
+		snprintf(hdmi_dai_name, sizeof(hdmi_dai_name),
+			 "intel-hdmi-hifi%d", i++);
+		pcm->codec_dai = test_get_codec_dai(card, hdmi_dai_name);
+		if (!pcm->codec_dai)
+			return -EINVAL;
+
+		pcm->device = ctx->pcm_count;
+		list_add_tail(&pcm->head, &ctx->hdmi_pcm_list);
+	}
+	ctx->pcm_count++;
+
+	return 0;
+}
 
 static int
 ssp_test_add_dai_link(struct snd_soc_card *card, struct snd_soc_dai_link *link)
@@ -78,7 +159,8 @@ ssp_test_add_dai_link(struct snd_soc_card *card, struct snd_soc_dai_link *link)
 
 	link->nonatomic = 1;
 	link->platforms->name = mach->mach_params.platform;
-	return 0;
+
+	return test_add_dai_link(card, link);
 }
 
 DAI_LINK_SSP_PIN(0);
@@ -96,6 +178,27 @@ static struct snd_soc_dai_link ssp_test_dailink[] = {
 	DAI_LINK(4),
 	DAI_LINK(5),
 	{
+		.name = "iDisp1",
+		.id = 3,
+		.dpcm_playback = 1,
+		.no_pcm = 1,
+		SND_SOC_DAILINK_REG(idisp1_pin, idisp1_codec),
+	},
+	{
+		.name = "iDisp2",
+		.id = 4,
+		.dpcm_playback = 1,
+		.no_pcm = 1,
+		SND_SOC_DAILINK_REG(idisp2_pin, idisp2_codec),
+	},
+	{
+		.name = "iDisp3",
+		.id = 5,
+		.dpcm_playback = 1,
+		.no_pcm = 1,
+		SND_SOC_DAILINK_REG(idisp3_pin, idisp3_codec),
+	},
+	{
 		.name = "Compress Probe Playback",
 		.init = NULL,
 		.ignore_suspend = 1,
@@ -111,6 +214,41 @@ static struct snd_soc_dai_link ssp_test_dailink[] = {
 	},
 };
 
+static int test_card_late_probe(struct snd_soc_card *card)
+{
+	struct test_private *ctx = snd_soc_card_get_drvdata(card);
+	struct snd_soc_component *component = NULL;
+	char jack_name[TEST_NAME_SIZE];
+	struct test_hdmi_pcm *pcm;
+	int err, i = 0;
+
+	if (list_empty(&ctx->hdmi_pcm_list))
+		return 0;
+
+	list_for_each_entry(pcm, &ctx->hdmi_pcm_list, head) {
+		component = pcm->codec_dai->component;
+		snprintf(jack_name, sizeof(jack_name),
+			"HDMI/DP, pcm=%d Jack", pcm->device);
+		err = snd_soc_card_jack_new(card, jack_name,
+					SND_JACK_AVOUT, &test_hdmi[i],
+					NULL, 0);
+		if (err)
+			return err;
+
+		err = hdac_hdmi_jack_init(pcm->codec_dai,
+					  pcm->device, &test_hdmi[i]);
+		if (err < 0)
+			return err;
+
+		i++;
+	}
+
+	if (!component)
+		return -EINVAL;
+
+	return hdac_hdmi_jack_port_init(component, &card->dapm);
+}
+
 /* SoC card */
 static struct snd_soc_card snd_soc_card_ssp_test = {
 	.name = "ssp-test-audio",
@@ -120,11 +258,23 @@ static struct snd_soc_card snd_soc_card_ssp_test = {
 	.num_dapm_routes = ARRAY_SIZE(ssp_test_map),
 	.add_dai_link = ssp_test_add_dai_link,
 	.fully_routed = true,
+	.late_probe = test_card_late_probe,
 };
 
 static int snd_ssp_test_probe(struct platform_device *pdev)
 {
+	struct test_private *ctx;
+
+	ctx = devm_kzalloc(&pdev->dev, sizeof(*ctx), GFP_KERNEL);
+	if (!ctx)
+		return -ENOMEM;
+
+	ctx->pcm_count = ARRAY_SIZE(ssp_test_dailink);
+	INIT_LIST_HEAD(&ctx->hdmi_pcm_list);
+
 	snd_soc_card_ssp_test.dev = &pdev->dev;
+	snd_soc_card_set_drvdata(&snd_soc_card_ssp_test, ctx);
+
 	return devm_snd_soc_register_card(&pdev->dev, &snd_soc_card_ssp_test);
 }
 

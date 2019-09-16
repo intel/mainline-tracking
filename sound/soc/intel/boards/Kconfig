@@ -528,6 +528,7 @@ config SND_SOC_INTEL_EHL_RT5660_FPGA
 config SND_SOC_INTEL_SSP_TEST_MACH
 	tristate "SSP-TEST mode"
 	depends on MFD_INTEL_LPSS && ACPI
+	select SND_SOC_HDAC_HDMI
 	help
 	  This adds support for ASoC test machine driver.
 	  This will create a dummy sound card. In order to load test driver
