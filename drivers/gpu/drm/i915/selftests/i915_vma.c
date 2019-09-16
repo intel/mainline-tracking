@@ -193,6 +193,8 @@ static int igt_vma_create(void *arg)
 			list_del_init(&ctx->link);
 			mock_context_close(ctx);
 		}
+
+		cond_resched();
 	}
 
 end:
@@ -341,6 +343,8 @@ static int igt_vma_pin1(void *arg)
 				goto out;
 			}
 		}
+
+		cond_resched();
 	}
 
 	err = 0;
@@ -597,6 +601,8 @@ static int igt_vma_rotate_remap(void *arg)
 					}
 
 					i915_vma_unpin(vma);
+
+					cond_resched();
 				}
 			}
 		}
@@ -617,7 +623,7 @@ static bool assert_partial(struct drm_i915_gem_object *obj,
 	struct sgt_iter sgt;
 	dma_addr_t dma;
 
-	for_each_sgt_dma(dma, sgt, vma->pages) {
+	for_each_sgt_daddr(dma, sgt, vma->pages) {
 		dma_addr_t src;
 
 		if (!size) {
@@ -752,6 +758,8 @@ static int igt_vma_partial(void *arg)
 
 				i915_vma_unpin(vma);
 				nvma++;
+
+				cond_resched();
 			}
 		}
 
@@ -961,6 +969,8 @@ static int igt_vma_remapped_gtt(void *arg)
 				}
 			}
 			i915_vma_unpin_iomap(vma);
+
+			cond_resched();
 		}
 	}
 
