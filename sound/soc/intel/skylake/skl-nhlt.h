@@ -49,6 +49,12 @@ enum nhlt_device_type {
 	NHLT_DEVICE_INVALID
 };
 
+enum nhlt_version_type {
+	VERSION_INVALID = -1,
+	VERSION_0,
+	VERSION_1,
+};
+
 struct nhlt_specific_cfg {
 	u32 size;
 	u8 caps[0];
@@ -83,6 +89,11 @@ struct nhlt_acpi_table {
 	u8 endpoint_count;
 	struct nhlt_endpoint desc[0];
 } __packed;
+
+struct nhlt_endpoint_list {
+	struct nhlt_endpoint *endpoint;
+	struct list_head list;
+};
 
 struct nhlt_resource_desc  {
 	u32 extra;
