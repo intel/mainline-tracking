@@ -206,23 +206,18 @@ err:
 
 static int virtio_rpmb_init(struct virtio_device *vdev)
 {
-	int ret;
 	struct virtio_rpmb_info *vi;
+	int ret;
 
-	vi = kzalloc(sizeof(*vi), GFP_KERNEL);
+	vi = vdev->priv;
 	if (!vi)
-		return -ENOMEM;
-
-	init_waitqueue_head(&vi->have_data);
-	mutex_init(&vi->lock);
-	vdev->priv = vi;
+		return -EINVAL;
 
 	/* We expect a single virtqueue. */
 	vi->vq = virtio_find_single_vq(vdev, virtio_rpmb_recv_done, "request");
 	if (IS_ERR(vi->vq)) {
 		dev_err(&vdev->dev, "get single vq failed!\n");
-		ret = PTR_ERR(vi->vq);
-		goto err;
+		return PTR_ERR(vi->vq);
 	}
 
 	/* create vrpmb device. */
@@ -237,11 +232,12 @@ static int virtio_rpmb_init(struct virtio_device *vdev)
 	return 0;
 
 err:
-	kfree(vi);
+	if (vdev->config->del_vqs)
+		vdev->config->del_vqs(vdev);
 	return ret;
 }
 
-static void virtio_rpmb_remove(struct virtio_device *vdev)
+static void virtio_rpmb_deinit(struct virtio_device *vdev)
 {
 	struct virtio_rpmb_info *vi;
 
@@ -259,19 +255,50 @@ static void virtio_rpmb_remove(struct virtio_device *vdev)
 
 	if (vdev->config->del_vqs)
 		vdev->config->del_vqs(vdev);
+}
+
+static void virtio_rpmb_remove(struct virtio_device *vdev)
+{
+	struct virtio_rpmb_info *vi;
+
+	vi = vdev->priv;
+
+	virtio_rpmb_deinit(vdev);
 
 	kfree(vi);
 }
 
 static int virtio_rpmb_probe(struct virtio_device *vdev)
 {
-	return virtio_rpmb_init(vdev);
+	int ret;
+	struct virtio_rpmb_info *vi;
+
+	vi = kzalloc(sizeof(*vi), GFP_KERNEL);
+	if (!vi)
+		return -ENOMEM;
+
+	init_waitqueue_head(&vi->have_data);
+	mutex_init(&vi->lock);
+	vdev->priv = vi;
+
+	ret = virtio_rpmb_init(vdev);
+	if (ret)
+		kfree(vi);
+
+	return ret;
 }
 
 #ifdef CONFIG_PM_SLEEP
 static int virtio_rpmb_freeze(struct virtio_device *vdev)
 {
-	virtio_rpmb_remove(vdev);
+	struct virtio_rpmb_info *vi;
+
+	vi = vdev->priv;
+	if (!vi)
+		return -EINVAL;
+
+	virtio_rpmb_deinit(vdev);
+
 	return 0;
 }
 
