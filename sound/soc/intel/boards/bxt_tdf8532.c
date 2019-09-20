@@ -11,6 +11,21 @@
 #include <sound/pcm.h>
 #include <sound/soc.h>
 #include <sound/pcm_params.h>
+#include <sound/jack.h>
+#include "../skylake/skl.h"
+#include "../../codecs/hdac_hdmi.h"
+
+#define BXT_NAME_SIZE		32
+#define BXT_MAX_HDMI		3
+static struct snd_soc_jack bxt_hdmi[BXT_MAX_HDMI];
+struct bxt_hdmi_pcm {
+	struct list_head head;
+	struct snd_soc_dai *codec_dai;
+	int device;
+};
+struct bxt_private {
+	struct list_head hdmi_pcm_list;
+};
 
 static const struct snd_kcontrol_new broxton_tdf8532_controls[] = {
 	SOC_DAPM_PIN_SWITCH("Speaker"),
@@ -67,7 +82,34 @@ static const struct snd_soc_dapm_route broxton_tdf8532_map[] = {
 
 	{ "ModemUl", NULL, "ssp3 Tx"},
 	{ "ssp3 Tx", NULL, "Modem_ssp3_out"},
+
+	{"hifi1", NULL, "iDisp1 Tx"},
+	{"iDisp1 Tx", NULL, "iDisp1_out"},
+
+	{"hifi2", NULL, "iDisp2 Tx"},
+	{"iDisp2 Tx", NULL, "iDisp2_out"},
+
+	{"hifi3", NULL, "iDisp3 Tx"},
+	{"iDisp3 Tx", NULL, "iDisp3_out"},
 };
+
+static int broxton_hdmi_init(struct snd_soc_pcm_runtime *rtd)
+{
+	struct bxt_private *ctx = snd_soc_card_get_drvdata(rtd->card);
+	struct snd_soc_dai *dai = rtd->codec_dai;
+	struct bxt_hdmi_pcm *pcm;
+
+	pcm = devm_kzalloc(rtd->card->dev, sizeof(*pcm), GFP_KERNEL);
+	if (!pcm)
+		return -ENOMEM;
+
+	pcm->device = rtd->dai_link->id;
+	pcm->codec_dai = dai;
+
+	list_add_tail(&pcm->head, &ctx->hdmi_pcm_list);
+
+	return 0;
+}
 
 static int bxt_tdf8532_ssp2_fixup(struct snd_soc_pcm_runtime *rtd,
 				struct snd_pcm_hw_params *params)
@@ -126,6 +168,15 @@ SND_SOC_DAILINK_DEF(tdf8532,
 SND_SOC_DAILINK_DEF(platform,
 	DAILINK_COMP_ARRAY(COMP_PLATFORM("0000:00:0e.0")));
 
+SND_SOC_DAILINK_DEF(hdmi1,
+	DAILINK_COMP_ARRAY(COMP_CPU("HDMI1 Pin")));
+
+SND_SOC_DAILINK_DEF(hdmi2,
+	DAILINK_COMP_ARRAY(COMP_CPU("HDMI2 Pin")));
+
+SND_SOC_DAILINK_DEF(hdmi3,
+	DAILINK_COMP_ARRAY(COMP_CPU("HDMI3 Pin")));
+
 #define PIN_NAME(ID)\
 	ssp##ID
 
@@ -152,6 +203,21 @@ DAI_LINK_SSP_PIN(2);
 DAI_LINK_SSP_PIN(3);
 DAI_LINK_SSP_PIN(4);
 DAI_LINK_SSP_PIN(5);
+
+SND_SOC_DAILINK_DEF(idisp1_pin,
+	DAILINK_COMP_ARRAY(COMP_CPU("iDisp1 Pin")));
+SND_SOC_DAILINK_DEF(idisp1_codec,
+	DAILINK_COMP_ARRAY(COMP_CODEC("ehdaudio0D2", "intel-hdmi-hifi1")));
+
+SND_SOC_DAILINK_DEF(idisp2_pin,
+	DAILINK_COMP_ARRAY(COMP_CPU("iDisp2 Pin")));
+SND_SOC_DAILINK_DEF(idisp2_codec,
+	DAILINK_COMP_ARRAY(COMP_CODEC("ehdaudio0D2", "intel-hdmi-hifi2")));
+
+SND_SOC_DAILINK_DEF(idisp3_pin,
+	DAILINK_COMP_ARRAY(COMP_CPU("iDisp3 Pin")));
+SND_SOC_DAILINK_DEF(idisp3_codec,
+	DAILINK_COMP_ARRAY(COMP_CODEC("ehdaudio0D2", "intel-hdmi-hifi3")));
 
 /* broxton digital audio interface glue - connects codec <--> CPU */
 static struct snd_soc_dai_link broxton_tdf8532_dais[] = {
@@ -276,6 +342,33 @@ static struct snd_soc_dai_link broxton_tdf8532_dais[] = {
 		.dynamic = 1,
 		SND_SOC_DAILINK_REG(dirana_tuner_cp, dummy, platform),
 	},
+	{
+		.name = "Bxt HDMI Port1",
+		.stream_name = "Hdmi1",
+		.dpcm_playback = 1,
+		.init = NULL,
+		.nonatomic = 1,
+		.dynamic = 1,
+		SND_SOC_DAILINK_REG(hdmi1, dummy, platform),
+	},
+	{
+		.name = "Bxt HDMI Port2",
+		.stream_name = "Hdmi2",
+		.dpcm_playback = 1,
+		.init = NULL,
+		.nonatomic = 1,
+		.dynamic = 1,
+		SND_SOC_DAILINK_REG(hdmi2, dummy, platform),
+	},
+	{
+		.name = "Bxt HDMI Port3",
+		.stream_name = "Hdmi3",
+		.dpcm_playback = 1,
+		.init = NULL,
+		.nonatomic = 1,
+		.dynamic = 1,
+		SND_SOC_DAILINK_REG(hdmi3, dummy, platform),
+	},
 	/* Back End DAI links */
 	DAI_LINK(0, 1, 1, NULL), /* SSP0 - BT */
 	DAI_LINK(1, 0, 1, NULL), /* SSP1 - HDMI-In */
@@ -291,14 +384,65 @@ static struct snd_soc_dai_link broxton_tdf8532_dais[] = {
 		SND_SOC_DAILINK_REG(ssp4, tdf8532, platform),
 	},
 	DAI_LINK(5, 1, 1, NULL), /* SSP5 - TestPin */
+	{
+		.name = "iDisp1",
+		.id = 6,
+		.init = broxton_hdmi_init,
+		.dpcm_playback = 1,
+		.no_pcm = 1,
+		SND_SOC_DAILINK_REG(idisp1_pin, idisp1_codec, platform),
+	},
+	{
+		.name = "iDisp2",
+		.id = 7,
+		.init = broxton_hdmi_init,
+		.dpcm_playback = 1,
+		.no_pcm = 1,
+		SND_SOC_DAILINK_REG(idisp2_pin, idisp2_codec, platform),
+	},
+	{
+		.name = "iDisp3",
+		.id = 8,
+		.init = broxton_hdmi_init,
+		.dpcm_playback = 1,
+		.no_pcm = 1,
+		SND_SOC_DAILINK_REG(idisp3_pin, idisp3_codec, platform),
+	},
 };
 
-static int bxt_add_dai_link(struct snd_soc_card *card,
-			struct snd_soc_dai_link *link)
+static int bxt_card_late_probe(struct snd_soc_card *card)
 {
-	link->platforms->name = "0000:00:0e.0";
-	link->nonatomic = 1;
-	return 0;
+	struct bxt_private *ctx = snd_soc_card_get_drvdata(card);
+	struct snd_soc_component *component = NULL;
+	char jack_name[BXT_NAME_SIZE];
+	struct bxt_hdmi_pcm *pcm;
+	int err, i = 0;
+
+	if (list_empty(&ctx->hdmi_pcm_list))
+		return 0;
+
+	list_for_each_entry(pcm, &ctx->hdmi_pcm_list, head) {
+		component = pcm->codec_dai->component;
+		snprintf(jack_name, sizeof(jack_name),
+			"HDMI/DP, pcm=%d Jack", pcm->device);
+		err = snd_soc_card_jack_new(card, jack_name,
+					SND_JACK_AVOUT, &bxt_hdmi[i],
+					NULL, 0);
+		if (err)
+			return err;
+
+		err = hdac_hdmi_jack_init(pcm->codec_dai,
+					  pcm->device, &bxt_hdmi[i]);
+		if (err < 0)
+			return err;
+
+		i++;
+	}
+
+	if (!component)
+		return -EINVAL;
+
+	return hdac_hdmi_jack_port_init(component, &card->dapm);
 }
 
 /* broxton audio machine driver for TDF8532 */
@@ -313,13 +457,23 @@ static struct snd_soc_card broxton_tdf8532 = {
 	.dapm_routes = broxton_tdf8532_map,
 	.num_dapm_routes = ARRAY_SIZE(broxton_tdf8532_map),
 	.fully_routed = true,
-	.add_dai_link = bxt_add_dai_link,
+	.late_probe = bxt_card_late_probe,
 };
 
 static int broxton_tdf8532_audio_probe(struct platform_device *pdev)
 {
+	struct bxt_private *ctx;
+
+	ctx = devm_kzalloc(&pdev->dev, sizeof(*ctx), GFP_KERNEL);
+	if (!ctx)
+		return -ENOMEM;
+
+	INIT_LIST_HEAD(&ctx->hdmi_pcm_list);
+
 	dev_info(&pdev->dev, "%s registering %s\n", __func__, pdev->name);
 	broxton_tdf8532.dev = &pdev->dev;
+	snd_soc_card_set_drvdata(&broxton_tdf8532, ctx);
+
 	return snd_soc_register_card(&broxton_tdf8532);
 }
 
