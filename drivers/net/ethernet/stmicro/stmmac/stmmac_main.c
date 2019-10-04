@@ -1605,7 +1605,17 @@ static int alloc_dma_rx_desc_resources(struct stmmac_priv *priv)
 {
 	u32 rx_count = priv->plat->rx_queues_to_use;
 	int ret = -ENOMEM;
+	int bfsize;
 	u32 queue;
+
+	bfsize = stmmac_set_16kib_bfsize(priv, priv->dev->mtu);
+	if (bfsize < 0)
+		bfsize = 0;
+
+	if (bfsize < BUF_SIZE_16KiB)
+		bfsize = stmmac_set_bfsize(priv->dev->mtu, priv->dma_buf_sz);
+
+	priv->dma_buf_sz = bfsize;
 
 	/* RX queues buffers and DMA */
 	for (queue = 0; queue < rx_count; queue++) {
@@ -1630,6 +1640,8 @@ static int alloc_dma_rx_desc_resources(struct stmmac_priv *priv)
 			rx_q->page_pool = NULL;
 			goto err_dma;
 		}
+	}
+	buf_sz = bfsize;
 
 		rx_q->buf_pool = kcalloc(priv->dma_rx_size,
 					 sizeof(*rx_q->buf_pool),
