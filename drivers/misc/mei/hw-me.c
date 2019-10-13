@@ -173,6 +173,27 @@ static inline void mei_me_d0i3c_write(struct mei_device *dev, u32 reg)
 }
 
 /**
+ * mei_me_trc_status - read trc status register
+ *
+ * @dev: mei device
+ * @trc: trc status register value
+ *
+ * Return: 0 on success, error otherwise
+ */
+static int mei_me_trc_status(struct mei_device *dev, u32 *trc)
+{
+	struct mei_me_hw *hw = to_me_hw(dev);
+
+	if (!hw->cfg->hw_trc_supported)
+		return -EOPNOTSUPP;
+
+	*trc = mei_me_reg_read(hw, ME_TRC);
+	trace_mei_reg_read(dev->dev, "ME_TRC", ME_TRC, *trc);
+
+	return 0;
+}
+
+/**
  * mei_me_fw_status - read fw status register from pci config space
  *
  * @dev: mei device
@@ -1294,6 +1315,7 @@ end:
 
 static const struct mei_hw_ops mei_me_hw_ops = {
 
+	.trc_status = mei_me_trc_status,
 	.fw_status = mei_me_fw_status,
 	.pg_state  = mei_me_pg_state,
 
@@ -1355,6 +1377,8 @@ static bool mei_me_fw_type_sps(struct pci_dev *pdev)
 #define MEI_CFG_FW_SPS                           \
 	.quirk_probe = mei_me_fw_type_sps
 
+#define MEI_CFG_FW_VER_SUPP                     \
+	.fw_ver_supported = 1
 
 #define MEI_CFG_ICH_HFS                      \
 	.fw_status.count = 0
@@ -1382,6 +1406,9 @@ static bool mei_me_fw_type_sps(struct pci_dev *pdev)
 	.dma_size[DMA_DSCR_DEVICE] = SZ_128K, \
 	.dma_size[DMA_DSCR_CTRL] = PAGE_SIZE
 
+#define MEI_CFG_TRC \
+	.hw_trc_supported = 1
+
 /* ICH Legacy devices */
 static const struct mei_cfg mei_me_ich_cfg = {
 	MEI_CFG_ICH_HFS,
@@ -1392,32 +1419,49 @@ static const struct mei_cfg mei_me_ich10_cfg = {
 	MEI_CFG_ICH10_HFS,
 };
 
-/* PCH devices */
-static const struct mei_cfg mei_me_pch_cfg = {
+/* PCH6 devices */
+static const struct mei_cfg mei_me_pch6_cfg = {
 	MEI_CFG_PCH_HFS,
+};
+
+/* PCH7 devices */
+static const struct mei_cfg mei_me_pch7_cfg = {
+	MEI_CFG_PCH_HFS,
+	MEI_CFG_FW_VER_SUPP,
 };
 
 /* PCH Cougar Point and Patsburg with quirk for Node Manager exclusion */
 static const struct mei_cfg mei_me_pch_cpt_pbg_cfg = {
 	MEI_CFG_PCH_HFS,
+	MEI_CFG_FW_VER_SUPP,
 	MEI_CFG_FW_NM,
 };
 
 /* PCH8 Lynx Point and newer devices */
 static const struct mei_cfg mei_me_pch8_cfg = {
 	MEI_CFG_PCH8_HFS,
+	MEI_CFG_FW_VER_SUPP,
 };
 
 /* PCH8 Lynx Point with quirk for SPS Firmware exclusion */
 static const struct mei_cfg mei_me_pch8_sps_cfg = {
 	MEI_CFG_PCH8_HFS,
+	MEI_CFG_FW_VER_SUPP,
 	MEI_CFG_FW_SPS,
 };
 
 /* Cannon Lake and newer devices */
 static const struct mei_cfg mei_me_pch12_cfg = {
 	MEI_CFG_PCH8_HFS,
+	MEI_CFG_FW_VER_SUPP,
 	MEI_CFG_DMA_128,
+};
+
+/* Tiger Lake and newer devices */
+static const struct mei_cfg mei_me_pch15_cfg = {
+	MEI_CFG_PCH8_HFS,
+	MEI_CFG_DMA_128,
+	MEI_CFG_TRC,
 };
 
 /*
@@ -1428,11 +1472,13 @@ static const struct mei_cfg *const mei_cfg_list[] = {
 	[MEI_ME_UNDEF_CFG] = NULL,
 	[MEI_ME_ICH_CFG] = &mei_me_ich_cfg,
 	[MEI_ME_ICH10_CFG] = &mei_me_ich10_cfg,
-	[MEI_ME_PCH_CFG] = &mei_me_pch_cfg,
+	[MEI_ME_PCH6_CFG] = &mei_me_pch6_cfg,
+	[MEI_ME_PCH7_CFG] = &mei_me_pch7_cfg,
 	[MEI_ME_PCH_CPT_PBG_CFG] = &mei_me_pch_cpt_pbg_cfg,
 	[MEI_ME_PCH8_CFG] = &mei_me_pch8_cfg,
 	[MEI_ME_PCH8_SPS_CFG] = &mei_me_pch8_sps_cfg,
 	[MEI_ME_PCH12_CFG] = &mei_me_pch12_cfg,
+	[MEI_ME_PCH15_CFG] = &mei_me_pch15_cfg,
 };
 
 const struct mei_cfg *mei_me_get_cfg(kernel_ulong_t idx)
@@ -1472,6 +1518,8 @@ struct mei_device *mei_me_dev_init(struct pci_dev *pdev,
 
 	mei_device_init(dev, &pdev->dev, &mei_me_hw_ops);
 	hw->cfg = cfg;
+
+	dev->fw_f_fw_ver_supported = cfg->fw_ver_supported;
 
 	return dev;
 }
