@@ -9,12 +9,14 @@
 #include <linux/dma-mapping.h>
 #include <linux/err.h>
 #include <linux/highmem.h>
+#include <linux/ion.h>
 #include <linux/mm.h>
+#include <linux/module.h>
 #include <linux/scatterlist.h>
 #include <linux/slab.h>
 #include <linux/vmalloc.h>
 
-#include "ion.h"
+#include "ion_page_pool.h"
 
 #define NUM_ORDERS ARRAY_SIZE(orders)
 
@@ -160,7 +162,7 @@ static void ion_system_heap_free(struct ion_buffer *buffer)
 
 	/* zero the buffer before goto page pool */
 	if (!(buffer->private_flags & ION_PRIV_FLAG_SHRINKER_FREE))
-		ion_heap_buffer_zero(buffer);
+		ion_buffer_zero(buffer);
 
 	for_each_sg(table->sgl, sg, table->nents, i)
 		free_buffer_page(sys_heap, buffer, sg_page(sg));
@@ -203,15 +205,6 @@ static int ion_system_heap_shrink(struct ion_heap *heap, gfp_t gfp_mask,
 	return nr_total;
 }
 
-static struct ion_heap_ops system_heap_ops = {
-	.allocate = ion_system_heap_allocate,
-	.free = ion_system_heap_free,
-	.map_kernel = ion_heap_map_kernel,
-	.unmap_kernel = ion_heap_unmap_kernel,
-	.map_user = ion_heap_map_user,
-	.shrink = ion_system_heap_shrink,
-};
-
 static void ion_system_heap_destroy_pools(struct ion_page_pool **pools)
 {
 	int i;
@@ -245,133 +238,36 @@ err_create_pool:
 	return -ENOMEM;
 }
 
-static struct ion_heap *__ion_system_heap_create(void)
-{
-	struct ion_system_heap *heap;
-
-	heap = kzalloc(sizeof(*heap), GFP_KERNEL);
-	if (!heap)
-		return ERR_PTR(-ENOMEM);
-	heap->heap.ops = &system_heap_ops;
-	heap->heap.type = ION_HEAP_TYPE_SYSTEM;
-	heap->heap.flags = ION_HEAP_FLAG_DEFER_FREE;
-
-	if (ion_system_heap_create_pools(heap->pools))
-		goto free_heap;
-
-	return &heap->heap;
-
-free_heap:
-	kfree(heap);
-	return ERR_PTR(-ENOMEM);
-}
-
-static int ion_system_heap_create(void)
-{
-	struct ion_heap *heap;
-
-	heap = __ion_system_heap_create();
-	if (IS_ERR(heap))
-		return PTR_ERR(heap);
-	heap->name = "ion_system_heap";
-
-	ion_device_add_heap(heap);
-
-	return 0;
-}
-device_initcall(ion_system_heap_create);
-
-static int ion_system_contig_heap_allocate(struct ion_heap *heap,
-					   struct ion_buffer *buffer,
-					   unsigned long len,
-					   unsigned long flags)
-{
-	int order = get_order(len);
-	struct page *page;
-	struct sg_table *table;
-	unsigned long i;
-	int ret;
-
-	page = alloc_pages(low_order_gfp_flags | __GFP_NOWARN, order);
-	if (!page)
-		return -ENOMEM;
-
-	split_page(page, order);
-
-	len = PAGE_ALIGN(len);
-	for (i = len >> PAGE_SHIFT; i < (1 << order); i++)
-		__free_page(page + i);
-
-	table = kmalloc(sizeof(*table), GFP_KERNEL);
-	if (!table) {
-		ret = -ENOMEM;
-		goto free_pages;
-	}
-
-	ret = sg_alloc_table(table, 1, GFP_KERNEL);
-	if (ret)
-		goto free_table;
-
-	sg_set_page(table->sgl, page, len, 0);
-
-	buffer->sg_table = table;
-
-	return 0;
-
-free_table:
-	kfree(table);
-free_pages:
-	for (i = 0; i < len >> PAGE_SHIFT; i++)
-		__free_page(page + i);
-
-	return ret;
-}
-
-static void ion_system_contig_heap_free(struct ion_buffer *buffer)
-{
-	struct sg_table *table = buffer->sg_table;
-	struct page *page = sg_page(table->sgl);
-	unsigned long pages = PAGE_ALIGN(buffer->size) >> PAGE_SHIFT;
-	unsigned long i;
-
-	for (i = 0; i < pages; i++)
-		__free_page(page + i);
-	sg_free_table(table);
-	kfree(table);
-}
-
-static struct ion_heap_ops kmalloc_ops = {
-	.allocate = ion_system_contig_heap_allocate,
-	.free = ion_system_contig_heap_free,
-	.map_kernel = ion_heap_map_kernel,
-	.unmap_kernel = ion_heap_unmap_kernel,
-	.map_user = ion_heap_map_user,
+static struct ion_heap_ops system_heap_ops = {
+	.allocate = ion_system_heap_allocate,
+	.free = ion_system_heap_free,
+	.shrink = ion_system_heap_shrink,
 };
 
-static struct ion_heap *__ion_system_contig_heap_create(void)
+struct ion_system_heap system_heap = {
+	.heap = {
+		.ops = &system_heap_ops,
+		.type = ION_HEAP_TYPE_SYSTEM,
+		.flags = ION_HEAP_FLAG_DEFER_FREE,
+		.name = "ion_system_heap",
+	}
+};
+
+static int __init ion_system_heap_init(void)
 {
-	struct ion_heap *heap;
+	int ret = ion_system_heap_create_pools(system_heap.pools);
+	if (ret)
+		return ret;
 
-	heap = kzalloc(sizeof(*heap), GFP_KERNEL);
-	if (!heap)
-		return ERR_PTR(-ENOMEM);
-	heap->ops = &kmalloc_ops;
-	heap->type = ION_HEAP_TYPE_SYSTEM_CONTIG;
-	heap->name = "ion_system_contig_heap";
-
-	return heap;
+	return ion_device_add_heap(&system_heap.heap);
 }
 
-static int ion_system_contig_heap_create(void)
+static void __exit ion_system_heap_exit(void)
 {
-	struct ion_heap *heap;
-
-	heap = __ion_system_contig_heap_create();
-	if (IS_ERR(heap))
-		return PTR_ERR(heap);
-
-	ion_device_add_heap(heap);
-
-	return 0;
+	ion_device_remove_heap(&system_heap.heap);
+	ion_system_heap_destroy_pools(system_heap.pools);
 }
-device_initcall(ion_system_contig_heap_create);
+
+module_init(ion_system_heap_init);
+module_exit(ion_system_heap_exit);
+MODULE_LICENSE("GPL v2");
