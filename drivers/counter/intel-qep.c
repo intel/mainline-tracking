@@ -397,7 +397,7 @@ static int intel_qep_function_get(struct counter_device *counter,
 	u32 reg;
 
 	reg = intel_qep_readl(qep->regs, INTEL_QEPCON);
-	if (req & INTEL_QEPCON_SWPAB)
+	if (reg & INTEL_QEPCON_SWPAB)
 		*function = INTEL_QEP_ENCODER_MODE_SWAPPED;
 	else
 		*function = INTEL_QEP_ENCODER_MODE_NORMAL;
@@ -406,13 +406,13 @@ static int intel_qep_function_get(struct counter_device *counter,
 }
 
 static int intel_qep_function_set(struct counter_device *counter,
-		struct counter_count *count, size_t *function)
+		struct counter_count *count, size_t function)
 {
 	struct intel_qep *qep = counter_to_qep(counter);
 	u32 reg;
 
 	reg = intel_qep_readl(qep->regs, INTEL_QEPCON);
-	if (*function == INTEL_QEP_ENCODER_MODE_SWAPPED)
+	if (function == INTEL_QEP_ENCODER_MODE_SWAPPED)
 		reg |= INTEL_QEPCON_SWPAB;
 	else
 		reg &= ~INTEL_QEPCON_SWPAB;
