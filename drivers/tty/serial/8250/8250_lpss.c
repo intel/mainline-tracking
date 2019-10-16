@@ -293,16 +293,22 @@ static int lpss8250_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 	if (ret)
 		return ret;
 
+	pci_set_master(pdev);
+
 	lpss = devm_kzalloc(&pdev->dev, sizeof(*lpss), GFP_KERNEL);
 	if (!lpss)
 		return -ENOMEM;
+
+	ret = pci_alloc_irq_vectors(pdev, 1, 1, PCI_IRQ_ALL_TYPES);
+	if (ret < 0)
+		return ret;
 
 	lpss->board = (struct lpss8250_board *)id->driver_data;
 
 	memset(&uart, 0, sizeof(struct uart_8250_port));
 
 	uart.port.dev = &pdev->dev;
-	uart.port.irq = pdev->irq;
+	uart.port.irq = pci_irq_vector(pdev, 0);
 	uart.port.private_data = &lpss->data;
 	uart.port.type = PORT_16550A;
 	uart.port.iotype = UPIO_MEM;
@@ -337,6 +343,7 @@ static int lpss8250_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 err_exit:
 	if (lpss->board->exit)
 		lpss->board->exit(lpss);
+	pci_free_irq_vectors(pdev);
 	return ret;
 }
 
@@ -348,6 +355,7 @@ static void lpss8250_remove(struct pci_dev *pdev)
 
 	if (lpss->board->exit)
 		lpss->board->exit(lpss);
+	pci_free_irq_vectors(pdev);
 }
 
 static const struct lpss8250_board byt_board = {
