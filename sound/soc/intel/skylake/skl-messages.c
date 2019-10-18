@@ -1531,8 +1531,7 @@ int skl_probe_init_module(struct skl_dev *skl, size_t buffer_size)
 	 * and input and output frame sizes are unused.
 	 */
 	cfg.base_cfg.ibs = 1;
-	cfg.base_cfg.is_pages =
-			DIV_ROUND_UP(m->segments[2].flags.length, PAGE_SIZE);
+	cfg.base_cfg.is_pages = m->segments[2].flags.length;
 	cfg.gtw_cfg.node_id = node_id;
 	cfg.gtw_cfg.dma_buffer_size = buffer_size;
 
