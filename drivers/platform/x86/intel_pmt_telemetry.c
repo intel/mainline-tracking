@@ -20,6 +20,8 @@
 #include <linux/uaccess.h>
 #include <linux/xarray.h>
 
+#include "intel_pmt_telem.h"
+
 #define TELEM_DEV_NAME		"pmt_telemetry"
 
 /* Telemetry access types */
@@ -35,7 +37,7 @@
 /* size is in bytes */
 #define TELEM_SIZE(v)		(((v) & GENMASK(27, 12)) >> 10)
 
-#define TELEM_XA_START		0
+#define TELEM_XA_START		1
 #define TELEM_XA_MAX		INT_MAX
 #define TELEM_XA_LIMIT		XA_LIMIT(TELEM_XA_START, TELEM_XA_MAX)
 
@@ -43,22 +45,28 @@
 #define TELEM_CLIENT_FIXED_BLOCK_GUID	0x10000000
 
 static DEFINE_XARRAY_ALLOC(telem_array);
+static DEFINE_MUTEX(list_lock);
+static BLOCKING_NOTIFIER_HEAD(telem_notifier);
+
+#define NUM_BYTES_DWORD(v)		((v) << 2)
+#define NUM_BYTES_QWORD(v)		((v) << 3)
+#define SAMPLE_ID_OFFSET(v)		((v) << 3)
+
+struct telem_endpoint {
+	struct pci_dev			*parent;
+	struct telem_header		header;
+	void __iomem			*base;
+	struct resource			res;
+	bool				present;
+	struct kref			kref;
+};
 
 struct pmt_telem_priv;
 
-struct telem_header {
-	u8	access_type;
-	u8	telem_type;
-	u16	size;
-	u32	guid;
-	u32	base_offset;
-	u8	tbir;
-};
-
 struct pmt_telem_entry {
 	struct pmt_telem_priv		*priv;
+	struct telem_endpoint		*ep;
 	struct telem_header		header;
-	struct resource			*header_res;
 	unsigned long			base_addr;
 	void __iomem			*disc_table;
 	struct cdev			cdev;
@@ -195,6 +203,183 @@ static struct class pmt_telem_class = {
 	.dev_groups = pmt_telem_groups,
 };
 
+/* Called when all users unregister and the device is removed */
+static void pmt_telem_ep_release(struct kref *kref)
+{
+	struct telem_endpoint *ep;
+
+	ep = container_of(kref, struct telem_endpoint, kref);
+	iounmap(ep->base);
+	release_mem_region(ep->res.start, resource_size(&ep->res));
+	kfree(ep);
+}
+
+/*
+ * driver api
+ */
+int pmt_telem_get_next_endpoint(int start)
+{
+	struct telem_endpoint *ep;
+	unsigned long found_idx;
+
+	mutex_lock(&list_lock);
+	xa_for_each_start(&telem_array, found_idx, ep, start) {
+		/*
+		 * Return first found index after start.
+		 * 0 is not valid id.
+		 */
+		if (found_idx > start)
+			break;
+	}
+	mutex_unlock(&list_lock);
+
+	return found_idx == start ? 0 : found_idx;
+}
+EXPORT_SYMBOL_GPL(pmt_telem_get_next_endpoint);
+
+struct telem_endpoint *pmt_telem_register_endpoint(int devid)
+{
+	struct telem_endpoint *ep;
+	unsigned long index = devid;
+
+	mutex_lock(&list_lock);
+	ep = xa_find(&telem_array, &index, index, XA_PRESENT);
+	if (!ep) {
+		mutex_unlock(&list_lock);
+		return ERR_PTR(-ENXIO);
+	}
+
+	kref_get(&ep->kref);
+
+	mutex_unlock(&list_lock);
+
+	return ep;
+}
+EXPORT_SYMBOL_GPL(pmt_telem_register_endpoint);
+
+void pmt_telem_unregister_endpoint(struct telem_endpoint *ep)
+{
+	kref_put(&ep->kref, pmt_telem_ep_release);
+}
+EXPORT_SYMBOL(pmt_telem_unregister_endpoint);
+
+int pmt_telem_get_endpoint_info(int devid,
+				struct telem_endpoint_info *info)
+{
+	struct telem_endpoint *ep;
+	unsigned long index = devid;
+	int err = 0;
+
+	if (!info)
+		return -EINVAL;
+
+	mutex_lock(&list_lock);
+	ep = xa_find(&telem_array, &index, index, XA_PRESENT);
+	if (!ep) {
+		err = -ENXIO;
+		goto unlock;
+	}
+
+	info->pdev = ep->parent;
+	info->header = ep->header;
+
+unlock:
+	mutex_unlock(&list_lock);
+	return err;
+
+}
+EXPORT_SYMBOL_GPL(pmt_telem_get_endpoint_info);
+
+int
+pmt_telem_read32(struct telem_endpoint *ep, u32 offset, u32 *data, u32 count)
+{
+	void __iomem *base;
+	u32 size;
+
+	if (!ep->present)
+		return -ENODEV;
+
+	/*
+	 * offset is relative to the BAR base address, not the counter
+	 * base address.
+	 */
+	if (offset < ep->header.base_offset)
+		return -EINVAL;
+
+	offset -= ep->header.base_offset;
+	base = ep->base;
+	size = ep->header.size;
+
+	if ((offset + NUM_BYTES_DWORD(count)) > size)
+		return -EINVAL;
+
+	memcpy_fromio(data, base + offset, NUM_BYTES_DWORD(count));
+
+	return ep->present ? 0 : -EPIPE;
+}
+EXPORT_SYMBOL_GPL(pmt_telem_read32);
+
+int
+pmt_telem_read64(struct telem_endpoint *ep, u32 offset, u64 *data, u32 count)
+{
+	void __iomem *base;
+	u32 size;
+
+	if (!ep->present)
+		return -ENODEV;
+
+	/*
+	 * offset is relative to the BAR base address, not the counter
+	 * base address.
+	 */
+	if (offset < ep->header.base_offset)
+		return -EINVAL;
+
+	offset -= ep->header.base_offset;
+	base = ep->base;
+	size = ep->header.size;
+
+	if ((offset + NUM_BYTES_QWORD(count)) > size)
+		return -EINVAL;
+
+	memcpy_fromio(data, base + offset, NUM_BYTES_QWORD(count));
+
+	return ep->present ? 0 : -EPIPE;
+}
+EXPORT_SYMBOL_GPL(pmt_telem_read64);
+
+int
+pmt_telem_read(struct telem_endpoint *ep, u32 id, u64 *data, u32 count)
+{
+	u32 offset, size;
+
+	if (!ep->present)
+		return -ENODEV;
+
+	offset = SAMPLE_ID_OFFSET(id);
+	size = ep->header.size;
+
+	if ((offset + NUM_BYTES_QWORD(count)) > size)
+		return -EINVAL;
+
+	memcpy_fromio(data, ep->base + offset, NUM_BYTES_QWORD(count));
+
+	return ep->present ? 0 : -EPIPE;
+}
+EXPORT_SYMBOL_GPL(pmt_telem_read);
+
+int pmt_telem_register_notifier(struct notifier_block *nb)
+{
+	return blocking_notifier_chain_register(&telem_notifier, nb);
+}
+EXPORT_SYMBOL(pmt_telem_register_notifier);
+
+int pmt_telem_unregister_notifier(struct notifier_block *nb)
+{
+	return blocking_notifier_chain_unregister(&telem_notifier, nb);
+}
+EXPORT_SYMBOL(pmt_telem_unregister_notifier);
+
 /*
  * driver initialization
  */
@@ -235,6 +420,59 @@ static int pmt_telem_create_dev(struct pmt_telem_priv *priv,
 	return PTR_ERR_OR_ZERO(dev);
 }
 
+static int pmt_telem_add_endpoint(struct pmt_telem_priv *priv,
+				  struct pmt_telem_entry *entry)
+{
+	struct telem_endpoint *ep;
+	struct resource *req, *res;
+	int err;
+
+	/*
+	 * Endpoint lifetimes are managed by kref, not devres.
+	 */
+	entry->ep = kzalloc(sizeof(*(entry->ep)), GFP_KERNEL);
+	if (!entry->ep)
+		return -ENOMEM;
+
+	ep = entry->ep;
+	ep->header = entry->header;
+	ep->parent = to_pci_dev(priv->dev->parent);
+
+	res = &ep->res;
+	res->start = entry->base_addr;
+	res->end = res->start + (entry->header.size) - 1;
+
+	req = request_mem_region(res->start, resource_size(res),
+				 dev_name(priv->dev));
+	if (!req) {
+		dev_err(priv->dev, "Failed to claim memory for region %pR\n",
+			res);
+		err = -EIO;
+		goto fail_request_mem_region;
+	}
+
+	ep->base = ioremap(res->start, resource_size(res));
+	if (!ep->base) {
+		dev_err(priv->dev, "Failed to ioremap device region\n");
+		err = -EIO;
+		goto fail_ioremap;
+	}
+
+	ep->present = true;
+
+	kref_init(&ep->kref);
+
+	return 0;
+
+fail_ioremap:
+	release_mem_region(res->start,
+			   resource_size(res));
+fail_request_mem_region:
+	kfree(ep);
+
+	return err;
+}
+
 static void pmt_telem_populate_header(void __iomem *disc_offset,
 				      struct telem_header *header)
 {
@@ -254,21 +492,23 @@ static void pmt_telem_populate_header(void __iomem *disc_offset,
 }
 
 static int pmt_telem_add_entry(struct pmt_telem_priv *priv,
-			       struct pmt_telem_entry *entry)
+			       struct pmt_telem_entry *entry,
+			       struct resource *header_res)
 {
-	struct resource *res = entry->header_res;
 	struct pci_dev *pci_dev = to_pci_dev(priv->dev->parent);
+	struct telem_header *header = &entry->header;
+	struct device *dev = &pci_dev->dev;
 	int ret;
 
 	pmt_telem_populate_header(entry->disc_table, &entry->header);
 
-	/* Local access and BARID only for now */
+	/* Ony Local access and BARID access modes only for now */
 	switch (entry->header.access_type) {
 	case TELEM_ACCESS_LOCAL:
-		if (entry->header.tbir) {
+		if (header->tbir) {
 			dev_err(priv->dev,
 				"Unsupported BAR index %d for access type %d\n",
-				entry->header.tbir, entry->header.access_type);
+				header->tbir, header->access_type);
 			return -EINVAL;
 		}
 
@@ -276,29 +516,32 @@ static int pmt_telem_add_entry(struct pmt_telem_priv *priv,
 		 * For access_type LOCAL, the base address is as follows:
 		 * base address = header address + header length + base offset
 		 */
-		entry->base_addr = res->start + resource_size(res) +
-				   entry->header.base_offset;
+		entry->base_addr = header_res->start + resource_size(header_res) +
+				   header->base_offset;
 		break;
 
 	case TELEM_ACCESS_BARID:
-		entry->base_addr = pci_dev->resource[entry->header.tbir].start +
-				   entry->header.base_offset;
+		entry->base_addr = pci_dev->resource[header->tbir].start +
+				   header->base_offset;
 		break;
 
 	default:
-		dev_err(priv->dev, "Unsupported access type %d\n",
+		dev_err(dev, "Unsupported access type %d\n",
 			entry->header.access_type);
 		return -EINVAL;
 	}
 
 	ret = alloc_chrdev_region(&entry->devt, 0, 1, TELEM_DEV_NAME);
 	if (ret) {
-		dev_err(priv->dev,
-			"PMT telemetry chrdev_region error: %d\n", ret);
+		dev_err(dev, "PMT telemetry chrdev_region error: %d\n", ret);
 		return ret;
 	}
 
-	ret = xa_alloc(&telem_array, &entry->devid, entry, TELEM_XA_LIMIT,
+	ret = pmt_telem_add_endpoint(priv, entry);
+	if (ret)
+		goto fail_add_endpoint;
+
+	ret = xa_alloc(&telem_array, &entry->devid, entry->ep, TELEM_XA_LIMIT,
 		       GFP_KERNEL);
 	if (ret)
 		goto fail_xa_alloc;
@@ -309,11 +552,14 @@ static int pmt_telem_add_entry(struct pmt_telem_priv *priv,
 
 	entry->priv = priv;
 	priv->num_entries++;
+
 	return 0;
 
 fail_create_dev:
 	xa_erase(&telem_array, entry->devid);
 fail_xa_alloc:
+	kref_put(&entry->ep->kref, pmt_telem_ep_release);
+fail_add_endpoint:
 	unregister_chrdev_region(entry->devt, 1);
 
 	return ret;
@@ -334,10 +580,12 @@ static void pmt_telem_remove_entries(struct pmt_telem_priv *priv)
 	int i;
 
 	for (i = 0; i < priv->num_entries; i++) {
+		priv->entry->ep->present = false;
 		device_destroy(&pmt_telem_class, priv->entry[i].devt);
 		cdev_del(&priv->entry[i].cdev);
 		xa_erase(&telem_array, priv->entry[i].devid);
 		unregister_chrdev_region(priv->entry[i].devt, 1);
+		kref_put(&priv->entry[i].ep->kref, pmt_telem_ep_release);
 	}
 }
 
@@ -345,7 +593,6 @@ static int pmt_telem_probe(struct platform_device *pdev)
 {
 	struct pmt_telem_priv *priv;
 	struct pmt_telem_entry *entry;
-	bool early_hw;
 	int i;
 
 	priv = devm_kzalloc(&pdev->dev, sizeof(*priv), GFP_KERNEL);
@@ -360,15 +607,13 @@ static int pmt_telem_probe(struct platform_device *pdev)
 	if (!priv->entry)
 		return -ENOMEM;
 
-	if (pmt_telem_is_early_client_hw(&pdev->dev))
-		early_hw = true;
-
 	for (i = 0, entry = priv->entry; i < pdev->num_resources;
 	     i++, entry++) {
+		struct resource *res;
 		int ret;
 
-		entry->header_res = platform_get_resource(pdev, IORESOURCE_MEM, i);
-		if (!entry->header_res) {
+		res = platform_get_resource(pdev, IORESOURCE_MEM, i);
+		if (!res) {
 			pmt_telem_remove_entries(priv);
 			return -ENODEV;
 		}
@@ -379,16 +624,21 @@ static int pmt_telem_probe(struct platform_device *pdev)
 			return PTR_ERR(entry->disc_table);
 		}
 
-		if (pmt_telem_region_overlaps(pdev, entry->disc_table) &&
-		    early_hw)
+		if (pmt_telem_is_early_client_hw(&pdev->dev) &&
+		    pmt_telem_region_overlaps(pdev, entry->disc_table))
 			continue;
 
-		ret = pmt_telem_add_entry(priv, entry);
+		ret = pmt_telem_add_entry(priv, entry, res);
 		if (ret) {
 			pmt_telem_remove_entries(priv);
 			return ret;
 		}
 	}
+
+	for (i = 0, entry = priv->entry; i < priv->num_entries; i++, entry++)
+		blocking_notifier_call_chain(&telem_notifier,
+					     PMT_TELEM_NOTIFY_ADD,
+					     &entry->devid);
 
 	return 0;
 }
@@ -396,6 +646,13 @@ static int pmt_telem_probe(struct platform_device *pdev)
 static int pmt_telem_remove(struct platform_device *pdev)
 {
 	struct pmt_telem_priv *priv = platform_get_drvdata(pdev);
+	struct pmt_telem_entry *entry;
+	int i;
+
+	for (i = 0, entry = priv->entry; i < priv->num_entries; i++, entry++)
+		blocking_notifier_call_chain(&telem_notifier,
+					     PMT_TELEM_NOTIFY_REMOVE,
+					     &entry->devid);
 
 	pmt_telem_remove_entries(priv);
 
