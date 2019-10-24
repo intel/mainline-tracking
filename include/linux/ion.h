@@ -1,30 +1,29 @@
-/* SPDX-License-Identifier: GPL-2.0 */
+/* SPDX-License-Identifier: GPL-2.0-only */
 /*
- * ION Memory Allocator kernel interface header
- *
- * Copyright (C) 2011 Google, Inc.
+ * Copyright (c) 2019, The Linux Foundation. All rights reserved.
  */
 
-#ifndef _ION_H
-#define _ION_H
+#ifndef _ION_KERNEL_H
+#define _ION_KERNEL_H
 
+#include <linux/dma-buf.h>
+#include <linux/err.h>
 #include <linux/device.h>
 #include <linux/dma-direction.h>
 #include <linux/kref.h>
 #include <linux/mm_types.h>
+#include <linux/module.h>
 #include <linux/mutex.h>
 #include <linux/rbtree.h>
 #include <linux/sched.h>
 #include <linux/shrinker.h>
 #include <linux/types.h>
-#include <linux/miscdevice.h>
-
-#include "../uapi/ion.h"
+#include <uapi/linux/ion.h>
 
 /**
  * struct ion_buffer - metadata for a particular buffer
+ * @node:		node in the ion_device buffers tree
  * @list:		element in list of deferred freeable buffers
- * @dev:		back pointer to the ion_device
  * @heap:		back pointer to the heap the buffer came from
  * @flags:		buffer specific flags
  * @private_flags:	internal buffer specific flags
@@ -38,8 +37,10 @@
  * @attachments:	list of devices attached to this buffer
  */
 struct ion_buffer {
-	struct list_head list;
-	struct ion_device *dev;
+	union {
+		struct rb_node node;
+		struct list_head list;
+	};
 	struct ion_heap *heap;
 	unsigned long flags;
 	unsigned long private_flags;
@@ -52,30 +53,12 @@ struct ion_buffer {
 	struct list_head attachments;
 };
 
-void ion_buffer_destroy(struct ion_buffer *buffer);
-
-/**
- * struct ion_device - the metadata of the ion device node
- * @dev:		the actual misc device
- * @lock:		rwsem protecting the tree of heaps and clients
- */
-struct ion_device {
-	struct miscdevice dev;
-	struct rw_semaphore lock;
-	struct plist_head heaps;
-	struct dentry *debug_root;
-	int heap_cnt;
-};
-
 /**
  * struct ion_heap_ops - ops to operate on a given heap
  * @allocate:		allocate memory
  * @free:		free memory
- * @map_kernel		map memory to the kernel
- * @unmap_kernel	unmap memory to the kernel
- * @map_user		map memory to userspace
  *
- * allocate, phys, and map_user return 0 on success, -errno on error.
+ * allocate returns 0 on success, -errno on error.
  * map_dma and map_kernel return pointer on success, ERR_PTR on
  * error. @free will be called with ION_PRIV_FLAG_SHRINKER_FREE set in
  * the buffer's private_flags when called from a shrinker. In that
@@ -87,10 +70,6 @@ struct ion_heap_ops {
 			struct ion_buffer *buffer, unsigned long len,
 			unsigned long flags);
 	void (*free)(struct ion_buffer *buffer);
-	void * (*map_kernel)(struct ion_heap *heap, struct ion_buffer *buffer);
-	void (*unmap_kernel)(struct ion_heap *heap, struct ion_buffer *buffer);
-	int (*map_user)(struct ion_heap *mapper, struct ion_buffer *buffer,
-			struct vm_area_struct *vma);
 	int (*shrink)(struct ion_heap *heap, gfp_t gfp_mask, int nr_to_scan);
 };
 
@@ -113,14 +92,15 @@ struct ion_heap_ops {
 /**
  * struct ion_heap - represents a heap in the system
  * @node:		rb node to put the heap on the device's tree of heaps
- * @dev:		back pointer to the ion_device
  * @type:		type of heap
  * @ops:		ops struct as above
+ * @buf_ops:		dma_buf ops specific to the heap implementation.
  * @flags:		flags
  * @id:			id of heap, also indicates priority of this heap when
  *			allocating.  These are specified by platform data and
  *			MUST be unique
  * @name:		used for debugging
+ * @owner:		kernel module that implements this heap
  * @shrinker:		a shrinker for the heap
  * @free_list:		free list head if deferred free is used
  * @free_list_size	size of the deferred free list in bytes
@@ -138,12 +118,13 @@ struct ion_heap_ops {
  */
 struct ion_heap {
 	struct plist_node node;
-	struct ion_device *dev;
 	enum ion_heap_type type;
 	struct ion_heap_ops *ops;
+	struct dma_buf_ops buf_ops;
 	unsigned long flags;
 	unsigned int id;
 	const char *name;
+	struct module *owner;
 
 	/* deferred free support */
 	struct shrinker shrinker;
@@ -160,24 +141,30 @@ struct ion_heap {
 
 	/* protect heap statistics */
 	spinlock_t stat_lock;
+
+	/* heap's debugfs root */
+	struct dentry *debugfs_dir;
 };
 
-/**
- * ion_device_add_heap - adds a heap to the ion device
- * @heap:		the heap to add
- */
-void ion_device_add_heap(struct ion_heap *heap);
+#define ion_device_add_heap(heap) __ion_device_add_heap(heap, THIS_MODULE)
+
+#ifdef CONFIG_ION
 
 /**
- * some helpers for common operations on buffers using the sg_table
- * and vaddr fields
+ * __ion_device_add_heap - adds a heap to the ion device
+ *
+ * @heap:               the heap to add
+ *
+ * Returns 0 on success, negative error otherwise.
  */
-void *ion_heap_map_kernel(struct ion_heap *heap, struct ion_buffer *buffer);
-void ion_heap_unmap_kernel(struct ion_heap *heap, struct ion_buffer *buffer);
-int ion_heap_map_user(struct ion_heap *heap, struct ion_buffer *buffer,
-		      struct vm_area_struct *vma);
-int ion_heap_buffer_zero(struct ion_buffer *buffer);
-int ion_heap_pages_zero(struct page *page, size_t size, pgprot_t pgprot);
+int __ion_device_add_heap(struct ion_heap *heap, struct module *owner);
+
+/**
+ * ion_device_remove_heap - removes a heap from ion device
+ *
+ * @heap:		pointer to the heap to be removed
+ */
+void ion_device_remove_heap(struct ion_heap *heap);
 
 /**
  * ion_heap_init_shrinker
@@ -250,54 +237,125 @@ size_t ion_heap_freelist_shrink(struct ion_heap *heap,
 size_t ion_heap_freelist_size(struct ion_heap *heap);
 
 /**
- * functions for creating and destroying a heap pool -- allows you
- * to keep a pool of pre allocated memory to use from your heap.  Keeping
- * a pool of memory that is ready for dma, ie any cached mapping have been
- * invalidated from the cache, provides a significant performance benefit on
- * many systems
+ * ion_heap_map_kernel - map the ion_buffer in kernel virtual address space.
+ *
+ * @heap:               the heap
+ * @buffer:             buffer to be mapped
+ *
+ * Maps the buffer using vmap(). The function respects cache flags for the
+ * buffer and creates the page table entries accordingly. Returns virtual
+ * address at the beginning of the buffer or ERR_PTR.
  */
+void *ion_heap_map_kernel(struct ion_heap *heap, struct ion_buffer *buffer);
 
 /**
- * struct ion_page_pool - pagepool struct
- * @high_count:		number of highmem items in the pool
- * @low_count:		number of lowmem items in the pool
- * @high_items:		list of highmem items
- * @low_items:		list of lowmem items
- * @mutex:		lock protecting this struct and especially the count
- *			item list
- * @gfp_mask:		gfp_mask to use from alloc
- * @order:		order of pages in the pool
- * @list:		plist node for list of pools
+ * ion_heap_unmap_kernel - unmap ion_buffer
  *
- * Allows you to keep a pool of pre allocated pages to use from your heap.
- * Keeping a pool of pages that is ready for dma, ie any cached mapping have
- * been invalidated from the cache, provides a significant performance benefit
- * on many systems
- */
-struct ion_page_pool {
-	int high_count;
-	int low_count;
-	struct list_head high_items;
-	struct list_head low_items;
-	struct mutex mutex;
-	gfp_t gfp_mask;
-	unsigned int order;
-	struct plist_node list;
-};
-
-struct ion_page_pool *ion_page_pool_create(gfp_t gfp_mask, unsigned int order);
-void ion_page_pool_destroy(struct ion_page_pool *pool);
-struct page *ion_page_pool_alloc(struct ion_page_pool *pool);
-void ion_page_pool_free(struct ion_page_pool *pool, struct page *page);
-
-/** ion_page_pool_shrink - shrinks the size of the memory cached in the pool
- * @pool:		the pool
- * @gfp_mask:		the memory type to reclaim
- * @nr_to_scan:		number of items to shrink in pages
+ * @buffer:             buffer to be unmapped
  *
- * returns the number of items freed in pages
+ * ION wrapper for vunmap() of the ion buffer.
  */
-int ion_page_pool_shrink(struct ion_page_pool *pool, gfp_t gfp_mask,
-			 int nr_to_scan);
+void ion_heap_unmap_kernel(struct ion_heap *heap, struct ion_buffer *buffer);
 
-#endif /* _ION_H */
+/**
+ * ion_heap_map_user - map given ion buffer in provided vma
+ *
+ * @heap:               the heap this buffer belongs to
+ * @buffer:             Ion buffer to be mapped
+ * @vma:                vma of the process where buffer should be mapped.
+ *
+ * Maps the buffer using remap_pfn_range() into specific process's vma starting
+ * with vma->vm_start. The vma size is expected to be >= ion buffer size.
+ * If not, a partial buffer mapping may be created. Returns 0 on success.
+ */
+int ion_heap_map_user(struct ion_heap *heap, struct ion_buffer *buffer,
+		      struct vm_area_struct *vma);
+
+/* ion_buffer_zero - zeroes out an ion buffer respecting the ION_FLAGs.
+ *
+ * @buffer:		ion_buffer to zero
+ *
+ * Returns 0 on success, negative error otherwise.
+ */
+int ion_buffer_zero(struct ion_buffer *buffer);
+
+/**
+ * ion_alloc - Allocates an ion buffer of given size from given heap
+ *
+ * @len:               size of the buffer to be allocated.
+ * @heap_id_mask:      a bitwise maks of heap ids to allocate from
+ * @flags:             ION_BUFFER_XXXX flags for the new buffer.
+ *
+ * The function exports a dma_buf object for the new ion buffer internally
+ * and returns that to the caller. So, the buffer is ready to be used by other
+ * drivers immediately. Returns ERR_PTR in case of failure.
+ */
+struct dma_buf *ion_alloc(size_t len, unsigned int heap_id_mask,
+			  unsigned int flags);
+
+#else
+
+static inline int __ion_device_add_heap(struct ion_heap *heap,
+				      struct module *owner)
+{
+	return -ENODEV;
+}
+
+static inline int ion_heap_init_shrinker(struct ion_heap *heap)
+{
+	return -ENODEV;
+}
+
+static inline int ion_heap_init_deferred_free(struct ion_heap *heap)
+{
+	return -ENODEV;
+}
+
+static inline void ion_heap_freelist_add(struct ion_heap *heap,
+					 struct ion_buffer *buffer) {}
+
+static inline size_t ion_heap_freelist_drain(struct ion_heap *heap, size_t size)
+{
+	return -ENODEV;
+}
+
+static inline size_t ion_heap_freelist_shrink(struct ion_heap *heap,
+					      size_t size)
+{
+	return -ENODEV;
+}
+
+static inline size_t ion_heap_freelist_size(struct ion_heap *heap)
+{
+	return -ENODEV;
+}
+
+static inline void *ion_heap_map_kernel(struct ion_heap *heap,
+					struct ion_buffer *buffer)
+{
+	return ERR_PTR(-ENODEV);
+}
+
+static inline void ion_heap_unmap_kernel(struct ion_heap *heap,
+					 struct ion_buffer *buffer) {}
+
+static inline int ion_heap_map_user(struct ion_heap *heap,
+				    struct ion_buffer *buffer,
+				    struct vm_area_struct *vma)
+{
+	return -ENODEV;
+}
+
+static inline int ion_buffer_zero(struct ion_buffer *buffer)
+{
+	return -EINVAL;
+}
+
+static inline struct dma_buf *ion_alloc(size_t len, unsigned int heap_id_mask,
+					unsigned int flags)
+{
+	return ERR_PTR(-ENOMEM);
+}
+
+#endif /* CONFIG_ION */
+#endif /* _ION_KERNEL_H */
