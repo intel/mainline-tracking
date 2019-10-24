@@ -757,7 +757,7 @@ static int hsw_process_notification(struct sst_hsw *hsw)
 	return handled;
 }
 
-static irqreturn_t hsw_irq_thread(int irq, void *context)
+irqreturn_t hsw_irq_thread(int irq, void *context)
 {
 	struct sst_dsp *sst = (struct sst_dsp *) context;
 	struct sst_hsw *hsw = sst_dsp_get_thread_context(sst);
@@ -2045,11 +2045,6 @@ int sst_hsw_module_set_param(struct sst_hsw *hsw,
 	return ret;
 }
 
-static struct sst_dsp_device hsw_dev = {
-	.thread = hsw_irq_thread,
-	.ops = &haswell_ops,
-};
-
 static void hsw_tx_msg(struct sst_generic_ipc *ipc, struct ipc_message *msg)
 {
 	/* send the message */
@@ -2127,10 +2122,11 @@ int sst_hsw_dsp_init(struct device *dev, struct sst_pdata *pdata)
 
 	INIT_LIST_HEAD(&hsw->stream_list);
 	init_waitqueue_head(&hsw->boot_wait);
-	hsw_dev.thread_context = hsw;
+	pdata->dsp = hsw;
+	pdata->ops = &haswell_ops;
 
 	/* init SST shim */
-	hsw->dsp = sst_dsp_new(dev, &hsw_dev, pdata);
+	hsw->dsp = sst_dsp_new(dev, pdata);
 	if (hsw->dsp == NULL) {
 		ret = -ENODEV;
 		goto dsp_new_err;
@@ -2190,7 +2186,6 @@ int sst_hsw_dsp_init(struct device *dev, struct sst_pdata *pdata)
 		goto boot_err;
 	}
 
-	pdata->dsp = hsw;
 	return 0;
 
 boot_err:

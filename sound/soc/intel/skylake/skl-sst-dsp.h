@@ -15,9 +15,11 @@
 #include "skl-sst-cldma.h"
 
 struct sst_dsp;
-struct sst_dsp_device;
+struct sst_pdata;
 struct skl_lib_info;
 struct skl_dev;
+struct skl_notify_msg;
+enum skl_log_enable;
 
 /* Intel HD Audio General DSP Registers */
 #define SKL_ADSP_GEN_BASE		0x0
@@ -52,17 +54,18 @@ struct skl_dev;
 #define SKL_INSTANCE_ID			0
 #define SKL_BASE_FW_MODULE_ID		0
 
-/* Intel HD Audio SRAM Window 1 */
+/* Intel HD Audio SRAM windows base addresses */
+#define SKL_ADSP_SRAM0_BASE		0x8000
 #define SKL_ADSP_SRAM1_BASE		0xA000
+#define SKL_ADSP_SRAM2_BASE		0xC000
+#define BXT_ADSP_SRAM0_BASE		0x80000
+#define BXT_ADSP_SRAM1_BASE		0xA0000
+#define BXT_ADSP_SRAM2_BASE		0xC0000
 
 #define SKL_ADSP_MMIO_LEN		0x10000
 
-#define SKL_ADSP_W0_STAT_SZ		0x1000
-
-#define SKL_ADSP_W0_UP_SZ		0x1000
-
-#define SKL_ADSP_W1_SZ			0x1000
-
+#define SKL_MAILBOX_SIZE		PAGE_SIZE
+#define SKL_FW_REGS_SIZE		PAGE_SIZE
 #define SKL_FW_STS_MASK			0xf
 
 #define SKL_FW_INIT			0x1
@@ -147,36 +150,23 @@ struct skl_dsp_fw_ops {
 	unsigned int (*get_fw_errcode)(struct sst_dsp *ctx);
 	int (*load_mod)(struct sst_dsp *ctx, u16 mod_id, u8 *mod_name);
 	int (*unload_mod)(struct sst_dsp *ctx, u16 mod_id);
-
+	int (*enable_logs)(struct sst_dsp *dsp, enum skl_log_enable enable,
+		u32 aging_period, u32 fifo_full_period,
+		unsigned long resource_mask, u32 *priorities);
+	unsigned int (*log_buffer_offset)(struct sst_dsp *dsp, u32 core);
+	int (*log_buffer_status)(struct sst_dsp *dsp,
+		struct skl_notify_msg notif);
 };
 
-struct skl_dsp_loader_ops {
-	int stream_tag;
-
-	int (*alloc_dma_buf)(struct device *dev,
-		struct snd_dma_buffer *dmab, size_t size);
-	int (*free_dma_buf)(struct device *dev,
-		struct snd_dma_buffer *dmab);
-	int (*prepare)(struct device *dev, unsigned int format,
-				unsigned int byte_size,
-				struct snd_dma_buffer *bufp);
-	int (*trigger)(struct device *dev, bool start, int stream_tag);
-
-	int (*cleanup)(struct device *dev, struct snd_dma_buffer *dmab,
-				 int stream_tag);
+struct skl_notify_data {
+	u32 type;
+	u32 length;
+	char data[0];
 };
 
-#define MAX_INSTANCE_BUFF 2
-
-struct uuid_module {
-	guid_t uuid;
-	int id;
-	int is_loadable;
-	int max_instance;
-	u64 pvt_id[MAX_INSTANCE_BUFF];
-	int *instance_id;
-
-	struct list_head list;
+struct skl_dsp_notify_ops {
+	int (*notify_cb)(struct skl_dev *skl, unsigned int event,
+				 struct skl_notify_data *notify_data);
 };
 
 struct skl_load_module_info {
@@ -190,19 +180,27 @@ struct skl_module_table {
 	struct list_head list;
 };
 
+int skl_alloc_dma_buf(struct device *dev,
+		struct snd_dma_buffer *dmab, size_t size);
+int skl_free_dma_buf(struct device *dev, struct snd_dma_buffer *dmab);
+int skl_dsp_prepare(struct device *dev, unsigned int format,
+		unsigned int size, struct snd_dma_buffer *dmab, int direction);
+int skl_dsp_trigger(struct device *dev, bool start, int stream_tag,
+		int direction);
+int skl_dsp_cleanup(struct device *dev, struct snd_dma_buffer *dmab,
+		int stream_tag, int direction);
+
 void skl_cldma_process_intr(struct sst_dsp *ctx);
 void skl_cldma_int_disable(struct sst_dsp *ctx);
 int skl_cldma_prepare(struct sst_dsp *ctx);
 int skl_cldma_wait_interruptible(struct sst_dsp *ctx);
 
 void skl_dsp_set_state_locked(struct sst_dsp *ctx, int state);
-struct sst_dsp *skl_dsp_ctx_init(struct device *dev,
-		struct sst_dsp_device *sst_dev, int irq);
-int skl_dsp_acquire_irq(struct sst_dsp *sst);
 bool is_skl_dsp_running(struct sst_dsp *ctx);
 
 unsigned int skl_dsp_get_enabled_cores(struct sst_dsp *ctx);
-void skl_dsp_init_core_state(struct sst_dsp *ctx);
+int skl_dsp_init_core_state(struct sst_dsp *ctx);
+void skl_dsp_reset_core_state(struct sst_dsp *ctx);
 int skl_dsp_enable_core(struct sst_dsp *ctx, unsigned int core_mask);
 int skl_dsp_disable_core(struct sst_dsp *ctx, unsigned int core_mask);
 int skl_dsp_core_power_up(struct sst_dsp *ctx, unsigned int core_mask);
@@ -220,35 +218,29 @@ int skl_dsp_get_core(struct sst_dsp *ctx, unsigned int core_id);
 int skl_dsp_put_core(struct sst_dsp *ctx, unsigned int core_id);
 
 int skl_dsp_boot(struct sst_dsp *ctx);
-int skl_sst_dsp_init(struct device *dev, void __iomem *mmio_base, int irq,
-		const char *fw_name, struct skl_dsp_loader_ops dsp_ops,
-		struct skl_dev **dsp);
-int bxt_sst_dsp_init(struct device *dev, void __iomem *mmio_base, int irq,
-		const char *fw_name, struct skl_dsp_loader_ops dsp_ops,
-		struct skl_dev **dsp);
-int skl_sst_init_fw(struct device *dev, struct skl_dev *skl);
-int bxt_sst_init_fw(struct device *dev, struct skl_dev *skl);
-void skl_sst_dsp_cleanup(struct device *dev, struct skl_dev *skl);
-void bxt_sst_dsp_cleanup(struct device *dev, struct skl_dev *skl);
+int bxt_load_library(struct sst_dsp *ctx, struct skl_lib_info *linfo,
+		int lib_count);
 
-int snd_skl_parse_uuids(struct sst_dsp *ctx, const struct firmware *fw,
-				unsigned int offset, int index);
-int skl_get_pvt_id(struct skl_dev *skl, guid_t *uuid_mod, int instance_id);
-int skl_put_pvt_id(struct skl_dev *skl, guid_t *uuid_mod, int *pvt_id);
-int skl_get_pvt_instance_id_map(struct skl_dev *skl,
-				int module_id, int instance_id);
-void skl_freeup_uuid_list(struct skl_dev *skl);
+struct skl_module_entry *skl_find_module(struct skl_dev *skl,
+		const guid_t *uuid);
+int skl_get_module_id(struct skl_dev *skl, const guid_t *uuid);
 
 int skl_dsp_strip_extended_manifest(struct firmware *fw);
 
 void skl_dsp_set_astate_cfg(struct skl_dev *skl, u32 cnt, void *data);
 
-int skl_sst_ctx_init(struct device *dev, int irq, const char *fw_name,
-		struct skl_dsp_loader_ops dsp_ops, struct skl_dev **dsp,
-		struct sst_dsp_device *skl_dev);
 int skl_prepare_lib_load(struct skl_dev *skl, struct skl_lib_info *linfo,
 			struct firmware *stripped_fw,
 			unsigned int hdr_offset, int index);
 void skl_release_library(struct skl_lib_info *linfo, int lib_count);
+
+int bxt_set_dsp_D0i0(struct sst_dsp *ctx);
+
+int bxt_schedule_dsp_D0i3(struct sst_dsp *ctx);
+
+void bxt_set_dsp_D0i3(struct work_struct *work);
+
+int skl_dsp_cb_event(struct skl_dev *skl, unsigned int event,
+			struct skl_notify_data *notify_data);
 
 #endif /*__SKL_SST_DSP_H__*/

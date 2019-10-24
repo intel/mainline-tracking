@@ -152,8 +152,8 @@ static void skl_cldma_cleanup(struct sst_dsp  *ctx)
 	skl_cldma_cleanup_spb(ctx);
 	skl_cldma_stream_clear(ctx);
 
-	ctx->dsp_ops.free_dma_buf(ctx->dev, &ctx->cl_dev.dmab_data);
-	ctx->dsp_ops.free_dma_buf(ctx->dev, &ctx->cl_dev.dmab_bdl);
+	skl_free_dma_buf(ctx->dev, &ctx->cl_dev.dmab_data);
+	skl_free_dma_buf(ctx->dev, &ctx->cl_dev.dmab_bdl);
 }
 
 int skl_cldma_wait_interruptible(struct sst_dsp *ctx)
@@ -337,18 +337,18 @@ int skl_cldma_prepare(struct sst_dsp *ctx)
 	ctx->cl_dev.ops.cl_stop_dma = skl_cldma_stop;
 
 	/* Allocate buffer*/
-	ret = ctx->dsp_ops.alloc_dma_buf(ctx->dev,
+	ret = skl_alloc_dma_buf(ctx->dev,
 			&ctx->cl_dev.dmab_data, ctx->cl_dev.bufsize);
 	if (ret < 0) {
 		dev_err(ctx->dev, "Alloc buffer for base fw failed: %x\n", ret);
 		return ret;
 	}
 	/* Setup Code loader BDL */
-	ret = ctx->dsp_ops.alloc_dma_buf(ctx->dev,
+	ret = skl_alloc_dma_buf(ctx->dev,
 			&ctx->cl_dev.dmab_bdl, PAGE_SIZE);
 	if (ret < 0) {
 		dev_err(ctx->dev, "Alloc buffer for blde failed: %x\n", ret);
-		ctx->dsp_ops.free_dma_buf(ctx->dev, &ctx->cl_dev.dmab_data);
+		skl_free_dma_buf(ctx->dev, &ctx->cl_dev.dmab_data);
 		return ret;
 	}
 	bdl = (__le32 *)ctx->cl_dev.dmab_bdl.area;

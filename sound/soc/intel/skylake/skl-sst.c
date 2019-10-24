@@ -13,22 +13,24 @@
 #include <linux/device.h>
 #include <linux/err.h>
 #include <linux/uuid.h>
+#include <linux/slab.h>
 #include "../common/sst-dsp.h"
 #include "../common/sst-dsp-priv.h"
 #include "../common/sst-ipc.h"
 #include "skl.h"
+#include "skl-topology.h"
 
 #define SKL_BASEFW_TIMEOUT	300
 #define SKL_INIT_TIMEOUT	1000
-
-/* Intel HD Audio SRAM Window 0*/
-#define SKL_ADSP_SRAM0_BASE	0x8000
 
 /* Firmware status window */
 #define SKL_ADSP_FW_STATUS	SKL_ADSP_SRAM0_BASE
 #define SKL_ADSP_ERROR_CODE	(SKL_ADSP_FW_STATUS + 0x4)
 
 #define SKL_NUM_MODULES		1
+
+/* fw DbgLogWp registers */
+#define FW_REGS_DBG_LOG_WP(core) (0x30 + 0x4 * core)
 
 static bool skl_check_fw_status(struct sst_dsp *ctx, u32 status)
 {
@@ -67,34 +69,24 @@ static int skl_load_base_firmware(struct sst_dsp *ctx)
 {
 	int ret = 0, i;
 	struct skl_dev *skl = ctx->thread_context;
+	struct sst_pdata *pdata = ctx->pdata;
 	struct firmware stripped_fw;
 	u32 reg;
 
 	skl->boot_complete = false;
 	init_waitqueue_head(&skl->boot_wait);
 
-	if (ctx->fw == NULL) {
-		ret = request_firmware(&ctx->fw, ctx->fw_name, ctx->dev);
+	if (!pdata->fw) {
+		ret = request_firmware(&pdata->fw, ctx->fw_name, ctx->dev);
 		if (ret < 0) {
 			dev_err(ctx->dev, "Request firmware failed %d\n", ret);
 			return -EIO;
 		}
 	}
 
-	/* prase uuids on first boot */
-	if (skl->is_first_boot) {
-		ret = snd_skl_parse_uuids(ctx, ctx->fw, SKL_ADSP_FW_BIN_HDR_OFFSET, 0);
-		if (ret < 0) {
-			dev_err(ctx->dev, "UUID parsing err: %d\n", ret);
-			release_firmware(ctx->fw);
-			skl_dsp_disable_core(ctx, SKL_DSP_CORE0_MASK);
-			return ret;
-		}
-	}
-
 	/* check for extended manifest */
-	stripped_fw.data = ctx->fw->data;
-	stripped_fw.size = ctx->fw->size;
+	stripped_fw.data = pdata->fw->data;
+	stripped_fw.size = pdata->fw->size;
 
 	skl_dsp_strip_extended_manifest(&stripped_fw);
 
@@ -152,8 +144,8 @@ transfer_firmware_failed:
 	ctx->cl_dev.ops.cl_cleanup_controller(ctx);
 skl_load_base_firmware_failed:
 	skl_dsp_disable_core(ctx, SKL_DSP_CORE0_MASK);
-	release_firmware(ctx->fw);
-	ctx->fw = NULL;
+	release_firmware(pdata->fw);
+	pdata->fw = NULL;
 	return ret;
 }
 
@@ -492,6 +484,61 @@ static void skl_clear_module_table(struct sst_dsp *ctx)
 	}
 }
 
+static int skl_enable_logs(struct sst_dsp *dsp, enum skl_log_enable enable,
+		u32 aging_period, u32 fifo_full_period,
+		unsigned long resource_mask, u32 *priorities)
+{
+	struct skl_dev *skl = dsp->thread_context;
+	struct skl_log_state_info *info;
+	u32 size, num_cores = skl->hw_cfg.dsp_cores;
+	int ret, i;
+
+	size = struct_size(info, logs_core, num_cores);
+	info = kzalloc(size, GFP_KERNEL);
+	if (!info)
+		return -ENOMEM;
+
+	info->core_mask = resource_mask;
+	if (enable)
+		for_each_set_bit(i, &resource_mask, GENMASK(num_cores, 0)) {
+			info->logs_core[i].enable = enable;
+			info->logs_core[i].min_priority = *priorities++;
+		}
+	else
+		for_each_set_bit(i, &resource_mask, GENMASK(num_cores, 0))
+			info->logs_core[i].enable = enable;
+
+	ret = skl_enable_logs_set(&skl->ipc, (u32 *)info, size);
+	kfree(info);
+	return ret;
+}
+
+unsigned int skl_log_buffer_offset(struct sst_dsp *dsp, u32 core)
+{
+	return core * skl_log_buffer_size(dsp);
+}
+
+static int
+skl_log_buffer_status(struct sst_dsp *dsp, struct skl_notify_msg notif)
+{
+	struct skl_dev *skl = dsp->thread_context;
+	void __iomem *buf;
+	u16 size, write, offset;
+
+	if (!kfifo_initialized(&skl->trace_fifo))
+		return 0;
+	size = skl_log_buffer_size(dsp) / 2;
+	write = readl(dsp->addr.sram0 + FW_REGS_DBG_LOG_WP(notif.log.core));
+	/* determine buffer half */
+	offset = (write < size) ? size : 0;
+
+	buf = skl_log_buffer_addr(dsp, notif.log.core) + offset;
+	__kfifo_fromio_locked(&skl->trace_fifo, buf, size, &skl->trace_lock);
+	wake_up(&skl->trace_waitq);
+
+	return 0;
+}
+
 static const struct skl_dsp_fw_ops skl_fw_ops = {
 	.set_state_D0 = skl_set_dsp_D0,
 	.set_state_D3 = skl_set_dsp_D3,
@@ -500,99 +547,139 @@ static const struct skl_dsp_fw_ops skl_fw_ops = {
 	.load_library = skl_load_library,
 	.load_mod = skl_load_module,
 	.unload_mod = skl_unload_module,
+	.enable_logs = skl_enable_logs,
+	.log_buffer_offset = skl_log_buffer_offset,
+	.log_buffer_status = skl_log_buffer_status,
 };
 
-static struct sst_ops skl_ops = {
-	.irq_handler = skl_dsp_sst_interrupt,
-	.write = sst_shim32_write,
-	.read = sst_shim32_read,
-	.ram_read = sst_memcpy_fromio_32,
-	.ram_write = sst_memcpy_toio_32,
-	.free = skl_dsp_free,
-};
-
-static struct sst_dsp_device skl_dev = {
-	.thread = skl_dsp_irq_thread_handler,
-	.ops = &skl_ops,
-};
-
-int skl_sst_dsp_init(struct device *dev, void __iomem *mmio_base, int irq,
-		const char *fw_name, struct skl_dsp_loader_ops dsp_ops,
-		struct skl_dev **dsp)
+static int skl_sst_init(struct sst_dsp *sst, struct sst_pdata *pdata)
 {
-	struct skl_dev *skl;
-	struct sst_dsp *sst;
+	struct skl_dev *skl = sst->thread_context;
+	void __iomem *mmio;
 	int ret;
 
-	ret = skl_sst_ctx_init(dev, irq, fw_name, dsp_ops, dsp, &skl_dev);
-	if (ret < 0) {
-		dev_err(dev, "%s: no device\n", __func__);
-		return ret;
-	}
+	skl->dsp = sst;
+	sst->fw_ops = skl_fw_ops;
+	mmio = pci_ioremap_bar(skl->pci, 4);
+	if (!mmio)
+		return -ENXIO;
+	sst->addr.lpe = mmio;
+	sst->addr.shim = mmio;
+	sst->addr.sram0 = (mmio + SKL_ADSP_SRAM0_BASE);
+	sst->addr.sram2 = (mmio + SKL_ADSP_SRAM2_BASE);
 
-	skl = *dsp;
-	sst = skl->dsp;
-	sst->addr.lpe = mmio_base;
-	sst->addr.shim = mmio_base;
-	sst->addr.sram0_base = SKL_ADSP_SRAM0_BASE;
-	sst->addr.sram1_base = SKL_ADSP_SRAM1_BASE;
-	sst->addr.w0_stat_sz = SKL_ADSP_W0_STAT_SZ;
-	sst->addr.w0_up_sz = SKL_ADSP_W0_UP_SZ;
+	sst_dsp_mailbox_init(sst,
+		(SKL_ADSP_SRAM0_BASE + SKL_FW_REGS_SIZE), SKL_MAILBOX_SIZE,
+		SKL_ADSP_SRAM1_BASE, SKL_MAILBOX_SIZE);
 
-	sst_dsp_mailbox_init(sst, (SKL_ADSP_SRAM0_BASE + SKL_ADSP_W0_STAT_SZ),
-			SKL_ADSP_W0_UP_SZ, SKL_ADSP_SRAM1_BASE, SKL_ADSP_W1_SZ);
-
-	ret = skl_ipc_init(dev, skl);
+	ret = skl_ipc_init(skl->dev, skl);
 	if (ret) {
 		skl_dsp_free(sst);
 		return ret;
 	}
 
-	sst->fw_ops = skl_fw_ops;
-
-	return skl_dsp_acquire_irq(sst);
+	return 0;
 }
-EXPORT_SYMBOL_GPL(skl_sst_dsp_init);
 
-int skl_sst_init_fw(struct device *dev, struct skl_dev *skl)
+struct sst_ops skl_sst_ops = {
+	.irq_handler = skl_dsp_sst_interrupt,
+	.thread_fn = skl_dsp_irq_thread_handler,
+	.write = sst_shim32_write,
+	.read = sst_shim32_read,
+	.ram_read = sst_memcpy_fromio_32,
+	.ram_write = sst_memcpy_toio_32,
+	.init = skl_sst_init,
+	.free = skl_dsp_free,
+};
+
+int skl_sst_init_fw(struct skl_dev *skl)
 {
-	int ret;
 	struct sst_dsp *sst = skl->dsp;
+	struct device *dev = skl->dev;
+	int (*lp_check)(struct sst_dsp *dsp, bool state);
+	int ret;
+
+	lp_check = skl->ipc.ops.check_dsp_lp_on;
+	skl->enable_miscbdcge(dev, false);
+	skl->clock_power_gating(dev, false);
 
 	ret = sst->fw_ops.load_fw(sst);
 	if (ret < 0) {
 		dev_err(dev, "Load base fw failed : %d\n", ret);
-		return ret;
+		goto exit;
 	}
 
-	skl_dsp_init_core_state(sst);
+	if (!skl->is_first_boot)
+		goto library_load;
+	/* Disable power check during cfg setup */
+	skl->ipc.ops.check_dsp_lp_on = NULL;
 
+	ret = skl_ipc_fw_cfg_get(&skl->ipc, &skl->fw_cfg);
+	if (ret < 0) {
+		dev_err(dev, "Failed to get fw cfg: %d\n", ret);
+		goto exit;
+	}
+
+	ret = skl_ipc_hw_cfg_get(&skl->ipc, &skl->hw_cfg);
+	if (ret < 0) {
+		dev_err(dev, "Failed to get hw cfg: %d\n", ret);
+		goto exit;
+	}
+
+	ret = skl_dsp_init_core_state(sst);
+	if (ret < 0)
+		goto exit;
+
+library_load:
 	if (skl->lib_count > 1) {
 		ret = sst->fw_ops.load_library(sst, skl->lib_info,
 						skl->lib_count);
 		if (ret < 0) {
-			dev_err(dev, "Load Library failed : %x\n", ret);
-			return ret;
+			dev_err(dev, "Load library failed : %x\n", ret);
+			goto exit;
 		}
 	}
-	skl->is_first_boot = false;
 
-	return 0;
+	ret = skl_ipc_modules_info_get(&skl->ipc, &skl->fw_modules_info);
+	if (ret < 0) {
+		dev_err(dev, "Failed to get modules info: %d\n", ret);
+		goto exit;
+	}
+
+	ret = skl_init_pvt_id(skl);
+	if (ret < 0) {
+		dev_err(dev, "Failed to init private IDs: %d\n", ret);
+		goto exit;
+	}
+
+	skl->is_first_boot = false;
+exit:
+	skl->ipc.ops.check_dsp_lp_on = lp_check;
+	skl->enable_miscbdcge(dev, true);
+	skl->clock_power_gating(dev, true);
+
+	return ret;
 }
 EXPORT_SYMBOL_GPL(skl_sst_init_fw);
 
-void skl_sst_dsp_cleanup(struct device *dev, struct skl_dev *skl)
+void skl_sst_dsp_cleanup(struct skl_dev *skl)
 {
+	struct sst_dsp *dsp = skl->dsp;
+	struct sst_pdata *pdata = dsp->pdata;
 
-	if (skl->dsp->fw)
-		release_firmware(skl->dsp->fw);
-	skl_clear_module_table(skl->dsp);
-	skl_freeup_uuid_list(skl);
-	skl_ipc_free(&skl->ipc);
-	skl->dsp->ops->free(skl->dsp);
-	if (skl->boot_complete) {
-		skl->dsp->cl_dev.ops.cl_cleanup_controller(skl->dsp);
-		skl_cldma_int_disable(skl->dsp);
+	skl_release_library(skl->lib_info, skl->lib_count);
+	if (pdata->fw)
+		release_firmware(pdata->fw);
+	skl_clear_module_table(dsp);
+
+	skl_free_pvt_id(skl);
+	kfree(skl->fw_modules_info);
+
+	sst_dsp_free(dsp);
+
+	if (skl->boot_complete && dsp->cl_dev.bufsize) {
+		dsp->cl_dev.ops.cl_cleanup_controller(dsp);
+		skl_cldma_int_disable(dsp);
 	}
 }
 EXPORT_SYMBOL_GPL(skl_sst_dsp_cleanup);

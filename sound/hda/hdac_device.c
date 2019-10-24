@@ -707,7 +707,9 @@ static struct hda_rate_tbl rate_bits[] = {
 	{ 96000, SNDRV_PCM_RATE_96000, HDA_RATE(48, 2, 1) },
 	{ 176400, SNDRV_PCM_RATE_176400, HDA_RATE(44, 4, 1) },
 	{ 192000, SNDRV_PCM_RATE_192000, HDA_RATE(48, 4, 1) },
-#define AC_PAR_PCM_RATE_BITS	11
+	{ 24000, SNDRV_PCM_RATE_24000, HDA_RATE(48, 1, 2) },
+	{ 64000, SNDRV_PCM_RATE_64000, HDA_RATE(48, 4, 3) },
+#define AC_PAR_PCM_RATE_BITS	13
 	/* up to bits 10, 384kHZ isn't supported properly */
 
 	/* not autodetected value */
@@ -757,14 +759,13 @@ unsigned int snd_hdac_calc_stream_format(unsigned int rate,
 		val |= AC_FMT_BITS_16;
 		break;
 	case 20:
+		val |= AC_FMT_BITS_20;
+		break;
 	case 24:
+		val |= AC_FMT_BITS_24;
+		break;
 	case 32:
-		if (maxbps >= 32 || format == SNDRV_PCM_FORMAT_FLOAT_LE)
-			val |= AC_FMT_BITS_32;
-		else if (maxbps >= 24)
-			val |= AC_FMT_BITS_24;
-		else
-			val |= AC_FMT_BITS_20;
+		val |= AC_FMT_BITS_32;
 		break;
 	default:
 		return 0;

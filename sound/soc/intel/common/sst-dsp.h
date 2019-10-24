@@ -165,19 +165,32 @@
 #define SST_PMCS		0x84
 #define SST_PMCS_PS_MASK	0x3
 
-struct sst_dsp;
-
 /*
- * SST Device.
- *
- * This structure is populated by the SST core driver.
+ * Number of times to retry firmware load before driver commits failure.
+ * This is to account for initial timeouts, e.g., from ROM init during
+ * FW load procedure when the former fails to receive imr from CSE.
  */
-struct sst_dsp_device {
-	/* Mandatory fields */
-	struct sst_ops *ops;
-	irqreturn_t (*thread)(int irq, void *context);
-	void *thread_context;
+#define SST_FW_INIT_RETRY 3
+
+struct sst_dsp;
+struct platform_device;
+
+/* Descriptor for setting up SST platform data */
+struct sst_acpi_desc {
+	const char *drv_name;
+	struct sst_pdata *pdata;
+	/* Platform resource indexes. Must set to -1 if not used */
+	int resindex_lpe_base;
+	int resindex_pcicfg_base;
+	int resindex_fw_base;
+	int irqindex_host_ipc;
+	int resindex_dma_base;
+	int dma_engine;
+	int dma_size;
 };
+
+int sst_dsp_acpi_probe(struct platform_device *pdev);
+int sst_dsp_acpi_remove(struct platform_device *pdev);
 
 /*
  * SST Platform Data.
@@ -196,23 +209,22 @@ struct sst_pdata {
 	const struct firmware *fw;
 
 	/* DMA */
-	int resindex_dma_base; /* other fields invalid if equals to -1 */
-	u32 dma_base;
+	int dma_base; /* other fields invalid if equals to -1 */
 	u32 dma_size;
 	int dma_engine;
 	struct device *dma_dev;
 
 	/* DSP */
 	u32 id;
+	const char *fw_name;
+	struct sst_ops *ops;
+	struct snd_soc_acpi_mach *boards;
 	void *dsp;
 };
 
-#if IS_ENABLED(CONFIG_DW_DMAC_CORE)
 /* Initialization */
-struct sst_dsp *sst_dsp_new(struct device *dev,
-	struct sst_dsp_device *sst_dev, struct sst_pdata *pdata);
+struct sst_dsp *sst_dsp_new(struct device *dev, struct sst_pdata *pdata);
 void sst_dsp_free(struct sst_dsp *sst);
-#endif
 
 /* SHIM Read / Write */
 void sst_dsp_shim_write(struct sst_dsp *sst, u32 offset, u32 value);

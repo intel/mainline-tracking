@@ -13,33 +13,10 @@
 
 #include "sst-dsp.h"
 #include <sound/soc-acpi.h>
-#include <sound/soc-acpi-intel-match.h>
-
-#define SST_LPT_DSP_DMA_ADDR_OFFSET	0x0F0000
-#define SST_WPT_DSP_DMA_ADDR_OFFSET	0x0FE000
-#define SST_LPT_DSP_DMA_SIZE		(1024 - 1)
-
-/* Descriptor for setting up SST platform data */
-struct sst_acpi_desc {
-	const char *drv_name;
-	struct snd_soc_acpi_mach *machines;
-	/* Platform resource indexes. Must set to -1 if not used */
-	int resindex_lpe_base;
-	int resindex_pcicfg_base;
-	int resindex_fw_base;
-	int irqindex_host_ipc;
-	int resindex_dma_base;
-	/* Unique number identifying the SST core on platform */
-	int sst_id;
-	/* DMA only valid when resindex_dma_base != -1*/
-	int dma_engine;
-	int dma_size;
-};
 
 struct sst_acpi_priv {
 	struct platform_device *pdev_mach;
 	struct platform_device *pdev_pcm;
-	struct sst_pdata sst_pdata;
 	struct sst_acpi_desc *desc;
 	struct snd_soc_acpi_mach *mach;
 };
@@ -49,13 +26,12 @@ static void sst_acpi_fw_cb(const struct firmware *fw, void *context)
 	struct platform_device *pdev = context;
 	struct device *dev = &pdev->dev;
 	struct sst_acpi_priv *sst_acpi = platform_get_drvdata(pdev);
-	struct sst_pdata *sst_pdata = &sst_acpi->sst_pdata;
 	struct sst_acpi_desc *desc = sst_acpi->desc;
-	struct snd_soc_acpi_mach *mach = sst_acpi->mach;
+	struct sst_pdata *sst_pdata = desc->pdata;
 
 	sst_pdata->fw = fw;
 	if (!fw) {
-		dev_err(dev, "Cannot load firmware %s\n", mach->fw_filename);
+		dev_err(dev, "Cannot load firmware %s\n", sst_pdata->fw_name);
 		return;
 	}
 
@@ -71,9 +47,8 @@ static void sst_acpi_fw_cb(const struct firmware *fw, void *context)
 	return;
 }
 
-static int sst_acpi_probe(struct platform_device *pdev)
+int sst_dsp_acpi_probe(struct platform_device *pdev)
 {
-	const struct acpi_device_id *id;
 	struct device *dev = &pdev->dev;
 	struct sst_acpi_priv *sst_acpi;
 	struct sst_pdata *sst_pdata;
@@ -86,27 +61,20 @@ static int sst_acpi_probe(struct platform_device *pdev)
 	if (sst_acpi == NULL)
 		return -ENOMEM;
 
-	id = acpi_match_device(dev->driver->acpi_match_table, dev);
-	if (!id)
-		return -ENODEV;
-
-	desc = (struct sst_acpi_desc *)id->driver_data;
-	mach = snd_soc_acpi_find_machine(desc->machines);
+	desc = platform_get_drvdata(pdev);
+	sst_pdata = desc->pdata;
+	mach = snd_soc_acpi_find_machine(sst_pdata->boards);
 	if (mach == NULL) {
 		dev_err(dev, "No matching ASoC machine driver found\n");
 		return -ENODEV;
 	}
 
-	sst_pdata = &sst_acpi->sst_pdata;
-	sst_pdata->id = desc->sst_id;
 	sst_pdata->dma_dev = dev;
 	sst_acpi->desc = desc;
 	sst_acpi->mach = mach;
 
-	sst_pdata->resindex_dma_base = desc->resindex_dma_base;
-	if (desc->resindex_dma_base >= 0) {
+	if (sst_pdata->dma_base >= 0) {
 		sst_pdata->dma_engine = desc->dma_engine;
-		sst_pdata->dma_base = desc->resindex_dma_base;
 		sst_pdata->dma_size = desc->dma_size;
 	}
 
@@ -151,18 +119,19 @@ static int sst_acpi_probe(struct platform_device *pdev)
 		return PTR_ERR(sst_acpi->pdev_mach);
 
 	/* continue SST probing after firmware is loaded */
-	ret = request_firmware_nowait(THIS_MODULE, true, mach->fw_filename,
+	ret = request_firmware_nowait(THIS_MODULE, true, sst_pdata->fw_name,
 				      dev, GFP_KERNEL, pdev, sst_acpi_fw_cb);
 	if (ret)
 		platform_device_unregister(sst_acpi->pdev_mach);
 
 	return ret;
 }
+EXPORT_SYMBOL_GPL(sst_dsp_acpi_probe);
 
-static int sst_acpi_remove(struct platform_device *pdev)
+int sst_dsp_acpi_remove(struct platform_device *pdev)
 {
 	struct sst_acpi_priv *sst_acpi = platform_get_drvdata(pdev);
-	struct sst_pdata *sst_pdata = &sst_acpi->sst_pdata;
+	struct sst_pdata *sst_pdata = sst_acpi->desc->pdata;
 
 	platform_device_unregister(sst_acpi->pdev_mach);
 	if (!IS_ERR_OR_NULL(sst_acpi->pdev_pcm))
@@ -171,66 +140,4 @@ static int sst_acpi_remove(struct platform_device *pdev)
 
 	return 0;
 }
-
-static struct sst_acpi_desc sst_acpi_haswell_desc = {
-	.drv_name = "haswell-pcm-audio",
-	.machines = snd_soc_acpi_intel_haswell_machines,
-	.resindex_lpe_base = 0,
-	.resindex_pcicfg_base = 1,
-	.resindex_fw_base = -1,
-	.irqindex_host_ipc = 0,
-	.sst_id = SST_DEV_ID_LYNX_POINT,
-	.dma_engine = SST_DMA_TYPE_DW,
-	.resindex_dma_base = SST_LPT_DSP_DMA_ADDR_OFFSET,
-	.dma_size = SST_LPT_DSP_DMA_SIZE,
-};
-
-static struct sst_acpi_desc sst_acpi_broadwell_desc = {
-	.drv_name = "haswell-pcm-audio",
-	.machines = snd_soc_acpi_intel_broadwell_machines,
-	.resindex_lpe_base = 0,
-	.resindex_pcicfg_base = 1,
-	.resindex_fw_base = -1,
-	.irqindex_host_ipc = 0,
-	.sst_id = SST_DEV_ID_WILDCAT_POINT,
-	.dma_engine = SST_DMA_TYPE_DW,
-	.resindex_dma_base = SST_WPT_DSP_DMA_ADDR_OFFSET,
-	.dma_size = SST_LPT_DSP_DMA_SIZE,
-};
-
-#if !IS_ENABLED(CONFIG_SND_SST_IPC_ACPI)
-static struct sst_acpi_desc sst_acpi_baytrail_desc = {
-	.drv_name = "baytrail-pcm-audio",
-	.machines = snd_soc_acpi_intel_baytrail_legacy_machines,
-	.resindex_lpe_base = 0,
-	.resindex_pcicfg_base = 1,
-	.resindex_fw_base = 2,
-	.irqindex_host_ipc = 5,
-	.sst_id = SST_DEV_ID_BYT,
-	.resindex_dma_base = -1,
-};
-#endif
-
-static const struct acpi_device_id sst_acpi_match[] = {
-	{ "INT33C8", (unsigned long)&sst_acpi_haswell_desc },
-	{ "INT3438", (unsigned long)&sst_acpi_broadwell_desc },
-#if !IS_ENABLED(CONFIG_SND_SST_IPC_ACPI)
-	{ "80860F28", (unsigned long)&sst_acpi_baytrail_desc },
-#endif
-	{ }
-};
-MODULE_DEVICE_TABLE(acpi, sst_acpi_match);
-
-static struct platform_driver sst_acpi_driver = {
-	.probe = sst_acpi_probe,
-	.remove = sst_acpi_remove,
-	.driver = {
-		.name = "sst-acpi",
-		.acpi_match_table = ACPI_PTR(sst_acpi_match),
-	},
-};
-module_platform_driver(sst_acpi_driver);
-
-MODULE_AUTHOR("Jarkko Nikula <jarkko.nikula@linux.intel.com>");
-MODULE_DESCRIPTION("Intel SST loader on ACPI systems");
-MODULE_LICENSE("GPL v2");
+EXPORT_SYMBOL_GPL(sst_dsp_acpi_remove);

@@ -49,6 +49,7 @@ struct sst_ops {
 
 	/* IRQ handlers */
 	irqreturn_t (*irq_handler)(int irq, void *context);
+	irqreturn_t (*thread_fn)(int irq, void *context);
 
 	/* SST init and free */
 	int (*init)(struct sst_dsp *sst, struct sst_pdata *pdata);
@@ -68,14 +69,12 @@ struct sst_addr {
 	u32 dram_offset;
 	u32 dsp_iram_offset;
 	u32 dsp_dram_offset;
-	u32 sram0_base;
-	u32 sram1_base;
-	u32 w0_stat_sz;
-	u32 w0_up_sz;
 	void __iomem *lpe;
 	void __iomem *shim;
 	void __iomem *pci_cfg;
 	void __iomem *fw_ext;
+	void __iomem *sram0;
+	void __iomem *sram2;
 };
 
 /*
@@ -258,7 +257,6 @@ struct sst_dsp {
 	/* Shared for all platforms */
 
 	/* runtime */
-	struct sst_dsp_device *sst_dev;
 	spinlock_t spinlock;	/* IPC locking */
 	struct mutex mutex;	/* DSP FW lock */
 	struct device *dev;
@@ -306,13 +304,11 @@ struct sst_dsp {
 	const char *fw_name;
 
 	/* To allocate CL dma buffers */
-	struct skl_dsp_loader_ops dsp_ops;
 	struct skl_dsp_fw_ops fw_ops;
-	int sst_state;
 	struct skl_cl_dev cl_dev;
 	u32 intr_status;
-	const struct firmware *fw;
 	struct snd_dma_buffer dmab;
+	struct snd_dma_buffer imr_buf;
 };
 
 /* Size optimised DRAM/IRAM memcpy */

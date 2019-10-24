@@ -268,7 +268,7 @@ static int sst_dma_new(struct sst_dsp *sst)
 	struct resource mem;
 	int ret = 0;
 
-	if (sst->pdata->resindex_dma_base == -1)
+	if (sst->pdata->dma_base == -1)
 		/* DMA is not used, return and squelsh error messages */
 		return 0;
 
@@ -1200,8 +1200,7 @@ u32 sst_dsp_get_offset(struct sst_dsp *dsp, u32 offset,
 }
 EXPORT_SYMBOL_GPL(sst_dsp_get_offset);
 
-struct sst_dsp *sst_dsp_new(struct device *dev,
-	struct sst_dsp_device *sst_dev, struct sst_pdata *pdata)
+struct sst_dsp *sst_dsp_new(struct device *dev, struct sst_pdata *pdata)
 {
 	struct sst_dsp *sst;
 	int err;
@@ -1216,11 +1215,11 @@ struct sst_dsp *sst_dsp_new(struct device *dev,
 	mutex_init(&sst->mutex);
 	sst->dev = dev;
 	sst->dma_dev = pdata->dma_dev;
-	sst->thread_context = sst_dev->thread_context;
-	sst->sst_dev = sst_dev;
+	sst->thread_context = pdata->dsp;
 	sst->id = pdata->id;
 	sst->irq = pdata->irq;
-	sst->ops = sst_dev->ops;
+	sst->fw_name = pdata->fw_name;
+	sst->ops = pdata->ops;
 	sst->pdata = pdata;
 	INIT_LIST_HEAD(&sst->used_block_list);
 	INIT_LIST_HEAD(&sst->free_block_list);
@@ -1237,7 +1236,7 @@ struct sst_dsp *sst_dsp_new(struct device *dev,
 
 	/* Register the ISR */
 	err = request_threaded_irq(sst->irq, sst->ops->irq_handler,
-		sst_dev->thread, IRQF_SHARED, "AudioDSP", sst);
+		sst->ops->thread_fn, IRQF_SHARED, "AudioDSP", sst);
 	if (err)
 		goto irq_err;
 

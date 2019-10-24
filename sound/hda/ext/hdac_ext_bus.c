@@ -17,6 +17,8 @@
 MODULE_DESCRIPTION("HDA extended core");
 MODULE_LICENSE("GPL v2");
 
+static int idx;
+
 /**
  * snd_hdac_ext_bus_init - initialize a HD-audio extended bus
  * @ebus: the pointer to extended bus object
@@ -56,6 +58,14 @@ EXPORT_SYMBOL_GPL(snd_hdac_ext_bus_init);
 void snd_hdac_ext_bus_exit(struct hdac_bus *bus)
 {
 	snd_hdac_bus_exit(bus);
+	/* FIXME: this is workaround
+	 * reset index used for bus->idx, because machine drivers expect
+	 * the codec name to be ehdaudio0D2, where 0 is bus->idx
+	 * we only perform reset if there is one used device, if there is more
+	 * all bets are off
+	 */
+	if (idx == 1)
+		idx = 0;
 	WARN_ON(!list_empty(&bus->hlink_list));
 }
 EXPORT_SYMBOL_GPL(snd_hdac_ext_bus_exit);

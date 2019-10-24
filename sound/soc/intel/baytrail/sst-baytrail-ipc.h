@@ -7,6 +7,7 @@
 #ifndef __SST_BYT_IPC_H
 #define __SST_BYT_IPC_H
 
+#include <linux/irqreturn.h>
 #include <linux/types.h>
 
 struct sst_byt;
@@ -61,5 +62,6 @@ struct sst_dsp *sst_byt_get_dsp(struct sst_byt *byt);
 int sst_byt_dsp_suspend_late(struct device *dev, struct sst_pdata *pdata);
 int sst_byt_dsp_boot(struct device *dev, struct sst_pdata *pdata);
 int sst_byt_dsp_wait_for_ready(struct device *dev, struct sst_pdata *pdata);
+irqreturn_t sst_byt_irq_thread(int irq, void *context);
 
 #endif

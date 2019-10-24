@@ -293,7 +293,7 @@ static int sst_byt_process_notification(struct sst_byt *byt,
 	return 1;
 }
 
-static irqreturn_t sst_byt_irq_thread(int irq, void *context)
+irqreturn_t sst_byt_irq_thread(int irq, void *context)
 {
 	struct sst_dsp *sst = (struct sst_dsp *) context;
 	struct sst_byt *byt = sst_dsp_get_thread_context(sst);
@@ -556,11 +556,6 @@ struct sst_dsp *sst_byt_get_dsp(struct sst_byt *byt)
 	return byt->dsp;
 }
 
-static struct sst_dsp_device byt_dev = {
-	.thread = sst_byt_irq_thread,
-	.ops = &sst_byt_ops,
-};
-
 int sst_byt_dsp_suspend_late(struct device *dev, struct sst_pdata *pdata)
 {
 	struct sst_byt *byt = pdata->dsp;
@@ -702,10 +697,11 @@ int sst_byt_dsp_init(struct device *dev, struct sst_pdata *pdata)
 
 	INIT_LIST_HEAD(&byt->stream_list);
 	init_waitqueue_head(&byt->boot_wait);
-	byt_dev.thread_context = byt;
+	pdata->dsp = byt;
+	pdata->ops = &sst_byt_ops;
 
 	/* init SST shim */
-	byt->dsp = sst_dsp_new(dev, &byt_dev, pdata);
+	byt->dsp = sst_dsp_new(dev, pdata);
 	if (byt->dsp == NULL) {
 		err = -ENODEV;
 		goto dsp_new_err;
@@ -742,7 +738,6 @@ int sst_byt_dsp_init(struct device *dev, struct sst_pdata *pdata)
 	dev_info(byt->dev, "Build date: %s %s\n",
 		 init.build_info.date, init.build_info.time);
 
-	pdata->dsp = byt;
 	byt->fw = byt_sst_fw;
 
 	return 0;
