@@ -98,6 +98,10 @@ static int mei_cl_irq_read_msg(struct mei_cl *cl,
 	struct mei_device *dev = cl->dev;
 	struct mei_cl_cb *cb;
 
+	struct mei_ext_hdr *vtag = NULL;
+	struct mei_ext_hdr *gsc_hdr = NULL;
+	struct mei_ext_hdr_gsc_f2h *gsc_f2h = NULL;
+
 	size_t buf_sz;
 	u32 length;
 	int ext_len;
@@ -122,17 +126,26 @@ static int mei_cl_irq_read_msg(struct mei_cl *cl,
 	}
 
 	if (mei_hdr->extended) {
+		int is_gsc_next = 0;
 		struct mei_ext_hdr *ext;
-		struct mei_ext_hdr *vtag = NULL;
-
 		ext = mei_ext_begin(meta);
 		do {
+			if (is_gsc_next) {
+				gsc_f2h = (struct mei_ext_hdr_gsc_f2h *)ext;
+				is_gsc_next = 0;
+				continue;
+			}
 			switch (ext->type) {
 			case MEI_EXT_HDR_VTAG:
 				vtag = ext;
 				break;
+			case MEI_EXT_HDR_GSC:
+				gsc_hdr = ext;
+				is_gsc_next = 1;
+				break;
 			case MEI_EXT_HDR_NONE: /* fallthrough */
 			default:
+				cl_err(dev, cl, "unknown extended header\n");
 				cb->status = -EPROTO;
 				break;
 			}
@@ -140,12 +153,14 @@ static int mei_cl_irq_read_msg(struct mei_cl *cl,
 			ext = mei_ext_next(ext);
 		} while (!mei_ext_last(meta, ext));
 
-		if (!vtag) {
-			cl_dbg(dev, cl, "vtag not found in extended header.\n");
+		if (!vtag && !gsc_hdr) {
+			cl_dbg(dev, cl, "no vtag or gsc found in extended header.\n");
 			cb->status = -EPROTO;
 			goto discard;
 		}
+	}
 
+	if (vtag) {
 		cl_dbg(dev, cl, "vtag: %d\n", vtag->ext_payload[0]);
 		if (cb->vtag && cb->vtag != vtag->ext_payload[0]) {
 			cl_err(dev, cl, "mismatched tag: %d != %d\n",
@@ -154,6 +169,27 @@ static int mei_cl_irq_read_msg(struct mei_cl *cl,
 			goto discard;
 		}
 		cb->vtag = vtag->ext_payload[0];
+	}
+
+	if (gsc_hdr) {
+		if (!dev->hbm_f_gsc_supported) {
+			cl_err(dev, cl,
+			       "gsc extended header is not supported\n");
+			cb->status = -EPROTO;
+			goto discard;
+		}
+
+		if (length) {
+			cl_err(dev, cl, "no data allowed in cb with gsc\n");
+			cb->status = -EPROTO;
+			goto discard;
+		}
+
+		if (!gsc_f2h) {
+			cl_err(dev, cl, "gsc f2h header missing\n");
+			cb->status = -EPROTO;
+			goto discard;
+		}
 	}
 
 	if (!mei_cl_is_connected(cl)) {

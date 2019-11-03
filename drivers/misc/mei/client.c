@@ -1742,16 +1742,21 @@ static struct mei_msg_hdr *mei_msg_hdr_init(const struct mei_cl_cb *cb)
 {
 	size_t hdr_len;
 	struct mei_ext_meta_hdr *meta;
-	struct mei_ext_hdr *ext;
+	struct mei_ext_hdr *vtag;
+	struct mei_ext_hdr *gsc_hdr;
+	struct mei_ext_hdr_gsc_h2f *gsc_h2f;
 	struct mei_msg_hdr *mei_hdr;
-	bool is_ext, is_vtag;
+	bool is_ext, is_hbm, is_gsc, is_vtag;
+	struct mei_ext_hdr *next_ext;
 
 	if (!cb)
 		return ERR_PTR(-EINVAL);
 
 	/* Extended header for vtag is attached only on the first fragment */
 	is_vtag = (cb->vtag && cb->buf_idx == 0);
-	is_ext = is_vtag;
+	is_hbm = cb->cl->me_cl->client_id == 0;
+	is_gsc = !(is_hbm) && cb->cl->dev->hbm_f_gsc_supported;
+	is_ext = is_vtag || is_gsc;
 
 	/* Compute extended header size */
 	hdr_len = sizeof(*mei_hdr);
@@ -1761,7 +1766,10 @@ static struct mei_msg_hdr *mei_msg_hdr_init(const struct mei_cl_cb *cb)
 
 	hdr_len += sizeof(*meta);
 	if (is_vtag)
-		hdr_len += sizeof(*ext);
+		hdr_len += sizeof(*vtag);
+
+	if (is_gsc)
+		hdr_len += sizeof(*gsc_hdr) + sizeof(*gsc_h2f);
 
 setup_hdr:
 	mei_hdr = kzalloc(hdr_len, GFP_KERNEL);
@@ -1777,10 +1785,26 @@ setup_hdr:
 		goto out;
 
 	meta = (struct mei_ext_meta_hdr *)mei_hdr->extension;
+	meta->size = 0;
+	next_ext = meta->hdrs;
 	if (is_vtag) {
 		meta->count++;
 		meta->size += mei_ext_hdr_set_vtag(meta->hdrs, cb->vtag);
+		next_ext = mei_ext_next(next_ext);
 	}
+
+	if (is_gsc) {
+		/* FIXME: add actual field values... */
+		meta->count++;
+		gsc_hdr = next_ext;
+		gsc_hdr->type = MEI_EXT_HDR_GSC;
+		gsc_h2f = (struct mei_ext_hdr_gsc_h2f *)gsc_hdr->hdr;
+
+		meta->size += mei_data2slots(sizeof(*gsc_hdr) +
+					     sizeof(*gsc_h2f));
+		next_ext = mei_ext_next(next_ext);
+	}
+
 out:
 	mei_hdr->length = hdr_len - sizeof(*mei_hdr);
 	return mei_hdr;

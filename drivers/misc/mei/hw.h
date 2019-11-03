@@ -83,6 +83,12 @@
 #define HBM_MAJOR_VERSION_VT               2
 
 /*
+ * MEI version with GSC support
+ */
+#define HBM_MINOR_VERSION_GSC              2
+#define HBM_MAJOR_VERSION_GSC              2
+
+/*
  * MEI version with capabilities message support
  */
 #define HBM_MINOR_VERSION_CAP              2
@@ -207,10 +213,12 @@ enum mei_cl_disconnect_status {
  *
  * @MEI_EXT_HDR_NONE: sentinel
  * @MEI_EXT_HDR_VTAG: vtag header
+ * @MEI_EXT_HDR_GSC: gsc header
  */
 enum mei_ext_hdr_type {
 	MEI_EXT_HDR_NONE = 0,
 	MEI_EXT_HDR_VTAG = 1,
+	MEI_EXT_HDR_GSC = 2,
 };
 
 /**
@@ -270,6 +278,27 @@ static inline bool mei_ext_last(struct mei_ext_meta_hdr *meta,
 {
 	return (u8 *)ext >= (u8 *)meta + sizeof(*meta) + (meta->size * 4);
 }
+
+struct mei_gsc_sgl {
+	u32 low;
+	u32 high;
+	u32 length;
+} __packed;
+
+struct mei_ext_hdr_gsc_h2f {
+	u32                fence_id;
+	u32                addr_type;
+	u32                input_address_count;
+	u32                output_address_count;
+	struct mei_gsc_sgl input_buffer[0];
+	struct mei_gsc_sgl output_buffer[0];
+} __packed;
+
+struct mei_ext_hdr_gsc_f2h {
+	u8  reserved[2];
+	u32 fence_id;
+	u32 total_bytes_written;
+} __packed;
 
 /**
  *mei_ext_next - following extended header on the TLV list
@@ -648,6 +677,7 @@ struct hbm_dma_ring_ctrl {
 
 /* virtual tag supported */
 #define HBM_CAP_VT BIT(0)
+#define HBM_CAP_GSC BIT(1)
 
 /**
  * struct hbm_capability_request - capability request from host to fw
