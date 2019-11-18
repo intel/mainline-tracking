@@ -108,19 +108,14 @@ void bh_session_add(unsigned int conn_idx, struct bh_session_record *session)
 /**
  * bh_session_remove - remove session record from list, ad release its memory
  *
- * @conn_idx: fw client connection idx
- * @host_id: session host id
+ * @session: active session record
  */
-void bh_session_remove(unsigned int conn_idx, u64 host_id)
+void bh_session_remove(struct bh_session_record *session)
 {
-	struct bh_session_record *session;
-
-	session = bh_session_find(conn_idx, host_id);
-
-	if (session) {
-		list_del(&session->link);
-		kfree(session);
-	}
+	if (!session)
+		return;
+	list_del(&session->link);
+	kfree(session);
 }
 
 static void bh_request_free(struct bh_request_cmd *request)
@@ -806,7 +801,7 @@ int bh_proxy_open_jta_session(unsigned int conn_idx,
 
 out:
 	if (ret)
-		bh_session_remove(conn_idx, session->host_id);
+		bh_session_remove(session);
 
 	kfree(resp_hdr);
 
