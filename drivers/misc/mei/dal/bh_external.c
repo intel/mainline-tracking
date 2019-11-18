@@ -375,7 +375,7 @@ int bh_ta_session_command(u64 host_id, int command_id,
 
 out:
 	if (bh_session_is_killed(resp_hdr->code))
-		bh_session_remove(conn_idx, session->host_id);
+		bh_session_remove(session);
 
 	kfree(resp_hdr);
 
@@ -422,7 +422,7 @@ int bh_ta_session_close(u64 host_id)
 	 * It means that host app should call this API at appropriate time.
 	 */
 	if (ret != BHE_IAC_EXIST_INTERNAL_SESSION)
-		bh_session_remove(conn_idx, host_id);
+		bh_session_remove(session);
 
 	return ret;
 }

@@ -54,7 +54,7 @@ u64 bh_get_msg_host_id(void);
 
 struct bh_session_record *bh_session_find(unsigned int conn_idx, u64 host_id);
 void bh_session_add(unsigned int conn_idx, struct bh_session_record *session);
-void bh_session_remove(unsigned int conn_idx, u64 host_id);
+void bh_session_remove(struct bh_session_record *session);
 
 int bh_request(unsigned int conn_idx,
 	       void *hdr, unsigned int hdr_len,
