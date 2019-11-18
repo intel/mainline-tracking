@@ -52,8 +52,8 @@ enum bh_connection_index {
 
 u64 bh_get_msg_host_id(void);
 
-struct bh_session_record *bh_session_find(unsigned int conn_idx, u64 host_id);
-void bh_session_add(unsigned int conn_idx, struct bh_session_record *session);
+struct bh_session_record *bh_session_find(u64 host_id);
+void bh_session_add(struct bh_session_record *session);
 void bh_session_remove(struct bh_session_record *session);
 
 int bh_request(unsigned int conn_idx,
@@ -63,13 +63,12 @@ int bh_request(unsigned int conn_idx,
 
 int bh_proxy_check_svl_jta_blocked_state(uuid_t *ta_id);
 
-int bh_proxy_list_jta_packages(unsigned int conn_idx,
-			       unsigned int *count, uuid_t **ta_ids);
+int bh_proxy_list_jta_packages(unsigned int *count, uuid_t **ta_ids);
 
-int bh_proxy_dnload_jta(unsigned int conn_idx, uuid_t *ta_id,
+int bh_proxy_dnload_jta(uuid_t *ta_id,
 			const char *ta_pkg, unsigned int pkg_len);
 
-int bh_proxy_open_jta_session(unsigned int conn_idx, uuid_t *ta_id,
+int bh_proxy_open_jta_session(uuid_t *ta_id,
 			      const char *init_buffer, unsigned int init_len,
 			      u64 *host_id, const char *ta_pkg,
 			      unsigned int pkg_len);
