@@ -269,12 +269,16 @@ static int intel_qep_function_set(struct counter_device *counter,
 	struct intel_qep *qep = counter_to_qep(counter);
 	u32 reg;
 
+	pm_runtime_get_sync(qep->dev);
+
 	reg = intel_qep_readl(qep->regs, INTEL_QEPCON);
 	if (function == INTEL_QEP_ENCODER_MODE_SWAPPED)
 		reg |= INTEL_QEPCON_SWPAB;
 	else
 		reg &= ~INTEL_QEPCON_SWPAB;
 	intel_qep_writel(qep->regs, INTEL_QEPCON, reg);
+
+	pm_runtime_put(qep->dev);
 
 	return 0;
 }
@@ -302,6 +306,8 @@ static int intel_qep_action_set(struct counter_device *counter,
 	struct intel_qep *qep = counter_to_qep(counter);
 	u32 reg;
 
+	pm_runtime_get_sync(qep->dev);
+
 	reg = intel_qep_readl(qep->regs, INTEL_QEPCON);
 
 	if (action == INTEL_QEP_SYNAPSE_ACTION_RISING_EDGE)
@@ -310,6 +316,8 @@ static int intel_qep_action_set(struct counter_device *counter,
 		reg &= ~synapse->signal->id;
 
 	intel_qep_writel(qep->regs, INTEL_QEPCON, reg);
+
+	pm_runtime_put(qep->dev);
 
 	return 0;
 }
@@ -381,7 +389,11 @@ static ssize_t ceiling_write(struct counter_device *counter,
 	if (ret < 0)
 		return ret;
 
+	pm_runtime_get_sync(qep->dev);
+
 	intel_qep_writel(qep->regs, INTEL_QEPMAX, max);
+
+	pm_runtime_put(qep->dev);
 
 	return len;
 }
@@ -482,6 +494,8 @@ static ssize_t noise_write(struct counter_device *counter, void *priv,
 	if (ret < 0)
 		return ret;
 
+	pm_runtime_get_sync(qep->dev);
+
 	if (max > 0x1fffff)
 		max = 0x1ffff;
 
@@ -495,6 +509,7 @@ static ssize_t noise_write(struct counter_device *counter, void *priv,
 	}
 
 	intel_qep_writel(qep->regs, INTEL_QEPCON, reg);
+	pm_runtime_put(qep->dev);
 	return len;
 }
 
@@ -526,6 +541,8 @@ static ssize_t preset_enable_write(struct counter_device *counter, void *priv,
 	if (ret < 0)
 		return ret;
 
+	pm_runtime_get_sync(qep->dev);
+
 	reg = intel_qep_readl(qep->regs, INTEL_QEPCON);
 
 	if (val)
@@ -534,6 +551,7 @@ static ssize_t preset_enable_write(struct counter_device *counter, void *priv,
 		reg |= INTEL_QEPCON_COUNT_RST_MODE;
 
 	intel_qep_writel(qep->regs, INTEL_QEPCON, reg);
+	pm_runtime_put(qep->dev);
 	return len;
 }
 
