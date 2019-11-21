@@ -3,6 +3,7 @@
 #include <asm/asm.h>
 #include <asm/frame.h>
 #include <asm/unwind_hints.h>
+#include <asm/export.h>
 
 #include <linux/linkage.h>
 #include <linux/bits.h>
@@ -24,6 +25,8 @@
 #define TDVMCALL_EXPOSE_REGS_MASK	( TDG_R10 | TDG_R11 | \
 					  TDG_R12 | TDG_R13 | \
 					  TDG_R14 | TDG_R15 )
+
+#define TDVMCALL_VENDOR_KVM		0x4d564b2e584454 /* "TDX.KVM" */
 
 /*
  * TDX guests use the TDCALL instruction to make requests to the
@@ -226,3 +229,26 @@ SYM_FUNC_START(__tdx_hypercall)
 	FRAME_END
 	retq
 SYM_FUNC_END(__tdx_hypercall)
+
+#ifdef CONFIG_INTEL_TDX_GUEST_KVM
+
+/*
+ * Helper function for KVM vendor TDVMCALLs. This assembly wrapper
+ * lets us reuse do_tdvmcall() for KVM-specific hypercalls (
+ * TDVMCALL_VENDOR_KVM).
+ */
+SYM_FUNC_START(__tdx_hypercall_vendor_kvm)
+	FRAME_BEGIN
+	/*
+	 * R10 is not part of the function call ABI, but it is a part
+	 * of the TDVMCALL ABI. So set it before making call to the
+	 * do_tdx_hypercall().
+	 */
+	movq $TDVMCALL_VENDOR_KVM, %r10
+	call do_tdx_hypercall
+	FRAME_END
+	retq
+SYM_FUNC_END(__tdx_hypercall_vendor_kvm)
+
+EXPORT_SYMBOL(__tdx_hypercall_vendor_kvm);
+#endif /* CONFIG_INTEL_TDX_GUEST_KVM */

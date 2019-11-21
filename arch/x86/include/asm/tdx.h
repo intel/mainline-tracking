@@ -78,4 +78,23 @@ static inline bool tdx_protected_guest_has(unsigned long flag) { return false; }
 
 #endif /* CONFIG_INTEL_TDX_GUEST */
 
+#ifdef CONFIG_INTEL_TDX_GUEST_KVM
+u64 __tdx_hypercall_vendor_kvm(u64 fn, u64 r12, u64 r13, u64 r14,
+			       u64 r15, struct tdx_hypercall_output *out);
+
+static inline long tdx_kvm_hypercall(unsigned int nr, unsigned long p1,
+				      unsigned long p2, unsigned long p3,
+				      unsigned long p4)
+{
+	return __tdx_hypercall_vendor_kvm(nr, p1, p2, p3, p4, NULL);
+}
+#else
+static inline long tdx_kvm_hypercall(unsigned int nr, unsigned long p1,
+				     unsigned long p2, unsigned long p3,
+				     unsigned long p4)
+{
+	return -ENODEV;
+}
+#endif /* CONFIG_INTEL_TDX_GUEST_KVM */
+
 #endif /* _ASM_X86_TDX_H */
