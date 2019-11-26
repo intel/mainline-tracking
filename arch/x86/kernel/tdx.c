@@ -8,6 +8,14 @@
 
 #include <asm/tdx.h>
 
+/* TDX Module call Leaf IDs */
+#define TDINFO				1
+
+static struct {
+	unsigned int gpa_width;
+	unsigned long attributes;
+} td_info __ro_after_init;
+
 /*
  * Wrapper for simple hypercalls that only return a success/error code.
  */
@@ -71,12 +79,27 @@ bool tdx_protected_guest_has(unsigned long flag)
 }
 EXPORT_SYMBOL_GPL(tdx_protected_guest_has);
 
+static void tdg_get_info(void)
+{
+	u64 ret;
+	struct tdx_module_output out = {0};
+
+	ret = __tdx_module_call(TDINFO, 0, 0, 0, 0, &out);
+
+	BUG_ON(ret);
+
+	td_info.gpa_width = out.rcx & GENMASK(5, 0);
+	td_info.attributes = out.rdx;
+}
+
 void __init tdx_early_init(void)
 {
 	if (!cpuid_has_tdx_guest())
 		return;
 
 	setup_force_cpu_cap(X86_FEATURE_TDX_GUEST);
+
+	tdg_get_info();
 
 	pr_info("Guest is initialized\n");
 }
