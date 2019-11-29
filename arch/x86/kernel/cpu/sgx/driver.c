@@ -141,12 +141,18 @@ static const struct file_operations sgx_encl_fops = {
 	.get_unmapped_area	= sgx_get_unmapped_area,
 };
 
+const struct file_operations sgx_provision_fops = {
+	.owner			= THIS_MODULE,
+};
+
 static struct bus_type sgx_bus_type = {
 	.name	= "sgx",
 };
 
 static struct device sgx_encl_dev;
 static struct cdev sgx_encl_cdev;
+static struct device sgx_provision_dev;
+static struct cdev sgx_provision_cdev;
 static dev_t sgx_devt;
 
 static void sgx_dev_release(struct device *dev)
@@ -223,21 +229,36 @@ int __init sgx_drv_init(void)
 	if (ret)
 		goto err_chrdev_region;
 
+	ret = sgx_dev_init("sgx/provision", &sgx_provision_dev,
+			   &sgx_provision_cdev, &sgx_provision_fops, 1);
+	if (ret)
+		goto err_encl_dev;
+
 	sgx_encl_wq = alloc_workqueue("sgx-encl-wq",
 				      WQ_UNBOUND | WQ_FREEZABLE, 1);
 	if (!sgx_encl_wq) {
 		ret = -ENOMEM;
-		goto err_encl_dev;
+		goto err_provision_dev;
 	}
 
 	ret = cdev_device_add(&sgx_encl_cdev, &sgx_encl_dev);
 	if (ret)
 		goto err_encl_wq;
 
+	ret = cdev_device_add(&sgx_provision_cdev, &sgx_provision_dev);
+	if (ret)
+		goto err_encl_cdev;
+
 	return 0;
+
+err_encl_cdev:
+	cdev_device_del(&sgx_encl_cdev, &sgx_encl_dev);
 
 err_encl_wq:
 	destroy_workqueue(sgx_encl_wq);
+
+err_provision_dev:
+	put_device(&sgx_provision_dev);
 
 err_encl_dev:
 	put_device(&sgx_encl_dev);
