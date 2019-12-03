@@ -63,3 +63,4 @@ obj-y                           += intel_tsens/
 obj-$(CONFIG_XLINK_SMBUS)	+= xlink-smbus/
 obj-y				+= hddl_device/
 obj-$(CONFIG_HOST_KMB_EMC)	+= emc2103/
+obj-$(CONFIG_VPU)		+= vpu/
