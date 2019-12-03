@@ -517,38 +517,52 @@ static int mei_ioctl_connect_vtag(struct file *file,
 
 	dev_dbg(dev->dev, "FW Client %pUl vtag %d\n", in_client_uuid, vtag);
 
-	if (cl->state != MEI_FILE_INITIALIZING &&
-	    cl->state != MEI_FILE_DISCONNECTED)
-		return  -EBUSY;
-
-	list_for_each_entry(pos, &dev->file_list, link) {
-		if (pos == cl)
-			continue;
-		if (!pos->me_cl)
-			continue;
-
-		/* only search for same UUID */
-		if (uuid_le_cmp(*mei_cl_uuid(pos), *in_client_uuid))
-			continue;
-
-		/* if tag already exist try another fp */
-		if (!IS_ERR(mei_cl_fp_by_vtag(pos, vtag)))
-			continue;
-
-		/* replace cl with acquired one */
-		dev_dbg(dev->dev, "replacing with existing cl\n");
-		mei_cl_unlink(cl);
-		kfree(cl);
-		file->private_data = pos;
-		cl = pos;
+	switch (cl->state) {
+	case MEI_FILE_DISCONNECTED:
+		if (mei_cl_vtag_by_fp(cl, file) != vtag) {
+			dev_err(dev->dev, "reconnect with different vtag\n");
+			return -EINVAL;
+		}
 		break;
+	case MEI_FILE_INITIALIZING:
+		/* malicious connect from another thread may push vtag */
+		if (!IS_ERR(mei_cl_fp_by_vtag(cl, vtag))) {
+			dev_err(dev->dev, "vtag already filled\n");
+			return -EINVAL;
+		}
+
+		list_for_each_entry(pos, &dev->file_list, link) {
+			if (pos == cl)
+				continue;
+			if (!pos->me_cl)
+				continue;
+
+			/* only search for same UUID */
+			if (uuid_le_cmp(*mei_cl_uuid(pos), *in_client_uuid))
+				continue;
+
+			/* if tag already exist try another fp */
+			if (!IS_ERR(mei_cl_fp_by_vtag(pos, vtag)))
+				continue;
+
+			/* replace cl with acquired one */
+			dev_dbg(dev->dev, "replacing with existing cl\n");
+			mei_cl_unlink(cl);
+			kfree(cl);
+			file->private_data = pos;
+			cl = pos;
+			break;
+		}
+
+		cl_vtag = mei_cl_vtag_alloc(file, vtag);
+		if (IS_ERR(cl_vtag))
+			return -ENOMEM;
+
+		list_add_tail(&cl_vtag->list, &cl->vtag_map);
+		break;
+	default:
+		return -EBUSY;
 	}
-
-	cl_vtag = mei_cl_vtag_alloc(file, vtag);
-	if (IS_ERR(cl_vtag))
-		return -ENOMEM;
-
-	list_add_tail(&cl_vtag->list, &cl->vtag_map);
 
 	while (cl->state != MEI_FILE_INITIALIZING &&
 	       cl->state != MEI_FILE_DISCONNECTED &&
