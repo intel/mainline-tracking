@@ -1198,6 +1198,7 @@ static int dwmac4_config_l4_filter(struct mac_device_info *hw, u32 filter_no,
 		writel(0, ioaddr + GMAC_L3L4_CTRL(filter_no));
 
 	return 0;
+}
 
 static void dwmac4_rx_hw_vlan(struct net_device *dev,
 			      struct mac_device_info *hw,
