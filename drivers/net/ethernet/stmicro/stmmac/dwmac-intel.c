@@ -439,6 +439,8 @@ static int ehl_common_data(struct pci_dev *pdev,
 {
 	plat->rx_queues_to_use = 8;
 	plat->tx_queues_to_use = 8;
+	plat->has_safety_feat = 1;
+
 	plat->clk_ptp_rate = 200000000;
 
 	return intel_mgbe_common_data(pdev, plat);
