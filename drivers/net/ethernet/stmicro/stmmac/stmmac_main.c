@@ -1640,7 +1640,6 @@ static int alloc_dma_rx_desc_resources(struct stmmac_priv *priv)
 			rx_q->page_pool = NULL;
 			goto err_dma;
 		}
-	}
 	buf_sz = bfsize;
 
 		rx_q->buf_pool = kcalloc(priv->dma_rx_size,
