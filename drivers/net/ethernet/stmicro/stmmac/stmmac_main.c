@@ -454,6 +454,9 @@ static void stmmac_get_tx_hwtstamp(struct stmmac_priv *priv,
 		case SPEED_1000:
 			adjust = priv->plat->phy_tx_latency_1000;
 			break;
+		case SPEED_2500:
+			adjust = priv->plat->phy_tx_latency_2500;
+			break;
 		}
 
 		ns += adjust;
@@ -5158,7 +5161,7 @@ static int stmmac_vlan_rx_kill_vid(struct net_device *ndev, __be16 proto, u16 vi
 	clear_bit(vid, priv->active_vlans);
 
 	ret = stmmac_del_hw_vlan_rx_fltr(priv, ndev, priv->hw, proto, vid);
-	if(ret)
+	if (ret)
 		return ret;
 
 	return stmmac_vlan_update(priv, is_double);
