@@ -909,9 +909,6 @@ static int sprd_verify_port(struct uart_port *port, struct serial_struct *ser)
 #ifdef CONFIG_CONSOLE_POLL
 static int sprd_poll_init(struct uart_port *port)
 {
-	if (port->state->pm_state != UART_PM_STATE_ON)
-		port->state->pm_state = UART_PM_STATE_ON;
-
 	return 0;
 }
 
