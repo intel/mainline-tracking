@@ -56,6 +56,9 @@
 #include <linux/compiler.h>     /* Definition of __weak */
 #include <linux/kref.h> /* struct kref */
 #include <linux/notifier.h> /* struct notifier_block */
+#include <linux/pci.h> /* struct pci_dev */
+#include <linux/ioport.h> /* struct resource */
+#include <linux/kref.h> /* struct kref */
 
 #include "sw_structs.h"      /* sw_driver_io_descriptor */
 #include "sw_cta.h"
@@ -69,155 +72,154 @@
  * Struct definitions taken from CTA driver.
  */
 
-enum intel_cta_ep_type {
-        INTEL_CTA_EP_TYPE_ANY = 0,
-        INTEL_CTA_EP_TYPE_PUNIT,
-        INTEL_CTA_EP_TYPE_GPU,
-        NUM_INTEL_CTA_EP_TYPES
-};
-
 struct telem_header {
         u8      access_type;
         u8      telem_type;
         u16     size;
         u32     guid;
         u32     base_offset;
-        u32     tele_id;
 };
 
-struct discovery_entry {
-        struct telem_header     header;
-        void __iomem            *disc_offset;
-        void __iomem            *counter_base;
-};
-
-/**
- * struct telem_endpoint - telemetry endpoint description
- * @pci_bus_no:      pci device bus number
- * @pci_devfn:       encoded pci device and function number
- * @num_entries:     Number of entries
- * @telem_ep_type:   Device specific telemetry type
- * @header_size:     Size in bytes of the discovery header
- * @discovery_entry: Pointer to list of telemetry entries. Used by
- *                   driver API to get direct access to the endpoint.
- *                   Do not dereference directly. Use driver API which
- *                   checks for device availability.
- * @kref:            Driver reference count - do not modify directly. Use
- *                   the register_endpoint and unregister_endpoint API's.
- */
 struct telem_endpoint {
-        u16                             pci_bus_no;
-        u8                              pci_devfn;
-        int                             num_entries;
-        u32                             telem_ep_type;  //TODO: Implement
-        u32                             header_size;
-        struct discovery_entry          *entry;
-        struct kref                     kref;
+        struct pci_dev        *parent;
+        struct telem_header   header;
+        void __iomem          *base;
+        struct resource       res;
+        bool                  present;
+        struct kref           kref;
 };
 
-struct telem_header_info {
-        u8      access_type;
-        u16     size;
-        u32     guid;
+struct telem_endpoint_info {
+        struct pci_dev          *pdev;
+        struct telem_header     header;
 };
 
 /*
  * Weak linkage of functions from the CTA driver
  */
+
 /**
- * cta_telem_get_next_endpoint() - Get next id for a telemetry endpoint
- * @start:  starting index to look from
- * @type:   filter for type of endpoint
+ * cta_telem_get_next_endpoint() - Get next device id for a telemetry endpoint
+ * @start:  starting devid to look from
+ *
+ * This functions can be used in a while loop predicate to retrieve the devid
+ * of all available telemetry endpoints. Functions cta_telem_get_next_endpoint()
+ * and cta_telem_register_endpoint() can be used inside of the loop to examine
+ * endpoint info and register to receive a pointer to the endpoint. The pointer
+ * is then usable in the telemetry read calls to access the telemetry data.
  *
  * Return:
- * * index       - index of next present endpoint after start
+ * * devid       - devid of the next present endpoint from start
  * * 0           - when no more endpoints are present after start
  */
-extern unsigned long __weak
-cta_telem_get_next_endpoint(unsigned long start,
-                            enum intel_cta_ep_type type);
+extern int __weak
+cta_telem_get_next_endpoint(int start);
 
 /**
- * cta_telem_register_endpoint() - Register use of telemetry endpoint
- * @handle: ID associated with the telemetry endpoint
+ * cta_telem_register_endpoint() - Register a telemetry endpoint
+ * @devid: device id/handle of the telemetry endpoint
+ *
+ * Increments the kref usage counter for the endpoint.
  *
  * Return:
- * * ep          - Succes
+ * * endpoint    - On success returns pointer to the telemetry endpoint
  * * -ENXIO      - telemetry endpoint not found
  */
-
 extern struct telem_endpoint * __weak
-cta_telem_register_endpoint(unsigned long handle);
+cta_telem_register_endpoint(int devid);
 
 /**
- * cta_telem_unregister_endpoint() - Unregister use of telemetry endpoint
+ * cta_telem_unregister_endpoint() - Unregister a telemetry endpoint
  * @ep:   ep structure to populate.
+ *
+ * Decrements the kref usage counter for the endpoint.
  */
 extern void __weak
 cta_telem_unregister_endpoint(struct telem_endpoint *ep);
 
-
 /**
- * cta_telem_get_header_info() - Get header info from a telem entry
- * @handle: ID associated with the telemetry endpoint
- * @idx:    Index of the entry
- * @info: Allocated header info structure to fill
+ * cta_telem_get_endpoint_info() - Get info for an endpoint from its devid
+ * @devid:  device id/handle of the telemetry endpoint
+ * @info:   Endpoint info structure to be populated
  *
  * Return:
  * * 0           - Success
- * * -ENXIO      - telemetry endpoint not found
- * * -EINVAL     - bad argument (@idx out of range or null @info)
+ * * -ENXIO      - telemetry endpoint not found for the devid
+ * * -EINVAL     - @info is NULL
  */
 extern int __weak
-cta_telem_get_header_info(unsigned long handle, u8 idx,
-                          struct telem_header_info *info);
+cta_telem_get_endpoint_info(int devid,
+				struct telem_endpoint_info *info);
+
 /**
- * cta_telem_counter_read32() - Read dwords from telemetry sram into buffer
- * @ep:     Pointer to telemetry endpoint to access
- * @index:  Index of the entry
+ * cta_telem_read32() - Read dwords from telemetry sram
+ * @ep:     Telemetry endpoint to be read
  * @offset: Register offset in bytes
- * @data:   Preallocated dword buffer to fill
+ * @data:   Allocated dword buffer
  * @count:  Number of dwords requested
  *
- * Callers must ensure reads are aligned, and that both the entry index and
- * offset are within bounds. When the call returns -ENODEV, the device has
- * been removed and callers should unregister the telemetry endpoint.
- *
- * Context: RCU used to guard reads from device removal and unmap. Do not
- *          sleep.
+ * Callers must ensure reads are aligned. When the call returns -ENODEV,
+ * the device has been removed and callers should unregister the telemetry
+ * endpoint.
  *
  * Return:
  * * 0           - Success
- * * -ENODEV     - The device had been removed.
+ * * -ENODEV	 - The device is not present.
+ * * -EINVAL	 - The offset is out out bounds
+ * * -EPIPE	 - The device was removed during the read. Data written
+ *		   but should be considered invalid.
  */
 extern int __weak
-cta_telem_counter_read32(struct telem_endpoint *ep, u32 index, u32 offset,
-                         u32 *data, u32 count);
+cta_telem_read32(struct telem_endpoint *ep, u32 offset, u32 *data,
+		     u32 count);
+
 /**
- * cta_telem_counter_read64() - Read qwords from telemetry sram into buffer
- * @ep:     Pointer to telemetry endpoint to access
- * @index:  Index of the entry
+ * cta_telem_read64() - Read qwords from counter sram
+ * @ep:     Telemetry endpoint to be read
  * @offset: Register offset in bytes
- * @data:   Preallocated buffer of qwords
+ * @data:   Allocated qword buffer
  * @count:  Number of qwords requested
  *
- * Callers must ensure reads are aligned, and that both the entry index and
- * offset are within bounds. When the call returns -ENODEV, the device has
- * been removed and callers should unregister the telemetry endpoint.
- *
- * Context: RCU used to guard reads from device removal and unmap. Do not
- *          sleep.
+ * Callers must ensure reads are aligned. When the call returns -ENODEV,
+ * the device has been removed and callers should unregister the telemetry
+ * endpoint.
  *
  * Return:
  * * 0           - Success
- * * -ENODEV     - The device had been removed.
+ * * -ENODEV	 - The device is not present.
+ * * -EINVAL	 - The offset is out out bounds
+ * * -EPIPE	 - The device was removed during the read. Data written
+ *		   but should be considered not valid.
  */
 extern int __weak
-cta_telem_counter_read64(struct telem_endpoint *ep, u32 index, u32 offset,
-                         u64 *data, u32 count);
+cta_telem_read64(struct telem_endpoint *ep, u32 offset, u64 *data,
+		     u32 count);
 
-extern int __weak cta_telem_register_notifier(struct notifier_block *nb);
-extern int __weak cta_telem_unregister_notifier(struct notifier_block *nb);
+/* Notifiers */
+
+#define CTA_TELEM_NOTIFY_ADD	0
+#define CTA_TELEM_NOTIFY_REMOVE	1
+
+/**
+ * cta_telem_register_notifier() - Receive notification endpoint events
+ * @nb:   Notifier block
+ *
+ * Events:
+ *   CTA_TELEM_NOTIFY_ADD   - An endpoint has been added. Notifier data
+ *                            is the devid
+ *   CTA_TELEM_NOTIF_REMOVE - An endpoint has been removed. Notifier data
+ *                            is the devid
+ */
+extern int __weak
+cta_telem_register_notifier(struct notifier_block *nb);
+
+/**
+ * cta_telem_unregister_notifier() - Unregister notification of endpoint events
+ * @nb:   Notifier block
+ *
+ */
+extern int __weak
+cta_telem_unregister_notifier(struct notifier_block *nb);
 
 /* *********************************
  * End CTA driver import
@@ -248,10 +250,10 @@ void sw_read_cta_info(char *dst, int cpu,
 	}
 	switch (descriptor->counter_size_in_bytes) {
 		case 4:
-			retval = cta_telem_counter_read32(ep, 0/*index*/, offset, data32, td->num_entries);
+			retval = cta_telem_read32(ep, offset, data32, td->num_entries);
 			break;
 		case 8:
-			retval = cta_telem_counter_read64(ep, 0/*index*/, offset, data64, td->num_entries);
+			retval = cta_telem_read64(ep, offset, data64, td->num_entries);
 			break;
 		default:
 			printk(KERN_ERR "Invalid CTA counter size %u\n", descriptor->counter_size_in_bytes);
@@ -265,7 +267,7 @@ void sw_read_cta_info(char *dst, int cpu,
 bool sw_cta_available(void)
 {
 	/* 1: check if the CTA driver is loaded */
-	if (!cta_telem_get_next_endpoint) {
+	if (!cta_telem_get_endpoint_info) {
 		return false;
 	}
 	/* 2: TODO: other checks here */
@@ -287,18 +289,17 @@ bool sw_cta_register(void)
 	/*
 	 * Retrieve list of telemetry endpoints.
 	 * TODO: we can only support one endpoint as of now, so should we be
-	 * checking the GUID to retrieve onl tthe endpoints of interest?
+	 * checking the GUID to retrieve only the endpoints of interest?
 	 */
 	s_endpoint_index = 0;
-	while ((index = cta_telem_get_next_endpoint(index, INTEL_CTA_EP_TYPE_ANY)) && s_endpoint_index < (MAX_TELEM_ENDPOINTS-1)) {
-		struct telem_header_info telem_info;
-		u8 idx = 0;
-		if (cta_telem_get_header_info(index, idx, &telem_info)) {
+	while ((index = cta_telem_get_next_endpoint(index)) && s_endpoint_index < (MAX_TELEM_ENDPOINTS-1)) {
+		struct telem_endpoint_info ep_info;
+		if (cta_telem_get_endpoint_info(index, &ep_info)) {
 			printk(KERN_ERR "Could not retrieve telemetry header for CTA endpoint %lu\n", index);
 			continue;
 		}
 		s_telem_endpoints[s_endpoint_index] = cta_telem_register_endpoint(index);
-		s_telem_aggregators.info[s_telem_aggregators.num_entries++].globalUniqueID = telem_info.guid;
+		s_telem_aggregators.info[s_telem_aggregators.num_entries++].globalUniqueID = ep_info.header.guid;
 		++s_endpoint_index;
 	}
 	return s_endpoint_index > 0;
