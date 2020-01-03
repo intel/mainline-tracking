@@ -989,10 +989,11 @@ sw_get_available_name_id_mappings_i(enum sw_name_id_type type,
 
 	if (retVal == PW_SUCCESS) {
 		retVal = copy_to_user(remote_info, local_info, local_len);
-		if (retVal)
+		if (retVal) {
 			pw_pr_error(
 				"ERROR: couldn't copy tracepoint info to user space!\n");
-
+			retVal = -PW_ERROR;
+                }
 	}
 	vfree(buffer);
 	return retVal;
@@ -1040,10 +1041,11 @@ sw_get_topology_changes_i(struct sw_driver_topology_msg __user *remote_msg,
 		memcpy(&dst[dst_idx++], change, sizeof(*change));
 	}
 	retVal = copy_to_user(remote_msg, local_msg, buffer_len);
-	if (retVal)
+	if (retVal) {
 		pw_pr_error(
 			"ERROR: couldn't copy topology changes to user space!\n");
-
+		retVal = -PW_ERROR;
+	}
 	vfree(buffer);
 	return retVal;
 }
@@ -1053,9 +1055,11 @@ sw_get_cta_aggregators_i(struct _sw_aggregator_msg __user *remote_msg,
 			  size_t local_len)
 {
 	const struct _sw_aggregator_msg *_msg = sw_get_cta_aggregators();
-	long retval = copy_to_user(remote_msg, _msg, sizeof(*_msg));
-
-	return retval;
+	if (copy_to_user(remote_msg, _msg, sizeof(*_msg))) {
+		pw_pr_error("ERROR: couldn't copy data to user space!\n");
+		return -PW_ERROR;
+	}
+	return PW_SUCCESS;
 }
 
 static long sw_read_continuous_i(char *remote_buffer, size_t local_len)
