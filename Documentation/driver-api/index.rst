@@ -102,6 +102,7 @@ available subsections can be seen below.
    xilinx/index
    xillybus
    zorro
+   rpmb/index
 
 .. only::  subproject and html
 
