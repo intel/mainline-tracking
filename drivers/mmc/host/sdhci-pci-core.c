@@ -1101,7 +1101,6 @@ static const struct sdhci_pci_fixes sdhci_intel_byt_sd = {
 			  SDHCI_QUIRK2_PRESET_VALUE_BROKEN |
 			  SDHCI_QUIRK2_STOP_WITH_TC,
 	.allow_runtime_pm = true,
-	.own_cd_for_runtime_pm = true,
 	.probe_slot	= byt_sd_probe_slot,
 	.ops		= &sdhci_intel_byt_ops,
 	.priv_size	= sizeof(struct intel_host),
