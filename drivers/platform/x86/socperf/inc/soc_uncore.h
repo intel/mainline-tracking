@@ -80,6 +80,7 @@
 #define SOC_UNCORE_STOP 0x00040000
 #define SOC_UNCORE_CTRL_REG_OFFSET 0x0
 
+#define SOC_UNCORE_PAGE_SIZE (8 * 1024)
 extern DISPATCH_NODE soc_uncore_dispatch;
 
 #endif

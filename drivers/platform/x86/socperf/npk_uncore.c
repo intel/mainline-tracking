@@ -294,17 +294,19 @@ static VOID uncore_Write_PMU(VOID *param)
 			virtual_address = DRV_PCI_DEVICE_ENTRY_virtual_address(
 				curr_pci_entry);
 
-			write_To_Register(virtual_address, mmio_offset,
+			if (virtual_address) {
+				write_To_Register(virtual_address, mmio_offset,
 					  (U32)DRV_PCI_DEVICE_ENTRY_value(
 						  curr_pci_entry));
-			bar_list[bar_name] = dev_index;
-			if (counter_virtual_address == 0) {
-				counter_virtual_address = virtual_address;
-			}
-			if (mchbar_virtual_address == 0 &&
-			    bar_name == UNC_MCHBAR) {
-				mchbar_virtual_address = virtual_address;
-				mchbar_offset = mmio_offset;
+				bar_list[bar_name] = dev_index;
+				if (counter_virtual_address == 0) {
+					counter_virtual_address = virtual_address;
+				}
+				if (mchbar_virtual_address == 0 &&
+				    bar_name == UNC_MCHBAR) {
+					mchbar_virtual_address = virtual_address;
+					mchbar_offset = mmio_offset;
+				}
 			}
 		}
 	}

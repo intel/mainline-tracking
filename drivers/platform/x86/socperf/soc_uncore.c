@@ -754,7 +754,7 @@ static VOID uncore_Create_Mem(U32 memory_size, U64 *trace_buffer)
 	SOCPERF_PRINT_DEBUG("Physical Address=%llx\n", odla_physical_address);
 	if (odla_physical_address) {
 		trace_virtual_address = (U64)(UIOP)ioremap_nocache(
-			odla_physical_address, 1024 * sizeof(U64));
+			odla_physical_address, SOC_UNCORE_PAGE_SIZE);
 		SOCPERF_PRINT_DEBUG("PHY=%llx ODLA VIRTUAL ADDRESS=%llx\n",
 				    odla_physical_address,
 				    trace_virtual_address);
