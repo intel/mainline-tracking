@@ -1919,7 +1919,7 @@ static inline bool uart_console_enabled(struct uart_port *port)
  */
 static inline void uart_port_spin_lock_init(struct uart_port *port)
 {
-	if (uart_console_enabled(port))
+	if (uart_console(port))
 		return;
 
 	spin_lock_init(&port->lock);
@@ -2749,6 +2749,56 @@ static ssize_t uart_get_attr_iomem_reg_shift(struct device *dev,
 	return snprintf(buf, PAGE_SIZE, "%d\n", tmp.iomem_reg_shift);
 }
 
+static ssize_t uart_get_attr_console(struct device *dev,
+	struct device_attribute *attr, char *buf)
+{
+	struct tty_port *port = dev_get_drvdata(dev);
+	struct uart_state *state = container_of(port, struct uart_state, port);
+	struct uart_port *uport;
+	bool console = false;
+
+	mutex_lock(&port->mutex);
+	uport = uart_port_check(state);
+	if (uport)
+		console = uart_console_enabled(uport);
+	mutex_unlock(&port->mutex);
+
+	return sprintf(buf, "%c\n", console ? 'Y' : 'N');
+}
+
+static ssize_t uart_set_attr_console(struct device *dev,
+	struct device_attribute *attr, const char *buf, size_t count)
+{
+	struct tty_port *port = dev_get_drvdata(dev);
+	struct uart_state *state = container_of(port, struct uart_state, port);
+	struct uart_port *uport;
+	bool oldconsole, newconsole;
+	int ret;
+
+	ret = kstrtobool(buf, &newconsole);
+	if (ret)
+		return ret;
+
+	mutex_lock(&port->mutex);
+	uport = uart_port_check(state);
+	if (uport) {
+		oldconsole = uart_console_enabled(uport);
+		if (oldconsole && !newconsole) {
+			ret = unregister_console(uport->cons);
+		} else if (!oldconsole && newconsole) {
+			if (uart_console(uport))
+				register_console(uport->cons);
+			else
+				ret = -ENOENT;
+		}
+	} else {
+		ret = -ENXIO;
+	}
+	mutex_unlock(&port->mutex);
+
+	return ret < 0 ? ret : count;
+}
+
 static DEVICE_ATTR(type, 0440, uart_get_attr_type, NULL);
 static DEVICE_ATTR(line, 0440, uart_get_attr_line, NULL);
 static DEVICE_ATTR(port, 0440, uart_get_attr_port, NULL);
@@ -2762,6 +2812,7 @@ static DEVICE_ATTR(custom_divisor, 0440, uart_get_attr_custom_divisor, NULL);
 static DEVICE_ATTR(io_type, 0440, uart_get_attr_io_type, NULL);
 static DEVICE_ATTR(iomem_base, 0440, uart_get_attr_iomem_base, NULL);
 static DEVICE_ATTR(iomem_reg_shift, 0440, uart_get_attr_iomem_reg_shift, NULL);
+static DEVICE_ATTR(console, 0640, uart_get_attr_console, uart_set_attr_console);
 
 static struct attribute *tty_dev_attrs[] = {
 	&dev_attr_type.attr,
@@ -2777,12 +2828,13 @@ static struct attribute *tty_dev_attrs[] = {
 	&dev_attr_io_type.attr,
 	&dev_attr_iomem_base.attr,
 	&dev_attr_iomem_reg_shift.attr,
-	NULL,
-	};
+	&dev_attr_console.attr,
+	NULL
+};
 
 static const struct attribute_group tty_dev_attr_group = {
 	.attrs = tty_dev_attrs,
-	};
+};
 
 /**
  *	uart_add_one_port - attach a driver-defined port structure
