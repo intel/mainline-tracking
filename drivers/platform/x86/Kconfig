@@ -1382,6 +1382,16 @@ config INTEL_PMT_TELEMETRY
 	  For more information, see
 	  <file:Documentation/ABI/testing/sysfs-class-intel_pmt_telem>
 
+config INTEL_PMT_WATCHER
+	tristate "Intel Platform Monitoring Technology (PMT) Watcher driver"
+	help
+	 The Intel Platform Monitoring Technology (PMT) Watcher driver provides
+	 access to hardware sampling and tracing capabilities on devices that
+	 support the feature.
+
+	 For more information, see
+	 <file:Documentation/ABI/testing/sysfs-class-intel_pmt_watcher>
+
 config INTEL_PUNIT_IPC
 	tristate "Intel P-Unit IPC Driver"
 	help
