@@ -1211,7 +1211,7 @@ config X86_ESPFIX64
 config X86_VSYSCALL_EMULATION
 	bool "Enable vsyscall emulation" if EXPERT
 	default y
-	depends on X86_64
+	depends on X86_64 && !X86_INTEL_CET
 	---help---
 	 This enables emulation of the legacy vsyscall page.  Disabling
 	 it is roughly equivalent to booting with vsyscall=none, except
@@ -1225,6 +1225,8 @@ config X86_VSYSCALL_EMULATION
 
 	 Disabling this option saves about 7K of kernel size and
 	 possibly 4K of additional runtime pagetable memory.
+
+	 This option is disabled when Intel CET is enabled.
 
 config X86_IOPL_IOPERM
 	bool "IOPERM and IOPL Emulation"
@@ -2382,7 +2384,7 @@ config COMPAT_VDSO
 
 choice
 	prompt "vsyscall table for legacy applications"
-	depends on X86_64
+	depends on X86_64 && !X86_INTEL_CET
 	default LEGACY_VSYSCALL_XONLY
 	help
 	  Legacy user code that does not know how to find the vDSO expects
@@ -2398,6 +2400,8 @@ choice
 	  to improve security.
 
 	  If unsure, select "Emulate execution only".
+
+	  This option is not enabled when Intel CET is enabled.
 
 	config LEGACY_VSYSCALL_EMULATE
 		bool "Full emulation"
