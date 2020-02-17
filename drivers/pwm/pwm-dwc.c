@@ -17,8 +17,6 @@
 #include <linux/mutex.h>
 #include <linux/pm_runtime.h>
 
-#define PCI_DEVICE_ID_EHLLP	0x4bb7
-
 #define DWC_TIM_LD_CNT(n)	((n) * 0x14)
 #define DWC_TIM_LD_CNT2(n)	(((n) * 4) + 0xb0)
 #define DWC_TIM_CUR_VAL(n)	(((n) * 0x14) + 0x04)
@@ -328,9 +326,7 @@ static const struct dwc_pwm_driver_data ehl_driver_data = {
 };
 
 static const struct pci_device_id dwc_pci_id_table[] = {
-	{ PCI_VDEVICE(INTEL, PCI_DEVICE_ID_EHLLP),
-	  (kernel_ulong_t) &ehl_driver_data,
-	},
+	{ PCI_VDEVICE(INTEL, 0x4bb7), (kernel_ulong_t) &ehl_driver_data },
 	{  }	/* Terminating Entry */
 };
 MODULE_DEVICE_TABLE(pci, dwc_pci_id_table);
