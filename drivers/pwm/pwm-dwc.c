@@ -199,10 +199,8 @@ static int dwc_pci_probe(struct pci_dev *pci, const struct pci_device_id *id)
 	dev = &pci->dev;
 
 	dwc = devm_kzalloc(&pci->dev, sizeof(*dwc), GFP_KERNEL);
-	if (!dwc) {
-		ret = -ENOMEM;
-		goto err0;
-	}
+	if (!dwc)
+		return -ENOMEM;
 
 	dwc->dev = dev;
 	dwc->clk_period_ns = data->clk_period_ns;
@@ -218,10 +216,8 @@ static int dwc_pci_probe(struct pci_dev *pci, const struct pci_device_id *id)
 		return ret;
 
 	dwc->base = pcim_iomap_table(pci)[0];
-	if (!dwc->base) {
-		ret = -ENOMEM;
-		goto err1;
-	}
+	if (!dwc->base)
+		return -ENOMEM;
 
 	dwc->version = dwc_readl(dwc->base, DWC_TIMERS_COMP_VERSION);
 
@@ -242,21 +238,12 @@ static int dwc_pci_probe(struct pci_dev *pci, const struct pci_device_id *id)
 
 	ret = pwmchip_add(&dwc->pwm);
 	if (ret)
-		goto err2;
+		return ret;
 
 	pm_runtime_put(dev);
 	pm_runtime_allow(dev);
 
 	return 0;
-
-err2:
-	pci_iounmap(pci, dwc->base);
-
-err1:
-	pci_release_region(pci, 0);
-
-err0:
-	return ret;
 }
 
 static void dwc_pci_remove(struct pci_dev *pci)
@@ -271,8 +258,6 @@ static void dwc_pci_remove(struct pci_dev *pci)
 		pwm_disable(&dwc->pwm.pwms[i]);
 
 	pwmchip_remove(&dwc->pwm);
-	pci_iounmap(pci, dwc->base);
-	pci_release_region(pci, 0);
 }
 
 #ifdef CONFIG_PM_SLEEP
