@@ -27,6 +27,9 @@
 #include <asm/page.h>
 #include "trusty-log.h"
 
+#include <asm/io.h>
+
+
 #define TRUSTY_LOG_SIZE (PAGE_SIZE * 2)
 #define TRUSTY_LINE_BUFFER_SIZE 256
 
