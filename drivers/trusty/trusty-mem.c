@@ -18,6 +18,8 @@
 #include <linux/trusty/smcall.h>
 #include <linux/version.h>
 
+#include <asm/io.h>
+
 /* Normal memory */
 #define NS_MAIR_NORMAL_CACHED_WB_RWA       0xFF /* inner and outer write back read/write allocate */
 #define NS_MAIR_NORMAL_CACHED_WT_RA        0xAA /* inner and outer write through read allocate */
