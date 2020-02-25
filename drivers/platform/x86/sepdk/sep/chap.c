@@ -75,7 +75,7 @@ static U32 chap_Init_Chipset(void)
 			// Map virtual address of PCI CHAP interface
 			CHIPSET_SEGMENT_virtual_address(
 				mch_chipset_seg) =
-				(U64)(UIOP)ioremap_nocache(
+				(U64)(UIOP)ioremap_cache(
 					CHIPSET_SEGMENT_physical_address(
 						mch_chipset_seg),
 					CHIPSET_SEGMENT_size(
@@ -87,7 +87,7 @@ static U32 chap_Init_Chipset(void)
 			// Map the virtual address of PCI CHAP interface
 			CHIPSET_SEGMENT_virtual_address(
 				ich_chipset_seg) =
-				(U64)(UIOP)ioremap_nocache(
+				(U64)(UIOP)ioremap_cache(
 					CHIPSET_SEGMENT_physical_address(
 						ich_chipset_seg),
 					CHIPSET_SEGMENT_size(
@@ -100,7 +100,7 @@ static U32 chap_Init_Chipset(void)
 			// Map the virtual address of PCI CHAP interface
 			CHIPSET_SEGMENT_virtual_address(
 				noa_chipset_seg) =
-				(U64)(UIOP)ioremap_nocache(
+				(U64)(UIOP)ioremap_cache(
 					CHIPSET_SEGMENT_physical_address(
 						noa_chipset_seg),
 					CHIPSET_SEGMENT_size(

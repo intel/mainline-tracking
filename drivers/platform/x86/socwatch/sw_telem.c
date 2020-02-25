@@ -58,7 +58,7 @@
 #include <linux/compiler.h>     /* Definition of __weak */
 #include <linux/version.h>      /* LINUX_VERSION_CODE */
 #include <linux/delay.h>        /* 'udelay' */
-#include <linux/io.h>           /* Definition of ioremap_nocache and iounmap */
+#include <linux/io.h>           /* Definition of ioremap_cache and iounmap */
 #include "sw_kernel_defines.h"  /* pw_pr_debug */
 #include "sw_mem.h"             /* sw_kmalloc/free */
 #include "sw_lock_defs.h"       /* Various lock-related definitions */
@@ -236,13 +236,13 @@ static volatile u64 *s_pmcIPCRBufAddr;
  */
 static bool setup_punit_mbox(void)
 {
-	s_punitInterfaceAddr = (u64 *)ioremap_nocache(
+	s_punitInterfaceAddr = (u64 *)ioremap_cache(
 				(unsigned long)s_mchBarAddrs[TELEM_MCHBAR_CFG] +
 				PUNIT_MAILBOX_INTERFACE_OFFSET, 0x4);
-	s_punitDataAddr = (u64 *)ioremap_nocache(
+	s_punitDataAddr = (u64 *)ioremap_cache(
 				(unsigned long)s_mchBarAddrs[TELEM_MCHBAR_CFG] +
 				PUNIT_MAILBOX_DATA_OFFSET, 0x4);
-	s_telemEventInfo[TELEM_PUNIT].ssram_virt_addr = (u64 *)ioremap_nocache(
+	s_telemEventInfo[TELEM_PUNIT].ssram_virt_addr = (u64 *)ioremap_cache(
 				(unsigned long)
 					s_mchBarAddrs[TELEM_SSRAMBAR_CFG] +
 				PSS_TELEM_SSRAM_OFFSET, TELEM_SSRAM_SIZE);
@@ -277,19 +277,19 @@ static void destroy_punit_mbox(void)
  */
 static bool setup_pmc_mbox(void)
 {
-	s_pmcIPCCmdAddr = (u64 *)ioremap_nocache(
+	s_pmcIPCCmdAddr = (u64 *)ioremap_cache(
 			(unsigned long)s_mchBarAddrs[TELEM_IPC1BAR_CFG] +
 			PMC_IPC_CMD, 0x4);
-	s_pmcIPCStsAddr = (u64 *)ioremap_nocache(
+	s_pmcIPCStsAddr = (u64 *)ioremap_cache(
 			(unsigned long)s_mchBarAddrs[TELEM_IPC1BAR_CFG] +
 			PMC_IPC_STATUS, 0x4);
-	s_pmcIPCWBufAddr = (u64 *)ioremap_nocache(
+	s_pmcIPCWBufAddr = (u64 *)ioremap_cache(
 			(unsigned long)s_mchBarAddrs[TELEM_IPC1BAR_CFG] +
 			PMC_IPC_WRITE_BUFFER, 0x4);
-	s_pmcIPCRBufAddr = (u64 *)ioremap_nocache(
+	s_pmcIPCRBufAddr = (u64 *)ioremap_cache(
 			(unsigned long)s_mchBarAddrs[TELEM_IPC1BAR_CFG] +
 			PMC_IPC_READ_BUFFER, 0x4);
-	s_telemEventInfo[TELEM_PMC].ssram_virt_addr = (u64 *)ioremap_nocache(
+	s_telemEventInfo[TELEM_PMC].ssram_virt_addr = (u64 *)ioremap_cache(
 			(unsigned long)s_mchBarAddrs[TELEM_SSRAMBAR_CFG] +
 			IOSS_TELEM_SSRAM_OFFSET, TELEM_SSRAM_SIZE);
 

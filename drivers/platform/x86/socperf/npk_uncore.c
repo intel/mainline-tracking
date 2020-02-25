@@ -289,7 +289,7 @@ static VOID uncore_Write_PMU(VOID *param)
 
 		if (physical_address) {
 			DRV_PCI_DEVICE_ENTRY_virtual_address(curr_pci_entry) =
-				(U64)(UIOP)ioremap_nocache(physical_address,
+				(U64)(UIOP)ioremap_cache(physical_address,
 							   map_size);
 			virtual_address = DRV_PCI_DEVICE_ENTRY_virtual_address(
 				curr_pci_entry);

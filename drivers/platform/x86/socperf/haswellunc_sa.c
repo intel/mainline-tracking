@@ -200,7 +200,7 @@ static VOID hswunc_sa_Write_PMU(VOID *param)
 				map_size = HSWUNC_SA_OTHER_BAR_MMIO_PAGE_SIZE;
 			}
 			DRV_PCI_DEVICE_ENTRY_virtual_address(curr_pci_entry) =
-				(U64)(UIOP)ioremap_nocache(physical_address,
+				(U64)(UIOP)ioremap_cache(physical_address,
 							   map_size);
 			virtual_address = DRV_PCI_DEVICE_ENTRY_virtual_address(
 				curr_pci_entry);

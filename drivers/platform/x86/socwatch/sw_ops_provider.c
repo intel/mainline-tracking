@@ -336,7 +336,7 @@ int sw_ipc_mmio_descriptor_init_func_i(
 		return PW_SUCCESS;
 
 	__ipc_mmio->data_remapped_address =
-		(pw_u64_t)(unsigned long)ioremap_nocache(
+		(pw_u64_t)(unsigned long)ioremap_cache(
 			(unsigned long)data_address,
 			descriptor->counter_size_in_bytes);
 	if ((void *)(unsigned long)__ipc_mmio->data_remapped_address == NULL)
@@ -353,11 +353,11 @@ int sw_ipc_mmio_descriptor_init_func_i(
 		pw_pr_debug("Initializing GBE semaphore\n");
 
 		s_gbe_semaphore.hw_semaphore =
-			ioremap_nocache(
+			ioremap_cache(
 				(unsigned long)hw_addr,
 				descriptor->counter_size_in_bytes);
 		s_gbe_semaphore.fw_semaphore =
-			ioremap_nocache(
+			ioremap_cache(
 				(unsigned long)fw_addr,
 				descriptor->counter_size_in_bytes);
 		if (s_gbe_semaphore.hw_semaphore == NULL ||
@@ -390,7 +390,7 @@ int sw_pch_mailbox_descriptor_init_func_i(
 		(unsigned long long)__pch_mailbox->data_address);
 	if (__pch_mailbox->mtpmc_address) {
 		__pch_mailbox->mtpmc_remapped_address =
-			(pw_u64_t)(unsigned long)ioremap_nocache(
+			(pw_u64_t)(unsigned long)ioremap_cache(
 				(unsigned long)__pch_mailbox->mtpmc_address,
 				descriptor->counter_size_in_bytes);
 		if ((void *)(unsigned long)
@@ -402,7 +402,7 @@ int sw_pch_mailbox_descriptor_init_func_i(
 	}
 	if (__pch_mailbox->msg_full_sts_address) {
 		__pch_mailbox->msg_full_sts_remapped_address =
-			(pw_u64_t)(unsigned long)ioremap_nocache(
+			(pw_u64_t)(unsigned long)ioremap_cache(
 				(unsigned long)
 					__pch_mailbox->msg_full_sts_address,
 				descriptor->counter_size_in_bytes);
@@ -415,7 +415,7 @@ int sw_pch_mailbox_descriptor_init_func_i(
 	}
 	if (__pch_mailbox->mfpmc_address) {
 		__pch_mailbox->mfpmc_remapped_address =
-			(pw_u64_t)(unsigned long)ioremap_nocache(
+			(pw_u64_t)(unsigned long)ioremap_cache(
 				(unsigned long)__pch_mailbox->mfpmc_address,
 				descriptor->counter_size_in_bytes);
 		if ((void *)(unsigned long)
@@ -447,7 +447,7 @@ int sw_mailbox_descriptor_init_func_i(
 	if (!__mailbox->is_msr_type) {
 		if (__mailbox->interface_address) {
 			__mailbox->interface_remapped_address =
-				(pw_u64_t)(unsigned long)ioremap_nocache(
+				(pw_u64_t)(unsigned long)ioremap_cache(
 					(unsigned long)__mailbox->interface_address,
 					descriptor->counter_size_in_bytes);
 			if ((void *)(unsigned long)
@@ -460,7 +460,7 @@ int sw_mailbox_descriptor_init_func_i(
 		}
 		if (__mailbox->data_address) {
 			__mailbox->data_remapped_address =
-				(pw_u64_t)(unsigned long)ioremap_nocache(
+				(pw_u64_t)(unsigned long)ioremap_cache(
 					(unsigned long)__mailbox->data_address,
 					descriptor->counter_size_in_bytes);
 			if ((void *)(unsigned long)

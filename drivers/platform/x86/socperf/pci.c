@@ -90,7 +90,7 @@ int SOCPERF_PCI_Read_From_Memory_Address(U32 addr, U32 *val)
 		"SOCPERF_PCI_Read_From_Memory_Address: aligned physical address:%x,offset:%x\n",
 		aligned_addr, offset);
 
-	base = (PVOID)ioremap_nocache(aligned_addr, PAGE_SIZE);
+	base = (PVOID)ioremap_cache(aligned_addr, PAGE_SIZE);
 	if (base == NULL) {
 		return OS_INVALID;
 	}
@@ -136,7 +136,7 @@ int SOCPERF_PCI_Write_To_Memory_Address(U32 addr, U32 val)
 		"SOCPERF_PCI_Write_To_Memory_Address: aligned physical address:%x,offset:%x\n",
 		aligned_addr, offset);
 
-	base = (PVOID)ioremap_nocache(aligned_addr, PAGE_SIZE);
+	base = (PVOID)ioremap_cache(aligned_addr, PAGE_SIZE);
 	if (base == NULL) {
 		return OS_INVALID;
 	}

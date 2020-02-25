@@ -85,12 +85,11 @@ static struct proc_dir_entry *pax_version_file;
 
 static int pax_version_proc_read(struct seq_file *, void *);
 static int pax_version_proc_open(struct inode *, struct file *);
-static struct file_operations pax_version_ops = {
-	.owner = THIS_MODULE,
-	.open = pax_version_proc_open,
-	.read = seq_read,
-	.llseek = seq_lseek,
-	.release = single_release,
+static struct proc_ops pax_version_ops = {
+	.proc_open = pax_version_proc_open,
+	.proc_read = seq_read,
+	.proc_lseek = seq_lseek,
+	.proc_release = single_release,
 };
 
 // Print macros for kernel debugging
@@ -772,7 +771,7 @@ static IOCTL_OP_TYPE pax_Device_Control_Compat(struct file *filp,
  * First one is for pax, the control functions
  */
 static struct file_operations pax_Fops = {
-	.owner = THIS_MODULE,
+        .owner = THIS_MODULE,
 	IOCTL_OP = pax_Device_Control,
 #if defined(CONFIG_COMPAT) && defined(DRV_EM64T)
 	.compat_ioctl = pax_Device_Control_Compat,
@@ -791,7 +790,7 @@ static struct file_operations pax_Fops = {
  * @param  dev    - pointer to the device object
  * @param  devnum - major/minor device number
  * @param  fops   - point to file operations struct
- *
+ *n
  * @return int
  *
  * @brief  Set up functions to be handled by PAX device

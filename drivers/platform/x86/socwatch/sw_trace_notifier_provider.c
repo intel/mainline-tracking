@@ -707,9 +707,9 @@ static inline u64 sw_tscval(void)
 
 u64 sw_timestamp(void)
 {
-	struct timespec ts;
-
-	getnstimeofday(&ts);
+	struct timespec64 ts;
+	ktime_get_real_ts64(&ts);
+	timespec64_to_ns(&ts);
 	return (ts.tv_sec * 1000000000ULL + ts.tv_nsec);
 }
 
