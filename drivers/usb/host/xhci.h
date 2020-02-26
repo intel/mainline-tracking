@@ -1538,9 +1538,11 @@ struct xhci_td {
 	struct xhci_segment	*start_seg;
 	union xhci_trb		*first_trb;
 	union xhci_trb		*last_trb;
+	struct xhci_segment	*last_trb_seg;
 	struct xhci_segment	*bounce_seg;
 	/* actual_length of the URB has already been set */
 	bool			urb_length_set;
+	unsigned int		num_trbs;
 };
 
 /* xHCI command default timeout value */
@@ -1694,6 +1696,7 @@ struct xhci_bus_state {
 	/* Which ports are waiting on RExit to U0 transition. */
 	unsigned long		rexit_ports;
 	struct completion	rexit_done[USB_MAXCHILDREN];
+	struct completion	u3exit_done[USB_MAXCHILDREN];
 };
 
 
@@ -2585,6 +2588,35 @@ static inline const char *xhci_decode_portsc(u32 portsc)
 		ret += sprintf(str + ret, "WDE ");
 	if (portsc & PORT_WKOC_E)
 		ret += sprintf(str + ret, "WOE ");
+
+	return str;
+}
+
+static inline const char *xhci_decode_usbsts(u32 usbsts)
+{
+	static char str[256];
+	int ret = 0;
+
+	if (usbsts == ~(u32)0)
+		return " 0xffffffff";
+	if (usbsts & STS_HALT)
+		ret += sprintf(str + ret, " HCHalted");
+	if (usbsts & STS_FATAL)
+		ret += sprintf(str + ret, " HSE");
+	if (usbsts & STS_EINT)
+		ret += sprintf(str + ret, " EINT");
+	if (usbsts & STS_PORT)
+		ret += sprintf(str + ret, " PCD");
+	if (usbsts & STS_SAVE)
+		ret += sprintf(str + ret, " SSS");
+	if (usbsts & STS_RESTORE)
+		ret += sprintf(str + ret, " RSS");
+	if (usbsts & STS_SRE)
+		ret += sprintf(str + ret, " SRE");
+	if (usbsts & STS_CNR)
+		ret += sprintf(str + ret, " CNR");
+	if (usbsts & STS_HCE)
+		ret += sprintf(str + ret, " HCE");
 
 	return str;
 }
