@@ -32,4 +32,23 @@ static inline void show_extended_regs_oops(struct pt_regs *regs,
 
 #endif /* CONFIG_ARCH_ENABLE_SUPERVISOR_PKEYS */
 
+
+#ifdef CONFIG_PKS_TEST
+
+#define __static_or_pks_test
+
+bool handle_pks_test(unsigned long hw_error_code, struct pt_regs *regs);
+bool pks_test_callback(struct pt_regs *regs);
+
+#else /* !CONFIG_PKS_TEST */
+
+#define __static_or_pks_test static
+
+static inline bool handle_pks_test(unsigned long hw_error_code, struct pt_regs *regs)
+{
+	return false;
+}
+
+#endif /* CONFIG_PKS_TEST */
+
 #endif /* _ASM_X86_PKS_H */
