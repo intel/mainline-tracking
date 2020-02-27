@@ -63,4 +63,11 @@ void write_pkrs(u32 new_pkrs);
 #define pks_sched_in()
 #endif
 
+#ifdef CONFIG_PKS_TEST
+bool pks_test_callback(struct pt_regs *regs);
+#define __static_or_pks_test
+#else
+#define __static_or_pks_test static
+#endif
+
 #endif /*_ASM_X86_PKEYS_INTERNAL_H */
