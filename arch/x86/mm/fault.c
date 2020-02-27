@@ -18,6 +18,7 @@
 #include <linux/uaccess.h>		/* faulthandler_disabled()	*/
 #include <linux/efi.h>			/* efi_recover_from_page_fault()*/
 #include <linux/mm_types.h>
+#include <linux/pkeys.h>
 
 #include <asm/cpufeature.h>		/* boot_cpu_has, ...		*/
 #include <asm/traps.h>			/* dotraplinkage, ...		*/
@@ -1192,7 +1193,18 @@ do_kern_addr_fault(struct pt_regs *regs, unsigned long hw_error_code,
 	 * have no user pages in the kernel portion of the address
 	 * space, so do not expect them here.
 	 */
-	WARN_ON_ONCE(hw_error_code & X86_PF_PK);
+	if (hw_error_code & X86_PF_PK) {
+		/*
+		 * If we get a protection key exception it could be because we
+		 * are running the PKS test.  If so, pks_test_callback() will
+		 * clear the protection mechanism and return true to indicate
+		 * we can safely return.
+		 */
+		if (pks_test_callback(irq_state))
+			return 1;
+
+		WARN_ON_ONCE(1);
+	}
 
 #ifdef CONFIG_X86_32
 	/*

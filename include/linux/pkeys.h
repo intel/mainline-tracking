@@ -48,6 +48,10 @@ static inline void copy_init_pkru_to_fpregs(void)
 {
 }
 
+static inline bool pks_test_callback(void *irq_state)
+{
+	return false;
+}
 #endif /* ! CONFIG_ARCH_HAS_PKEYS */
 
 #ifndef CONFIG_ARCH_HAS_SUPERVISOR_PKEYS

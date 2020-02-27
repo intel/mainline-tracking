@@ -167,4 +167,13 @@ static inline void pks_update_protection(int pkey, unsigned long protection)
 }
 #endif /* CONFIG_ARCH_HAS_SUPERVISOR_PKEYS */
 
+#if defined(CONFIG_PKS_TESTING)
+bool pks_test_callback(void *irq_state);
+#else
+static inline bool pks_test_callback(void *irq_state)
+{
+	return false;
+}
+#endif
+
 #endif /*_ASM_X86_PKEYS_H */
