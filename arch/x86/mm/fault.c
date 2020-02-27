@@ -1134,6 +1134,19 @@ bool fault_in_kernel_space(unsigned long address)
 	return address >= TASK_SIZE_MAX;
 }
 
+#ifdef CONFIG_PKS_TEST
+bool handle_pks_test(unsigned long hw_error_code, struct pt_regs *regs)
+{
+	/*
+	 * If we get a protection key exception it could be because we
+	 * are running the PKS test.  If so, pks_test_callback() will
+	 * clear the protection mechanism and return true to indicate
+	 * the fault was handled.
+	 */
+	return (hw_error_code & X86_PF_PK) && pks_test_callback(regs);
+}
+#endif
+
 /*
  * Called for all faults where 'address' is part of the kernel address
  * space.  Might get called for faults that originate from *code* that
@@ -1150,6 +1163,8 @@ do_kern_addr_fault(struct pt_regs *regs, unsigned long hw_error_code,
 	if (!cpu_feature_enabled(X86_FEATURE_PKS))
 		WARN_ON_ONCE(hw_error_code & X86_PF_PK);
 
+	if (handle_pks_test(hw_error_code, regs))
+		return;
 
 #ifdef CONFIG_X86_32
 	/*

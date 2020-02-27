@@ -236,7 +236,7 @@ u32 update_pkey_val(u32 pk_reg, int pkey, unsigned int flags)
 
 #ifdef CONFIG_ARCH_ENABLE_SUPERVISOR_PKEYS
 
-static DEFINE_PER_CPU(u32, pkrs_cache);
+__static_or_pks_test DEFINE_PER_CPU(u32, pkrs_cache);
 
 /*
  * write_pkrs() optimizes MSR writes by maintaining a per cpu cache which can
