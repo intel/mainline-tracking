@@ -31,6 +31,10 @@
 			 PKR_AD_KEY(10) | PKR_AD_KEY(11) | PKR_AD_KEY(12) | \
 			 PKR_AD_KEY(13) | PKR_AD_KEY(14) | PKR_AD_KEY(15))
 
+/*  PKS supports 16 keys. Key 0 is reserved for the kernel. */
+#define        PKS_KERN_DEFAULT_KEY    0
+#define        PKS_NUM_KEYS            16
+
 void write_pkrs(u32 new_pkrs);
 
 #ifdef CONFIG_ARCH_HAS_SUPERVISOR_PKEYS

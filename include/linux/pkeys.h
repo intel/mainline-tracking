@@ -4,6 +4,11 @@
 
 #include <linux/mm.h>
 
+enum pks_alloc_flags
+{
+	PKS_FLAG_EXCLUSIVE = 0,
+};
+
 #ifdef CONFIG_ARCH_HAS_PKEYS
 #include <asm/pkeys.h>
 #else /* ! CONFIG_ARCH_HAS_PKEYS */
@@ -59,6 +64,16 @@ void irq_restore_pkrs(struct pt_regs *regs);
 #define INIT_PKRS_VALUE 0
 #endif
 
+static inline __must_check int pks_key_alloc(const char * const pkey_user,
+					     enum pks_alloc_flags flags)
+{
+	return -EOPNOTSUPP;
+}
+
+static inline void pks_key_free(int pkey) {}
+static inline void pks_mk_noaccess(int pkey) {}
+static inline void pks_mk_readonly(int pkey) {}
+static inline void pks_mk_readwrite(int pkey) {}
 static __always_inline void irq_save_set_pkrs(struct pt_regs *regs, u32 val) { }
 static __always_inline void irq_restore_pkrs(struct pt_regs *regs) { }
 #endif /* ! CONFIG_ARCH_HAS_SUPERVISOR_PKEYS */
