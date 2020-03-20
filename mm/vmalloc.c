@@ -36,6 +36,7 @@
 #include <linux/bitops.h>
 #include <linux/rbtree_augmented.h>
 #include <linux/overflow.h>
+#include <linux/pkeys.h>
 
 #include <linux/uaccess.h>
 #include <asm/tlbflush.h>
@@ -2588,6 +2589,30 @@ void *vmalloc(unsigned long size)
 				__builtin_return_address(0));
 }
 EXPORT_SYMBOL(vmalloc);
+
+/**
+ * vmalloc_pks - allocate virtually contiguous memory within the specified pkey
+ * domain
+ *
+ * @size:     allocation size
+ * @pkey:     the pkey domain to allocate the memory under
+ *
+ * Allocate enough pages to cover @size from the page level allocator and map
+ * them into contiguous kernel virtual space with the specific PKS protections
+ * if the architecture supports it.
+ *
+ * If the architecture does not support PKS this is equivalent to calling
+ * vmalloc.
+ *
+ * Return: pointer to the allocated memory or %NULL on error
+ */
+void *vmalloc_pks(unsigned long size, int pkey)
+{
+	return __vmalloc_node_range(size, 1, VMALLOC_START, VMALLOC_END,
+				GFP_KERNEL, PAGE_KERNEL_PKEY(pkey), 0,
+				NUMA_NO_NODE, __builtin_return_address(0));
+}
+EXPORT_SYMBOL(vmalloc_pks);
 
 /**
  * vzalloc - allocate virtually contiguous memory with zero fill

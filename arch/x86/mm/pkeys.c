@@ -3,6 +3,9 @@
  * Intel Memory Protection Keys management
  * Copyright (c) 2015, Intel Corporation.
  */
+#undef pr_fmt
+#define pr_fmt(fmt) "x86/pkeys: " fmt
+
 #include <linux/debugfs.h>		/* debugfs_create_u32()		*/
 #include <linux/mm_types.h>             /* mm_struct, vma, etc...       */
 #include <linux/pkeys.h>                /* PKEY_*                       */
@@ -229,6 +232,7 @@ u32 update_pkey_val(u32 pk_reg, int pkey, unsigned int flags)
 
 	return pk_reg;
 }
+EXPORT_SYMBOL_GPL(update_pkey_val);
 
 DEFINE_PER_CPU(u32, pkrs_cache);
 
@@ -246,3 +250,76 @@ void write_pkrs(u32 new_pkrs)
 	}
 	put_cpu_ptr(pkrs);
 }
+EXPORT_SYMBOL_GPL(write_pkrs);
+
+DEFINE_MUTEX(pks_lock);
+static const char pks_key_user0[] = "kernel";
+
+/* Store names of allocated keys for debug.  Key 0 is reserved for the kernel.  */
+static const char *pks_key_users[PKS_NUM_KEYS] = {
+	pks_key_user0
+};
+
+/*
+ * Each key is represented by a bit.  Bit 0 is set for key 0 and reserved for
+ * its use.  We use ulong for the bit operations but only 16 bits are used.
+ */
+static unsigned long pks_key_allocation_map = 1 << PKS_KERN_DEFAULT_KEY;
+
+/*
+ * pks_key_alloc - Allocate a PKS key
+ *
+ * @pkey_user: String stored for debugging of key exhaustion.  The caller is
+ * responsible to maintain this memory until pks_key_free().
+ */
+int pks_key_alloc(const char * const pkey_user)
+{
+	int nr, pkey;
+
+	might_sleep();
+
+	if (!cpu_feature_enabled(X86_FEATURE_PKS))
+		return -EINVAL;
+
+	mutex_lock(&pks_lock);
+
+	nr = ffz(pks_key_allocation_map);
+	if (nr < PKS_NUM_KEYS) {
+		__set_bit(nr, &pks_key_allocation_map);
+		pkey = nr;
+		/* for debugging key exhaustion */
+		pks_key_users[pkey] = pkey_user;
+	} else {
+		pkey = -ENOSPC;
+		pr_info("Cannot allocate supervisor key for %s.\n",
+			pkey_user);
+	}
+
+	mutex_unlock(&pks_lock);
+	return pkey;
+}
+EXPORT_SYMBOL_GPL(pks_key_alloc);
+
+/*
+ * pks_key_free - Free a previously allocate PKS key
+ *
+ * @pkey: Key to be free'ed
+ */
+void pks_key_free(int pkey)
+{
+	might_sleep();
+
+	if (!cpu_feature_enabled(X86_FEATURE_PKS))
+		return;
+
+	if (pkey >= PKS_NUM_KEYS || pkey <= PKS_KERN_DEFAULT_KEY)
+		return;
+
+	mutex_lock(&pks_lock);
+	__clear_bit(pkey, &pks_key_allocation_map);
+	pks_key_users[pkey] = NULL;
+	/* Restore to default AD=1 and WD=0. */
+	pks_update_protection(pkey, PKEY_DISABLE_ACCESS);
+	mutex_unlock(&pks_lock);
+}
+EXPORT_SYMBOL_GPL(pks_key_free);
