@@ -4,6 +4,10 @@
 
 #ifdef CONFIG_ARCH_ENABLE_SUPERVISOR_PKEYS
 
+/*  PKS supports 16 keys. Key 0 is reserved for the kernel. */
+#define        PKS_KERN_DEFAULT_KEY    0
+#define        PKS_NUM_KEYS            16
+
 struct extended_pt_regs {
 	u32 thread_pkrs;
 	/* Keep stack 8 byte aligned */
