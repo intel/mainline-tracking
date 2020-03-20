@@ -3,6 +3,9 @@
  * Intel Memory Protection Keys management
  * Copyright (c) 2015, Intel Corporation.
  */
+#undef pr_fmt
+#define pr_fmt(fmt) "x86/pkeys: " fmt
+
 #include <linux/debugfs.h>		/* debugfs_create_u32()		*/
 #include <linux/mm_types.h>             /* mm_struct, vma, etc...       */
 #include <linux/pkeys.h>                /* PKEY_*                       */
@@ -11,6 +14,7 @@
 #include <asm/cpufeature.h>             /* boot_cpu_has, ...            */
 #include <asm/mmu_context.h>            /* vma_pkey()                   */
 #include <asm/fpu/internal.h>		/* init_fpstate			*/
+#include <asm/pks.h>
 
 int __execute_only_pkey(struct mm_struct *mm)
 {
@@ -276,4 +280,135 @@ void setup_pks(void)
 	cr4_set_bits(X86_CR4_PKS);
 }
 
-#endif
+/*
+ * Do not call this directly, see pks_mk*() below.
+ *
+ * @pkey: Key for the domain to change
+ * @protection: protection bits to be used
+ *
+ * Protection utilizes the same protection bits specified for User pkeys
+ *     PKEY_DISABLE_ACCESS
+ *     PKEY_DISABLE_WRITE
+ *
+ */
+static inline void pks_update_protection(int pkey, unsigned long protection)
+{
+	current->thread.saved_pkrs = update_pkey_val(current->thread.saved_pkrs,
+						     pkey, protection);
+	write_pkrs(current->thread.saved_pkrs);
+}
+
+/**
+ * pks_mk_noaccess() - Disable all access to the domain
+ * @pkey the pkey for which the access should change.
+ *
+ * Disable all access to the domain specified by pkey.  This is a global
+ * update and only affects the current running thread.
+ *
+ * It is a bug for users to call this without a valid pkey returned from
+ * pks_key_alloc()
+ */
+void pks_mk_noaccess(int pkey)
+{
+	pks_update_protection(pkey, PKEY_DISABLE_ACCESS);
+}
+EXPORT_SYMBOL_GPL(pks_mk_noaccess);
+
+/**
+ * pks_mk_readonly() - Make the domain Read only
+ * @pkey the pkey for which the access should change.
+ *
+ * Allow read access to the domain specified by pkey.  This is a global update
+ * and only affects the current running thread.
+ *
+ * It is a bug for users to call this without a valid pkey returned from
+ * pks_key_alloc()
+ */
+void pks_mk_readonly(int pkey)
+{
+	pks_update_protection(pkey, PKEY_DISABLE_WRITE);
+}
+EXPORT_SYMBOL_GPL(pks_mk_readonly);
+
+/**
+ * pks_mk_readwrite() - Make the domain Read/Write
+ * @pkey the pkey for which the access should change.
+ *
+ * Allow all access, read and write, to the domain specified by pkey.  This is
+ * a global update and only affects the current running thread.
+ *
+ * It is a bug for users to call this without a valid pkey returned from
+ * pks_key_alloc()
+ */
+void pks_mk_readwrite(int pkey)
+{
+	pks_update_protection(pkey, 0);
+}
+EXPORT_SYMBOL_GPL(pks_mk_readwrite);
+
+static const char pks_key_user0[] = "kernel";
+
+/* Store names of allocated keys for debug.  Key 0 is reserved for the kernel.  */
+static const char *pks_key_users[PKS_NUM_KEYS] = {
+	pks_key_user0
+};
+
+/*
+ * Each key is represented by a bit.  Bit 0 is set for key 0 and reserved for
+ * its use.  We use ulong for the bit operations but only 16 bits are used.
+ */
+static unsigned long pks_key_allocation_map = 1 << PKS_KERN_DEFAULT_KEY;
+
+/**
+ * pks_key_alloc() - Allocate a PKS key
+ * @pkey_user: String stored for debugging of key exhaustion.  The caller is
+ *             responsible to maintain this memory until pks_key_free().
+ *
+ * Return: pkey if success
+ *         -EOPNOTSUPP if pks is not supported or not enabled
+ *         -ENOSPC if no keys are available
+ */
+__must_check int pks_key_alloc(const char * const pkey_user)
+{
+	int nr;
+
+	if (!cpu_feature_enabled(X86_FEATURE_PKS))
+		return -EOPNOTSUPP;
+
+	while (1) {
+		nr = find_first_zero_bit(&pks_key_allocation_map, PKS_NUM_KEYS);
+		if (nr >= PKS_NUM_KEYS) {
+			pr_info("Cannot allocate supervisor key for %s.\n",
+				pkey_user);
+			return -ENOSPC;
+		}
+		if (!test_and_set_bit_lock(nr, &pks_key_allocation_map))
+			break;
+	}
+
+	/* for debugging key exhaustion */
+	pks_key_users[nr] = pkey_user;
+
+	return nr;
+}
+EXPORT_SYMBOL_GPL(pks_key_alloc);
+
+/**
+ * pks_key_free() - Free a previously allocate PKS key
+ * @pkey: Key to be free'ed
+ */
+void pks_key_free(int pkey)
+{
+	if (pkey >= PKS_NUM_KEYS || pkey <= PKS_KERN_DEFAULT_KEY) {
+		pr_err("Invalid PKey value: %d\n", pkey);
+		return;
+	}
+
+	/* Restore to default of no access */
+	pks_mk_noaccess(pkey);
+	pks_key_users[pkey] = NULL;
+	clear_bit_unlock(pkey, &pks_key_allocation_map);
+}
+EXPORT_SYMBOL_GPL(pks_key_free);
+
+#endif /* CONFIG_ARCH_ENABLE_SUPERVISOR_PKEYS */
