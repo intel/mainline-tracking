@@ -155,6 +155,7 @@ struct plat_stmmacenet_data {
 	struct stmmac_dma_cfg *dma_cfg;
 	struct stmmac_est *est;
 	int clk_csr;
+	int clk_trail_n;
 	int has_gmac;
 	int enh_desc;
 	int tx_coe;
