@@ -474,9 +474,29 @@ static struct stmmac_pci_info ehl_rgmii1g_info = {
 	.setup = ehl_rgmii_data,
 };
 
+#define EHL_PSE_ETH_DMA_MISC_OFFSET	0x10000
+#define EHL_PSE_ETH_DMA_MISC_DTM_DRAM	3
+#define EHL_PSE_ETH_DMA_TOTAL_CH	16
+
+static void ehl_pse_work_around(struct pci_dev *pdev)
+{
+	void __iomem *tempaddr = pcim_iomap_table(pdev)[0];
+	int i;
+	u32 val;
+
+	for (i = 0; i < EHL_PSE_ETH_DMA_TOTAL_CH; i++) {
+		val = readl(tempaddr + EHL_PSE_ETH_DMA_MISC_OFFSET
+			    + i * sizeof(u32));
+		val |= EHL_PSE_ETH_DMA_MISC_DTM_DRAM;
+		writel(val, tempaddr + EHL_PSE_ETH_DMA_MISC_OFFSET
+		       + i * sizeof(u32));
+	}
+}
+
 static int ehl_pse0_common_data(struct pci_dev *pdev,
 				struct plat_stmmacenet_data *plat)
 {
+	ehl_pse_work_around(pdev);
 	return ehl_common_data(pdev, plat);
 }
 
@@ -507,6 +527,7 @@ static struct stmmac_pci_info ehl_pse0_sgmii1g_info = {
 static int ehl_pse1_common_data(struct pci_dev *pdev,
 				struct plat_stmmacenet_data *plat)
 {
+	ehl_pse_work_around(pdev);
 	return ehl_common_data(pdev, plat);
 }
 
