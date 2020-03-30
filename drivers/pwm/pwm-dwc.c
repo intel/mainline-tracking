@@ -185,7 +185,7 @@ static const struct pwm_ops dwc_pwm_ops = {
 	.owner		= THIS_MODULE,
 };
 
-static int dwc_pci_probe(struct pci_dev *pci, const struct pci_device_id *id)
+static int dwc_pwm_probe(struct pci_dev *pci, const struct pci_device_id *id)
 {
 	struct dwc_pwm_driver_data *data;
 	struct dwc_pwm *dwc;
@@ -244,7 +244,7 @@ static int dwc_pci_probe(struct pci_dev *pci, const struct pci_device_id *id)
 	return 0;
 }
 
-static void dwc_pci_remove(struct pci_dev *pci)
+static void dwc_pwm_remove(struct pci_dev *pci)
 {
 	struct dwc_pwm *dwc = pci_get_drvdata(pci);
 	int i;
@@ -259,7 +259,7 @@ static void dwc_pci_remove(struct pci_dev *pci)
 }
 
 #ifdef CONFIG_PM_SLEEP
-static int dwc_pci_suspend(struct device *dev)
+static int dwc_pwm_suspend(struct device *dev)
 {
 	struct pci_dev *pdev = container_of(dev, struct pci_dev, dev);
 	struct dwc_pwm *dwc = pci_get_drvdata(pdev);
@@ -278,7 +278,7 @@ static int dwc_pci_suspend(struct device *dev)
 	return 0;
 }
 
-static int dwc_pci_resume(struct device *dev)
+static int dwc_pwm_resume(struct device *dev)
 {
 	struct pci_dev *pdev = container_of(dev, struct pci_dev, dev);
 	struct dwc_pwm *dwc = pci_get_drvdata(pdev);
@@ -298,26 +298,26 @@ static int dwc_pci_resume(struct device *dev)
 }
 #endif
 
-static SIMPLE_DEV_PM_OPS(dwc_pci_pm_ops, dwc_pci_suspend, dwc_pci_resume);
+static SIMPLE_DEV_PM_OPS(dwc_pwm_pm_ops, dwc_pwm_suspend, dwc_pwm_resume);
 
 static const struct dwc_pwm_driver_data ehl_driver_data = {
 	.npwm = 8,
 	.clk_period_ns = 10,
 };
 
-static const struct pci_device_id dwc_pci_id_table[] = {
+static const struct pci_device_id dwc_pwm_id_table[] = {
 	{ PCI_VDEVICE(INTEL, 0x4bb7), (kernel_ulong_t) &ehl_driver_data },
 	{  }	/* Terminating Entry */
 };
-MODULE_DEVICE_TABLE(pci, dwc_pci_id_table);
+MODULE_DEVICE_TABLE(pci, dwc_pwm_id_table);
 
 static struct pci_driver dwc_pwm_driver = {
 	.name		= "pwm-dwc",
-	.probe		= dwc_pci_probe,
-	.remove		= dwc_pci_remove,
-	.id_table	= dwc_pci_id_table,
+	.probe		= dwc_pwm_probe,
+	.remove		= dwc_pwm_remove,
+	.id_table	= dwc_pwm_id_table,
 	.driver = {
-		.pm = &dwc_pci_pm_ops,
+		.pm = &dwc_pwm_pm_ops,
 	},
 };
 
