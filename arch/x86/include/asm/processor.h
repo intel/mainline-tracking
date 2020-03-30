@@ -882,7 +882,7 @@ enum mds_mitigations {
 #ifdef CONFIG_ARCH_HAS_SUPERVISOR_PKEYS
 struct extended_pt_regs {
 	u32 thread_pkrs;
-	u32 pad;
+	u32 pkrs_ref;
 	struct pt_regs pt_regs;
 };
 
