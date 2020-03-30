@@ -298,27 +298,7 @@ static int dwc_pci_resume(struct device *dev)
 }
 #endif
 
-#ifdef CONFIG_PM
-static int dwc_pci_runtime_suspend(struct device *dev)
-{
-	/*
-	 * The PCI core will handle transition to D3 automatically. We only
-	 * need to provide runtime PM hooks for that to happen.
-	 */
-	return 0;
-}
-
-static int dwc_pci_runtime_resume(struct device *dev)
-{
-	return 0;
-}
-#endif
-
-static const struct dev_pm_ops pwm_dwc_pm_ops = {
-	SET_SYSTEM_SLEEP_PM_OPS(dwc_pci_suspend, dwc_pci_resume)
-	SET_RUNTIME_PM_OPS(dwc_pci_runtime_suspend,
-			   dwc_pci_runtime_resume, NULL)
-};
+static SIMPLE_DEV_PM_OPS(dwc_pci_pm_ops, dwc_pci_suspend, dwc_pci_resume);
 
 static const struct dwc_pwm_driver_data ehl_driver_data = {
 	.npwm = 8,
@@ -337,7 +317,7 @@ static struct pci_driver dwc_pwm_driver = {
 	.remove		= dwc_pci_remove,
 	.id_table	= dwc_pci_id_table,
 	.driver = {
-		.pm = &pwm_dwc_pm_ops,
+		.pm = &dwc_pci_pm_ops,
 	},
 };
 
