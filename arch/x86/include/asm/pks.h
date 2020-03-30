@@ -10,8 +10,7 @@
 
 struct extended_pt_regs {
 	u32 thread_pkrs;
-	/* Keep stack 8 byte aligned */
-	u32 pad;
+	u32 pkrs_ref;
 	struct pt_regs pt_regs;
 };
 
