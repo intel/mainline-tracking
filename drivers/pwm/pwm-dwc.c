@@ -2,9 +2,9 @@
 /**
  * pwm-dwc.c - DesignWare PWM Controller
  *
- * Copyright (C) 2018 Intel Corporation
+ * Copyright (C) 2018-2020 Intel Corporation
  *
- * Author: Felipe Balbi <felipe.balbi@linux.intel.com>
+ * Author: Felipe Balbi
  */
 
 #include <linux/bitops.h>
@@ -329,6 +329,6 @@ static struct pci_driver dwc_pwm_driver = {
 
 module_pci_driver(dwc_pwm_driver);
 
-MODULE_AUTHOR("Felipe Balbi <felipe.balbi@linux.intel.com>");
+MODULE_AUTHOR("Felipe Balbi>");
 MODULE_DESCRIPTION("DesignWare PWM Controller");
 MODULE_LICENSE("GPL v2");
