@@ -238,6 +238,12 @@ void show_extended_regs_oops(struct pt_regs *regs, unsigned error_code)
  * To protect against exceptions having access to this memory we save the
  * current running value and sets the PKRS value to be used during the
  * exception.
+ *
+ * Zone Device Access Protection maintains access in a re-entrant manner
+ * through a reference count which also needs to be maintained should exception
+ * handlers use those interfaces for memory access.  Here we start off the
+ * exception handler ref count to 0 and ensure it is 0 when the exception is
+ * done.  Then restore it for the interrupted task.
  */
 void pkrs_save_set_irq(struct pt_regs *regs, u32 val)
 {
@@ -252,6 +258,16 @@ void pkrs_save_set_irq(struct pt_regs *regs, u32 val)
 
 	ept_regs = extended_pt_regs(regs);
 	ept_regs->thread_pkrs = current->thread.saved_pkrs;
+
+#ifdef CONFIG_ZONE_DEVICE_ACCESS_PROTECTION
+	/*
+	 * Save the ref count of the current running process and set it to 0
+	 * for any irq users to properly track re-entrance
+	 */
+	ept_regs->pkrs_ref = current->dev_page_access_ref;
+	current->dev_page_access_ref = 0;
+#endif
+
 	write_pkrs(val);
 }
 
@@ -265,6 +281,12 @@ void pkrs_restore_irq(struct pt_regs *regs)
 	ept_regs = extended_pt_regs(regs);
 	write_pkrs(ept_regs->thread_pkrs);
 	current->thread.saved_pkrs = ept_regs->thread_pkrs;
+
+#ifdef CONFIG_ZONE_DEVICE_ACCESS_PROTECTION
+	WARN_ON_ONCE(current->dev_page_access_ref != 0);
+	/* Restore the interrupted process reference */
+	current->dev_page_access_ref = ept_regs->pkrs_ref;
+#endif
 }
 
 #endif /* CONFIG_ARCH_ENABLE_SUPERVISOR_PKEYS */
