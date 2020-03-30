@@ -29,7 +29,7 @@
 #define DWC_TIMERS_RAW_INT_STS	0xa8
 #define DWC_TIMERS_COMP_VERSION	0xac
 
-#define DWC_TIMERS_TOTAL  8
+#define DWC_TIMERS_TOTAL	8
 
 /* Timer Control Register */
 #define DWC_TIM_CTRL_EN		BIT(0)
