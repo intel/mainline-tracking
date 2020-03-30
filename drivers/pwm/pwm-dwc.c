@@ -56,20 +56,21 @@ struct dwc_pwm {
 
 	u32 saved_registers[24];
 };
-#define to_dwc(p)	(container_of((p), struct dwc_pwm, pwm))
+#define to_dwc_pwm(p)	(container_of((p), struct dwc_pwm, pwm))
 
-static inline u32 dwc_readl(void __iomem *base, u32 offset)
+static inline u32 dwc_pwm_readl(void __iomem *base, u32 offset)
 {
 	return readl(base + offset);
 }
 
-static inline void dwc_writel(void __iomem *base, u32 offset, u32 value)
+static inline void dwc_pwm_writel(void __iomem *base, u32 offset, u32 value)
 {
 	writel(value, base + offset);
 }
 
-static void __dwc_configure(struct dwc_pwm *dwc, int pwm, unsigned int duty_ns,
-		unsigned int period_ns)
+static void __dwc_pwm_configure(struct dwc_pwm *dwc, int pwm,
+				unsigned int duty_ns,
+				unsigned int period_ns)
 {
 	u32 ctrl;
 	u32 high;
@@ -78,29 +79,29 @@ static void __dwc_configure(struct dwc_pwm *dwc, int pwm, unsigned int duty_ns,
 	high = DIV_ROUND_CLOSEST(duty_ns, dwc->clk_period_ns) - 1;
 	low = DIV_ROUND_CLOSEST(period_ns - duty_ns, dwc->clk_period_ns) - 1;
 
-	dwc_writel(dwc->base, DWC_TIM_LD_CNT(pwm), low);
-	dwc_writel(dwc->base, DWC_TIM_LD_CNT2(pwm), high);
+	dwc_pwm_writel(dwc->base, DWC_TIM_LD_CNT(pwm), low);
+	dwc_pwm_writel(dwc->base, DWC_TIM_LD_CNT2(pwm), high);
 
 	ctrl = DWC_TIM_CTRL_MODE_USER | DWC_TIM_CTRL_PWM;
-	dwc_writel(dwc->base, DWC_TIM_CTRL(pwm), ctrl);
+	dwc_pwm_writel(dwc->base, DWC_TIM_CTRL(pwm), ctrl);
 }
 
-static u32 __dwc_duty_ns(struct dwc_pwm *dwc, int pwm)
+static u32 __dwc_pwm_duty_ns(struct dwc_pwm *dwc, int pwm)
 {
 	u32 duty;
 
-	duty = dwc_readl(dwc->base, DWC_TIM_LD_CNT2(pwm));
+	duty = dwc_pwm_readl(dwc->base, DWC_TIM_LD_CNT2(pwm));
 	duty += 1;
 	duty *= dwc->clk_period_ns;
 
 	return duty;
 }
 
-static u32 __dwc_period_ns(struct dwc_pwm *dwc, int pwm, u32 duty)
+static u32 __dwc_pwm_period_ns(struct dwc_pwm *dwc, int pwm, u32 duty)
 {
 	u32 period;
 
-	period = dwc_readl(dwc->base, DWC_TIM_LD_CNT(pwm));
+	period = dwc_pwm_readl(dwc->base, DWC_TIM_LD_CNT(pwm));
 	period += 1;
 	period *= dwc->clk_period_ns;
 	period += duty;
@@ -108,46 +109,50 @@ static u32 __dwc_period_ns(struct dwc_pwm *dwc, int pwm, u32 duty)
 	return period;
 }
 
-static bool __dwc_is_enabled(struct dwc_pwm *dwc, int pwm)
+static bool __dwc_pwm_is_enabled(struct dwc_pwm *dwc, int pwm)
 {
-	return !!(dwc_readl(dwc->base, DWC_TIM_CTRL(pwm)) & DWC_TIM_CTRL_EN);
+	return !!(dwc_pwm_readl(dwc->base,
+				DWC_TIM_CTRL(pwm)) & DWC_TIM_CTRL_EN);
 }
 
-static void __dwc_set_enable(struct dwc_pwm *dwc, int pwm, int enabled)
+static void __dwc_pwm_set_enable(struct dwc_pwm *dwc, int pwm, int enabled)
 {
 	u32 reg;
 
-	reg = dwc_readl(dwc->base, DWC_TIM_CTRL(pwm));
+	reg = dwc_pwm_readl(dwc->base, DWC_TIM_CTRL(pwm));
 
 	if (enabled)
 		reg |= DWC_TIM_CTRL_EN;
 	else
 		reg &= ~DWC_TIM_CTRL_EN;
 
-	dwc_writel(dwc->base, DWC_TIM_CTRL(pwm), reg);
+	dwc_pwm_writel(dwc->base, DWC_TIM_CTRL(pwm), reg);
 }
 
-static void __dwc_configure_timer(struct dwc_pwm *dwc, struct pwm_device *pdev, const struct pwm_state *state)
+static void __dwc_pwm_configure_timer(struct dwc_pwm *dwc,
+				      struct pwm_device *pdev,
+				      const struct pwm_state *state)
 {
 	pm_runtime_get_sync(dwc->dev);
 
-	__dwc_set_enable(dwc, pdev->hwpwm, false);
-	__dwc_configure(dwc, pdev->hwpwm, state->duty_cycle, state->period);
-	__dwc_set_enable(dwc, pdev->hwpwm, state->enabled);
+	__dwc_pwm_set_enable(dwc, pdev->hwpwm, false);
+	__dwc_pwm_configure(dwc, pdev->hwpwm, state->duty_cycle,
+			    state->period);
+	__dwc_pwm_set_enable(dwc, pdev->hwpwm, state->enabled);
 
 	pm_runtime_put_sync(dwc->dev);
 }
 
 static int dwc_pwm_apply(struct pwm_chip *pwm, struct pwm_device *pdev,
-		const struct pwm_state *state)
+			 const struct pwm_state *state)
 {
-	struct dwc_pwm *dwc = to_dwc(pwm);
+	struct dwc_pwm *dwc = to_dwc_pwm(pwm);
 
 	mutex_lock(&dwc->lock);
 
 	if (!state->enabled & pwm_is_enabled(pdev)) {
 			/* enable -> disable state change */
-			__dwc_set_enable(dwc, pdev->hwpwm, false);
+			__dwc_pwm_set_enable(dwc, pdev->hwpwm, false);
 			pm_runtime_put_sync(dwc->dev);
 	} else {
 		if (state->enabled & !pwm_is_enabled(pdev)) {
@@ -155,7 +160,7 @@ static int dwc_pwm_apply(struct pwm_chip *pwm, struct pwm_device *pdev,
 			pm_runtime_get_sync(dwc->dev);
 		}
 		/* Re-configuring or enabling PWM */
-		__dwc_configure_timer(dwc, pdev, state);
+		__dwc_pwm_configure_timer(dwc, pdev, state);
 	}
 
 	mutex_unlock(&dwc->lock);
@@ -164,16 +169,17 @@ static int dwc_pwm_apply(struct pwm_chip *pwm, struct pwm_device *pdev,
 }
 
 static void dwc_pwm_get_state(struct pwm_chip *pwm, struct pwm_device *pdev,
-			  struct pwm_state *state)
+			      struct pwm_state *state)
 {
-	struct dwc_pwm *dwc = to_dwc(pwm);
+	struct dwc_pwm *dwc = to_dwc_pwm(pwm);
 
 	pm_runtime_get_sync(dwc->dev);
 
 	mutex_lock(&dwc->lock);
-	state->enabled = __dwc_is_enabled(dwc, pdev->hwpwm);
-	state->duty_cycle = __dwc_duty_ns(dwc, pdev->hwpwm);
-	state->period = __dwc_period_ns(dwc, pdev->hwpwm, state->duty_cycle);
+	state->enabled = __dwc_pwm_is_enabled(dwc, pdev->hwpwm);
+	state->duty_cycle = __dwc_pwm_duty_ns(dwc, pdev->hwpwm);
+	state->period = __dwc_pwm_period_ns(dwc, pdev->hwpwm,
+					    state->duty_cycle);
 	mutex_unlock(&dwc->lock);
 
 	pm_runtime_put_sync(dwc->dev);
@@ -217,13 +223,13 @@ static int dwc_pwm_probe(struct pci_dev *pci, const struct pci_device_id *id)
 	if (!dwc->base)
 		return -ENOMEM;
 
-	dwc->version = dwc_readl(dwc->base, DWC_TIMERS_COMP_VERSION);
+	dwc->version = dwc_pwm_readl(dwc->base, DWC_TIMERS_COMP_VERSION);
 
 	/* mask all interrupts and disable all timers */
 	for (i = 0; i < data->npwm; i++) {
-		dwc_writel(dwc->base, DWC_TIM_CTRL(i), 0);
-		dwc_writel(dwc->base, DWC_TIM_LD_CNT(i), 0);
-		dwc_writel(dwc->base, DWC_TIM_CUR_VAL(i), 0);
+		dwc_pwm_writel(dwc->base, DWC_TIM_CTRL(i), 0);
+		dwc_pwm_writel(dwc->base, DWC_TIM_LD_CNT(i), 0);
+		dwc_pwm_writel(dwc->base, DWC_TIM_CUR_VAL(i), 0);
 	}
 
 	mutex_init(&dwc->lock);
@@ -268,11 +274,11 @@ static int dwc_pwm_suspend(struct device *dev)
 	for (i = 0; i < DWC_TIMERS_TOTAL; i++) {
 		index_base = i * 3;
 		dwc->saved_registers[index_base] =
-			dwc_readl(dwc->base, DWC_TIM_LD_CNT(i));
+			dwc_pwm_readl(dwc->base, DWC_TIM_LD_CNT(i));
 		dwc->saved_registers[index_base+1] =
-			dwc_readl(dwc->base, DWC_TIM_LD_CNT2(i));
+			dwc_pwm_readl(dwc->base, DWC_TIM_LD_CNT2(i));
 		dwc->saved_registers[index_base+2] =
-			dwc_readl(dwc->base, DWC_TIM_CTRL(i));
+			dwc_pwm_readl(dwc->base, DWC_TIM_CTRL(i));
 	}
 
 	return 0;
@@ -286,12 +292,12 @@ static int dwc_pwm_resume(struct device *dev)
 
 	for (i = 0; i < DWC_TIMERS_TOTAL; i++) {
 		index_base = i * 3;
-		dwc_writel(dwc->base, DWC_TIM_LD_CNT(i),
-			dwc->saved_registers[index_base]);
-		dwc_writel(dwc->base, DWC_TIM_LD_CNT2(i),
-			dwc->saved_registers[index_base+1]);
-		dwc_writel(dwc->base, DWC_TIM_CTRL(i),
-			dwc->saved_registers[index_base+2]);
+		dwc_pwm_writel(dwc->base, DWC_TIM_LD_CNT(i),
+			       dwc->saved_registers[index_base]);
+		dwc_pwm_writel(dwc->base, DWC_TIM_LD_CNT2(i),
+			       dwc->saved_registers[index_base+1]);
+		dwc_pwm_writel(dwc->base, DWC_TIM_CTRL(i),
+			       dwc->saved_registers[index_base+2]);
 	}
 
 	return 0;
