@@ -74,6 +74,8 @@ int tdg_handle_virtualization_exception(struct pt_regs *regs,
 
 bool tdg_early_handle_ve(struct pt_regs *regs);
 
+extern phys_addr_t tdg_shared_mask(void);
+
 /*
  * To support I/O port access in decompressor or early kernel init
  * code, since #VE exception handler cannot be used, use paravirt
@@ -129,6 +131,8 @@ static inline void tdx_early_init(void) { };
 static inline bool tdx_protected_guest_has(unsigned long flag) { return false; }
 
 static inline bool tdg_early_handle_ve(struct pt_regs *regs) { return false; }
+
+static inline phys_addr_t tdg_shared_mask(void) { return 0; }
 
 #endif /* CONFIG_INTEL_TDX_GUEST */
 
