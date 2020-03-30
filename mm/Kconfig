@@ -780,6 +780,19 @@ config ZONE_DEVICE
 
 	  If FS_DAX is enabled, then say Y.
 
+config ZONE_DEVICE_ACCESS_PROTECTION
+	bool "Device memory access protection"
+	depends on ZONE_DEVICE
+	depends on ARCH_HAS_SUPERVISOR_PKEYS
+
+	help
+	  Enable extra protections on device memory.  This protects against
+	  unintended access to device such as a stray write.  This feature is
+	  particularly useful to protect against corruption of persistent
+	  memory.
+
+	  If in doubt, say 'Y'.
+
 config DEV_PAGEMAP_OPS
 	bool
 
@@ -812,7 +825,7 @@ config ARCH_HAS_SUPERVISOR_PKEYS
 	bool
 config ARCH_ENABLE_SUPERVISOR_PKEYS
 	def_bool y
-	depends on PKS_TEST
+	depends on (PKS_TEST || ZONE_DEVICE_ACCESS_PROTECTION)
 
 config PERCPU_STATS
 	bool "Collect percpu memory statistics"
