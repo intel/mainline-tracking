@@ -1954,6 +1954,9 @@ config X86_SGX
 config ARCH_HAS_SHADOW_STACK
 	def_bool n
 
+config ARCH_MAYBE_MKWRITE
+	def_bool n
+
 config X86_CET_USER
 	prompt "Intel Control-flow protection for user-mode"
 	def_bool n
@@ -1961,6 +1964,7 @@ config X86_CET_USER
 	depends on AS_WRUSS
 	select ARCH_USES_HIGH_VMA_FLAGS
 	select ARCH_HAS_SHADOW_STACK
+	select ARCH_MAYBE_MKWRITE
 	help
 	  Control-flow protection is a hardware security hardening feature
 	  that detects function-return address or jump target changes by
