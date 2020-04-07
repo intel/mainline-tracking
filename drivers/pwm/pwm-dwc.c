@@ -133,14 +133,10 @@ static void __dwc_pwm_configure_timer(struct dwc_pwm *dwc,
 				      struct pwm_device *pwm,
 				      const struct pwm_state *state)
 {
-	pm_runtime_get_sync(dwc->dev);
-
 	__dwc_pwm_set_enable(dwc, pwm->hwpwm, false);
 	__dwc_pwm_configure(dwc, pwm->hwpwm, state->duty_cycle,
 			    state->period);
 	__dwc_pwm_set_enable(dwc, pwm->hwpwm, state->enabled);
-
-	pm_runtime_put_sync(dwc->dev);
 }
 
 static int dwc_pwm_apply(struct pwm_chip *chip, struct pwm_device *pwm,
@@ -150,17 +146,15 @@ static int dwc_pwm_apply(struct pwm_chip *chip, struct pwm_device *pwm,
 
 	mutex_lock(&dwc->lock);
 
-	if (!state->enabled & pwm_is_enabled(pwm)) {
-			/* enable -> disable state change */
+	if (state->enabled) {
+		if (!pwm_is_enabled(pwm))
+			pm_runtime_get_sync(dwc->dev);
+		__dwc_pwm_configure_timer(dwc, pwm, state);
+	} else {
+		if (pwm_is_enabled(pwm)) {
 			__dwc_pwm_set_enable(dwc, pwm->hwpwm, false);
 			pm_runtime_put_sync(dwc->dev);
-	} else {
-		if (state->enabled & !pwm_is_enabled(pwm)) {
-			/* disable -> enable state change */
-			pm_runtime_get_sync(dwc->dev);
 		}
-		/* Re-configuring or enabling PWM */
-		__dwc_pwm_configure_timer(dwc, pwm, state);
 	}
 
 	mutex_unlock(&dwc->lock);
