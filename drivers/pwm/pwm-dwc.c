@@ -45,7 +45,7 @@ struct dwc_pwm_driver_data {
 };
 
 struct dwc_pwm {
-	struct pwm_chip pwm;
+	struct pwm_chip chip;
 	struct device *dev;
 	struct mutex lock;
 
@@ -56,7 +56,7 @@ struct dwc_pwm {
 
 	u32 saved_registers[24];
 };
-#define to_dwc_pwm(p)	(container_of((p), struct dwc_pwm, pwm))
+#define to_dwc_pwm(p)	(container_of((p), struct dwc_pwm, chip))
 
 static inline u32 dwc_pwm_readl(void __iomem *base, u32 offset)
 {
@@ -130,37 +130,37 @@ static void __dwc_pwm_set_enable(struct dwc_pwm *dwc, int pwm, int enabled)
 }
 
 static void __dwc_pwm_configure_timer(struct dwc_pwm *dwc,
-				      struct pwm_device *pdev,
+				      struct pwm_device *pwm,
 				      const struct pwm_state *state)
 {
 	pm_runtime_get_sync(dwc->dev);
 
-	__dwc_pwm_set_enable(dwc, pdev->hwpwm, false);
-	__dwc_pwm_configure(dwc, pdev->hwpwm, state->duty_cycle,
+	__dwc_pwm_set_enable(dwc, pwm->hwpwm, false);
+	__dwc_pwm_configure(dwc, pwm->hwpwm, state->duty_cycle,
 			    state->period);
-	__dwc_pwm_set_enable(dwc, pdev->hwpwm, state->enabled);
+	__dwc_pwm_set_enable(dwc, pwm->hwpwm, state->enabled);
 
 	pm_runtime_put_sync(dwc->dev);
 }
 
-static int dwc_pwm_apply(struct pwm_chip *pwm, struct pwm_device *pdev,
+static int dwc_pwm_apply(struct pwm_chip *chip, struct pwm_device *pwm,
 			 const struct pwm_state *state)
 {
-	struct dwc_pwm *dwc = to_dwc_pwm(pwm);
+	struct dwc_pwm *dwc = to_dwc_pwm(chip);
 
 	mutex_lock(&dwc->lock);
 
-	if (!state->enabled & pwm_is_enabled(pdev)) {
+	if (!state->enabled & pwm_is_enabled(pwm)) {
 			/* enable -> disable state change */
-			__dwc_pwm_set_enable(dwc, pdev->hwpwm, false);
+			__dwc_pwm_set_enable(dwc, pwm->hwpwm, false);
 			pm_runtime_put_sync(dwc->dev);
 	} else {
-		if (state->enabled & !pwm_is_enabled(pdev)) {
+		if (state->enabled & !pwm_is_enabled(pwm)) {
 			/* disable -> enable state change */
 			pm_runtime_get_sync(dwc->dev);
 		}
 		/* Re-configuring or enabling PWM */
-		__dwc_pwm_configure_timer(dwc, pdev, state);
+		__dwc_pwm_configure_timer(dwc, pwm, state);
 	}
 
 	mutex_unlock(&dwc->lock);
@@ -168,17 +168,17 @@ static int dwc_pwm_apply(struct pwm_chip *pwm, struct pwm_device *pdev,
 	return 0;
 }
 
-static void dwc_pwm_get_state(struct pwm_chip *pwm, struct pwm_device *pdev,
+static void dwc_pwm_get_state(struct pwm_chip *chip, struct pwm_device *pwm,
 			      struct pwm_state *state)
 {
-	struct dwc_pwm *dwc = to_dwc_pwm(pwm);
+	struct dwc_pwm *dwc = to_dwc_pwm(chip);
 
 	pm_runtime_get_sync(dwc->dev);
 
 	mutex_lock(&dwc->lock);
-	state->enabled = __dwc_pwm_is_enabled(dwc, pdev->hwpwm);
-	state->duty_cycle = __dwc_pwm_duty_ns(dwc, pdev->hwpwm);
-	state->period = __dwc_pwm_period_ns(dwc, pdev->hwpwm,
+	state->enabled = __dwc_pwm_is_enabled(dwc, pwm->hwpwm);
+	state->duty_cycle = __dwc_pwm_duty_ns(dwc, pwm->hwpwm);
+	state->period = __dwc_pwm_period_ns(dwc, pwm->hwpwm,
 					    state->duty_cycle);
 	mutex_unlock(&dwc->lock);
 
@@ -235,12 +235,12 @@ static int dwc_pwm_probe(struct pci_dev *pci, const struct pci_device_id *id)
 	mutex_init(&dwc->lock);
 	pci_set_drvdata(pci, dwc);
 
-	dwc->pwm.dev = dev;
-	dwc->pwm.ops = &dwc_pwm_ops;
-	dwc->pwm.npwm = data->npwm;
-	dwc->pwm.base = -1;
+	dwc->chip.dev = dev;
+	dwc->chip.ops = &dwc_pwm_ops;
+	dwc->chip.npwm = data->npwm;
+	dwc->chip.base = -1;
 
-	ret = pwmchip_add(&dwc->pwm);
+	ret = pwmchip_add(&dwc->chip);
 	if (ret)
 		return ret;
 
@@ -258,10 +258,10 @@ static void dwc_pwm_remove(struct pci_dev *pci)
 	pm_runtime_forbid(&pci->dev);
 	pm_runtime_get_noresume(&pci->dev);
 
-	for (i = 0; i < dwc->pwm.npwm; i++)
-		pwm_disable(&dwc->pwm.pwms[i]);
+	for (i = 0; i < dwc->chip.npwm; i++)
+		pwm_disable(&dwc->chip.pwms[i]);
 
-	pwmchip_remove(&dwc->pwm);
+	pwmchip_remove(&dwc->chip);
 }
 
 #ifdef CONFIG_PM_SLEEP
