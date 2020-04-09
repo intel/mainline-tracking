@@ -179,9 +179,9 @@ static void dwc_pwm_get_state(struct pwm_chip *chip, struct pwm_device *pwm,
 }
 
 static const struct pwm_ops dwc_pwm_ops = {
-	.apply		= dwc_pwm_apply,
-	.get_state	= dwc_pwm_get_state,
-	.owner		= THIS_MODULE,
+	.apply = dwc_pwm_apply,
+	.get_state = dwc_pwm_get_state,
+	.owner = THIS_MODULE,
 };
 
 static int dwc_pwm_probe(struct pci_dev *pci, const struct pci_device_id *id)
