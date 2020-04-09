@@ -50,7 +50,6 @@ struct dwc_pwm {
 	struct mutex lock;
 
 	unsigned long clk_period_ns;
-	unsigned int version;
 
 	void __iomem *base;
 
@@ -216,8 +215,6 @@ static int dwc_pwm_probe(struct pci_dev *pci, const struct pci_device_id *id)
 	dwc->base = pcim_iomap_table(pci)[0];
 	if (!dwc->base)
 		return -ENOMEM;
-
-	dwc->version = dwc_pwm_readl(dwc->base, DWC_TIMERS_COMP_VERSION);
 
 	/* mask all interrupts and disable all timers */
 	for (i = 0; i < data->npwm; i++) {
