@@ -62,7 +62,7 @@ static inline u32 dwc_pwm_readl(void __iomem *base, u32 offset)
 	return readl(base + offset);
 }
 
-static inline void dwc_pwm_writel(void __iomem *base, u32 offset, u32 value)
+static inline void dwc_pwm_writel(u32 value, void __iomem *base, u32 offset)
 {
 	writel(value, base + offset);
 }
@@ -78,11 +78,11 @@ static void __dwc_pwm_configure(struct dwc_pwm *dwc, int pwm,
 	high = DIV_ROUND_CLOSEST(duty_ns, dwc->clk_period_ns) - 1;
 	low = DIV_ROUND_CLOSEST(period_ns - duty_ns, dwc->clk_period_ns) - 1;
 
-	dwc_pwm_writel(dwc->base, DWC_TIM_LD_CNT(pwm), low);
-	dwc_pwm_writel(dwc->base, DWC_TIM_LD_CNT2(pwm), high);
+	dwc_pwm_writel(low, dwc->base, DWC_TIM_LD_CNT(pwm));
+	dwc_pwm_writel(high, dwc->base, DWC_TIM_LD_CNT2(pwm));
 
 	ctrl = DWC_TIM_CTRL_MODE_USER | DWC_TIM_CTRL_PWM;
-	dwc_pwm_writel(dwc->base, DWC_TIM_CTRL(pwm), ctrl);
+	dwc_pwm_writel(ctrl, dwc->base, DWC_TIM_CTRL(pwm));
 }
 
 static u32 __dwc_pwm_duty_ns(struct dwc_pwm *dwc, int pwm)
@@ -125,7 +125,7 @@ static void __dwc_pwm_set_enable(struct dwc_pwm *dwc, int pwm, int enabled)
 	else
 		reg &= ~DWC_TIM_CTRL_EN;
 
-	dwc_pwm_writel(dwc->base, DWC_TIM_CTRL(pwm), reg);
+	dwc_pwm_writel(reg, dwc->base, DWC_TIM_CTRL(pwm));
 }
 
 static void __dwc_pwm_configure_timer(struct dwc_pwm *dwc,
@@ -218,9 +218,9 @@ static int dwc_pwm_probe(struct pci_dev *pci, const struct pci_device_id *id)
 
 	/* mask all interrupts and disable all timers */
 	for (i = 0; i < data->npwm; i++) {
-		dwc_pwm_writel(dwc->base, DWC_TIM_CTRL(i), 0);
-		dwc_pwm_writel(dwc->base, DWC_TIM_LD_CNT(i), 0);
-		dwc_pwm_writel(dwc->base, DWC_TIM_CUR_VAL(i), 0);
+		dwc_pwm_writel(0, dwc->base, DWC_TIM_CTRL(i));
+		dwc_pwm_writel(0, dwc->base, DWC_TIM_LD_CNT(i));
+		dwc_pwm_writel(0, dwc->base, DWC_TIM_CUR_VAL(i));
 	}
 
 	mutex_init(&dwc->lock);
@@ -283,12 +283,12 @@ static int dwc_pwm_resume(struct device *dev)
 
 	for (i = 0; i < DWC_TIMERS_TOTAL; i++) {
 		index_base = i * 3;
-		dwc_pwm_writel(dwc->base, DWC_TIM_LD_CNT(i),
-			       dwc->saved_registers[index_base]);
-		dwc_pwm_writel(dwc->base, DWC_TIM_LD_CNT2(i),
-			       dwc->saved_registers[index_base+1]);
-		dwc_pwm_writel(dwc->base, DWC_TIM_CTRL(i),
-			       dwc->saved_registers[index_base+2]);
+		dwc_pwm_writel(dwc->saved_registers[index_base],
+			       dwc->base, DWC_TIM_LD_CNT(i));
+		dwc_pwm_writel(dwc->saved_registers[index_base+1],
+			       dwc->base, DWC_TIM_LD_CNT2(i));
+		dwc_pwm_writel(dwc->saved_registers[index_base+2],
+			       dwc->base, DWC_TIM_CTRL(i));
 	}
 
 	return 0;
