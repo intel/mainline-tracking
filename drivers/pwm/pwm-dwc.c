@@ -203,18 +203,24 @@ static int dwc_pwm_probe(struct pci_dev *pci, const struct pci_device_id *id)
 	dwc->clk_period_ns = data->clk_period_ns;
 
 	ret = pcim_enable_device(pci);
-	if (ret)
+	if (ret) {
+		dev_err(&pci->dev, "Failed to enable device (%d)\n", ret);
 		return ret;
+	}
 
 	pci_set_master(pci);
 
 	ret = pcim_iomap_regions(pci, BIT(0), pci_name(pci));
-	if (ret)
+	if (ret) {
+		dev_err(&pci->dev, "Failed to iomap PCI BAR (%d)\n", ret);
 		return ret;
+	}
 
 	dwc->base = pcim_iomap_table(pci)[0];
-	if (!dwc->base)
+	if (!dwc->base) {
+		dev_err(&pci->dev, "Base address missing\n");
 		return -ENOMEM;
+	}
 
 	/* mask all interrupts and disable all timers */
 	for (i = 0; i < data->npwm; i++) {
