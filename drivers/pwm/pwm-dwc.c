@@ -328,4 +328,4 @@ module_pci_driver(dwc_pwm_driver);
 
 MODULE_AUTHOR("Felipe Balbi>");
 MODULE_DESCRIPTION("DesignWare PWM Controller");
-MODULE_LICENSE("GPL v2");
+MODULE_LICENSE("GPL");
