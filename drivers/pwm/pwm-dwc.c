@@ -176,6 +176,7 @@ static void dwc_pwm_get_state(struct pwm_chip *chip, struct pwm_device *pwm,
 	state->duty_cycle = __dwc_pwm_duty_ns(dwc, pwm->hwpwm);
 	state->period = __dwc_pwm_period_ns(dwc, pwm->hwpwm,
 					    state->duty_cycle);
+	state->polarity = PWM_POLARITY_NORMAL;
 	mutex_unlock(&dwc->lock);
 
 	pm_runtime_put_sync(dwc->dev);
