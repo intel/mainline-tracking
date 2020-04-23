@@ -207,5 +207,13 @@ struct plat_stmmacenet_data {
 	u8 vlan_fail_q;
 	unsigned int eee_usecs_rate;
 	bool multi_msi_en;
+	int msi_mac_vec;
+	int msi_wol_vec;
+	int msi_lpi_vec;
+	int msi_phy_conv_vec;
+	int msi_sfty_ce_vec;
+	int msi_sfty_ue_vec;
+	int msi_rx_base_vec;
+	int msi_tx_base_vec;
 };
 #endif
