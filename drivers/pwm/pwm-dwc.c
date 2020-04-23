@@ -193,7 +193,6 @@ static int dwc_pwm_probe(struct pci_dev *pci, const struct pci_device_id *id)
 	struct dwc_pwm *dwc;
 	struct device *dev;
 	int ret;
-	int i;
 
 	data = (struct dwc_pwm_driver_data *) id->driver_data;
 	dev = &pci->dev;
@@ -225,13 +224,6 @@ static int dwc_pwm_probe(struct pci_dev *pci, const struct pci_device_id *id)
 		return -ENOMEM;
 	}
 
-	/* mask all interrupts and disable all timers */
-	for (i = 0; i < data->npwm; i++) {
-		dwc_pwm_writel(0, dwc->base, DWC_TIM_CTRL(i));
-		dwc_pwm_writel(0, dwc->base, DWC_TIM_LD_CNT(i));
-		dwc_pwm_writel(0, dwc->base, DWC_TIM_CUR_VAL(i));
-	}
-
 	mutex_init(&dwc->lock);
 	pci_set_drvdata(pci, dwc);
 
@@ -253,13 +245,9 @@ static int dwc_pwm_probe(struct pci_dev *pci, const struct pci_device_id *id)
 static void dwc_pwm_remove(struct pci_dev *pci)
 {
 	struct dwc_pwm *dwc = pci_get_drvdata(pci);
-	int i;
 
 	pm_runtime_forbid(&pci->dev);
 	pm_runtime_get_noresume(&pci->dev);
-
-	for (i = 0; i < dwc->chip.npwm; i++)
-		pwm_disable(&dwc->chip.pwms[i]);
 
 	pwmchip_remove(&dwc->chip);
 }
