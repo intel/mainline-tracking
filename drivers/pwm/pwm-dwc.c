@@ -143,6 +143,9 @@ static int dwc_pwm_apply(struct pwm_chip *chip, struct pwm_device *pwm,
 {
 	struct dwc_pwm *dwc = to_dwc_pwm(chip);
 
+	if (state->polarity != PWM_POLARITY_NORMAL)
+		return -EINVAL;
+
 	mutex_lock(&dwc->lock);
 
 	if (state->enabled) {
