@@ -885,6 +885,9 @@ static SIMPLE_DEV_PM_OPS(intel_eth_pm_ops, intel_eth_pci_suspend,
 #define PCI_DEVICE_ID_INTEL_TGLH_SGMII1G_0_ID		0x43ac
 #define PCI_DEVICE_ID_INTEL_TGLH_SGMII1G_1_ID		0x43a2
 #define PCI_DEVICE_ID_INTEL_TGL_SGMII1G_ID		0xa0ac
+#define PCI_DEVICE_ID_INTEL_ADLS_SGMII1G_0_ID		0x7aac
+#define PCI_DEVICE_ID_INTEL_ADLS_SGMII1G_1_ID		0x7aad
+#define PCI_DEVICE_ID_INTEL_ADLLP_SGMII_ID		0x7a2c
 
 static const struct pci_device_id intel_eth_pci_id_table[] = {
 	{ PCI_DEVICE_DATA(INTEL, QUARK_ID, &quark_info) },
@@ -901,6 +904,15 @@ static const struct pci_device_id intel_eth_pci_id_table[] = {
 	{ PCI_DEVICE_DATA(INTEL, TGLH_SGMII1G_0_ID,
 			  &tgl_sgmii1g_phy0_pci_info) },
 	{ PCI_DEVICE_DATA(INTEL, TGLH_SGMII1G_1_ID,
+			  &tgl_sgmii1g_phy0_pci_info) },
+	/* TODO: Temporary assigning TGL PHY PCI information to ADL until we
+	 * have more information on ADL PHY when schematic is ready.
+	 */
+	{ PCI_DEVICE_DATA(INTEL, ADLS_SGMII1G_0_ID,
+			  &tgl_sgmii1g_phy0_pci_info) },
+	{ PCI_DEVICE_DATA(INTEL, ADLS_SGMII1G_1_ID,
+			  &tgl_sgmii1g_phy0_pci_info) },
+	{ PCI_DEVICE_DATA(INTEL, ADLLP_SGMII_ID,
 			  &tgl_sgmii1g_phy0_pci_info) },
 	{}
 };
