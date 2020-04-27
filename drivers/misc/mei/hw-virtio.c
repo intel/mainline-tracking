@@ -12,6 +12,7 @@
 #include <linux/virtio_config.h>
 #include <linux/virtio_ids.h>
 #include <linux/atomic.h>
+#include <linux/slab.h>
 
 #include "mei_dev.h"
 #include "hbm.h"
