@@ -15,6 +15,7 @@
 #include <linux/virtio_config.h>
 #include <linux/uaccess.h>
 #include <linux/rpmb.h>
+#include <linux/slab.h>
 
 static const char id[] = "RPMB:VIRTIO";
 #ifndef VIRTIO_ID_RPMB
