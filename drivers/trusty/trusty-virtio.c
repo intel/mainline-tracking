@@ -22,6 +22,7 @@
 #include <linux/notifier.h>
 #include <linux/workqueue.h>
 #include <linux/remoteproc.h>
+#include <linux/slab.h>
 
 #include <linux/platform_device.h>
 #include <linux/trusty/smcall.h>
