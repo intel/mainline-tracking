@@ -149,11 +149,11 @@ static int dwc_pwm_apply(struct pwm_chip *chip, struct pwm_device *pwm,
 	mutex_lock(&dwc->lock);
 
 	if (state->enabled) {
-		if (!pwm_is_enabled(pwm))
+		if (!pwm->state.enabled)
 			pm_runtime_get_sync(dwc->dev);
 		__dwc_pwm_configure_timer(dwc, pwm, state);
 	} else {
-		if (pwm_is_enabled(pwm)) {
+		if (pwm->state.enabled) {
 			__dwc_pwm_set_enable(dwc, pwm->hwpwm, false);
 			pm_runtime_put_sync(dwc->dev);
 		}
