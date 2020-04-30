@@ -16,7 +16,6 @@
 #include <linux/pci.h>
 #include <linux/pm_runtime.h>
 #include <linux/pwm.h>
-#include <linux/mutex.h>
 #include <linux/pm_runtime.h>
 
 #define DWC_TIM_LD_CNT(n)	((n) * 0x14)
@@ -49,7 +48,6 @@ struct dwc_pwm_driver_data {
 struct dwc_pwm {
 	struct pwm_chip chip;
 	struct device *dev;
-	struct mutex lock;
 
 	unsigned long clk_period_ns;
 
@@ -148,8 +146,6 @@ static int dwc_pwm_apply(struct pwm_chip *chip, struct pwm_device *pwm,
 	if (state->polarity != PWM_POLARITY_NORMAL)
 		return -EINVAL;
 
-	mutex_lock(&dwc->lock);
-
 	if (state->enabled) {
 		if (!pwm->state.enabled)
 			pm_runtime_get_sync(dwc->dev);
@@ -161,8 +157,6 @@ static int dwc_pwm_apply(struct pwm_chip *chip, struct pwm_device *pwm,
 		}
 	}
 
-	mutex_unlock(&dwc->lock);
-
 	return 0;
 }
 
@@ -173,13 +167,11 @@ static void dwc_pwm_get_state(struct pwm_chip *chip, struct pwm_device *pwm,
 
 	pm_runtime_get_sync(dwc->dev);
 
-	mutex_lock(&dwc->lock);
 	state->enabled = __dwc_pwm_is_enabled(dwc, pwm->hwpwm);
 	state->duty_cycle = __dwc_pwm_duty_ns(dwc, pwm->hwpwm);
 	state->period = __dwc_pwm_period_ns(dwc, pwm->hwpwm,
 					    state->duty_cycle);
 	state->polarity = PWM_POLARITY_NORMAL;
-	mutex_unlock(&dwc->lock);
 
 	pm_runtime_put_sync(dwc->dev);
 }
@@ -227,7 +219,6 @@ static int dwc_pwm_probe(struct pci_dev *pci, const struct pci_device_id *id)
 		return -ENOMEM;
 	}
 
-	mutex_init(&dwc->lock);
 	pci_set_drvdata(pci, dwc);
 
 	dwc->chip.dev = dev;
