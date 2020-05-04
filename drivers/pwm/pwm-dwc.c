@@ -45,6 +45,12 @@ struct dwc_pwm_driver_data {
 	int npwm;
 };
 
+struct dwc_pwm_ctx {
+	u32 cnt;
+	u32 cnt2;
+	u32 ctrl;
+};
+
 struct dwc_pwm {
 	struct pwm_chip chip;
 	struct device *dev;
@@ -53,7 +59,7 @@ struct dwc_pwm {
 
 	void __iomem *base;
 
-	u32 saved_registers[24];
+	struct dwc_pwm_ctx ctx[DWC_TIMERS_TOTAL];
 };
 #define to_dwc_pwm(p)	(container_of((p), struct dwc_pwm, chip))
 
@@ -251,15 +257,14 @@ static int dwc_pwm_suspend(struct device *dev)
 {
 	struct pci_dev *pdev = container_of(dev, struct pci_dev, dev);
 	struct dwc_pwm *dwc = pci_get_drvdata(pdev);
-	int i, index_base;
+	int i;
 
 	for (i = 0; i < DWC_TIMERS_TOTAL; i++) {
-		index_base = i * 3;
-		dwc->saved_registers[index_base] =
+		dwc->ctx[i].cnt =
 			dwc_pwm_readl(dwc->base, DWC_TIM_LD_CNT(i));
-		dwc->saved_registers[index_base+1] =
+		dwc->ctx[i].cnt2 =
 			dwc_pwm_readl(dwc->base, DWC_TIM_LD_CNT2(i));
-		dwc->saved_registers[index_base+2] =
+		dwc->ctx[i].ctrl =
 			dwc_pwm_readl(dwc->base, DWC_TIM_CTRL(i));
 	}
 
@@ -270,15 +275,14 @@ static int dwc_pwm_resume(struct device *dev)
 {
 	struct pci_dev *pdev = container_of(dev, struct pci_dev, dev);
 	struct dwc_pwm *dwc = pci_get_drvdata(pdev);
-	int i, index_base;
+	int i;
 
 	for (i = 0; i < DWC_TIMERS_TOTAL; i++) {
-		index_base = i * 3;
-		dwc_pwm_writel(dwc->saved_registers[index_base],
+		dwc_pwm_writel(dwc->ctx[i].cnt,
 			       dwc->base, DWC_TIM_LD_CNT(i));
-		dwc_pwm_writel(dwc->saved_registers[index_base+1],
+		dwc_pwm_writel(dwc->ctx[i].cnt2,
 			       dwc->base, DWC_TIM_LD_CNT2(i));
-		dwc_pwm_writel(dwc->saved_registers[index_base+2],
+		dwc_pwm_writel(dwc->ctx[i].ctrl,
 			       dwc->base, DWC_TIM_CTRL(i));
 	}
 
