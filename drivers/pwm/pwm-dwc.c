@@ -260,6 +260,11 @@ static int dwc_pwm_suspend(struct device *dev)
 	int i;
 
 	for (i = 0; i < DWC_TIMERS_TOTAL; i++) {
+		if (dwc->chip.pwms[i].state.enabled) {
+			dev_err(dev, "PWM %u in use by consumer (%s)"\n",
+				i, dwc->chip.pwms[i].label);
+			return -EBUSY;
+		}
 		dwc->ctx[i].cnt =
 			dwc_pwm_readl(dwc->base, DWC_TIM_LD_CNT(i));
 		dwc->ctx[i].cnt2 =
