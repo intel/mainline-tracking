@@ -16,7 +16,6 @@
 #include <linux/pci.h>
 #include <linux/pm_runtime.h>
 #include <linux/pwm.h>
-#include <linux/pm_runtime.h>
 
 #define DWC_TIM_LD_CNT(n)	((n) * 0x14)
 #define DWC_TIM_LD_CNT2(n)	(((n) * 4) + 0xb0)
