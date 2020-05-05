@@ -261,7 +261,7 @@ static int dwc_pwm_suspend(struct device *dev)
 
 	for (i = 0; i < DWC_TIMERS_TOTAL; i++) {
 		if (dwc->chip.pwms[i].state.enabled) {
-			dev_err(dev, "PWM %u in use by consumer (%s)"\n",
+			dev_err(dev, "PWM %u in use by consumer (%s)\n",
 				i, dwc->chip.pwms[i].label);
 			return -EBUSY;
 		}
