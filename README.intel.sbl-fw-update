@@ -1,0 +1,29 @@
+Slim Bootloader firmware update driver
+
+Slim Bootloader(SBL) [1] is a small open-source boot
+firmware, designed for running on certain Intel platforms. SBL can be
+thought-of as fulfilling the role of a minimal BIOS
+implementation, i.e initializing the hardware and booting
+Operating System.
+
+This driver creates sysfs interfaces which allows user space entities
+to trigger update of SBL firmware. See the included file
+"Documentation/ABI/testing/sysfs-platform-intel-wmi-sbl-fw-update" which
+explains the interface options.
+
+[1] https://slimbootloader.github.io
+
+Configuration option
+---------------------
+
+CONFIG_INTEL_WMI_SBL_FW_UPDATE=y|m
+
+Which platform(s) are affected by this code?
+--------------------------------------------
+
+To exercise this path the platform needs to have Slim Bootloader firmware
+
+
+Code Classification:	Public
+SDL Contact:		Cindy Johnson <cindy.r.johnson@intel.com>
+IP Owners:		Maurice Ma <maurice.ma@intel.com>
