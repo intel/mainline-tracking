@@ -140,7 +140,7 @@ static void dwc_pwm_get_state(struct pwm_chip *chip, struct pwm_device *pwm,
 			      struct pwm_state *state)
 {
 	struct dwc_pwm *dwc = to_dwc_pwm(chip);
-	u32 duty, period;
+	u64 duty, period;
 
 	pm_runtime_get_sync(dwc->dev);
 
