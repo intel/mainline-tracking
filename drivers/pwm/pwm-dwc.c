@@ -90,35 +90,6 @@ static void __dwc_pwm_configure(struct dwc_pwm *dwc, int pwm,
 	dwc_pwm_writel(ctrl, dwc->base, DWC_TIM_CTRL(pwm));
 }
 
-static u32 __dwc_pwm_duty_ns(struct dwc_pwm *dwc, int pwm)
-{
-	u32 duty;
-
-	duty = dwc_pwm_readl(dwc->base, DWC_TIM_LD_CNT2(pwm));
-	duty += 1;
-	duty *= dwc->clk_period_ns;
-
-	return duty;
-}
-
-static u32 __dwc_pwm_period_ns(struct dwc_pwm *dwc, int pwm, u32 duty)
-{
-	u32 period;
-
-	period = dwc_pwm_readl(dwc->base, DWC_TIM_LD_CNT(pwm));
-	period += 1;
-	period *= dwc->clk_period_ns;
-	period += duty;
-
-	return period;
-}
-
-static bool __dwc_pwm_is_enabled(struct dwc_pwm *dwc, int pwm)
-{
-	return !!(dwc_pwm_readl(dwc->base,
-				DWC_TIM_CTRL(pwm)) & DWC_TIM_CTRL_EN);
-}
-
 static void __dwc_pwm_set_enable(struct dwc_pwm *dwc, int pwm, int enabled)
 {
 	u32 reg;
@@ -169,13 +140,24 @@ static void dwc_pwm_get_state(struct pwm_chip *chip, struct pwm_device *pwm,
 			      struct pwm_state *state)
 {
 	struct dwc_pwm *dwc = to_dwc_pwm(chip);
+	u32 duty, period;
 
 	pm_runtime_get_sync(dwc->dev);
 
-	state->enabled = __dwc_pwm_is_enabled(dwc, pwm->hwpwm);
-	state->duty_cycle = __dwc_pwm_duty_ns(dwc, pwm->hwpwm);
-	state->period = __dwc_pwm_period_ns(dwc, pwm->hwpwm,
-					    state->duty_cycle);
+	state->enabled = !!(dwc_pwm_readl(dwc->base,
+				DWC_TIM_CTRL(pwm->hwpwm)) & DWC_TIM_CTRL_EN);
+
+	duty = dwc_pwm_readl(dwc->base, DWC_TIM_LD_CNT2(pwm->hwpwm));
+	duty += 1;
+	duty *= dwc->clk_period_ns;
+	state->duty_cycle = duty;
+
+	period = dwc_pwm_readl(dwc->base, DWC_TIM_LD_CNT(pwm->hwpwm));
+	period += 1;
+	period *= dwc->clk_period_ns;
+	period += duty;
+	state->period = period;
+
 	state->polarity = PWM_POLARITY_NORMAL;
 
 	pm_runtime_put_sync(dwc->dev);
