@@ -30,6 +30,7 @@
 #define DWC_TIMERS_COMP_VERSION	0xac
 
 #define DWC_TIMERS_TOTAL	8
+#define DWC_CLK_PERIOD_NS	10
 
 /* Timer Control Register */
 #define DWC_TIM_CTRL_EN		BIT(0)
@@ -38,11 +39,6 @@
 #define DWC_TIM_CTRL_MODE_USER	(1 << 1)
 #define DWC_TIM_CTRL_INT_MASK	BIT(2)
 #define DWC_TIM_CTRL_PWM	BIT(3)
-
-struct dwc_pwm_driver_data {
-	unsigned long clk_period_ns;
-	int npwm;
-};
 
 struct dwc_pwm_ctx {
 	u32 cnt;
@@ -173,12 +169,10 @@ static const struct pwm_ops dwc_pwm_ops = {
 
 static int dwc_pwm_probe(struct pci_dev *pci, const struct pci_device_id *id)
 {
-	struct dwc_pwm_driver_data *data;
 	struct dwc_pwm *dwc;
 	struct device *dev;
 	int ret;
 
-	data = (struct dwc_pwm_driver_data *) id->driver_data;
 	dev = &pci->dev;
 
 	dwc = devm_kzalloc(&pci->dev, sizeof(*dwc), GFP_KERNEL);
@@ -186,7 +180,7 @@ static int dwc_pwm_probe(struct pci_dev *pci, const struct pci_device_id *id)
 		return -ENOMEM;
 
 	dwc->dev = dev;
-	dwc->clk_period_ns = data->clk_period_ns;
+	dwc->clk_period_ns = DWC_CLK_PERIOD_NS;
 
 	ret = pcim_enable_device(pci);
 	if (ret) {
@@ -212,7 +206,7 @@ static int dwc_pwm_probe(struct pci_dev *pci, const struct pci_device_id *id)
 
 	dwc->chip.dev = dev;
 	dwc->chip.ops = &dwc_pwm_ops;
-	dwc->chip.npwm = data->npwm;
+	dwc->chip.npwm = DWC_TIMERS_TOTAL;
 	dwc->chip.base = -1;
 
 	ret = pwmchip_add(&dwc->chip);
@@ -280,13 +274,8 @@ static int dwc_pwm_resume(struct device *dev)
 
 static SIMPLE_DEV_PM_OPS(dwc_pwm_pm_ops, dwc_pwm_suspend, dwc_pwm_resume);
 
-static const struct dwc_pwm_driver_data ehl_driver_data = {
-	.npwm = 8,
-	.clk_period_ns = 10,
-};
-
 static const struct pci_device_id dwc_pwm_id_table[] = {
-	{ PCI_VDEVICE(INTEL, 0x4bb7), (kernel_ulong_t) &ehl_driver_data },
+	{ PCI_VDEVICE(INTEL, 0x4bb7) }, /* Elkhart Lake */
 	{  }	/* Terminating Entry */
 };
 MODULE_DEVICE_TABLE(pci, dwc_pwm_id_table);
