@@ -281,10 +281,10 @@ static const struct pci_device_id dwc_pwm_id_table[] = {
 MODULE_DEVICE_TABLE(pci, dwc_pwm_id_table);
 
 static struct pci_driver dwc_pwm_driver = {
-	.name		= "pwm-dwc",
-	.probe		= dwc_pwm_probe,
-	.remove		= dwc_pwm_remove,
-	.id_table	= dwc_pwm_id_table,
+	.name = "pwm-dwc",
+	.probe = dwc_pwm_probe,
+	.remove = dwc_pwm_remove,
+	.id_table = dwc_pwm_id_table,
 	.driver = {
 		.pm = &dwc_pwm_pm_ops,
 	},
