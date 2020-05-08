@@ -150,13 +150,15 @@ static void dwc_pwm_get_state(struct pwm_chip *chip, struct pwm_device *pwm,
 	duty = dwc_pwm_readl(dwc->base, DWC_TIM_LD_CNT2(pwm->hwpwm));
 	duty += 1;
 	duty *= dwc->clk_period_ns;
-	state->duty_cycle = duty;
+	/* Cap the value to 2^32-1 ns */
+	state->duty_cycle = min(duty, (u64)(u32)-1);
 
 	period = dwc_pwm_readl(dwc->base, DWC_TIM_LD_CNT(pwm->hwpwm));
 	period += 1;
 	period *= dwc->clk_period_ns;
 	period += duty;
-	state->period = period;
+	/* Cap the value to 2^32-1 ns */
+	state->period = min(period, (u64)(u32)-1);
 
 	state->polarity = PWM_POLARITY_NORMAL;
 
