@@ -546,6 +546,9 @@ struct ufs_dev_info {
 
 	bool	b_rpm_dev_flush_capable;
 	u8	b_presrv_uspc_en;
+
+	u8 *serial_no;
+	size_t serial_no_len;
 };
 
 /*
