@@ -38,6 +38,9 @@
 #define GPY_VSPEV2_WOL_AD23	0Xe09		/* WOL addr Byte3:Byte4 */
 #define GPY_VSPEV2_WOL_AD45	0xe0a		/* WOL addr Byte1:Byte2 */
 
+/* WA for Q-SPEC GPY115 PHY ID */
+#define INTEL_PHY_ID_GPY115_C22		0x67C9DE00
+
 static int gpy_set_eee(struct phy_device *phydev, struct ethtool_eee *data)
 {
 	int cap, old_adv, adv = 0, ret;
@@ -68,6 +71,24 @@ static int gpy_set_eee(struct phy_device *phydev, struct ethtool_eee *data)
 		if (ret < 0)
 			return ret;
 	}
+
+	return 0;
+}
+
+static int gpy_soft_reset(struct phy_device *phydev)
+{
+	int ret;
+	int phy_id;
+
+	ret = phy_read(phydev, MII_PHYSID1);
+	phy_id = ret << 16;
+
+	ret = phy_read(phydev, MII_PHYSID2);
+	phy_id |= ret;
+
+	/* WA for GPY115 which need a soft reset even after a hard reset */
+	if (phy_id == INTEL_PHY_ID_GPY115_C22)
+		return genphy_soft_reset(phydev);
 
 	return 0;
 }
@@ -251,7 +272,7 @@ static struct phy_driver intel_gpy_drivers[] = {
 		.name		= "INTEL(R) Ethernet Network Connection GPY",
 		.get_features	= genphy_c45_pma_read_abilities,
 		.aneg_done	= genphy_c45_aneg_done,
-		.soft_reset	= genphy_soft_reset,
+		.soft_reset	= gpy_soft_reset,
 		.set_eee	= gpy_set_eee,
 		.ack_interrupt	= gpy_ack_interrupt,
 		.did_interrupt	= gpy_did_interrupt,
