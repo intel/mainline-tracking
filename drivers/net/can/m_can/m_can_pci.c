@@ -200,7 +200,7 @@ static struct pci_driver m_can_pci_driver = {
 };
 
 MODULE_AUTHOR("Felipe Balbi <felipe.balbi@linux.intel.com>");
-MODULE_LICENSE("GPL v2");
+MODULE_LICENSE("GPL");
 MODULE_DESCRIPTION("CAN bus driver for Bosch M_CAN controller on PCI bus");
 
 module_pci_driver(m_can_pci_driver);
