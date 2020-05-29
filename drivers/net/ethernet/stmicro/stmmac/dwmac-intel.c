@@ -516,6 +516,20 @@ static struct stmmac_pci_info tgl_sgmii1g_phy0_pci_info = {
 	.setup = tgl_sgmii_phy0_data,
 };
 
+static int adl_sgmii_phy0_data(struct pci_dev *pdev,
+			       struct plat_stmmacenet_data *plat)
+{
+	plat->phy_interface = PHY_INTERFACE_MODE_SGMII;
+
+	/* SERDES powerup and powerdown will be done in BIOS for ADL */
+
+	return tgl_common_data(pdev, plat);
+}
+
+static struct stmmac_pci_info adl_sgmii_phy0_pci_info = {
+	.setup = adl_sgmii_phy0_data,
+};
+
 static const struct stmmac_pci_func_data galileo_stmmac_func_data[] = {
 	{
 		.func = 6,
@@ -905,11 +919,11 @@ static const struct pci_device_id intel_eth_pci_id_table[] = {
 	 * have more information on ADL PHY when schematic is ready.
 	 */
 	{ PCI_DEVICE_DATA(INTEL, ADLS_SGMII1G_0_ID,
-			  &tgl_sgmii1g_phy0_pci_info) },
+			  &adl_sgmii_phy0_pci_info) },
 	{ PCI_DEVICE_DATA(INTEL, ADLS_SGMII1G_1_ID,
-			  &tgl_sgmii1g_phy0_pci_info) },
+			  &adl_sgmii_phy0_pci_info) },
 	{ PCI_DEVICE_DATA(INTEL, ADLLP_SGMII_ID,
-			  &tgl_sgmii1g_phy0_pci_info) },
+			  &adl_sgmii_phy0_pci_info) },
 	{}
 };
 MODULE_DEVICE_TABLE(pci, intel_eth_pci_id_table);
