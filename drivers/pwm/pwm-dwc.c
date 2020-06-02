@@ -181,7 +181,8 @@ static int dwc_pwm_probe(struct pci_dev *pci, const struct pci_device_id *id)
 
 	ret = pcim_enable_device(pci);
 	if (ret) {
-		dev_err(&pci->dev, "Failed to enable device (%d)\n", ret);
+		dev_err(&pci->dev,
+			"Failed to enable device (%pe)\n", ERR_PTR(ret));
 		return ret;
 	}
 
@@ -189,7 +190,8 @@ static int dwc_pwm_probe(struct pci_dev *pci, const struct pci_device_id *id)
 
 	ret = pcim_iomap_regions(pci, BIT(0), pci_name(pci));
 	if (ret) {
-		dev_err(&pci->dev, "Failed to iomap PCI BAR (%d)\n", ret);
+		dev_err(&pci->dev,
+			"Failed to iomap PCI BAR (%pe)\n", ERR_PTR(ret));
 		return ret;
 	}
 
