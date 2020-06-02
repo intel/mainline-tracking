@@ -50,8 +50,6 @@ struct dwc_pwm {
 	struct pwm_chip chip;
 	struct device *dev;
 
-	unsigned long clk_period_ns;
-
 	void __iomem *base;
 
 	struct dwc_pwm_ctx ctx[DWC_TIMERS_TOTAL];
@@ -76,8 +74,8 @@ static void __dwc_pwm_configure(struct dwc_pwm *dwc, int pwm,
 	u32 high;
 	u32 low;
 
-	high = DIV_ROUND_CLOSEST(duty_ns, dwc->clk_period_ns) - 1;
-	low = DIV_ROUND_CLOSEST(period_ns - duty_ns, dwc->clk_period_ns) - 1;
+	high = DIV_ROUND_CLOSEST(duty_ns, DWC_CLK_PERIOD_NS) - 1;
+	low = DIV_ROUND_CLOSEST(period_ns - duty_ns, DWC_CLK_PERIOD_NS) - 1;
 
 	dwc_pwm_writel(low, dwc->base, DWC_TIM_LD_CNT(pwm));
 	dwc_pwm_writel(high, dwc->base, DWC_TIM_LD_CNT2(pwm));
@@ -145,13 +143,13 @@ static void dwc_pwm_get_state(struct pwm_chip *chip, struct pwm_device *pwm,
 
 	duty = dwc_pwm_readl(dwc->base, DWC_TIM_LD_CNT2(pwm->hwpwm));
 	duty += 1;
-	duty *= dwc->clk_period_ns;
+	duty *= DWC_CLK_PERIOD_NS;
 	/* Cap the value to 2^32-1 ns */
 	state->duty_cycle = min(duty, (u64)(u32)-1);
 
 	period = dwc_pwm_readl(dwc->base, DWC_TIM_LD_CNT(pwm->hwpwm));
 	period += 1;
-	period *= dwc->clk_period_ns;
+	period *= DWC_CLK_PERIOD_NS;
 	period += duty;
 	/* Cap the value to 2^32-1 ns */
 	state->period = min(period, (u64)(u32)-1);
@@ -180,7 +178,6 @@ static int dwc_pwm_probe(struct pci_dev *pci, const struct pci_device_id *id)
 		return -ENOMEM;
 
 	dwc->dev = dev;
-	dwc->clk_period_ns = DWC_CLK_PERIOD_NS;
 
 	ret = pcim_enable_device(pci);
 	if (ret) {
