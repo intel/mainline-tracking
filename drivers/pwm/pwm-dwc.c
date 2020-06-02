@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0
-/**
+/*
  * DesignWare PWM Controller driver
  *
  * Copyright (C) 2018-2020 Intel Corporation
