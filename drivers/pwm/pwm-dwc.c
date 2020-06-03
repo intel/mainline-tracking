@@ -48,7 +48,6 @@ struct dwc_pwm_ctx {
 
 struct dwc_pwm {
 	struct pwm_chip chip;
-	struct device *dev;
 
 	void __iomem *base;
 
@@ -118,12 +117,12 @@ static int dwc_pwm_apply(struct pwm_chip *chip, struct pwm_device *pwm,
 
 	if (state->enabled) {
 		if (!pwm->state.enabled)
-			pm_runtime_get_sync(dwc->dev);
+			pm_runtime_get_sync(chip->dev);
 		__dwc_pwm_configure_timer(dwc, pwm, state);
 	} else {
 		if (pwm->state.enabled) {
 			__dwc_pwm_set_enable(dwc, pwm->hwpwm, false);
-			pm_runtime_put_sync(dwc->dev);
+			pm_runtime_put_sync(chip->dev);
 		}
 	}
 
@@ -136,7 +135,7 @@ static void dwc_pwm_get_state(struct pwm_chip *chip, struct pwm_device *pwm,
 	struct dwc_pwm *dwc = to_dwc_pwm(chip);
 	u64 duty, period;
 
-	pm_runtime_get_sync(dwc->dev);
+	pm_runtime_get_sync(chip->dev);
 
 	state->enabled = !!(dwc_pwm_readl(dwc,
 				DWC_TIM_CTRL(pwm->hwpwm)) & DWC_TIM_CTRL_EN);
@@ -156,7 +155,7 @@ static void dwc_pwm_get_state(struct pwm_chip *chip, struct pwm_device *pwm,
 
 	state->polarity = PWM_POLARITY_NORMAL;
 
-	pm_runtime_put_sync(dwc->dev);
+	pm_runtime_put_sync(chip->dev);
 }
 
 static const struct pwm_ops dwc_pwm_ops = {
@@ -176,8 +175,6 @@ static int dwc_pwm_probe(struct pci_dev *pci, const struct pci_device_id *id)
 	dwc = devm_kzalloc(&pci->dev, sizeof(*dwc), GFP_KERNEL);
 	if (!dwc)
 		return -ENOMEM;
-
-	dwc->dev = dev;
 
 	ret = pcim_enable_device(pci);
 	if (ret) {
