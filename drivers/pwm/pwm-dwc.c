@@ -48,9 +48,7 @@ struct dwc_pwm_ctx {
 
 struct dwc_pwm {
 	struct pwm_chip chip;
-
 	void __iomem *base;
-
 	struct dwc_pwm_ctx ctx[DWC_TIMERS_TOTAL];
 };
 #define to_dwc_pwm(p)	(container_of((p), struct dwc_pwm, chip))
