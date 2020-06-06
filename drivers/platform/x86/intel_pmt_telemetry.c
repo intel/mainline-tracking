@@ -20,22 +20,10 @@
 #include <linux/uaccess.h>
 #include <linux/xarray.h>
 
+#include "intel_pmt_core.h"
 #include "intel_pmt_telem.h"
 
 #define TELEM_DEV_NAME		"pmt_telemetry"
-
-/* Telemetry access types */
-#define TELEM_ACCESS_FUTURE	1
-#define TELEM_ACCESS_BARID	2
-#define TELEM_ACCESS_LOCAL	3
-
-#define TELEM_GUID_OFFSET	0x4
-#define TELEM_BASE_OFFSET	0x8
-#define TELEM_TBIR_MASK		GENMASK(2, 0)
-#define TELEM_ACCESS(v)		((v) & GENMASK(3, 0))
-#define TELEM_TYPE(v)		(((v) & GENMASK(7, 4)) >> 4)
-/* size is in bytes */
-#define TELEM_SIZE(v)		(((v) & GENMASK(27, 12)) >> 10)
 
 #define TELEM_XA_START		1
 #define TELEM_XA_MAX		INT_MAX
@@ -54,7 +42,7 @@ static BLOCKING_NOTIFIER_HEAD(telem_notifier);
 
 struct telem_endpoint {
 	struct pci_dev			*parent;
-	struct telem_header		header;
+	struct pmt_header		header;
 	void __iomem			*base;
 	struct resource			res;
 	bool				present;
@@ -64,9 +52,9 @@ struct telem_endpoint {
 struct pmt_telem_priv;
 
 struct pmt_telem_entry {
-	struct pmt_telem_priv		*priv;
 	struct telem_endpoint		*ep;
-	struct telem_header		header;
+	struct pmt_telem_priv		*priv;
+	struct pmt_header		header;
 	unsigned long			base_addr;
 	void __iomem			*disc_table;
 	struct cdev			cdev;
@@ -281,7 +269,12 @@ int pmt_telem_get_endpoint_info(int devid,
 	}
 
 	info->pdev = ep->parent;
-	info->header = ep->header;
+	info->header.access_type = ep->header.access_type;
+	info->header.telem_type = ep->header.type;
+	info->header.size = ep->header.size;
+	info->header.guid = ep->header.guid;
+	info->header.base_offset = ep->header.base_offset;
+	info->header.tbir = ep->header.bir;
 
 unlock:
 	mutex_unlock(&list_lock);
@@ -383,20 +376,6 @@ EXPORT_SYMBOL(pmt_telem_unregister_notifier);
 /*
  * driver initialization
  */
-static const struct pci_device_id pmt_telem_early_client_pci_ids[] = {
-	{ PCI_VDEVICE(INTEL, 0x9a0d) }, /* TGL */
-	{ PCI_VDEVICE(INTEL, 0x490e) }, /* DG1 */
-	{ PCI_VDEVICE(INTEL, 0x467d) }, /* ADL */
-	{ }
-};
-
-static bool pmt_telem_is_early_client_hw(struct device *dev)
-{
-	struct pci_dev *parent = to_pci_dev(dev->parent);
-
-	return !!pci_match_id(pmt_telem_early_client_pci_ids, parent);
-}
-
 static int pmt_telem_create_dev(struct pmt_telem_priv *priv,
 				struct pmt_telem_entry *entry)
 {
@@ -475,83 +454,22 @@ fail_request_mem_region:
 	return err;
 }
 
-static void pmt_telem_populate_header(void __iomem *disc_offset,
-				      struct telem_header *header)
-{
-	header->access_type = TELEM_ACCESS(readb(disc_offset));
-	header->telem_type = TELEM_TYPE(readb(disc_offset));
-	header->size = TELEM_SIZE(readl(disc_offset));
-	header->guid = readl(disc_offset + TELEM_GUID_OFFSET);
-	header->base_offset = readl(disc_offset + TELEM_BASE_OFFSET);
-
-	/*
-	 * For non-local access types the lower 3 bits of base offset
-	 * contains the index of the base address register where the
-	 * telemetry can be found.
-	 */
-	header->tbir = header->base_offset & TELEM_TBIR_MASK;
-	header->base_offset ^= header->tbir;
-}
-
 static int pmt_telem_add_entry(struct pmt_telem_priv *priv,
 			       struct pmt_telem_entry *entry,
 			       struct resource *header_res)
 {
-	struct pci_dev *pci_dev = to_pci_dev(priv->dev->parent);
-	struct telem_header *header = &entry->header;
-	struct device *dev = &pci_dev->dev;
 	int ret;
 
-	pmt_telem_populate_header(entry->disc_table, &entry->header);
+	pmt_populate_header(PMT_CAP_TELEM, entry->disc_table, &entry->header);
 
-	/* Ony Local access and BARID access modes only for now */
-	switch (entry->header.access_type) {
-	case TELEM_ACCESS_LOCAL:
-		if (header->tbir) {
-			dev_err(priv->dev,
-				"Unsupported BAR index %d for access type %d\n",
-				header->tbir, header->access_type);
-			return -EINVAL;
-		}
-
-		/*
-		 * For access_type LOCAL, the base address is as follows:
-		 * base address = header address + header length + base offset
-		 */
-		entry->base_addr = header_res->start + resource_size(header_res) +
-				   header->base_offset;
-
-		/*
-		 * XXX: For Intel internal use only to address hardware bug
-		 * that will be fixed in production. In the bug, local refers to
-		 * an address in the same bar the header but at a fixed instead
-		 * of relative offset.
-		 */
-                if (pmt_telem_is_early_client_hw(dev)) {
-                        unsigned long pf_addr, mask;
-
-                        dev_info(dev, "applying quirk for local base address\n");
-                        pf_addr = PFN_PHYS(PHYS_PFN(header_res->start)) +
-                                           header->base_offset;
-                        mask = ~GENMASK(fls(header->base_offset), 0);
-                        entry->base_addr = (pf_addr & mask) + header->base_offset;
-                }
-		break;
-
-	case TELEM_ACCESS_BARID:
-		entry->base_addr = pci_dev->resource[header->tbir].start +
-				   header->base_offset;
-		break;
-
-	default:
-		dev_err(dev, "Unsupported access type %d\n",
-			entry->header.access_type);
-		return -EINVAL;
-	}
+	ret = pmt_get_base_address(priv->dev, &entry->header, header_res,
+				   &entry->base_addr);
+	if (ret)
+		return ret;
 
 	ret = alloc_chrdev_region(&entry->devt, 0, 1, TELEM_DEV_NAME);
 	if (ret) {
-		dev_err(dev, "PMT telemetry chrdev_region error: %d\n", ret);
+		dev_err(priv->dev, "PMT telemetry chrdev_region error: %d\n", ret);
 		return ret;
 	}
 
@@ -588,7 +506,7 @@ static bool pmt_telem_region_overlaps(struct platform_device *pdev,
 {
 	u32 guid;
 
-	guid = readl(disc_table + TELEM_GUID_OFFSET);
+	guid = readl(disc_table + GUID_OFFSET);
 
 	return guid == TELEM_CLIENT_FIXED_BLOCK_GUID;
 }
@@ -642,7 +560,7 @@ static int pmt_telem_probe(struct platform_device *pdev)
 			return PTR_ERR(entry->disc_table);
 		}
 
-		if (pmt_telem_is_early_client_hw(&pdev->dev) &&
+		if (pmt_is_early_client_hw(&pdev->dev) &&
 		    pmt_telem_region_overlaps(pdev, entry->disc_table))
 			continue;
 

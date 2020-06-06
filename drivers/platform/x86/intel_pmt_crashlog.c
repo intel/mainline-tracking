@@ -17,12 +17,9 @@
 #include <linux/slab.h>
 #include <linux/uaccess.h>
 
-#define DRV_NAME		"pmt_crashlog"
+#include "intel_pmt_core.h"
 
-/* Crashlog access types */
-#define ACCESS_FUTURE		1
-#define ACCESS_BARID		2
-#define ACCESS_LOCAL		3
+#define DRV_NAME		"pmt_crashlog"
 
 /* Crashlog discovery header types */
 #define CRASH_TYPE_OOBMSM	1
@@ -34,36 +31,15 @@
 #define CRASHLOG_FLAG_COMPLETE	BIT(31)
 #define CRASHLOG_FLAG_MASK	GENMASK(31, 28)
 
-/* Common Header */
 #define CONTROL_OFFSET		0x0
-#define GUID_OFFSET		0x4
-#define BASE_OFFSET		0x8
-#define SIZE_OFFSET		0xC
-#define GET_ACCESS(v)		((v) & GENMASK(3, 0))
-#define GET_TYPE(v)		(((v) & GENMASK(7, 4)) >> 4)
-#define GET_VERSION(v)		(((v) & GENMASK(19, 16)) >> 16)
-
-#define GET_ADDRESS(v)		((v) & GENMASK(31, 3))
-#define GET_BIR(v)		((v) & GENMASK(2, 0))
 
 static DEFINE_IDA(crashlog_devid_ida);
-
-struct crashlog_header {
-	u32	base_offset;
-	u32	size;
-	u32	guid;
-	u8	bir;
-	u8	access_type;
-	u8	crash_type;
-	u8	version;
-};
 
 struct pmt_crashlog_priv;
 
 struct crashlog_entry {
 	struct pmt_crashlog_priv	*priv;
-	struct crashlog_header		header;
-	struct resource			*header_res;
+	struct pmt_header		header;
 	void __iomem			*disc_table;
 	unsigned long			crashlog_data;
 	size_t				crashlog_data_size;
@@ -384,79 +360,31 @@ static int pmt_crashlog_make_dev(struct pmt_crashlog_priv *priv,
 	return PTR_ERR_OR_ZERO(dev);
 }
 
-static void
-pmt_crashlog_populate_header(void __iomem *disc_offset,
-			     struct crashlog_header *header)
-{
-	u32 discovery_header = readl(disc_offset);
-
-	header->access_type = GET_ACCESS(discovery_header);
-	header->crash_type = GET_TYPE(discovery_header);
-	header->version = GET_VERSION(discovery_header);
-	header->guid = readl(disc_offset + GUID_OFFSET);
-	header->base_offset = readl(disc_offset + BASE_OFFSET);
-
-	/*
-	 * For non-local access types the lower 3 bits of base offset
-	 * contains the index of the base address register where the
-	 * crashlogetry can be found.
-	 */
-	header->bir = GET_BIR(header->base_offset);
-	header->base_offset ^= header->bir;
-
-	/* Size is measured in DWORDs */
-	header->size = readl(disc_offset + SIZE_OFFSET);
-}
-
 static int pmt_crashlog_add_entry(struct pmt_crashlog_priv *priv,
-				  struct crashlog_entry *entry)
+				  struct crashlog_entry *entry,
+				  struct resource *header_res)
 {
-	struct resource *res = entry->header_res;
 	int ret;
 
-	pmt_crashlog_populate_header(entry->disc_table, &entry->header);
+	pmt_populate_header(PMT_CAP_CRASHLOG, entry->disc_table,
+			    &entry->header);
 
-	/* Local access and BARID only for now */
-	switch (entry->header.access_type) {
-	case ACCESS_LOCAL:
-		dev_info(priv->dev, "access_type: LOCAL\n");
-		if (entry->header.bir) {
-			dev_err(priv->dev,
-				"Unsupported BAR index %d for access type %d\n",
-				entry->header.bir, entry->header.access_type);
-			return -EINVAL;
-		}
-
-		entry->crashlog_data = res->start + resource_size(res) +
-				       entry->header.base_offset;
-		break;
-
-	case ACCESS_BARID:
-		dev_info(priv->dev, "access_type: BARID\n");
-		entry->crashlog_data =
-			priv->parent->resource[entry->header.bir].start +
-			entry->header.base_offset;
-		break;
-
-	default:
-		dev_err(priv->dev, "Unsupported access type %d\n",
-			entry->header.access_type);
-		return -EINVAL;
-	}
-
-	dev_info(priv->dev, "crashlod_data address: 0x%lx\n", entry->crashlog_data);
+	ret = pmt_get_base_address(priv->dev, &entry->header, header_res,
+				   &entry->crashlog_data);
+	if (ret)
+		return ret;
 
 	entry->crashlog_data_size = entry->header.size * 4;
 
-	if (entry->header.crash_type != CRASH_TYPE_OOBMSM) {
+	if (entry->header.type != CRASH_TYPE_OOBMSM) {
 		dev_err(priv->dev, "Unsupported crashlog header type %d\n",
-			entry->header.crash_type);
+			entry->header.type);
 		return -EINVAL;
 	}
 
-	if (entry->header.version != 0) {
+	if (entry->header.crashlog_version != 0) {
 		dev_err(priv->dev, "Unsupported version value %d\n",
-			entry->header.version);
+			entry->header.crashlog_version);
 		return -EINVAL;
 	}
 
@@ -506,17 +434,17 @@ static int pmt_crashlog_probe(struct platform_device *pdev)
 
 	for (i = 0, entry = priv->entry; i < pdev->num_resources;
 	     i++, entry++) {
+		struct resource *res;
 		int ret;
 
-		entry->header_res = platform_get_resource(pdev, IORESOURCE_MEM,
-							  i);
-		if (!entry->header_res) {
+		res = platform_get_resource(pdev, IORESOURCE_MEM, i);
+		if (!res) {
 			pmt_crashlog_remove_entries(priv);
 			return -ENODEV;
 		}
 
 		dev_info(&pdev->dev, "%d res start: 0x%llx, end 0x%llx\n", i,
-			 entry->header_res->start, entry->header_res->end);
+			 res->start, res->end);
 
 		entry->disc_table = devm_platform_ioremap_resource(pdev, i);
 		if (IS_ERR(entry->disc_table)) {
@@ -524,7 +452,7 @@ static int pmt_crashlog_probe(struct platform_device *pdev)
 			return PTR_ERR(entry->disc_table);
 		}
 
-		ret = pmt_crashlog_add_entry(priv, entry);
+		ret = pmt_crashlog_add_entry(priv, entry, res);
 		if (ret) {
 			pmt_crashlog_remove_entries(priv);
 			return ret;

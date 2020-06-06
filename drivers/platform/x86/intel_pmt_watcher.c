@@ -18,6 +18,8 @@
 #include <linux/slab.h>
 #include <linux/uaccess.h>
 
+#include "intel_pmt_core.h"
+
 #define DRV_NAME		"pmt_watcher"
 #define SMPLR_DEV_PREFIX	"smplr"
 #define TRCR_DEV_PREFIX		"trcr"
@@ -32,20 +34,6 @@
 #define MODE_PERIODIC		1
 #define MODE_ONESHOT		2
 #define MODE_SHARED		3
-
-/* Watcher access types */
-#define ACCESS_FUTURE		1
-#define ACCESS_BARID		2
-#define ACCESS_LOCAL		3
-
-/* Common Header */
-#define GUID_OFFSET		0x4
-#define BASE_OFFSET		0x8
-#define GET_ACCESS(v)		((v) & GENMASK(3, 0))
-#define GET_TYPE(v)		(((v) & GENMASK(11, 4)) >> 4)
-#define GET_SIZE(v)		(((v) & GENMASK(27, 12)) >> 10)
-#define GET_IRQ_EN(v)		((v) & BIT(23))
-#define GET_BIR(v)		((v) & 0x7)
 
 /* Common Config fields */
 #define GET_MODE(v)		((v) & 0x3)
@@ -107,16 +95,6 @@ static const char * const tracer_destination[] = {
 static DEFINE_IDA(sampler_devid_ida);
 static DEFINE_IDA(tracer_devid_ida);
 
-struct watcher_header {
-	u32	access_type;
-	u32	watcher_type;
-	u32	size;
-	bool	irq_support;
-	u32	guid;
-	u32	base_offset;
-	u8	bir;
-};
-
 struct watcher_config {
 	u32		control;
 	u32		period;
@@ -130,8 +108,7 @@ struct pmt_watcher_priv;
 
 struct watcher_entry {
 	struct pmt_watcher_priv	*priv;
-	struct watcher_header	header;
-	struct resource		*header_res;
+	struct pmt_header	header;
 	void __iomem		*disc_table;
 	struct watcher_config	config;
 	void __iomem		*cfg_base;
@@ -158,26 +135,26 @@ struct pmt_watcher_priv {
 
 static inline bool pmt_watcher_is_sampler(struct watcher_entry *entry)
 {
-	return entry->header.watcher_type == TYPE_SAMPLER1 ||
-	       entry->header.watcher_type == TYPE_SAMPLER2;
+	return entry->header.type == TYPE_SAMPLER1 ||
+	       entry->header.type == TYPE_SAMPLER2;
 }
 
 static inline bool pmt_watcher_is_tracer(struct watcher_entry *entry)
 {
-	return entry->header.watcher_type == TYPE_TRACER1 ||
-	       entry->header.watcher_type == TYPE_TRACER2;
+	return entry->header.type == TYPE_TRACER1 ||
+	       entry->header.type == TYPE_TRACER2;
 }
 
 static inline bool pmt_watcher_select_limited(struct watcher_entry *entry)
 {
 	return pmt_watcher_is_sampler(entry) ||
-	       entry->header.watcher_type == TYPE_TRACER2;
+	       entry->header.type == TYPE_TRACER2;
 }
 
 static inline bool pmt_watcher_is_type2(struct watcher_entry *entry)
 {
-	return entry->header.watcher_type == TYPE_SAMPLER2 ||
-	       entry->header.watcher_type == TYPE_TRACER2;
+	return entry->header.type == TYPE_SAMPLER2 ||
+	       entry->header.type == TYPE_TRACER2;
 }
 
 /*
@@ -880,16 +857,6 @@ pmt_watcher_create_entry(struct pmt_watcher_priv *priv,
 			 struct watcher_entry *entry)
 {
 	int vector_sz_in_bytes = entry->header.size - entry->vector_start;
-	struct resource res;
-
-	res.start = pci_resource_start(priv->parent, entry->header.bir) +
-		    entry->header.base_offset;
-	res.end = res.start + entry->header.size - 1;
-	res.flags = IORESOURCE_MEM;
-
-	entry->cfg_base = devm_ioremap_resource(priv->dev, &res);
-	if (IS_ERR(entry->cfg_base))
-		return PTR_ERR(entry->cfg_base);
 
 	/*
 	 * If there is already some request that is stuck in the hardware
@@ -920,51 +887,6 @@ pmt_watcher_create_entry(struct pmt_watcher_priv *priv,
 
 	if (pmt_watcher_is_sampler(entry)) {
 		unsigned int sample_limit;
-
-		switch (entry->header.access_type) {
-		case ACCESS_LOCAL:
-			dev_info(priv->dev, "access_type: LOCAL\n");
-			if (entry->header.bir) {
-				dev_err(priv->dev,
-					"Unsupported BAR index %d for access type %d\n",
-					entry->header.bir, entry->header.access_type);
-				return -EINVAL;
-			}
-
-			entry->smplr_data_start = entry->header_res->start +
-						  resource_size(entry->header_res) +
-						  readl(entry->cfg_base);
-#if 0
-		/*
-		 * XXX: For Intel internal use only to address hardware bug
-		 * that will be fixed in production
-		 */
-		if (pmt_watcher_is_early_client_hw(priv->dev)) {
-			unsigned long pf_addr, mask;
-
-			pf_addr = PFN_PHYS(PHYS_PFN(res->start)) +
-					   entry->header.base_offset;
-
-			mask = ~GENMASK(fls(entry->header.base_offset), 0);
-			entry->base_addr = (pf_addr & mask) +
-					   entry->header.base_offset;
-		}
-#endif
-			break;
-
-		case ACCESS_BARID:
-			dev_info(priv->dev, "access_type: BARID\n");
-			entry->smplr_data_start = pci_resource_start(priv->parent,
-							     entry->header.bir) +
-						  readl(entry->cfg_base);
-			break;
-
-		default:
-			dev_err(priv->dev, "Unsupported access type %d\n",
-				entry->header.access_type);
-			return -EINVAL;
-		}
-		dev_info(priv->dev, "sampler buffer start: 0x%lx\n", entry->smplr_data_start);
 
 		/*
 		 * For sampler only, get the physical address and size of
@@ -1008,32 +930,29 @@ pmt_watcher_create_entry(struct pmt_watcher_priv *priv,
 	return 0;
 }
 
-static void
-pmt_watcher_populate_header(void __iomem *disc_offset,
-			    struct watcher_header *header)
-{
-	header->access_type = GET_ACCESS(readb(disc_offset));
-	header->watcher_type = GET_TYPE(readb(disc_offset));
-	header->size = GET_SIZE(readl(disc_offset));
-	header->irq_support = GET_IRQ_EN(readl(disc_offset));
-	header->guid = readl(disc_offset + GUID_OFFSET);
-	header->base_offset = readl(disc_offset + BASE_OFFSET);
-
-	/*
-	 * For non-local access types the lower 3 bits of base offset
-	 * contains the index of the base address register where the
-	 * watcher can be found.
-	 */
-	header->bir = GET_BIR(header->base_offset);
-	header->base_offset ^= header->bir;
-}
-
 static int pmt_watcher_add_entry(struct pmt_watcher_priv *priv,
-				 struct watcher_entry *entry)
+				 struct watcher_entry *entry,
+				 struct resource *header_res)
 {
+	unsigned long base_address;
+	struct resource res;
 	int ret;
 
-	pmt_watcher_populate_header(entry->disc_table, &entry->header);
+	pmt_populate_header(PMT_CAP_WATCHER, entry->disc_table,
+			    &entry->header);
+
+	ret = pmt_get_base_address(priv->dev, &entry->header,
+				   header_res, &base_address);
+	if (ret)
+		return ret;
+
+	res.start = base_address;
+	res.end = res.start + entry->header.size - 1;
+	res.flags = IORESOURCE_MEM;
+
+	entry->cfg_base = devm_ioremap_resource(priv->dev, &res);
+	if (IS_ERR(entry->cfg_base))
+		return PTR_ERR(entry->cfg_base);
 
 	if (pmt_watcher_is_tracer(entry)) {
 		entry->ida = &tracer_devid_ida;
@@ -1047,8 +966,8 @@ static int pmt_watcher_add_entry(struct pmt_watcher_priv *priv,
 		entry->stream_uid_offset = -1;
 	}
 
-	/* Add quirks related to TGL part */
-	if (priv->parent->device == 0x9a0d) {
+	/* Add quirks related to client parts */
+	if (pmt_is_early_client_hw(priv->dev)) {
 		/* tracer for TGL does not have support for stream UID */
 		entry->stream_uid_offset = -1;
 		/* strip section that would have been stream UID */
@@ -1061,7 +980,7 @@ static int pmt_watcher_add_entry(struct pmt_watcher_priv *priv,
 		 * Add offset for watcher type to account for type1 vs
 		 * type2 values.
 		 */
-		entry->header.watcher_type += TYPE_TRACER1;
+		entry->header.type += TYPE_TRACER1;
 	}
 
 	ret = pmt_watcher_create_entry(priv, entry);
@@ -1089,7 +1008,7 @@ static void pmt_watcher_remove_entries(struct pmt_watcher_priv *priv)
 
 	for (i = 0; i < priv->num_entries; i++) {
 		device_destroy(&pmt_watcher_class, priv->entry[i].devt);
-		if (pmt_watcher_is_sampler(priv->entry))
+		if (pmt_watcher_is_sampler(&priv->entry[i]))
 			cdev_del(&priv->entry[i].cdev);
 
 		unregister_chrdev_region(priv->entry[i].devt, 1);
@@ -1119,17 +1038,17 @@ static int pmt_watcher_probe(struct platform_device *pdev)
 
 	for (i = 0, entry = priv->entry; i < pdev->num_resources;
 	     i++, entry++) {
+		struct resource *res;
 		int ret;
 
-		entry->header_res = platform_get_resource(pdev, IORESOURCE_MEM,
-							  i);
-		if (!entry->header_res) {
+		res = platform_get_resource(pdev, IORESOURCE_MEM, i);
+		if (!res) {
 			pmt_watcher_remove_entries(priv);
 			return -ENODEV;
 		}
 
 		dev_info(&pdev->dev, "%d res start: 0x%llx, end 0x%llx\n", i,
-			 entry->header_res->start, entry->header_res->end);
+			 res->start, res->end);
 
 		entry->disc_table = devm_platform_ioremap_resource(pdev, i);
 		if (IS_ERR(entry->disc_table)) {
@@ -1137,7 +1056,7 @@ static int pmt_watcher_probe(struct platform_device *pdev)
 			return PTR_ERR(entry->disc_table);
 		}
 
-		ret = pmt_watcher_add_entry(priv, entry);
+		ret = pmt_watcher_add_entry(priv, entry, res);
 		if (ret) {
 			pmt_watcher_remove_entries(priv);
 			return ret;
