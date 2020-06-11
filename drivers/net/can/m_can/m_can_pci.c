@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0
-/**
+/*
  * m_can_pci.c - PCI Specific M_CAN Glue
  *
  * Copyright (C) 2018 Intel Corporation - https://www.intel.com
