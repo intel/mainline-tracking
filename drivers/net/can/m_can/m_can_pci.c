@@ -107,7 +107,8 @@ static int m_can_pci_probe(struct pci_dev *pci,
 		return -ENOMEM;
 
 	/*
-	 * "bosch,mram-cfg" has been parsed and updated the mcfg[] in m_can_class_allocate_dev
+	 * "bosch,mram-cfg" has been parsed and updated the mcfg[] in
+	 * m_can_class_allocate_dev.
 	 * Due to dby_can_wrapper design in EHL, we need to accommodate
 	 * for the mram base from PCI MMIO BAR base + 0x800
 	 */
