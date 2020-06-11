@@ -2,7 +2,7 @@
 /*
  * PCI Specific M_CAN Glue
  *
- * Copyright (C) 2018 Intel Corporation - https://www.intel.com
+ * Copyright (C) 2018-2020 Intel Corporation - https://www.intel.com
  * Author: Felipe Balbi (Intel)
  */
 
