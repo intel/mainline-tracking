@@ -3,7 +3,7 @@
  * m_can_pci.c - PCI Specific M_CAN Glue
  *
  * Copyright (C) 2018 Intel Corporation - https://www.intel.com
- * Author: Felipe Balbi <felipe.balbi@linux.intel.com>
+ * Author: Felipe Balbi (Intel)
  */
 
 #include <linux/bitops.h>
@@ -199,7 +199,7 @@ static struct pci_driver m_can_pci_driver = {
 	}
 };
 
-MODULE_AUTHOR("Felipe Balbi <felipe.balbi@linux.intel.com>");
+MODULE_AUTHOR("Felipe Balbi (Intel)");
 MODULE_LICENSE("GPL");
 MODULE_DESCRIPTION("CAN bus driver for Bosch M_CAN controller on PCI bus");
 
