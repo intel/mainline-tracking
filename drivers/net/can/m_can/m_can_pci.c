@@ -190,10 +190,10 @@ static const struct pci_device_id m_can_pci_id_table[] = {
 MODULE_DEVICE_TABLE(pci, m_can_pci_id_table);
 
 static struct pci_driver m_can_pci_driver = {
-	.name		= "m_can_pci",
-	.probe		= m_can_pci_probe,
-	.remove		= m_can_pci_remove,
-	.id_table	= m_can_pci_id_table,
+	.name = "m_can_pci",
+	.probe = m_can_pci_probe,
+	.remove = m_can_pci_remove,
+	.id_table = m_can_pci_id_table,
 	.driver = {
 		.pm = &m_can_pci_pm_ops,
 	}
