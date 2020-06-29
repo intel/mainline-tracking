@@ -67,24 +67,6 @@ static inline void dwc_pwm_writel(struct dwc_pwm *dwc, u32 value, u32 offset)
 	writel(value, dwc->base + offset);
 }
 
-static void __dwc_pwm_configure(struct dwc_pwm *dwc, int pwm,
-				unsigned int duty_ns,
-				unsigned int period_ns)
-{
-	u32 ctrl;
-	u32 high;
-	u32 low;
-
-	high = DIV_ROUND_CLOSEST(duty_ns, DWC_CLK_PERIOD_NS) - 1;
-	low = DIV_ROUND_CLOSEST(period_ns - duty_ns, DWC_CLK_PERIOD_NS) - 1;
-
-	dwc_pwm_writel(dwc, low, DWC_TIM_LD_CNT(pwm));
-	dwc_pwm_writel(dwc, high, DWC_TIM_LD_CNT2(pwm));
-
-	ctrl = DWC_TIM_CTRL_MODE_USER | DWC_TIM_CTRL_PWM;
-	dwc_pwm_writel(dwc, ctrl, DWC_TIM_CTRL(pwm));
-}
-
 static void __dwc_pwm_set_enable(struct dwc_pwm *dwc, int pwm, int enabled)
 {
 	u32 reg;
@@ -103,9 +85,22 @@ static void __dwc_pwm_configure_timer(struct dwc_pwm *dwc,
 				      struct pwm_device *pwm,
 				      const struct pwm_state *state)
 {
+	u32 ctrl;
+	u32 high;
+	u32 low;
+
 	__dwc_pwm_set_enable(dwc, pwm->hwpwm, false);
-	__dwc_pwm_configure(dwc, pwm->hwpwm, state->duty_cycle,
-			    state->period);
+
+	high = DIV_ROUND_CLOSEST(state->duty_cycle, DWC_CLK_PERIOD_NS) - 1;
+	low = DIV_ROUND_CLOSEST(state->period - state->duty_cycle,
+				DWC_CLK_PERIOD_NS) - 1;
+
+	dwc_pwm_writel(dwc, low, DWC_TIM_LD_CNT(pwm->hwpwm));
+	dwc_pwm_writel(dwc, high, DWC_TIM_LD_CNT2(pwm->hwpwm));
+
+	ctrl = DWC_TIM_CTRL_MODE_USER | DWC_TIM_CTRL_PWM;
+	dwc_pwm_writel(dwc, ctrl, DWC_TIM_CTRL(pwm->hwpwm));
+
 	__dwc_pwm_set_enable(dwc, pwm->hwpwm, state->enabled);
 }
 
