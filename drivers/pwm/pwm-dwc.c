@@ -91,9 +91,9 @@ static void __dwc_pwm_configure_timer(struct dwc_pwm *dwc,
 
 	__dwc_pwm_set_enable(dwc, pwm->hwpwm, false);
 
-	high = DIV_ROUND_CLOSEST(state->duty_cycle, DWC_CLK_PERIOD_NS) - 1;
-	low = DIV_ROUND_CLOSEST(state->period - state->duty_cycle,
-				DWC_CLK_PERIOD_NS) - 1;
+	low = DIV_ROUND_CLOSEST(state->duty_cycle, DWC_CLK_PERIOD_NS) - 1;
+	high = DIV_ROUND_CLOSEST(state->period - state->duty_cycle,
+				 DWC_CLK_PERIOD_NS) - 1;
 
 	dwc_pwm_writel(dwc, low, DWC_TIM_LD_CNT(pwm->hwpwm));
 	dwc_pwm_writel(dwc, high, DWC_TIM_LD_CNT2(pwm->hwpwm));
@@ -109,7 +109,7 @@ static int dwc_pwm_apply(struct pwm_chip *chip, struct pwm_device *pwm,
 {
 	struct dwc_pwm *dwc = to_dwc_pwm(chip);
 
-	if (state->polarity != PWM_POLARITY_NORMAL)
+	if (state->polarity != PWM_POLARITY_INVERSED)
 		return -EINVAL;
 
 	if (state->enabled) {
@@ -137,18 +137,18 @@ static void dwc_pwm_get_state(struct pwm_chip *chip, struct pwm_device *pwm,
 	state->enabled = !!(dwc_pwm_readl(dwc,
 				DWC_TIM_CTRL(pwm->hwpwm)) & DWC_TIM_CTRL_EN);
 
-	duty = dwc_pwm_readl(dwc, DWC_TIM_LD_CNT2(pwm->hwpwm));
+	duty = dwc_pwm_readl(dwc, DWC_TIM_LD_CNT(pwm->hwpwm));
 	duty += 1;
 	duty *= DWC_CLK_PERIOD_NS;
 	state->duty_cycle = duty;
 
-	period = dwc_pwm_readl(dwc, DWC_TIM_LD_CNT(pwm->hwpwm));
+	period = dwc_pwm_readl(dwc, DWC_TIM_LD_CNT2(pwm->hwpwm));
 	period += 1;
 	period *= DWC_CLK_PERIOD_NS;
 	period += duty;
 	state->period = period;
 
-	state->polarity = PWM_POLARITY_NORMAL;
+	state->polarity = PWM_POLARITY_INVERSED;
 
 	pm_runtime_put_sync(chip->dev);
 }
