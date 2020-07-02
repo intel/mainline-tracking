@@ -89,11 +89,11 @@ static void __dwc_pwm_configure_timer(struct dwc_pwm *dwc,
 	u32 high;
 	u32 low;
 
-	__dwc_pwm_set_enable(dwc, pwm->hwpwm, false);
-
 	low = DIV_ROUND_CLOSEST(state->duty_cycle, DWC_CLK_PERIOD_NS) - 1;
 	high = DIV_ROUND_CLOSEST(state->period - state->duty_cycle,
 				 DWC_CLK_PERIOD_NS) - 1;
+
+	__dwc_pwm_set_enable(dwc, pwm->hwpwm, false);
 
 	dwc_pwm_writel(dwc, low, DWC_TIM_LD_CNT(pwm->hwpwm));
 	dwc_pwm_writel(dwc, high, DWC_TIM_LD_CNT2(pwm->hwpwm));
