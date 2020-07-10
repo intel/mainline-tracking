@@ -18,6 +18,7 @@ struct vm86;
 #include <asm/cpufeatures.h>
 #include <asm/page.h>
 #include <asm/pgtable_types.h>
+#include <asm/pkeys_common.h>
 #include <asm/percpu.h>
 #include <asm/msr.h>
 #include <asm/desc_defs.h>
@@ -519,6 +520,12 @@ struct thread_struct {
 	unsigned long		cr2;
 	unsigned long		trap_nr;
 	unsigned long		error_code;
+
+#ifdef	CONFIG_ARCH_ENABLE_SUPERVISOR_PKEYS
+	/* Saved Protection key register for supervisor mappings */
+	u32			saved_pkrs;
+#endif
+
 #ifdef CONFIG_VM86
 	/* Virtual 86 mode info */
 	struct vm86		*vm86;
@@ -775,7 +782,41 @@ static inline void spin_lock_prefetch(const void *x)
 #define KSTK_ESP(task)		(task_pt_regs(task)->sp)
 
 #else
-#define INIT_THREAD { }
+
+#ifdef CONFIG_ARCH_ENABLE_SUPERVISOR_PKEYS
+#define INIT_THREAD_PKRS	.saved_pkrs = INIT_PKRS_VALUE
+
+void write_pkrs(u32 new_pkrs);
+
+/*
+ * Define pks_init_task and pks_sched_in as macros to avoid requiring the
+ * definition of struct task_struct in this header while keeping the supervisor
+ * pkey #ifdefery out of process.c and process_64.c
+ */
+
+/*
+ * New tasks get the most restrictive PKRS value.
+ */
+#define pks_init_task(tsk) \
+	tsk->thread.saved_pkrs = INIT_PKRS_VALUE;
+
+/*
+ * PKRS is only temporarily changed during specific code paths.  Only a
+ * preemption during these windows away from the default value would
+ * require updating the MSR.  write_pkrs() handles this optimization.
+ */
+#define pks_sched_in() \
+	write_pkrs(current->thread.saved_pkrs);
+
+#else
+#define INIT_THREAD_PKRS	0
+#define pks_init_task(tsk)
+#define pks_sched_in()
+#endif
+
+#define INIT_THREAD  {						\
+	INIT_THREAD_PKRS,					\
+}
 
 extern unsigned long KSTK_ESP(struct task_struct *task);
 
