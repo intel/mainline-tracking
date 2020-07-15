@@ -236,7 +236,7 @@ EXPORT_SYMBOL_GPL(update_pkey_val);
 
 DEFINE_PER_CPU(u32, pkrs_cache);
 
-void write_pkrs(u32 new_pkrs)
+noinstr void write_pkrs(u32 new_pkrs)
 {
 	u32 *pkrs;
 
