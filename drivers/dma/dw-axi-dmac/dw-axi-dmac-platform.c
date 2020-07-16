@@ -1252,6 +1252,11 @@ static int dw_probe(struct platform_device *pdev)
 	if (IS_ERR(chip->regs))
 		return PTR_ERR(chip->regs);
 
+	mem = platform_get_resource(pdev, IORESOURCE_MEM, 1);
+	chip->apb_regs = devm_ioremap_resource(chip->dev, mem);
+	if (IS_ERR(chip->apb_regs))
+		dev_err(&pdev->dev, "apb_regs not supported\n");
+
 	chip->core_clk = devm_clk_get(chip->dev, "core-clk");
 	if (IS_ERR(chip->core_clk))
 		return PTR_ERR(chip->core_clk);
