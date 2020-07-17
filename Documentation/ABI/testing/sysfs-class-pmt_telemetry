@@ -1,0 +1,46 @@
+What:		/sys/class/pmt_telemetry/
+Date:		July 2020
+KernelVersion:	5.9
+Contact:	David Box <david.e.box@linux.intel.com>
+Description:
+		The pmt_telemetry/ class directory contains information for
+		devices that expose hardware telemetry using Intel Platform
+		Monitoring Technology (PMT)
+
+What:		/sys/class/pmt_telemetry/telem<x>
+Date:		July 2020
+KernelVersion:	5.9
+Contact:	David Box <david.e.box@linux.intel.com>
+Description:
+		The telem<x> directory contains files describing an instance of
+		a PMT telemetry device that exposes hardware telemetry. Each
+		telem<x> directory has an associated /dev/telem<x> node. This
+		node may be opened and mapped to access the telemetry space of
+		the device. The register layout of the telemetry space is
+		determined from an XML file that matches the PCI device id and
+		GUID for the device.
+
+What:		/sys/class/pmt_telemetry/telem<x>/guid
+Date:		July 2020
+KernelVersion:	5.9
+Contact:	David Box <david.e.box@linux.intel.com>
+Description:
+		(RO) The GUID for this telemetry device. The GUID identifies
+		the version of the XML file for the parent device that is to
+		be used to get the register layout.
+
+What:		/sys/class/pmt_telemetry/telem<x>/size
+Date:		July 2020
+KernelVersion:	5.9
+Contact:	David Box <david.e.box@linux.intel.com>
+Description:
+		(RO) The size of telemetry region in bytes that corresponds to
+		the mapping size for the /dev/telem<x> device node.
+
+What:		/sys/class/pmt_telemetry/telem<x>/offset
+Date:		July 2020
+KernelVersion:	5.9
+Contact:	David Box <david.e.box@linux.intel.com>
+Description:
+		(RO) The offset of telemetry region in bytes that corresponds to
+		the mapping for the /dev/telem<x> device node.
