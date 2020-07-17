@@ -1362,6 +1362,16 @@ config INTEL_PMC_CORE
 		- LTR Ignore
 		- MPHY/PLL gating status (Sunrisepoint PCH only)
 
+config INTEL_PMT_TELEMETRY
+	tristate "Intel Platform Monitoring Technology (PMT) Telemetry driver"
+	help
+	  The Intel Platform Monitory Technology (PMT) Telemetry driver provides
+	  access to hardware telemetry metrics on devices that support the
+	  feature.
+
+	  For more information, see
+	  <file:Documentation/ABI/testing/sysfs-class-intel_pmt_telem>
+
 config INTEL_PUNIT_IPC
 	tristate "Intel P-Unit IPC Driver"
 	help
