@@ -22,6 +22,8 @@
 #define PR_GUEST_SHARED_MAPPING_INIT		0x1004
 /* Disable uncore frequency support */
 #define PR_GUEST_DISABLE_UNCORE_SUPPORT		0x1005
+/* Support for device filter */
+#define PR_GUEST_DEVICE_FILTER			0x1006
 
 #ifdef CONFIG_ARCH_HAS_PROTECTED_GUEST
 #include <asm/protected_guest.h>
