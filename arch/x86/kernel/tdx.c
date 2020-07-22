@@ -125,6 +125,7 @@ bool tdx_protected_guest_has(unsigned long flag)
 	case PR_GUEST_SHARED_MAPPING_INIT:
 	case PR_GUEST_DISABLE_UNCORE_SUPPORT:
 	case PR_GUEST_TDX:
+	case PR_GUEST_DEVICE_FILTER:
 		return static_cpu_has(X86_FEATURE_TDX_GUEST);
 	}
 
@@ -584,6 +585,8 @@ void __init tdx_early_init(void)
 	setup_clear_cpu_cap(X86_FEATURE_MCE);
 
 	tdg_get_info();
+
+	tdg_filter_init();
 
 	pv_ops.irq.safe_halt = tdg_safe_halt;
 	pv_ops.irq.halt = tdg_halt;
