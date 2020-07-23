@@ -1327,6 +1327,14 @@ config INTEL_CHTDC_TI_PWRBTN
 	  To compile this driver as a module, choose M here: the module
 	  will be called intel_chtdc_ti_pwrbtn.
 
+config INTEL_ISHTP_ECLITE
+	tristate "Intel ISHTP eclite controller"
+	depends on INTEL_ISH_HID
+	depends on ACPI
+	help
+	  If you say Y here, you get support for talking to eclite fw on a
+	  dedicated low power chip over ISH Transport Protocol (ISHTP).
+
 config INTEL_MFLD_THERMAL
        tristate "Thermal driver for Intel Medfield platform"
        depends on MFD_INTEL_MSIC && THERMAL
