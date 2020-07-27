@@ -21,9 +21,11 @@
 #include <linux/platform_device.h>
 #include <linux/slab.h>
 #include <linux/acpi.h>
+#include <linux/pci.h>
 #include <linux/clk.h>
 #include <linux/reset.h>
 #include <linux/pm_runtime.h>
+#include <linux/console.h>
 
 #include <asm/byteorder.h>
 
@@ -260,18 +262,6 @@ static int dw8250_handle_irq(struct uart_port *p)
 	return 0;
 }
 
-static void
-dw8250_do_pm(struct uart_port *port, unsigned int state, unsigned int old)
-{
-	if (!state)
-		pm_runtime_get_sync(port->dev);
-
-	serial8250_do_pm(port, state, old);
-
-	if (state)
-		pm_runtime_put_sync_suspend(port->dev);
-}
-
 static void dw8250_set_termios(struct uart_port *p, struct ktermios *termios,
 			       struct ktermios *old)
 {
@@ -339,8 +329,9 @@ static bool dw8250_idma_filter(struct dma_chan *chan, void *param)
 
 static void dw8250_quirks(struct uart_port *p, struct dw8250_data *data)
 {
-	if (p->dev->of_node) {
-		struct device_node *np = p->dev->of_node;
+	struct device_node *np = p->dev->of_node;
+
+	if (np) {
 		int id;
 
 		/* get index of serial line, if found in DT aliases */
@@ -357,11 +348,13 @@ static void dw8250_quirks(struct uart_port *p, struct dw8250_data *data)
 			data->skip_autocfg = true;
 		}
 #endif
-		if (of_device_is_big_endian(p->dev->of_node)) {
+
+		if (of_device_is_big_endian(np)) {
 			p->iotype = UPIO_MEM32BE;
 			p->serial_in = dw8250_serial_in32be;
 			p->serial_out = dw8250_serial_out32be;
 		}
+
 		if (of_device_is_compatible(np, "marvell,armada-38x-uart"))
 			p->serial_out = dw8250_serial_out38x;
 
@@ -405,7 +398,6 @@ static int dw8250_probe(struct platform_device *pdev)
 	p->mapbase	= regs->start;
 	p->irq		= irq;
 	p->handle_irq	= dw8250_handle_irq;
-	p->pm		= dw8250_do_pm;
 	p->type		= PORT_8250;
 	p->flags	= UPF_SHARE_IRQ | UPF_FIXED_PORT;
 	p->dev		= dev;
@@ -532,6 +524,9 @@ static int dw8250_probe(struct platform_device *pdev)
 
 	platform_set_drvdata(pdev, data);
 
+	pm_runtime_use_autosuspend(dev);
+	pm_runtime_set_autosuspend_delay(dev, -1);
+
 	pm_runtime_set_active(dev);
 	pm_runtime_enable(dev);
 
@@ -574,6 +569,20 @@ static int dw8250_remove(struct platform_device *pdev)
 static int dw8250_suspend(struct device *dev)
 {
 	struct dw8250_data *data = dev_get_drvdata(dev);
+
+	/*
+	 * FIXME: For Platforms with LPSS PCI UARTs, the parent device should
+	 * be prevented from going into D3 for the no_console_suspend flag to
+	 * work as expected.
+	 */
+	if (platform_get_resource_byname(to_platform_device(dev),
+					 IORESOURCE_MEM, "lpss_dev")) {
+		struct uart_8250_port *up = serial8250_get_port(data->data.line);
+		struct pci_dev *pdev = to_pci_dev(dev->parent);
+
+		if (pdev && !console_suspend_enabled && uart_console(&up->port))
+			pdev->dev_flags |= PCI_DEV_FLAGS_NO_D3;
+	}
 
 	serial8250_suspend_port(data->data.line);
 
