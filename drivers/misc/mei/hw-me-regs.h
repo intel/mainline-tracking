@@ -64,6 +64,9 @@
 
 #define MEI_DEV_ID_LBG        0xA1BA  /* Lewisburg (SPT) */
 
+#define MEI_DEV_ID_LBG_IE     0xA1F8  /* Lewisburg IE (SPT) */
+#define MEI_DEV_ID_LBG_IE_SSX 0xA278  /* Lewisburg IE SSX (SPT) */
+
 #define MEI_DEV_ID_BXT_M      0x1A9A  /* Broxton M */
 #define MEI_DEV_ID_APL_I      0x5A9A  /* Apollo Lake I */
 
@@ -87,13 +90,15 @@
 #define MEI_DEV_ID_CMP_H      0x06e0  /* Comet Lake H */
 #define MEI_DEV_ID_CMP_H_3    0x06e4  /* Comet Lake H 3 (iTouch) */
 
-#define MEI_DEV_ID_CDF        0x18D3  /* Cedar Fork */
+#define MEI_DEV_ID_CDF        0x18D3  /* Cedar Falls */
 
 #define MEI_DEV_ID_ICP_LP     0x34E0  /* Ice Lake Point LP */
 
 #define MEI_DEV_ID_JSP_N      0x4DE0  /* Jasper Lake Point N */
 
 #define MEI_DEV_ID_TGP_LP     0xA0E0  /* Tiger Lake Point LP */
+#define MEI_DEV_ID_TGP_K      0x42E0  /* Tiger Lake Point K */
+#define MEI_DEV_ID_TGP_H      0x43E0  /* Tiger Lake Point H */
 
 #define MEI_DEV_ID_MCC        0x4B70  /* Mule Creek Canyon (EHL) */
 #define MEI_DEV_ID_MCC_4      0x4B75  /* Mule Creek Canyon 4 (EHL) */

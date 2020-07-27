@@ -804,7 +804,8 @@ static int glk_emmc_probe_slot(struct sdhci_pci_slot *slot)
 		slot->host->mmc->caps2 |= MMC_CAP2_HS400_ES,
 		slot->host->mmc_host_ops.hs400_enhanced_strobe =
 						intel_hs400_enhanced_strobe;
-		slot->host->mmc->caps2 |= MMC_CAP2_CQE_DCMD;
+		if (slot->chip->pdev->device != PCI_DEVICE_ID_INTEL_CNP_EMMC)
+			slot->host->mmc->caps2 |= MMC_CAP2_CQE_DCMD;
 	}
 
 	return ret;
@@ -1104,7 +1105,6 @@ static const struct sdhci_pci_fixes sdhci_intel_byt_sd = {
 			  SDHCI_QUIRK2_PRESET_VALUE_BROKEN |
 			  SDHCI_QUIRK2_STOP_WITH_TC,
 	.allow_runtime_pm = true,
-	.own_cd_for_runtime_pm = true,
 	.probe_slot	= byt_sd_probe_slot,
 	.ops		= &sdhci_intel_byt_ops,
 	.priv_size	= sizeof(struct intel_host),
@@ -1728,6 +1728,8 @@ static const struct pci_device_id pci_ids[] = {
 	SDHCI_PCI_DEVICE(INTEL, CNPH_SD,   intel_byt_sd),
 	SDHCI_PCI_DEVICE(INTEL, ICP_EMMC,  intel_glk_emmc),
 	SDHCI_PCI_DEVICE(INTEL, ICP_SD,    intel_byt_sd),
+	SDHCI_PCI_DEVICE(INTEL, ICPN_SD,   intel_byt_sd),
+	SDHCI_PCI_DEVICE(INTEL, ICPH_SD,   intel_byt_sd),
 	SDHCI_PCI_DEVICE(INTEL, EHL_EMMC,  intel_glk_emmc),
 	SDHCI_PCI_DEVICE(INTEL, EHL_SD,    intel_byt_sd),
 	SDHCI_PCI_DEVICE(INTEL, CML_EMMC,  intel_glk_emmc),
