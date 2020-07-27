@@ -139,7 +139,7 @@ int xstateregs_set(struct task_struct *target, const struct user_regset *regset,
 	} else {
 		ret = user_regset_copyin(&pos, &count, &kbuf, &ubuf, xsave, 0, -1);
 		if (!ret)
-			ret = validate_xstate_header(&xsave->header);
+			ret = validate_user_xstate_header(&xsave->header);
 	}
 
 	/*
@@ -154,6 +154,51 @@ int xstateregs_set(struct task_struct *target, const struct user_regset *regset,
 		fpstate_init(&fpu->state);
 
 	return ret;
+}
+
+int cetregs_active(struct task_struct *target, const struct user_regset *regset)
+{
+#ifdef CONFIG_X86_INTEL_CET
+	if (target->thread.cet.shstk_size || target->thread.cet.ibt_enabled)
+		return regset->n;
+#endif
+	return 0;
+}
+
+int cetregs_get(struct task_struct *target, const struct user_regset *regset,
+		unsigned int pos, unsigned int count,
+		void *kbuf, void __user *ubuf)
+{
+	struct fpu *fpu = &target->thread.fpu;
+	struct cet_user_state *cetregs;
+
+	if (!boot_cpu_has(X86_FEATURE_SHSTK))
+		return -ENODEV;
+
+	fpu__prepare_read(fpu);
+	cetregs = get_xsave_addr(&fpu->state.xsave, XFEATURE_CET_USER);
+	if (!cetregs)
+		return -EFAULT;
+
+	return user_regset_copyout(&pos, &count, &kbuf, &ubuf, cetregs, 0, -1);
+}
+
+int cetregs_set(struct task_struct *target, const struct user_regset *regset,
+		  unsigned int pos, unsigned int count,
+		  const void *kbuf, const void __user *ubuf)
+{
+	struct fpu *fpu = &target->thread.fpu;
+	struct cet_user_state *cetregs;
+
+	if (!boot_cpu_has(X86_FEATURE_SHSTK))
+		return -ENODEV;
+
+	fpu__prepare_write(fpu);
+	cetregs = get_xsave_addr(&fpu->state.xsave, XFEATURE_CET_USER);
+	if (!cetregs)
+		return -EFAULT;
+
+	return user_regset_copyin(&pos, &count, &kbuf, &ubuf, cetregs, 0, -1);
 }
 
 #if defined CONFIG_X86_32 || defined CONFIG_IA32_EMULATION
