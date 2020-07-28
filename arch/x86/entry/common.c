@@ -261,12 +261,19 @@ noinstr void idtentry_exit_nmi(struct pt_regs *regs, irqentry_state_t *irq_state
  * current running value and set the default PKRS value for the duration of the
  * exception.  Thus preventing exception handlers from having the elevated
  * access of the interrupted task.
+ *
+ * NOTE That the thread saved PKRS must be preserved separately to ensure
+ * global overrides do not 'stick' on a thread.
  */
 noinstr void irq_save_pkrs(irqentry_state_t *state)
 {
 	if (!cpu_feature_enabled(X86_FEATURE_PKS))
 		return;
 
+	/*
+	 * The thread_pkrs must be maintained separately to prevent global
+	 * overrides from 'sticking' on a thread.
+	 */
 	state->thread_pkrs = current->thread.saved_pkrs;
 	state->pkrs = this_cpu_read(pkrs_cache);
 	write_pkrs(INIT_PKRS_VALUE);

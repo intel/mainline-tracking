@@ -6,7 +6,12 @@
 #define PKR_WD_BIT 0x2
 #define PKR_BITS_PER_PKEY 2
 
-#define PKR_AD_KEY(pkey)	(PKR_AD_BIT << ((pkey) * PKR_BITS_PER_PKEY))
+/*
+ * We must define 11b as the default to make global overrides efficient.
+ * See arch/x86/kernel/process.c where the global pkrs is factored in during
+ * context switch.
+ */
+#define PKR_AD_KEY(pkey)	((PKR_WD_BIT | PKR_AD_BIT) << ((pkey) * PKR_BITS_PER_PKEY))
 
 /*
  * Define a default PKRS value for each task.
@@ -27,6 +32,7 @@
 #define        PKS_NUM_KEYS            16
 
 #ifdef CONFIG_ARCH_HAS_SUPERVISOR_PKEYS
+extern u32 pkrs_global_cache;
 DECLARE_PER_CPU(u32, pkrs_cache);
 noinstr void write_pkrs(u32 new_pkrs);
 #else

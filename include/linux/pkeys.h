@@ -62,7 +62,8 @@ static inline int pks_key_alloc(const char * const pkey_user)
 static inline void pks_key_free(int pkey)
 {
 }
-static inline void pks_update_protection(int pkey, unsigned long protection)
+static inline void pks_update_protection(int pkey, unsigned long protection,
+					 bool global)
 {
 	WARN_ON_ONCE(1);
 }

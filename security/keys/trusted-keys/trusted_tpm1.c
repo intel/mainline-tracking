@@ -42,7 +42,7 @@ void trusted_key_disable_access(void)
 	if (trusted_keys_pkey == PKEY_INVALID)
 		return;
 
-	pks_update_protection(trusted_keys_pkey, PKEY_DISABLE_ACCESS);
+	pks_update_protection(trusted_keys_pkey, PKEY_DISABLE_ACCESS, false);
 
 }
 EXPORT_SYMBOL_GPL(trusted_key_disable_access);
@@ -52,7 +52,7 @@ void trusted_key_enable_access(void)
 	if (trusted_keys_pkey == PKEY_INVALID)
 		return;
 
-	pks_update_protection(trusted_keys_pkey, 0);
+	pks_update_protection(trusted_keys_pkey, 0, false);
 }
 EXPORT_SYMBOL_GPL(trusted_key_enable_access);
 #endif

@@ -319,7 +319,7 @@ void pks_key_free(int pkey)
 	__clear_bit(pkey, &pks_key_allocation_map);
 	pks_key_users[pkey] = NULL;
 	/* Restore to default AD=1 and WD=0. */
-	pks_update_protection(pkey, PKEY_DISABLE_ACCESS);
+	pks_update_protection(pkey, PKEY_DISABLE_ACCESS, true);
 	mutex_unlock(&pks_lock);
 }
 EXPORT_SYMBOL_GPL(pks_key_free);
@@ -363,3 +363,49 @@ static int __init pks_keys_initcall(void)
 	return 0;
 }
 late_initcall(pks_keys_initcall);
+
+/*
+ * NOTE: The pkrs_global_cache is _never_ stored in the per thread PKRS cache
+ * values [thread.saved_pkrs] by design
+ *
+ * This allows us to invalidate access on running threads immediately upon
+ * invalidate.  Sleeping threads will not be enabled due to the algorithm
+ * during pkrs_sched_in()
+ */
+DEFINE_SPINLOCK(pkrs_global_cache_lock);
+u32 pkrs_global_cache = INIT_PKRS_VALUE;
+EXPORT_SYMBOL_GPL(pkrs_global_cache);
+
+void update_global_pkrs(int pkey, unsigned long protection)
+{
+	int pkey_shift = pkey * PKR_BITS_PER_PKEY;
+	u32 mask = (((1 << PKR_BITS_PER_PKEY) - 1) << pkey_shift);
+	u32 old_val;
+
+	spin_lock(&pkrs_global_cache_lock);
+	old_val = (pkrs_global_cache & mask) >> pkey_shift;
+	pkrs_global_cache &= ~mask;
+	if (protection & PKEY_DISABLE_ACCESS)
+		pkrs_global_cache |= PKR_AD_BIT << pkey_shift;
+	if (protection & PKEY_DISABLE_WRITE)
+		pkrs_global_cache |= PKR_WD_BIT << pkey_shift;
+
+	/*
+	 * If we are preventing access from the old value.  Force the
+	 * update on all running threads.
+	 */
+	if (((old_val == 0) && protection) ||
+	    ((old_val & PKR_WD_BIT) && (protection & PKEY_DISABLE_ACCESS))) {
+		int cpu;
+
+		for_each_online_cpu(cpu) {
+			u32 *ptr = per_cpu_ptr(&pkrs_cache, cpu);
+
+			*ptr = update_pkey_val(*ptr, pkey, protection);
+			wrmsrl_on_cpu(cpu, MSR_IA32_PKRS, *ptr);
+			put_cpu_ptr(ptr);
+		}
+	}
+	spin_unlock(&pkrs_global_cache_lock);
+}
+EXPORT_SYMBOL_GPL(update_global_pkrs);

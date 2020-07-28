@@ -141,28 +141,39 @@ u32 update_pkey_val(u32 pk_reg, int pkey, unsigned int flags);
 #ifdef CONFIG_ARCH_HAS_SUPERVISOR_PKEYS
 int pks_key_alloc(const char *const pkey_user);
 void pks_key_free(int pkey);
+void update_global_pkrs(int pkey, unsigned long protection);
 
 /*
  * pks_update_protection - Update the protection of the specified key
  *
  * @pkey: Key for the domain to change
  * @protection: protection bits to be used
+ * @global: true == this change should be global; false == thread local only
  *
  * Protection utilizes the same protection bits specified for User pkeys
  *     PKEY_DISABLE_ACCESS
  *     PKEY_DISABLE_WRITE
  *
- * This is not a global update.  It only affects the current running thread.
- *
  * It is undefined and a bug for users to call this without having allocated a
  * pkey and using it as pkey here.
  */
-static inline void pks_update_protection(int pkey, unsigned long protection)
+static inline void pks_update_protection(int pkey, unsigned long protection,
+					 bool global)
 {
-	current->thread.saved_pkrs = update_pkey_val(current->thread.saved_pkrs,
-						     pkey, protection);
+	/*
+	 * We force disable access to be 11b instaed of 01b See
+	 * arch/x86/kernel/process.c where the global pkrs is factored in
+	 * during context switch.
+	 */
+	protection |= (protection & PKR_AD_BIT) << 1;
+
 	preempt_disable();
+	if (global)
+		update_global_pkrs(pkey, protection);
+
+	current->thread.saved_pkrs = update_pkey_val(current->thread.saved_pkrs, pkey, protection);
 	write_pkrs(current->thread.saved_pkrs);
+
 	preempt_enable();
 }
 #endif /* CONFIG_ARCH_HAS_SUPERVISOR_PKEYS */

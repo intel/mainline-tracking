@@ -123,11 +123,16 @@ that key:
         int pks_key_alloc(const char * const pkey_user);
         #define PAGE_KERNEL_PKEY(pkey)
         #define _PAGE_KEY(pkey)
-        int pks_update_protection(int pkey, unsigned long protection);
+        int pks_update_protection(int pkey, unsigned long protection, bool global);
         void pks_key_free(int pkey);
 
 In-kernel users must be prepared to set PAGE_KERNEL_PKEY() permission in the
 page table entries for the mappings they want to protect.
+
+'global' in pks_update_protection() specifies that the protection should be set
+accross all threads (CPU's) not just the current running thread/CPU.  This
+increases the overhead of PKS and lessens the protection so it should be used
+sparingly.
 
 WARNING: It is imperative that callers check for errors from pks_key_alloc()
 because pkeys are a limited resource and so callers should be prepared to work
