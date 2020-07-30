@@ -55,6 +55,8 @@ struct pmt_platform_info {
 	unsigned long quirks;
 };
 
+static const struct pmt_platform_info pmt_info;
+
 static const struct pmt_platform_info tgl_info = {
 	.quirks = PMT_QUIRK_NO_WATCHER | PMT_QUIRK_NO_CRASHLOG |
 		  PMT_QUIRK_TABLE_SHIFT,
@@ -201,8 +203,10 @@ static void pmt_pci_remove(struct pci_dev *pdev)
 }
 
 #define PCI_DEVICE_ID_INTEL_PMT_TGL	0x9a0d
+#define PCI_DEVICE_ID_INTEL_PMT_OOBMSM	0x09a7
 static const struct pci_device_id pmt_pci_ids[] = {
 	{ PCI_DEVICE_DATA(INTEL, PMT_TGL, &tgl_info) },
+	{ PCI_DEVICE_DATA(INTEL, PMT_OOBMSM, &pmt_info) },
 	{ }
 };
 MODULE_DEVICE_TABLE(pci, pmt_pci_ids);
