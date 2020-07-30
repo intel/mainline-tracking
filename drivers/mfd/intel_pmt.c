@@ -49,10 +49,14 @@ enum pmt_quirks {
 
 	/* Use shift instead of mask to read discovery table offset */
 	PMT_QUIRK_TABLE_SHIFT	= BIT(2),
+
+	/* DVSEC not present (must be emulated) */
+	PMT_QUIRK_NO_DVSEC	= BIT(3),
 };
 
 struct pmt_platform_info {
 	unsigned long quirks;
+	struct intel_dvsec_header **capabilities;
 };
 
 static const struct pmt_platform_info pmt_info;
@@ -60,6 +64,26 @@ static const struct pmt_platform_info pmt_info;
 static const struct pmt_platform_info tgl_info = {
 	.quirks = PMT_QUIRK_NO_WATCHER | PMT_QUIRK_NO_CRASHLOG |
 		  PMT_QUIRK_TABLE_SHIFT,
+};
+
+/* DG1 Platform with DVSEC quirk*/
+static struct intel_dvsec_header dg1_telemetry = {
+	.length = 0x10,
+	.id = 2,
+	.num_entries = 1,
+	.entry_size = 3,
+	.tbir = 0,
+	.offset = 0x466000,
+};
+
+static struct intel_dvsec_header *dg1_capabilities[] = {
+       &dg1_telemetry,
+       NULL
+};
+
+static const struct pmt_platform_info dg1_info = {
+	.quirks = PMT_QUIRK_NO_DVSEC,
+	.capabilities= dg1_capabilities,
 };
 
 static int pmt_add_dev(struct pci_dev *pdev, struct intel_dvsec_header *header,
@@ -149,41 +173,59 @@ static int pmt_pci_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 	if (!info)
 		return -ENOMEM;
 
-	do {
-		struct intel_dvsec_header header;
-		u32 table;
-		u16 vid;
+	if (info->quirks & PMT_QUIRK_NO_DVSEC) {
+		struct intel_dvsec_header **header;
 
-		pos = pci_find_next_ext_capability(pdev, pos, PCI_EXT_CAP_ID_DVSEC);
-		if (!pos)
-			break;
+		header = info->capabilities;
+		while (*header) {
+			ret = pmt_add_dev(pdev, *header, info);
+			if (ret)
+				dev_warn(&pdev->dev,
+					 "Failed to add device for DVSEC id %d\n",
+					 (*header)->id);
+			else
+				found_devices = true;
 
-		pci_read_config_word(pdev, pos + PCI_DVSEC_HEADER1, &vid);
-		if (vid != PCI_VENDOR_ID_INTEL)
-			continue;
-
-		pci_read_config_word(pdev, pos + PCI_DVSEC_HEADER2,
-				     &header.id);
-		pci_read_config_byte(pdev, pos + INTEL_DVSEC_ENTRIES,
-				     &header.num_entries);
-		pci_read_config_byte(pdev, pos + INTEL_DVSEC_SIZE,
-				     &header.entry_size);
-		pci_read_config_dword(pdev, pos + INTEL_DVSEC_TABLE,
-				      &table);
-
-		header.tbir = INTEL_DVSEC_TABLE_BAR(table);
-		header.offset = INTEL_DVSEC_TABLE_OFFSET(table);
-
-		ret = pmt_add_dev(pdev, &header, info);
-		if (ret) {
-			dev_warn(&pdev->dev,
-				 "Failed to add device for DVSEC id %d\n",
-				 header.id);
-			continue;
+			++header;
 		}
+	} else {
+		do {
+			struct intel_dvsec_header header;
+			u32 table;
+			u16 vid;
 
-		found_devices = true;
-	} while (true);
+			pos = pci_find_next_ext_capability(pdev, pos, PCI_EXT_CAP_ID_DVSEC);
+			if (!pos)
+				break;
+
+			pci_read_config_word(pdev, pos + PCI_DVSEC_HEADER1, &vid);
+			if (vid != PCI_VENDOR_ID_INTEL)
+				continue;
+
+			pci_read_config_word(pdev, pos + PCI_DVSEC_HEADER2,
+					     &header.id);
+			pci_read_config_byte(pdev, pos + INTEL_DVSEC_ENTRIES,
+					     &header.num_entries);
+			pci_read_config_byte(pdev, pos + INTEL_DVSEC_SIZE,
+					     &header.entry_size);
+			pci_read_config_dword(pdev, pos + INTEL_DVSEC_TABLE,
+					      &table);
+
+			header.tbir = INTEL_DVSEC_TABLE_BAR(table);
+			header.offset = INTEL_DVSEC_TABLE_OFFSET(table);
+
+			ret = pmt_add_dev(pdev, &header, info);
+			if (ret) {
+				dev_warn(&pdev->dev,
+					 "Failed to add device for DVSEC id %d\n",
+					 header.id);
+				continue;
+			}
+
+			found_devices = true;
+		} while (true);
+	}
+
 
 	if (!found_devices) {
 		dev_err(&pdev->dev, "No supported PMT capabilities found.\n");
@@ -204,9 +246,11 @@ static void pmt_pci_remove(struct pci_dev *pdev)
 
 #define PCI_DEVICE_ID_INTEL_PMT_TGL	0x9a0d
 #define PCI_DEVICE_ID_INTEL_PMT_OOBMSM	0x09a7
+#define PCI_DEVICE_ID_INTEL_PMT_DG1	0x490e
 static const struct pci_device_id pmt_pci_ids[] = {
 	{ PCI_DEVICE_DATA(INTEL, PMT_TGL, &tgl_info) },
 	{ PCI_DEVICE_DATA(INTEL, PMT_OOBMSM, &pmt_info) },
+	{ PCI_DEVICE_DATA(INTEL, PMT_DG1, &dg1_info) },
 	{ }
 };
 MODULE_DEVICE_TABLE(pci, pmt_pci_ids);
