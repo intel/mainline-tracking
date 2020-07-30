@@ -247,10 +247,12 @@ static void pmt_pci_remove(struct pci_dev *pdev)
 #define PCI_DEVICE_ID_INTEL_PMT_TGL	0x9a0d
 #define PCI_DEVICE_ID_INTEL_PMT_OOBMSM	0x09a7
 #define PCI_DEVICE_ID_INTEL_PMT_DG1	0x490e
+#define PCI_DEVICE_ID_INTEL_PMT_ADL	0x467d
 static const struct pci_device_id pmt_pci_ids[] = {
 	{ PCI_DEVICE_DATA(INTEL, PMT_TGL, &tgl_info) },
 	{ PCI_DEVICE_DATA(INTEL, PMT_OOBMSM, &pmt_info) },
 	{ PCI_DEVICE_DATA(INTEL, PMT_DG1, &dg1_info) },
+	{ PCI_DEVICE_DATA(INTEL, PMT_ADL, &tgl_info) },
 	{ }
 };
 MODULE_DEVICE_TABLE(pci, pmt_pci_ids);
