@@ -89,6 +89,7 @@ int pmt_get_base_address(struct device *dev, struct pmt_header *header,
 	/* Local access and BARID only for now */
 	switch (header->access_type) {
 	case ACCESS_LOCAL:
+		dev_dbg(dev, "access_type: LOCAL\n");
 		if (header->bir) {
 			dev_err(dev,
 				"Unsupported BAR index %d for access type %d\n",
@@ -117,6 +118,7 @@ int pmt_get_base_address(struct device *dev, struct pmt_header *header,
 		break;
 
 	case ACCESS_BARID:
+		dev_dbg(dev, "access_type: BARID\n");
 		*address = pci_resource_start(pci_dev, header->bir) +
 			   header->base_offset;
 		break;
@@ -126,6 +128,8 @@ int pmt_get_base_address(struct device *dev, struct pmt_header *header,
 			header->access_type);
 		return -EINVAL;
 	}
+
+	dev_dbg(dev, "base_addr: 0x%lx\n", *address);
 
 	return 0;
 }
