@@ -518,6 +518,22 @@ static int pmt_telem_add_entry(struct pmt_telem_priv *priv,
 		 */
 		entry->base_addr = header_res->start + resource_size(header_res) +
 				   header->base_offset;
+
+		/*
+		 * XXX: For Intel internal use only to address hardware bug
+		 * that will be fixed in production. In the bug, local refers to
+		 * an address in the same bar the header but at a fixed instead
+		 * of relative offset.
+		 */
+                if (pmt_telem_is_early_client_hw(dev)) {
+                        unsigned long pf_addr, mask;
+
+                        dev_info(dev, "applying quirk for local base address\n");
+                        pf_addr = PFN_PHYS(PHYS_PFN(header_res->start)) +
+                                           header->base_offset;
+                        mask = ~GENMASK(fls(header->base_offset), 0);
+                        entry->base_addr = (pf_addr & mask) + header->base_offset;
+                }
 		break;
 
 	case TELEM_ACCESS_BARID:
