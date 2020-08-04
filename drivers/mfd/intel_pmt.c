@@ -100,20 +100,25 @@ static int pmt_add_dev(struct pci_dev *pdev, struct intel_dvsec_header *header,
 
 	switch (id) {
 	case DVSEC_INTEL_ID_TELEMETRY:
+		dev_dbg(dev, "Telemetery capability found\n");
 		name = "pmt_telemetry";
 		break;
 	case DVSEC_INTEL_ID_WATCHER:
 		if (info->quirks & PMT_QUIRK_NO_WATCHER) {
 			dev_info(dev, "Watcher not supported\n");
 			return 0;
-		}
+		} else
+			dev_dbg(dev, "Watcher capability found\n");
+
 		name = "pmt_watcher";
 		break;
 	case DVSEC_INTEL_ID_CRASHLOG:
 		if (info->quirks & PMT_QUIRK_NO_CRASHLOG) {
 			dev_info(dev, "Crashlog not supported\n");
 			return 0;
-		}
+		} else
+			dev_dbg(dev, "Crashlog capability found\n");
+
 		name = "pmt_crashlog";
 		break;
 	default:
@@ -134,8 +139,12 @@ static int pmt_add_dev(struct pci_dev *pdev, struct intel_dvsec_header *header,
 	if (!res)
 		return -ENOMEM;
 
-	if (info->quirks & PMT_QUIRK_TABLE_SHIFT)
+	if (info->quirks & PMT_QUIRK_TABLE_SHIFT) {
+		dev_dbg(dev, "Table shift quirk applied\n");
 		header->offset >>= 3;
+	}
+
+	dev_dbg(dev, "Entry count: %d, size: %d\n", count, size);
 
 	/*
 	 * The PMT DVSEC contains the starting offset and count for a block of
@@ -148,6 +157,8 @@ static int pmt_add_dev(struct pci_dev *pdev, struct intel_dvsec_header *header,
 			     header->offset + i * (size << 2);
 		tmp->end = tmp->start + (size << 2) - 1;
 		tmp->flags = IORESOURCE_MEM;
+
+		dev_dbg(dev, "Entry %d, %pr", i, tmp);
 	}
 
 	cell->resources = res;
@@ -175,6 +186,8 @@ static int pmt_pci_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 
 	if (info->quirks & PMT_QUIRK_NO_DVSEC) {
 		struct intel_dvsec_header **header;
+
+		dev_dbg(&pdev->dev, "No DVSEC quirk, using hardcoded capabilities\n");
 
 		header = info->capabilities;
 		while (*header) {
