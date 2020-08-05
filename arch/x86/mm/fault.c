@@ -505,7 +505,8 @@ static void show_ldttss(const struct desc_ptr *gdt, const char *name, u16 index)
 }
 
 static void
-show_fault_oops(struct pt_regs *regs, unsigned long error_code, unsigned long address)
+show_fault_oops(struct pt_regs *regs, unsigned long error_code, unsigned long address,
+		irqentry_state_t *irq_state)
 {
 	if (!oops_may_print())
 		return;
@@ -548,6 +549,9 @@ show_fault_oops(struct pt_regs *regs, unsigned long error_code, unsigned long ad
 		 (error_code & X86_PF_RSVD)  ? "reserved bit violation" :
 		 (error_code & X86_PF_PK)    ? "protection keys violation" :
 					       "permissions violation");
+
+	if (irq_state && (error_code & X86_PF_PK))
+		pr_alert("PKRS: 0x%x\n", irq_state->pkrs);
 
 	if (!(error_code & X86_PF_USER) && user_mode(regs)) {
 		struct desc_ptr idt, gdt;
@@ -639,7 +643,8 @@ static void set_signal_archinfo(unsigned long address,
 
 static noinline void
 no_context(struct pt_regs *regs, unsigned long error_code,
-	   unsigned long address, int signal, int si_code)
+	   unsigned long address, int signal, int si_code,
+	   irqentry_state_t *irq_state)
 {
 	struct task_struct *tsk = current;
 	unsigned long flags;
@@ -747,7 +752,7 @@ oops:
 	 */
 	flags = oops_begin();
 
-	show_fault_oops(regs, error_code, address);
+	show_fault_oops(regs, error_code, address, irq_state);
 
 	if (task_stack_end_corrupted(tsk))
 		printk(KERN_EMERG "Thread overran stack, or stack corrupted\n");
@@ -800,7 +805,8 @@ static bool is_vsyscall_vaddr(unsigned long vaddr)
 
 static void
 __bad_area_nosemaphore(struct pt_regs *regs, unsigned long error_code,
-		       unsigned long address, u32 pkey, int si_code)
+		       unsigned long address, u32 pkey, int si_code,
+		       irqentry_state_t *state)
 {
 	struct task_struct *tsk = current;
 
@@ -845,14 +851,14 @@ __bad_area_nosemaphore(struct pt_regs *regs, unsigned long error_code,
 	if (is_f00f_bug(regs, address))
 		return;
 
-	no_context(regs, error_code, address, SIGSEGV, si_code);
+	no_context(regs, error_code, address, SIGSEGV, si_code, state);
 }
 
 static noinline void
 bad_area_nosemaphore(struct pt_regs *regs, unsigned long error_code,
-		     unsigned long address)
+		     unsigned long address, irqentry_state_t *state)
 {
-	__bad_area_nosemaphore(regs, error_code, address, 0, SEGV_MAPERR);
+	__bad_area_nosemaphore(regs, error_code, address, 0, SEGV_MAPERR, state);
 }
 
 static void
@@ -866,7 +872,7 @@ __bad_area(struct pt_regs *regs, unsigned long error_code,
 	 */
 	mmap_read_unlock(mm);
 
-	__bad_area_nosemaphore(regs, error_code, address, pkey, si_code);
+	__bad_area_nosemaphore(regs, error_code, address, pkey, si_code, NULL);
 }
 
 static noinline void
@@ -936,7 +942,7 @@ do_sigbus(struct pt_regs *regs, unsigned long error_code, unsigned long address,
 {
 	/* Kernel mode? Handle exceptions or die: */
 	if (!(error_code & X86_PF_USER)) {
-		no_context(regs, error_code, address, SIGBUS, BUS_ADRERR);
+		no_context(regs, error_code, address, SIGBUS, BUS_ADRERR, NULL);
 		return;
 	}
 
@@ -975,7 +981,7 @@ mm_fault_error(struct pt_regs *regs, unsigned long error_code,
 	       unsigned long address, vm_fault_t fault)
 {
 	if (fatal_signal_pending(current) && !(error_code & X86_PF_USER)) {
-		no_context(regs, error_code, address, 0, 0);
+		no_context(regs, error_code, address, 0, 0, NULL);
 		return;
 	}
 
@@ -983,7 +989,7 @@ mm_fault_error(struct pt_regs *regs, unsigned long error_code,
 		/* Kernel mode? Handle exceptions or die: */
 		if (!(error_code & X86_PF_USER)) {
 			no_context(regs, error_code, address,
-				   SIGSEGV, SEGV_MAPERR);
+				   SIGSEGV, SEGV_MAPERR, NULL);
 			return;
 		}
 
@@ -998,7 +1004,7 @@ mm_fault_error(struct pt_regs *regs, unsigned long error_code,
 			     VM_FAULT_HWPOISON_LARGE))
 			do_sigbus(regs, error_code, address, fault);
 		else if (fault & VM_FAULT_SIGSEGV)
-			bad_area_nosemaphore(regs, error_code, address);
+			bad_area_nosemaphore(regs, error_code, address, NULL);
 		else
 			BUG();
 	}
@@ -1179,7 +1185,7 @@ static int fault_in_kernel_space(unsigned long address)
  */
 static void
 do_kern_addr_fault(struct pt_regs *regs, unsigned long hw_error_code,
-		   unsigned long address)
+		   unsigned long address, irqentry_state_t *irq_state)
 {
 	/*
 	 * Protection keys exceptions only happen on user pages.  We
@@ -1235,7 +1241,7 @@ do_kern_addr_fault(struct pt_regs *regs, unsigned long hw_error_code,
 	 * Don't take the mm semaphore here. If we fixup a prefetch
 	 * fault we could otherwise deadlock:
 	 */
-	bad_area_nosemaphore(regs, hw_error_code, address);
+	bad_area_nosemaphore(regs, hw_error_code, address, irq_state);
 }
 NOKPROBE_SYMBOL(do_kern_addr_fault);
 
@@ -1276,7 +1282,7 @@ void do_user_addr_fault(struct pt_regs *regs,
 		     !(hw_error_code & X86_PF_USER) &&
 		     !(regs->flags & X86_EFLAGS_AC)))
 	{
-		bad_area_nosemaphore(regs, hw_error_code, address);
+		bad_area_nosemaphore(regs, hw_error_code, address, NULL);
 		return;
 	}
 
@@ -1285,7 +1291,7 @@ void do_user_addr_fault(struct pt_regs *regs,
 	 * in a region with pagefaults disabled then we must not take the fault
 	 */
 	if (unlikely(faulthandler_disabled() || !mm)) {
-		bad_area_nosemaphore(regs, hw_error_code, address);
+		bad_area_nosemaphore(regs, hw_error_code, address, NULL);
 		return;
 	}
 
@@ -1347,7 +1353,7 @@ void do_user_addr_fault(struct pt_regs *regs,
 			 * Fault from code in kernel from
 			 * which we do not expect faults.
 			 */
-			bad_area_nosemaphore(regs, hw_error_code, address);
+			bad_area_nosemaphore(regs, hw_error_code, address, NULL);
 			return;
 		}
 retry:
@@ -1406,7 +1412,7 @@ good_area:
 	if (fault_signal_pending(fault, regs)) {
 		if (!user_mode(regs))
 			no_context(regs, hw_error_code, address, SIGBUS,
-				   BUS_ADRERR);
+				   BUS_ADRERR, NULL);
 		return;
 	}
 
@@ -1446,7 +1452,7 @@ trace_page_fault_entries(struct pt_regs *regs, unsigned long error_code,
 
 static __always_inline void
 handle_page_fault(struct pt_regs *regs, unsigned long error_code,
-			      unsigned long address)
+		  unsigned long address, irqentry_state_t *irq_state)
 {
 	trace_page_fault_entries(regs, error_code, address);
 
@@ -1455,7 +1461,7 @@ handle_page_fault(struct pt_regs *regs, unsigned long error_code,
 
 	/* Was the fault on kernel-controlled part of the address space? */
 	if (unlikely(fault_in_kernel_space(address))) {
-		do_kern_addr_fault(regs, error_code, address);
+		do_kern_addr_fault(regs, error_code, address, irq_state);
 	} else {
 		do_user_addr_fault(regs, error_code, address);
 		/*
@@ -1510,7 +1516,7 @@ DEFINE_IDTENTRY_RAW_ERRORCODE(exc_page_fault)
 	irqentry_enter(regs, &state);
 
 	instrumentation_begin();
-	handle_page_fault(regs, error_code, address);
+	handle_page_fault(regs, error_code, address, &state);
 	instrumentation_end();
 
 	irqentry_exit(regs, &state);
