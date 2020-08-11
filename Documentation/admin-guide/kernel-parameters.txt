@@ -770,6 +770,10 @@
 			Format: <port#>,<type>
 			See also Documentation/input/devices/joystick-parport.rst
 
+	dev_sec_info.param_addr=
+			[BOOT] address of automotive bootloader (abl)
+			security parameters.
+
 	ddebug_query=	[KNL,DYNAMIC_DEBUG] Enable debug messages at early boot
 			time. See
 			Documentation/admin-guide/dynamic-debug-howto.rst for
@@ -3313,6 +3317,8 @@
 	nosbagart	[IA-64]
 
 	nosep		[BUGS=X86-32] Disables x86 SYSENTER/SYSEXIT support.
+
+	nosgx		[X86-64,SGX] Disables Intel SGX kernel support.
 
 	nosmp		[SMP] Tells an SMP kernel to act as a UP kernel,
 			and disable the IO APIC.  legacy for "maxcpus=0".
