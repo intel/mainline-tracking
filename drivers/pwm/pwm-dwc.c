@@ -301,6 +301,5 @@ module_pci_driver(dwc_pwm_driver);
 MODULE_AUTHOR("Felipe Balbi (Intel)");
 MODULE_AUTHOR("Jarkko Nikula <jarkko.nikula@linux.intel.com>");
 MODULE_AUTHOR("Raymond Tan <raymond.tan@intel.com>");
-
 MODULE_DESCRIPTION("DesignWare PWM Controller");
 MODULE_LICENSE("GPL");
