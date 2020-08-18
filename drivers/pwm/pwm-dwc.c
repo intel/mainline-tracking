@@ -112,9 +112,10 @@ static void __dwc_pwm_configure_timer(struct dwc_pwm *dwc,
 	dwc_pwm_writel(dwc, high, DWC_TIM_LD_CNT2(pwm->hwpwm));
 
 	/*
-	 * Set user-defined mode - timer reloads from Load Count registers
-	 * when it counts down to 0 and PWM mode which makes output to toggle
-	 * and width of low and high periods are set by Load Count registers.
+	 * Set user-defined mode, timer reloads from Load Count registers
+	 * when it counts down to 0.
+	 * Set PWM mode, it makes output to toggle and width of low and high
+	 * periods are set by Load Count registers.
 	 */
 	ctrl = DWC_TIM_CTRL_MODE_USER | DWC_TIM_CTRL_PWM;
 	dwc_pwm_writel(dwc, ctrl, DWC_TIM_CTRL(pwm->hwpwm));
