@@ -403,6 +403,7 @@ void switch_fpu_return(void)
 		return;
 
 	__fpregs_load_activate();
+	wrmsr_after_xrstors();
 }
 EXPORT_SYMBOL_GPL(switch_fpu_return);
 
