@@ -89,9 +89,9 @@ static void __dwc_pwm_configure_timer(struct dwc_pwm *dwc,
 	u32 high;
 	u32 low;
 
-	low = DIV_ROUND_CLOSEST(state->duty_cycle, DWC_CLK_PERIOD_NS) - 1;
-	high = DIV_ROUND_CLOSEST(state->period - state->duty_cycle,
-				 DWC_CLK_PERIOD_NS) - 1;
+	low = DIV_ROUND_CLOSEST_ULL(state->duty_cycle, DWC_CLK_PERIOD_NS) - 1;
+	high = DIV_ROUND_CLOSEST_ULL(state->period - state->duty_cycle,
+				     DWC_CLK_PERIOD_NS) - 1;
 
 	/*
 	  * Specification says timer usage flow is to disable timer, then
