@@ -73,6 +73,20 @@ static __always_inline __pure bool use_fxsr(void)
 	return static_cpu_has(X86_FEATURE_FXSR);
 }
 
+static inline void wrmsr_after_xrstors(void)
+{
+#ifdef CONFIG_X86_SHADOW_STACK_USER
+	if (current->thread.cet.wrmsr_after_xrstors) {
+		struct cet_user_state *cet_user;
+		current->thread.cet.wrmsr_after_xrstors = 0;
+		cet_user = get_xsave_addr(&current->thread.fpu.state.xsave,
+					  XFEATURE_CET_USER);
+		if (cet_user)
+			wrmsrl(MSR_IA32_PL3_SSP, cet_user->user_ssp);
+	}
+#endif
+}
+
 /*
  * fpstate handling functions:
  */

@@ -14,6 +14,7 @@ struct sc_ext;
 struct cet_status {
 	unsigned long	shstk_base;
 	unsigned long	shstk_size;
+	unsigned int	wrmsr_after_xrstors:1;
 	unsigned int	locked:1;
 	unsigned int	ibt_enabled:1;
 };

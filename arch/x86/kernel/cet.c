@@ -209,6 +209,8 @@ int cet_setup_thread_shstk(struct task_struct *tsk, unsigned long clone_flags)
 	if (!cet->shstk_size)
 		return 0;
 
+	cet->wrmsr_after_xrstors = 1;
+
 	if ((clone_flags & (CLONE_VFORK | CLONE_VM)) != CLONE_VM)
 		return 0;
 
