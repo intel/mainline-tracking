@@ -150,6 +150,15 @@ bool emulate_vsyscall(unsigned long error_code,
 
 	WARN_ON_ONCE(address != regs->ip);
 
+#ifdef CONFIG_X86_INTEL_CET
+	if (current->thread.cet.shstk_size ||
+	    current->thread.cet.ibt_enabled) {
+		warn_bad_vsyscall(KERN_INFO, regs,
+				  "vsyscall attempted with cet enabled");
+		return false;
+	}
+#endif
+
 	if (vsyscall_mode == NONE) {
 		warn_bad_vsyscall(KERN_INFO, regs,
 				  "vsyscall attempted with vsyscall=none");
