@@ -107,12 +107,12 @@ static int __dwc_pwm_configure_timer(struct dwc_pwm *dwc,
 	high = tmp - 1;
 
 	/*
-	  * Specification says timer usage flow is to disable timer, then
-	  * program it followed by enable. It also says Load Count is loaded
-	  * into timer after it is enabled - either after a disable or
-	  * a reset. Based on measurements it happens also without disable
-	   * whenever Load Count is updated. But follow the specification.
-	  */
+	 * Specification says timer usage flow is to disable timer, then
+	 * program it followed by enable. It also says Load Count is loaded
+	 * into timer after it is enabled - either after a disable or
+	 * a reset. Based on measurements it happens also without disable
+	 * whenever Load Count is updated. But follow the specification.
+	 */
 	__dwc_pwm_set_enable(dwc, pwm->hwpwm, false);
 
 	/*
