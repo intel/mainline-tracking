@@ -17,9 +17,9 @@
 #include "epf.h"
 #include "struct.h"
 
-static struct mxlk *global_mxlk;
+static struct xpcie *global_xpcie;
 
-#define MXLK_CIRCULAR_INC(val, max) (((val) + 1) & (max - 1))
+#define XPCIE_CIRCULAR_INC(val, max) (((val) + 1) & (max - 1))
 
 static int rx_pool_size = SZ_32M;
 module_param(rx_pool_size, int, 0664);
@@ -29,23 +29,26 @@ static int tx_pool_size = SZ_32M;
 module_param(tx_pool_size, int, 0664);
 MODULE_PARM_DESC(tx_pool_size, "transmitting pool size (default 32 MiB)");
 
-static int fragment_size = MXLK_FRAGMENT_SIZE;
+static int fragment_size = XPCIE_FRAGMENT_SIZE;
 module_param(fragment_size, int, 0664);
 MODULE_PARM_DESC(fragment_size, "transfer descriptor size (default 128 KiB)");
 
 static bool tx_pool_coherent = true;
 module_param(tx_pool_coherent, bool, 0664);
-MODULE_PARM_DESC(tx_pool_coherent, "transmitting pool using coherent memory (default true)");
+MODULE_PARM_DESC(tx_pool_coherent,
+		 "transmitting pool using coherent memory (default true)");
 
 static bool rx_pool_coherent;
 module_param(rx_pool_coherent, bool, 0664);
-MODULE_PARM_DESC(rx_pool_coherent, "receiving pool using coherent memory (default false)");
+MODULE_PARM_DESC(rx_pool_coherent,
+		 "receiving pool using coherent memory (default false)");
 
-static int mxlk_map_dma(struct mxlk *mxlk, struct mxlk_buf_desc *bd,
+static int intel_xpcie_map_dma(struct xpcie *xpcie, struct xpcie_buf_desc *bd,
 			int direction)
 {
-	struct mxlk_epf *mxlk_epf = container_of(mxlk, struct mxlk_epf, mxlk);
-	struct pci_epf *epf = mxlk_epf->epf;
+	struct xpcie_epf *xpcie_epf = container_of(xpcie,
+						   struct xpcie_epf, xpcie);
+	struct pci_epf *epf = xpcie_epf->epf;
 	struct device *dma_dev = epf->epc->dev.parent;
 
 	bd->phys = dma_map_single(dma_dev, bd->data, bd->length, direction);
@@ -53,183 +56,189 @@ static int mxlk_map_dma(struct mxlk *mxlk, struct mxlk_buf_desc *bd,
 	return dma_mapping_error(dma_dev, bd->phys);
 }
 
-static void mxlk_unmap_dma(struct mxlk *mxlk, struct mxlk_buf_desc *bd,
-			   int direction)
+static void intel_xpcie_unmap_dma(struct xpcie *xpcie,
+				  struct xpcie_buf_desc *bd, int direction)
 {
-	struct mxlk_epf *mxlk_epf = container_of(mxlk, struct mxlk_epf, mxlk);
-	struct pci_epf *epf = mxlk_epf->epf;
+	struct xpcie_epf *xpcie_epf = container_of(xpcie,
+						   struct xpcie_epf, xpcie);
+	struct pci_epf *epf = xpcie_epf->epf;
 	struct device *dma_dev = epf->epc->dev.parent;
 
 	dma_unmap_single(dma_dev, bd->phys, bd->length, direction);
 }
 
-static void mxlk_set_cap_txrx(struct mxlk *mxlk)
+static void intel_xpcie_set_cap_txrx(struct xpcie *xpcie)
 {
-	struct mxlk_cap_txrx *cap;
-	struct mxlk_cap_hdr *hdr;
-	uint32_t start = sizeof(struct mxlk_mmio);
-	size_t hdr_len = sizeof(struct mxlk_cap_txrx);
-	size_t tx_len = sizeof(struct mxlk_transfer_desc) * MXLK_NUM_TX_DESCS;
-	size_t rx_len = sizeof(struct mxlk_transfer_desc) * MXLK_NUM_RX_DESCS;
+	struct xpcie_cap_txrx *cap;
+	struct xpcie_cap_hdr *hdr;
+	uint32_t start = sizeof(struct xpcie_mmio);
+	size_t hdr_len = sizeof(struct xpcie_cap_txrx);
+	size_t tx_len = sizeof(struct xpcie_transfer_desc) *
+				XPCIE_NUM_TX_DESCS;
+	size_t rx_len = sizeof(struct xpcie_transfer_desc) *
+				XPCIE_NUM_RX_DESCS;
 	uint16_t next = (uint16_t)(start + hdr_len + tx_len + rx_len);
 
-	mxlk->mmio->cap_offset = start;
-	cap = (void *)mxlk->mmio + start;
-	memset(cap, 0, sizeof(struct mxlk_cap_txrx));
-	cap->hdr.id = MXLK_CAP_TXRX;
+	xpcie->mmio->cap_offset = start;
+	cap = (void *)xpcie->mmio + start;
+	memset(cap, 0, sizeof(struct xpcie_cap_txrx));
+	cap->hdr.id = XPCIE_CAP_TXRX;
 	cap->hdr.next = next;
 	cap->fragment_size = fragment_size;
 	cap->tx.ring = start + hdr_len;
-	cap->tx.ndesc = MXLK_NUM_TX_DESCS;
+	cap->tx.ndesc = XPCIE_NUM_TX_DESCS;
 	cap->rx.ring = start + hdr_len + tx_len;
-	cap->rx.ndesc = MXLK_NUM_RX_DESCS;
+	cap->rx.ndesc = XPCIE_NUM_RX_DESCS;
 
-	hdr = (struct mxlk_cap_hdr *)((void *)mxlk->mmio + next);
-	hdr->id = MXLK_CAP_NULL;
+	hdr = (struct xpcie_cap_hdr *)((void *)xpcie->mmio + next);
+	hdr->id = XPCIE_CAP_NULL;
 }
 
-static int mxlk_set_version(struct mxlk *mxlk)
+static int intel_xpcie_set_version(struct xpcie *xpcie)
 {
-	struct mxlk_version version;
+	struct xpcie_version version;
 
-	version.major = MXLK_VERSION_MAJOR;
-	version.minor = MXLK_VERSION_MINOR;
-	version.build = MXLK_VERSION_BUILD;
+	version.major = XPCIE_VERSION_MAJOR;
+	version.minor = XPCIE_VERSION_MINOR;
+	version.build = XPCIE_VERSION_BUILD;
 
-	memcpy(&mxlk->mmio->version, &version, sizeof(version));
+	memcpy(&xpcie->mmio->version, &version, sizeof(version));
 
-	dev_info(mxlk_to_dev(mxlk), "ver: device %u.%u.%u\n",
+	dev_info(xpcie_to_dev(xpcie), "ver: device %u.%u.%u\n",
 		 version.major, version.minor, version.build);
 
 	return 0;
 }
 
-static void mxlk_txrx_cleanup(struct mxlk *mxlk)
+static void intel_xpcie_txrx_cleanup(struct xpcie *xpcie)
 {
 	int index;
-	struct mxlk_transfer_desc *td;
-	struct mxlk_stream *tx = &mxlk->tx;
-	struct mxlk_stream *rx = &mxlk->rx;
-	struct mxlk_epf *mxlk_epf = container_of(mxlk, struct mxlk_epf, mxlk);
-	struct device *dma_dev = mxlk_epf->epf->epc->dev.parent;
-	struct mxlk_interface *inf = &mxlk->interfaces[0];
+	struct xpcie_transfer_desc *td;
+	struct xpcie_stream *tx = &xpcie->tx;
+	struct xpcie_stream *rx = &xpcie->rx;
+	struct xpcie_epf *xpcie_epf = container_of(xpcie,
+						   struct xpcie_epf, xpcie);
+	struct device *dma_dev = xpcie_epf->epf->epc->dev.parent;
+	struct xpcie_interface *inf = &xpcie->interfaces[0];
 
-	mxlk->stop_flag = true;
-	mxlk->no_tx_buffer = false;
+	xpcie->stop_flag = true;
+	xpcie->no_tx_buffer = false;
 	inf->data_available = true;
-	wake_up_interruptible(&mxlk->tx_waitqueue);
+	wake_up_interruptible(&xpcie->tx_waitqueue);
 	wake_up_interruptible(&inf->rx_waitqueue);
-	mutex_lock(&mxlk->wlock);
+	mutex_lock(&xpcie->wlock);
 	mutex_lock(&inf->rlock);
 
 	for (index = 0; index < rx->pipe.ndesc; index++) {
 		td = rx->pipe.tdr + index;
-		mxlk_set_td_address(td, 0);
-		mxlk_set_td_length(td, 0);
+		intel_xpcie_set_td_address(td, 0);
+		intel_xpcie_set_td_length(td, 0);
 	}
 	for (index = 0; index < tx->pipe.ndesc; index++) {
 		td = tx->pipe.tdr + index;
-		mxlk_set_td_address(td, 0);
-		mxlk_set_td_length(td, 0);
+		intel_xpcie_set_td_address(td, 0);
+		intel_xpcie_set_td_length(td, 0);
 	}
 
-	mxlk_list_cleanup(&mxlk->tx_pool);
-	mxlk_list_cleanup(&mxlk->rx_pool);
+	intel_xpcie_list_cleanup(&xpcie->tx_pool);
+	intel_xpcie_list_cleanup(&xpcie->rx_pool);
 
-	if (rx_pool_coherent && mxlk_epf->rx_virt) {
-		dma_free_coherent(dma_dev, mxlk_epf->rx_size,
-				  mxlk_epf->rx_virt, mxlk_epf->rx_phys);
+	if (rx_pool_coherent && xpcie_epf->rx_virt) {
+		dma_free_coherent(dma_dev, xpcie_epf->rx_size,
+				  xpcie_epf->rx_virt, xpcie_epf->rx_phys);
 	}
 
-	if (tx_pool_coherent && mxlk_epf->tx_virt) {
-		dma_free_coherent(dma_dev, mxlk_epf->tx_size,
-				  mxlk_epf->tx_virt, mxlk_epf->tx_phys);
+	if (tx_pool_coherent && xpcie_epf->tx_virt) {
+		dma_free_coherent(dma_dev, xpcie_epf->tx_size,
+				  xpcie_epf->tx_virt, xpcie_epf->tx_phys);
 	}
 
 	mutex_unlock(&inf->rlock);
-	mutex_unlock(&mxlk->wlock);
+	mutex_unlock(&xpcie->wlock);
 }
 
 /*
  * The RX/TX are named for Remote Host, in Local Host RX/TX is reversed.
  */
-static int mxlk_txrx_init(struct mxlk *mxlk, struct mxlk_cap_txrx *cap)
+static int intel_xpcie_txrx_init(struct xpcie *xpcie,
+				 struct xpcie_cap_txrx *cap)
 {
 	int index;
 	int ndesc;
-	struct mxlk_buf_desc *bd;
-	struct mxlk_stream *tx = &mxlk->tx;
-	struct mxlk_stream *rx = &mxlk->rx;
-	struct mxlk_epf *mxlk_epf = container_of(mxlk, struct mxlk_epf, mxlk);
-	struct device *dma_dev = mxlk_epf->epf->epc->dev.parent;
+	struct xpcie_buf_desc *bd;
+	struct xpcie_stream *tx = &xpcie->tx;
+	struct xpcie_stream *rx = &xpcie->rx;
+	struct xpcie_epf *xpcie_epf = container_of(xpcie,
+						   struct xpcie_epf, xpcie);
+	struct device *dma_dev = xpcie_epf->epf->epc->dev.parent;
 
-	mxlk->txrx = cap;
-	mxlk->fragment_size = cap->fragment_size;
-	mxlk->stop_flag = false;
+	xpcie->txrx = cap;
+	xpcie->fragment_size = cap->fragment_size;
+	xpcie->stop_flag = false;
 
 	rx->pipe.ndesc = cap->tx.ndesc;
 	rx->pipe.head = &cap->tx.head;
 	rx->pipe.tail = &cap->tx.tail;
-	rx->pipe.tdr = (void *)mxlk->mmio + cap->tx.ring;
+	rx->pipe.tdr = (void *)xpcie->mmio + cap->tx.ring;
 
 	tx->pipe.ndesc = cap->rx.ndesc;
 	tx->pipe.head = &cap->rx.head;
 	tx->pipe.tail = &cap->rx.tail;
-	tx->pipe.tdr = (void *)mxlk->mmio + cap->rx.ring;
+	tx->pipe.tdr = (void *)xpcie->mmio + cap->rx.ring;
 
-	mxlk_list_init(&mxlk->rx_pool);
-	rx_pool_size = roundup(rx_pool_size, mxlk->fragment_size);
-	ndesc = rx_pool_size / mxlk->fragment_size;
+	intel_xpcie_list_init(&xpcie->rx_pool);
+	rx_pool_size = roundup(rx_pool_size, xpcie->fragment_size);
+	ndesc = rx_pool_size / xpcie->fragment_size;
 
 	if (rx_pool_coherent) {
-		mxlk_epf->rx_size = rx_pool_size;
-		mxlk_epf->rx_virt = dma_alloc_coherent(dma_dev,
-			mxlk_epf->rx_size, &mxlk_epf->rx_phys, GFP_KERNEL);
-		if (!mxlk_epf->rx_virt)
+		xpcie_epf->rx_size = rx_pool_size;
+		xpcie_epf->rx_virt = dma_alloc_coherent(dma_dev,
+			xpcie_epf->rx_size, &xpcie_epf->rx_phys, GFP_KERNEL);
+		if (!xpcie_epf->rx_virt)
 			goto error;
 	}
 
 	for (index = 0; index < ndesc; index++) {
 		if (rx_pool_coherent) {
-			bd = mxlk_alloc_bd_reuse(mxlk->fragment_size,
-			mxlk_epf->rx_virt + index * mxlk->fragment_size,
-			mxlk_epf->rx_phys + index * mxlk->fragment_size);
+			bd = intel_xpcie_alloc_bd_reuse(xpcie->fragment_size,
+			xpcie_epf->rx_virt + index * xpcie->fragment_size,
+			xpcie_epf->rx_phys + index * xpcie->fragment_size);
 		} else {
-			bd = mxlk_alloc_bd(mxlk->fragment_size);
+			bd = intel_xpcie_alloc_bd(xpcie->fragment_size);
 		}
 		if (bd) {
-			mxlk_list_put(&mxlk->rx_pool, bd);
+			intel_xpcie_list_put(&xpcie->rx_pool, bd);
 		} else {
-			dev_err(mxlk_to_dev(mxlk),
+			dev_err(xpcie_to_dev(xpcie),
 				"failed to alloc all rx pool descriptors\n");
 			goto error;
 		}
 	}
 
-	mxlk_list_init(&mxlk->tx_pool);
-	tx_pool_size = roundup(tx_pool_size, mxlk->fragment_size);
-	ndesc = tx_pool_size / mxlk->fragment_size;
+	intel_xpcie_list_init(&xpcie->tx_pool);
+	tx_pool_size = roundup(tx_pool_size, xpcie->fragment_size);
+	ndesc = tx_pool_size / xpcie->fragment_size;
 
 	if (tx_pool_coherent) {
-		mxlk_epf->tx_size = tx_pool_size;
-		mxlk_epf->tx_virt = dma_alloc_coherent(dma_dev,
-			mxlk_epf->tx_size, &mxlk_epf->tx_phys, GFP_KERNEL);
-		if (!mxlk_epf->tx_virt)
+		xpcie_epf->tx_size = tx_pool_size;
+		xpcie_epf->tx_virt = dma_alloc_coherent(dma_dev,
+			xpcie_epf->tx_size, &xpcie_epf->tx_phys, GFP_KERNEL);
+		if (!xpcie_epf->tx_virt)
 			goto error;
 	}
 
 	for (index = 0; index < ndesc; index++) {
 		if (tx_pool_coherent) {
-			bd = mxlk_alloc_bd_reuse(mxlk->fragment_size,
-			mxlk_epf->tx_virt + index * mxlk->fragment_size,
-			mxlk_epf->tx_phys + index * mxlk->fragment_size);
+			bd = intel_xpcie_alloc_bd_reuse(xpcie->fragment_size,
+			xpcie_epf->tx_virt + index * xpcie->fragment_size,
+			xpcie_epf->tx_phys + index * xpcie->fragment_size);
 		} else {
-			bd = mxlk_alloc_bd(mxlk->fragment_size);
+			bd = intel_xpcie_alloc_bd(xpcie->fragment_size);
 		}
 		if (bd) {
-			mxlk_list_put(&mxlk->tx_pool, bd);
+			intel_xpcie_list_put(&xpcie->tx_pool, bd);
 		} else {
-			dev_err(mxlk_to_dev(mxlk),
+			dev_err(xpcie_to_dev(xpcie),
 				"failed to alloc all tx pool descriptors\n");
 			goto error;
 		}
@@ -238,43 +247,43 @@ static int mxlk_txrx_init(struct mxlk *mxlk, struct mxlk_cap_txrx *cap)
 	return 0;
 
 error:
-	mxlk_txrx_cleanup(mxlk);
+	intel_xpcie_txrx_cleanup(xpcie);
 
 	return -ENOMEM;
 }
 
-static int mxlk_discover_txrx(struct mxlk *mxlk)
+static int intel_xpcie_discover_txrx(struct xpcie *xpcie)
 {
 	int error;
-	struct mxlk_cap_txrx *cap;
+	struct xpcie_cap_txrx *cap;
 
-	cap = mxlk_cap_find(mxlk, 0, MXLK_CAP_TXRX);
+	cap = intel_xpcie_cap_find(xpcie, 0, XPCIE_CAP_TXRX);
 	if (cap) {
-		error = mxlk_txrx_init(mxlk, cap);
+		error = intel_xpcie_txrx_init(xpcie, cap);
 	} else {
-		dev_err(mxlk_to_dev(mxlk), "mxlk txrx info not found\n");
+		dev_err(xpcie_to_dev(xpcie), "xpcie txrx info not found\n");
 		error = -EIO;
 	}
 
 	return error;
 }
 
-static void mxlk_start_tx(struct mxlk *mxlk, unsigned long delay)
+static void intel_xpcie_start_tx(struct xpcie *xpcie, unsigned long delay)
 {
-	if (mxlk->legacy_a0)
-		queue_delayed_work(mxlk->rx_wq, &mxlk->tx_event, delay);
+	if (xpcie->legacy_a0)
+		queue_delayed_work(xpcie->rx_wq, &xpcie->tx_event, delay);
 	else
-		queue_delayed_work(mxlk->tx_wq, &mxlk->tx_event, delay);
+		queue_delayed_work(xpcie->tx_wq, &xpcie->tx_event, delay);
 }
 
-static void mxlk_start_rx(struct mxlk *mxlk, unsigned long delay)
+static void intel_xpcie_start_rx(struct xpcie *xpcie, unsigned long delay)
 {
-	queue_delayed_work(mxlk->rx_wq, &mxlk->rx_event, delay);
+	queue_delayed_work(xpcie->rx_wq, &xpcie->rx_event, delay);
 }
 
-static void mxlk_rx_event_handler(struct work_struct *work)
+static void intel_xpcie_rx_event_handler(struct work_struct *work)
 {
-	struct mxlk *mxlk = container_of(work, struct mxlk, rx_event.work);
+	struct xpcie *xpcie = container_of(work, struct xpcie, rx_event.work);
 
 	int rc;
 	u16 interface;
@@ -283,28 +292,29 @@ static void mxlk_rx_event_handler(struct work_struct *work)
 	u32 initial_head;
 	int descs_num = 0;
 	int chan = 0;
-	struct mxlk_stream *rx = &mxlk->rx;
-	struct mxlk_epf *mxlk_epf = container_of(mxlk, struct mxlk_epf, mxlk);
-	struct mxlk_dma_ll_desc *desc;
-	struct mxlk_buf_desc *bd_head, *bd_tail, *bd;
-	struct mxlk_transfer_desc *td;
+	struct xpcie_stream *rx = &xpcie->rx;
+	struct xpcie_epf *xpcie_epf = container_of(xpcie,
+						   struct xpcie_epf, xpcie);
+	struct xpcie_dma_ll_desc *desc;
+	struct xpcie_buf_desc *bd_head, *bd_tail, *bd;
+	struct xpcie_transfer_desc *td;
 	unsigned long delay = msecs_to_jiffies(1);
 	bool reset_work = false;
 
-	mxlk_debug_incr(mxlk, &mxlk->stats.rx_event_runs, 1);
+	intel_xpcie_debug_incr(xpcie, &xpcie->stats.rx_event_runs, 1);
 
-	if (mxlk_get_host_status(mxlk) != MXLK_STATUS_RUN)
+	if (intel_xpcie_get_host_status(xpcie) != XPCIE_STATUS_RUN)
 		return;
 
 	bd_head = bd_tail = NULL;
 	ndesc = rx->pipe.ndesc;
-	tail = mxlk_get_tdr_tail(&rx->pipe);
-	initial_head = head = mxlk_get_tdr_head(&rx->pipe);
+	tail = intel_xpcie_get_tdr_tail(&rx->pipe);
+	initial_head = head = intel_xpcie_get_tdr_head(&rx->pipe);
 
 	while (head != tail) {
 		td = rx->pipe.tdr + head;
 
-		bd = mxlk_alloc_rx_bd(mxlk);
+		bd = intel_xpcie_alloc_rx_bd(xpcie);
 		if (!bd) {
 			reset_work = true;
 			if (descs_num == 0) {
@@ -314,23 +324,23 @@ static void mxlk_rx_event_handler(struct work_struct *work)
 			break;
 		}
 
-		interface = mxlk_get_td_interface(td);
-		length = mxlk_get_td_length(td);
-		address = mxlk_get_td_address(td);
+		interface = intel_xpcie_get_td_interface(td);
+		length = intel_xpcie_get_td_length(td);
+		address = intel_xpcie_get_td_address(td);
 
 		bd->length = length;
 		bd->interface = interface;
 		if (!rx_pool_coherent) {
-			rc = mxlk_map_dma(mxlk, bd, DMA_FROM_DEVICE);
+			rc = intel_xpcie_map_dma(xpcie, bd, DMA_FROM_DEVICE);
 			if (rc) {
-				dev_err(mxlk_to_dev(mxlk),
+				dev_err(xpcie_to_dev(xpcie),
 					"failed to map rx bd (%d)\n", rc);
-				mxlk_free_rx_bd(mxlk, bd);
+				intel_xpcie_free_rx_bd(xpcie, bd);
 				break;
 			}
 		}
 
-		desc = &mxlk_epf->rx_desc_buf[chan].virt[descs_num++];
+		desc = &xpcie_epf->rx_desc_buf[chan].virt[descs_num++];
 		desc->dma_transfer_size = length;
 		desc->dst_addr = bd->phys;
 		desc->src_addr = address;
@@ -341,24 +351,24 @@ static void mxlk_rx_event_handler(struct work_struct *work)
 			bd_head = bd;
 		bd_tail = bd;
 
-		head = MXLK_CIRCULAR_INC(head, ndesc);
+		head = XPCIE_CIRCULAR_INC(head, ndesc);
 	}
 
 	if (descs_num == 0)
 		goto task_exit;
 
-	rc = mxlk_copy_from_host_ll(mxlk, chan, descs_num);
+	rc = intel_xpcie_copy_from_host_ll(xpcie, chan, descs_num);
 
 	bd = bd_head;
 	while (bd && !rx_pool_coherent) {
-		mxlk_unmap_dma(mxlk, bd, DMA_FROM_DEVICE);
+		intel_xpcie_unmap_dma(xpcie, bd, DMA_FROM_DEVICE);
 		bd = bd->next;
 	}
 
 	if (rc) {
-		dev_err(mxlk_to_dev(mxlk),
+		dev_err(xpcie_to_dev(xpcie),
 			"failed to DMA from host (%d)\n", rc);
-		mxlk_free_rx_bd(mxlk, bd_head);
+		intel_xpcie_free_rx_bd(xpcie, bd_head);
 		delay = msecs_to_jiffies(5);
 		reset_work = true;
 		goto task_exit;
@@ -371,38 +381,41 @@ static void mxlk_rx_event_handler(struct work_struct *work)
 		bd_head = bd_head->next;
 		bd->next = NULL;
 
-		if (likely(bd->interface < MXLK_NUM_INTERFACES)) {
-			mxlk_debug_incr(mxlk, &mxlk->stats.rx_krn.cnts, 1);
-			mxlk_debug_incr(mxlk, &mxlk->stats.rx_krn.bytes,
-					bd->length);
+		if (likely(bd->interface < XPCIE_NUM_INTERFACES)) {
+			intel_xpcie_debug_incr(xpcie,
+					       &xpcie->stats.rx_krn.cnts, 1);
+			intel_xpcie_debug_incr(xpcie,
+					       &xpcie->stats.rx_krn.bytes,
+					       bd->length);
 
-			mxlk_set_td_status(td, MXLK_DESC_STATUS_SUCCESS);
-			mxlk_add_bd_to_interface(mxlk, bd);
+			intel_xpcie_set_td_status(td,
+						  XPCIE_DESC_STATUS_SUCCESS);
+			intel_xpcie_add_bd_to_interface(xpcie, bd);
 		} else {
-			dev_err(mxlk_to_dev(mxlk),
+			dev_err(xpcie_to_dev(xpcie),
 				"detected rx desc interface failure (%u)\n",
 				bd->interface);
-			mxlk_set_td_status(td, MXLK_DESC_STATUS_ERROR);
-			mxlk_free_rx_bd(mxlk, bd);
+			intel_xpcie_set_td_status(td, XPCIE_DESC_STATUS_ERROR);
+			intel_xpcie_free_rx_bd(xpcie, bd);
 		}
 
 		bd = bd_head;
-		head = MXLK_CIRCULAR_INC(head, ndesc);
+		head = XPCIE_CIRCULAR_INC(head, ndesc);
 	}
 
 	if (head != initial_head) {
-		mxlk_set_tdr_head(&rx->pipe, head);
-		mxlk_raise_irq(mxlk, DATA_RECEIVED);
+		intel_xpcie_set_tdr_head(&rx->pipe, head);
+		intel_xpcie_raise_irq(xpcie, DATA_RECEIVED);
 	}
 
 task_exit:
 	if (reset_work)
-		mxlk_start_rx(mxlk, delay);
+		intel_xpcie_start_rx(xpcie, delay);
 }
 
-static void mxlk_tx_event_handler(struct work_struct *work)
+static void intel_xpcie_tx_event_handler(struct work_struct *work)
 {
-	struct mxlk *mxlk = container_of(work, struct mxlk, tx_event.work);
+	struct xpcie *xpcie = container_of(work, struct xpcie, tx_event.work);
 
 	int rc;
 	u32 head, tail, ndesc;
@@ -410,43 +423,44 @@ static void mxlk_tx_event_handler(struct work_struct *work)
 	u32 initial_tail;
 	int descs_num = 0;
 	int chan = 0;
-	struct mxlk_stream *tx = &mxlk->tx;
-	struct mxlk_epf *mxlk_epf = container_of(mxlk, struct mxlk_epf, mxlk);
-	struct mxlk_dma_ll_desc *desc;
-	struct mxlk_buf_desc *bd_head, *bd_tail, *bd;
-	struct mxlk_transfer_desc *td;
+	struct xpcie_stream *tx = &xpcie->tx;
+	struct xpcie_epf *xpcie_epf = container_of(xpcie,
+						   struct xpcie_epf, xpcie);
+	struct xpcie_dma_ll_desc *desc;
+	struct xpcie_buf_desc *bd_head, *bd_tail, *bd;
+	struct xpcie_transfer_desc *td;
 	size_t bytes = 0, buffers = 0;
 
-	mxlk_debug_incr(mxlk, &mxlk->stats.tx_event_runs, 1);
+	intel_xpcie_debug_incr(xpcie, &xpcie->stats.tx_event_runs, 1);
 
-	if (mxlk_get_host_status(mxlk) != MXLK_STATUS_RUN)
+	if (intel_xpcie_get_host_status(xpcie) != XPCIE_STATUS_RUN)
 		return;
 
 	bd_head = bd_tail = NULL;
 	ndesc = tx->pipe.ndesc;
-	initial_tail = tail = mxlk_get_tdr_tail(&tx->pipe);
-	head = mxlk_get_tdr_head(&tx->pipe);
+	initial_tail = tail = intel_xpcie_get_tdr_tail(&tx->pipe);
+	head = intel_xpcie_get_tdr_head(&tx->pipe);
 
 	// add new entries
-	while (MXLK_CIRCULAR_INC(tail, ndesc) != head) {
-		bd = mxlk_list_get(&mxlk->write);
+	while (XPCIE_CIRCULAR_INC(tail, ndesc) != head) {
+		bd = intel_xpcie_list_get(&xpcie->write);
 		if (!bd)
 			break;
 
 		if (!tx_pool_coherent) {
-			if (mxlk_map_dma(mxlk, bd, DMA_TO_DEVICE)) {
-				dev_err(mxlk_to_dev(mxlk),
+			if (intel_xpcie_map_dma(xpcie, bd, DMA_TO_DEVICE)) {
+				dev_err(xpcie_to_dev(xpcie),
 				"dma mapping error bd addr %p, size %zu\n",
 				bd->data, bd->length);
-				mxlk_list_put_head(&mxlk->write, bd);
+				intel_xpcie_list_put_head(&xpcie->write, bd);
 				break;
 			}
 		}
 
 		td = tx->pipe.tdr + tail;
-		address = mxlk_get_td_address(td);
+		address = intel_xpcie_get_td_address(td);
 
-		desc = &mxlk_epf->tx_desc_buf[chan].virt[descs_num++];
+		desc = &xpcie_epf->tx_desc_buf[chan].virt[descs_num++];
 		desc->dma_transfer_size = bd->length;
 		desc->src_addr = bd->phys;
 		desc->dst_addr = address;
@@ -457,177 +471,181 @@ static void mxlk_tx_event_handler(struct work_struct *work)
 			bd_head = bd;
 		bd_tail = bd;
 
-		tail = MXLK_CIRCULAR_INC(tail, ndesc);
+		tail = XPCIE_CIRCULAR_INC(tail, ndesc);
 	}
 
 	if (descs_num == 0)
 		goto task_exit;
 
-	rc = mxlk_copy_to_host_ll(mxlk, chan, descs_num);
+	rc = intel_xpcie_copy_to_host_ll(xpcie, chan, descs_num);
 
 	tail = initial_tail;
 	bd = bd_head;
 	while (bd) {
 		if (!tx_pool_coherent)
-			mxlk_unmap_dma(mxlk, bd, DMA_TO_DEVICE);
+			intel_xpcie_unmap_dma(xpcie, bd, DMA_TO_DEVICE);
 
 		if (rc) {
 			bd = bd->next;
 			continue;
 		}
 
-		mxlk_debug_incr(mxlk, &mxlk->stats.tx_krn.cnts, 1);
-		mxlk_debug_incr(mxlk, &mxlk->stats.tx_krn.bytes, bd->length);
+		intel_xpcie_debug_incr(xpcie, &xpcie->stats.tx_krn.cnts, 1);
+		intel_xpcie_debug_incr(xpcie, &xpcie->stats.tx_krn.bytes,
+				       bd->length);
 
 		td = tx->pipe.tdr + tail;
-		mxlk_set_td_status(td, MXLK_DESC_STATUS_SUCCESS);
-		mxlk_set_td_length(td, bd->length);
-		mxlk_set_td_interface(td, bd->interface);
+		intel_xpcie_set_td_status(td, XPCIE_DESC_STATUS_SUCCESS);
+		intel_xpcie_set_td_length(td, bd->length);
+		intel_xpcie_set_td_interface(td, bd->interface);
 
 		bd = bd->next;
-		tail = MXLK_CIRCULAR_INC(tail, ndesc);
+		tail = XPCIE_CIRCULAR_INC(tail, ndesc);
 	}
 
 	if (rc) {
-		dev_err(mxlk_to_dev(mxlk), "failed to DMA to host (%d)\n", rc);
-		mxlk_list_put_head(&mxlk->write, bd_head);
+		dev_err(xpcie_to_dev(xpcie),
+			"failed to DMA to host (%d)\n", rc);
+		intel_xpcie_list_put_head(&xpcie->write, bd_head);
 		return;
 	}
 
-	mxlk_free_tx_bd(mxlk, bd_head);
+	intel_xpcie_free_tx_bd(xpcie, bd_head);
 
-	if (mxlk_get_tdr_tail(&tx->pipe) != tail) {
-		mxlk_set_tdr_tail(&tx->pipe, tail);
-		mxlk_raise_irq(mxlk, DATA_SENT);
-		mxlk_debug_incr(mxlk, &mxlk->stats.send_ints, 1);
+	if (intel_xpcie_get_tdr_tail(&tx->pipe) != tail) {
+		intel_xpcie_set_tdr_tail(&tx->pipe, tail);
+		intel_xpcie_raise_irq(xpcie, DATA_SENT);
+		intel_xpcie_debug_incr(xpcie, &xpcie->stats.send_ints, 1);
 	}
 
 task_exit:
-	mxlk_list_info(&mxlk->write, &bytes, &buffers);
+	intel_xpcie_list_info(&xpcie->write, &bytes, &buffers);
 	if (buffers) {
-		mxlk->tx_pending = true;
-		head = mxlk_get_tdr_head(&tx->pipe);
-		if (MXLK_CIRCULAR_INC(tail, ndesc) != head)
-			mxlk_start_tx(mxlk, 0);
+		xpcie->tx_pending = true;
+		head = intel_xpcie_get_tdr_head(&tx->pipe);
+		if (XPCIE_CIRCULAR_INC(tail, ndesc) != head)
+			intel_xpcie_start_tx(xpcie, 0);
 	} else {
-		mxlk->tx_pending = false;
+		xpcie->tx_pending = false;
 	}
 }
 
-static irqreturn_t mxlk_core_irq_cb(int irq, void *args)
+static irqreturn_t intel_xpcie_core_irq_cb(int irq, void *args)
 {
-	struct mxlk *mxlk = args;
+	struct xpcie *xpcie = args;
 
-	if (mxlk_get_doorbell(mxlk, TO_DEVICE, DATA_SENT)) {
-		mxlk_set_doorbell(mxlk, TO_DEVICE, DATA_SENT, 0);
-		mxlk_debug_incr(mxlk, &mxlk->stats.interrupts, 1);
-		mxlk_start_rx(mxlk, 0);
+	if (intel_xpcie_get_doorbell(xpcie, TO_DEVICE, DATA_SENT)) {
+		intel_xpcie_set_doorbell(xpcie, TO_DEVICE, DATA_SENT, 0);
+		intel_xpcie_debug_incr(xpcie, &xpcie->stats.interrupts, 1);
+		intel_xpcie_start_rx(xpcie, 0);
 	}
-	if (mxlk_get_doorbell(mxlk, TO_DEVICE, DATA_RECEIVED)) {
-		mxlk_set_doorbell(mxlk, TO_DEVICE, DATA_RECEIVED, 0);
-		if (mxlk->tx_pending)
-			mxlk_start_tx(mxlk, 0);
+	if (intel_xpcie_get_doorbell(xpcie, TO_DEVICE, DATA_RECEIVED)) {
+		intel_xpcie_set_doorbell(xpcie, TO_DEVICE, DATA_RECEIVED, 0);
+		if (xpcie->tx_pending)
+			intel_xpcie_start_tx(xpcie, 0);
 	}
 
 	return IRQ_HANDLED;
 }
 
-static int mxlk_events_init(struct mxlk *mxlk)
+static int intel_xpcie_events_init(struct xpcie *xpcie)
 {
-	mxlk->rx_wq = alloc_ordered_workqueue(MXLK_DRIVER_NAME,
+	xpcie->rx_wq = alloc_ordered_workqueue(XPCIE_DRIVER_NAME,
 					      WQ_MEM_RECLAIM | WQ_HIGHPRI);
-	if (!mxlk->rx_wq) {
-		dev_err(mxlk_to_dev(mxlk), "failed to allocate workqueue\n");
+	if (!xpcie->rx_wq) {
+		dev_err(xpcie_to_dev(xpcie), "failed to allocate workqueue\n");
 		return -ENOMEM;
 	}
 
-	if (!mxlk->legacy_a0) {
-		mxlk->tx_wq = alloc_ordered_workqueue(MXLK_DRIVER_NAME,
+	if (!xpcie->legacy_a0) {
+		xpcie->tx_wq = alloc_ordered_workqueue(XPCIE_DRIVER_NAME,
 					      WQ_MEM_RECLAIM | WQ_HIGHPRI);
-		if (!mxlk->tx_wq) {
-			dev_err(mxlk_to_dev(mxlk),
+		if (!xpcie->tx_wq) {
+			dev_err(xpcie_to_dev(xpcie),
 				"failed to allocate workqueue\n");
-			destroy_workqueue(mxlk->rx_wq);
+			destroy_workqueue(xpcie->rx_wq);
 			return -ENOMEM;
 		}
 	}
 
-	INIT_DELAYED_WORK(&mxlk->rx_event, mxlk_rx_event_handler);
-	INIT_DELAYED_WORK(&mxlk->tx_event, mxlk_tx_event_handler);
+	INIT_DELAYED_WORK(&xpcie->rx_event, intel_xpcie_rx_event_handler);
+	INIT_DELAYED_WORK(&xpcie->tx_event, intel_xpcie_tx_event_handler);
 
 	return 0;
 }
 
-static void mxlk_events_cleanup(struct mxlk *mxlk)
+static void intel_xpcie_events_cleanup(struct xpcie *xpcie)
 {
-	cancel_delayed_work_sync(&mxlk->rx_event);
-	cancel_delayed_work_sync(&mxlk->tx_event);
+	cancel_delayed_work_sync(&xpcie->rx_event);
+	cancel_delayed_work_sync(&xpcie->tx_event);
 
-	destroy_workqueue(mxlk->rx_wq);
-	if (!mxlk->legacy_a0)
-		destroy_workqueue(mxlk->tx_wq);
+	destroy_workqueue(xpcie->rx_wq);
+	if (!xpcie->legacy_a0)
+		destroy_workqueue(xpcie->tx_wq);
 }
 
-int mxlk_core_init(struct mxlk *mxlk)
+int intel_xpcie_core_init(struct xpcie *xpcie)
 {
 	int error;
-	struct mxlk_epf *mxlk_epf = container_of(mxlk, struct mxlk_epf, mxlk);
+	struct xpcie_epf *xpcie_epf = container_of(xpcie,
+						   struct xpcie_epf, xpcie);
 
-	mxlk_init_debug(mxlk, &mxlk_epf->epf->dev);
+	intel_xpcie_init_debug(xpcie, &xpcie_epf->epf->dev);
 
-	global_mxlk = mxlk;
+	global_xpcie = xpcie;
 
-	mxlk_set_version(mxlk);
-	mxlk_set_cap_txrx(mxlk);
+	intel_xpcie_set_version(xpcie);
+	intel_xpcie_set_cap_txrx(xpcie);
 
-	error = mxlk_events_init(mxlk);
+	error = intel_xpcie_events_init(xpcie);
 	if (error)
 		return error;
 
-	error = mxlk_discover_txrx(mxlk);
+	error = intel_xpcie_discover_txrx(xpcie);
 	if (error)
 		goto error_txrx;
 
-	mxlk_interfaces_init(mxlk);
+	intel_xpcie_interfaces_init(xpcie);
 
-	mxlk_set_doorbell(mxlk, TO_DEVICE, DATA_SENT, 0);
-	mxlk_set_doorbell(mxlk, TO_DEVICE, DATA_RECEIVED, 0);
-	mxlk_set_doorbell(mxlk, TO_DEVICE, DEV_EVENT, NO_OP);
-	mxlk_set_doorbell(mxlk, FROM_DEVICE, DATA_SENT, 0);
-	mxlk_set_doorbell(mxlk, FROM_DEVICE, DATA_RECEIVED, 0);
-	mxlk_set_doorbell(mxlk, FROM_DEVICE, DEV_EVENT, NO_OP);
+	intel_xpcie_set_doorbell(xpcie, TO_DEVICE, DATA_SENT, 0);
+	intel_xpcie_set_doorbell(xpcie, TO_DEVICE, DATA_RECEIVED, 0);
+	intel_xpcie_set_doorbell(xpcie, TO_DEVICE, DEV_EVENT, NO_OP);
+	intel_xpcie_set_doorbell(xpcie, FROM_DEVICE, DATA_SENT, 0);
+	intel_xpcie_set_doorbell(xpcie, FROM_DEVICE, DATA_RECEIVED, 0);
+	intel_xpcie_set_doorbell(xpcie, FROM_DEVICE, DEV_EVENT, NO_OP);
 
-	mxlk_register_host_irq(mxlk, mxlk_core_irq_cb);
+	intel_xpcie_register_host_irq(xpcie, intel_xpcie_core_irq_cb);
 
 	return 0;
 
 error_txrx:
-	mxlk_events_cleanup(mxlk);
+	intel_xpcie_events_cleanup(xpcie);
 
 	return error;
 }
 
-void mxlk_core_cleanup(struct mxlk *mxlk)
+void intel_xpcie_core_cleanup(struct xpcie *xpcie)
 {
-	struct mxlk_epf *mxlk_epf = container_of(mxlk, struct mxlk_epf, mxlk);
+	struct xpcie_epf *xpcie_epf = container_of(xpcie,
+						   struct xpcie_epf, xpcie);
 
-	if (mxlk->status == MXLK_STATUS_RUN) {
-		mxlk_events_cleanup(mxlk);
-		mxlk_interfaces_cleanup(mxlk);
-		mxlk_txrx_cleanup(mxlk);
+	if (xpcie->status == XPCIE_STATUS_RUN) {
+		intel_xpcie_events_cleanup(xpcie);
+		intel_xpcie_interfaces_cleanup(xpcie);
+		intel_xpcie_txrx_cleanup(xpcie);
 	}
 
-	mxlk_uninit_debug(mxlk, &mxlk_epf->epf->dev);
+	intel_xpcie_uninit_debug(xpcie, &xpcie_epf->epf->dev);
 }
 
-int mxlk_core_read(struct mxlk *mxlk, void *buffer, size_t *length,
+int intel_xpcie_core_read(struct xpcie *xpcie, void *buffer, size_t *length,
 		   unsigned int timeout_ms)
 {
 	int ret = 0;
-	struct mxlk_interface *inf = &mxlk->interfaces[0];
+	struct xpcie_interface *inf = &xpcie->interfaces[0];
 	size_t len = *length;
 	size_t remaining = len;
-	struct mxlk_buf_desc *bd;
+	struct xpcie_buf_desc *bd;
 	unsigned long jiffies_start = jiffies;
 	long jiffies_passed = 0;
 	long jiffies_timeout = (long)msecs_to_jiffies(timeout_ms);
@@ -636,10 +654,10 @@ int mxlk_core_read(struct mxlk *mxlk, void *buffer, size_t *length,
 	if (len == 0)
 		return -EINVAL;
 
-	if (mxlk->status != MXLK_STATUS_RUN)
+	if (xpcie->status != XPCIE_STATUS_RUN)
 		return -ENODEV;
 
-	mxlk_debug_incr(mxlk, &mxlk->stats.rx_usr.cnts, 1);
+	intel_xpcie_debug_incr(xpcie, &xpcie->stats.rx_usr.cnts, 1);
 
 	ret = mutex_lock_interruptible(&inf->rlock);
 	if (ret < 0)
@@ -650,7 +668,8 @@ int mxlk_core_read(struct mxlk *mxlk, void *buffer, size_t *length,
 			mutex_unlock(&inf->rlock);
 			if (timeout_ms == 0) {
 				ret = wait_event_interruptible(
-					inf->rx_waitqueue, inf->data_available);
+					inf->rx_waitqueue,
+					inf->data_available);
 			} else {
 				ret = wait_event_interruptible_timeout(
 					inf->rx_waitqueue, inf->data_available,
@@ -658,7 +677,7 @@ int mxlk_core_read(struct mxlk *mxlk, void *buffer, size_t *length,
 				if (ret == 0)
 					return -ETIME;
 			}
-			if (ret < 0 || mxlk->stop_flag)
+			if (ret < 0 || xpcie->stop_flag)
 				return -EINTR;
 
 			ret = mutex_lock_interruptible(&inf->rlock);
@@ -667,7 +686,7 @@ int mxlk_core_read(struct mxlk *mxlk, void *buffer, size_t *length,
 		}
 
 		bd = (inf->partial_read) ? inf->partial_read :
-					   mxlk_list_get(&inf->read);
+					   intel_xpcie_list_get(&inf->read);
 
 		while (remaining && bd) {
 			size_t bcopy;
@@ -680,15 +699,17 @@ int mxlk_core_read(struct mxlk *mxlk, void *buffer, size_t *length,
 			bd->data += bcopy;
 			bd->length -= bcopy;
 
-			mxlk_debug_incr(mxlk, &mxlk->stats.rx_usr.bytes, bcopy);
+			intel_xpcie_debug_incr(xpcie,
+					       &xpcie->stats.rx_usr.bytes,
+					       bcopy);
 
 			if (bd->length == 0) {
-				mxlk_free_rx_bd(mxlk, bd);
-				bd = mxlk_list_get(&inf->read);
+				intel_xpcie_free_rx_bd(xpcie, bd);
+				bd = intel_xpcie_list_get(&inf->read);
 			}
 		}
 
-		// save for next time
+		/* save for next time */
 		inf->partial_read = bd;
 
 		if (!bd)
@@ -705,14 +726,14 @@ int mxlk_core_read(struct mxlk *mxlk, void *buffer, size_t *length,
 	return 0;
 }
 
-int mxlk_core_write(struct mxlk *mxlk, void *buffer, size_t *length,
+int intel_xpcie_core_write(struct xpcie *xpcie, void *buffer, size_t *length,
 		    unsigned int timeout_ms)
 {
 	int ret;
 	size_t len = *length;
 	size_t remaining = len;
-	struct mxlk_interface *inf = &mxlk->interfaces[0];
-	struct mxlk_buf_desc *bd, *head;
+	struct xpcie_interface *inf = &xpcie->interfaces[0];
+	struct xpcie_buf_desc *bd, *head;
 	unsigned long jiffies_start = jiffies;
 	long jiffies_passed = 0;
 	long jiffies_timeout = (long)msecs_to_jiffies(timeout_ms);
@@ -721,41 +742,42 @@ int mxlk_core_write(struct mxlk *mxlk, void *buffer, size_t *length,
 	if (len == 0)
 		return -EINVAL;
 
-	if (mxlk->status != MXLK_STATUS_RUN)
+	if (xpcie->status != XPCIE_STATUS_RUN)
 		return -ENODEV;
 
-	if (mxlk_get_host_status(mxlk) != MXLK_STATUS_RUN)
+	if (intel_xpcie_get_host_status(xpcie) != XPCIE_STATUS_RUN)
 		return -ENODEV;
 
-	mxlk_debug_incr(mxlk, &mxlk->stats.tx_usr.cnts, 1);
+	intel_xpcie_debug_incr(xpcie, &xpcie->stats.tx_usr.cnts, 1);
 
-	ret = mutex_lock_interruptible(&mxlk->wlock);
+	ret = mutex_lock_interruptible(&xpcie->wlock);
 	if (ret < 0)
 		return -EINTR;
 
 	do {
-		bd = head = mxlk_alloc_tx_bd(mxlk);
+		bd = head = intel_xpcie_alloc_tx_bd(xpcie);
 		while (!head) {
-			mutex_unlock(&mxlk->wlock);
+			mutex_unlock(&xpcie->wlock);
 			if (timeout_ms == 0) {
 				ret = wait_event_interruptible(
-						mxlk->tx_waitqueue,
-						!mxlk->no_tx_buffer);
+						xpcie->tx_waitqueue,
+						!xpcie->no_tx_buffer);
 			} else {
 				ret = wait_event_interruptible_timeout(
-					mxlk->tx_waitqueue, !mxlk->no_tx_buffer,
+					xpcie->tx_waitqueue,
+					!xpcie->no_tx_buffer,
 					jiffies_timeout - jiffies_passed);
 				if (ret == 0)
 					return -ETIME;
 			}
-			if (ret < 0 || mxlk->stop_flag)
+			if (ret < 0 || xpcie->stop_flag)
 				return -EINTR;
 
-			ret = mutex_lock_interruptible(&mxlk->wlock);
+			ret = mutex_lock_interruptible(&xpcie->wlock);
 			if (ret < 0)
 				return -EINTR;
 
-			bd = head = mxlk_alloc_tx_bd(mxlk);
+			bd = head = intel_xpcie_alloc_tx_bd(xpcie);
 		}
 
 		while (remaining && bd) {
@@ -769,16 +791,18 @@ int mxlk_core_write(struct mxlk *mxlk, void *buffer, size_t *length,
 			bd->length = bcopy;
 			bd->interface = inf->id;
 
-			mxlk_debug_incr(mxlk, &mxlk->stats.tx_usr.bytes, bcopy);
+			intel_xpcie_debug_incr(xpcie,
+					       &xpcie->stats.tx_usr.bytes,
+					       bcopy);
 
 			if (remaining) {
-				bd->next = mxlk_alloc_tx_bd(mxlk);
+				bd->next = intel_xpcie_alloc_tx_bd(xpcie);
 				bd = bd->next;
 			}
 		}
 
-		mxlk_list_put(&inf->mxlk->write, head);
-		mxlk_start_tx(mxlk, 0);
+		intel_xpcie_list_put(&inf->xpcie->write, head);
+		intel_xpcie_start_tx(xpcie, 0);
 
 		*length = len - remaining;
 
@@ -786,12 +810,12 @@ int mxlk_core_write(struct mxlk *mxlk, void *buffer, size_t *length,
 	} while (remaining > 0 && (jiffies_passed < jiffies_timeout ||
 				   timeout_ms == 0));
 
-	mutex_unlock(&mxlk->wlock);
+	mutex_unlock(&xpcie->wlock);
 
 	return 0;
 }
 
-struct mxlk *mxlk_core_get_by_id(uint32_t sw_device_id)
+struct xpcie *intel_xpcie_core_get_by_id(uint32_t sw_device_id)
 {
-	return (sw_device_id == xlink_sw_id) ? global_mxlk : NULL;
+	return (sw_device_id == xlink_sw_id) ? global_xpcie : NULL;
 }

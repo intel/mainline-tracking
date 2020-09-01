@@ -7,8 +7,8 @@
  *
  ****************************************************************************/
 
-#ifndef MXLK_HEADER_
-#define MXLK_HEADER_
+#ifndef XPCIE_HEADER_
+#define XPCIE_HEADER_
 
 #include <linux/kernel.h>
 #include <linux/module.h>
@@ -28,23 +28,23 @@
 #include "boot.h"
 
 #ifdef XLINK_PCIE_REMOTE
-#define MXLK_DRIVER_NAME "mxlk"
-#define MXLK_DRIVER_DESC "Intel(R) Keem Bay XLink PCIe driver"
+#define XPCIE_DRIVER_NAME "mxlk"
+#define XPCIE_DRIVER_DESC "Intel(R) Keem Bay XLink PCIe driver"
 #else
-#define MXLK_DRIVER_NAME "mxlk_pcie_epf"
-#define MXLK_DRIVER_DESC "Intel(R) xLink PCIe endpoint function driver"
+#define XPCIE_DRIVER_NAME "mxlk_pcie_epf"
+#define XPCIE_DRIVER_DESC "Intel(R) xLink PCIe endpoint function driver"
 #endif
 
-struct mxlk_pipe {
+struct xpcie_pipe {
 	u32 old;
 	u32 ndesc;
 	u32 *head;
 	u32 *tail;
-	struct mxlk_transfer_desc *tdr;
+	struct xpcie_transfer_desc *tdr;
 };
 
-struct mxlk_buf_desc {
-	struct mxlk_buf_desc *next;
+struct xpcie_buf_desc {
+	struct xpcie_buf_desc *next;
 	void *head;
 	dma_addr_t phys;
 	size_t true_len;
@@ -54,33 +54,33 @@ struct mxlk_buf_desc {
 	bool own_mem;
 };
 
-struct mxlk_stream {
+struct xpcie_stream {
 	size_t frag;
-	struct mxlk_pipe pipe;
+	struct xpcie_pipe pipe;
 #ifdef XLINK_PCIE_REMOTE
-	struct mxlk_buf_desc **ddr;
+	struct xpcie_buf_desc **ddr;
 #endif
 };
 
-struct mxlk_list {
+struct xpcie_list {
 	spinlock_t lock;
 	size_t bytes;
 	size_t buffers;
-	struct mxlk_buf_desc *head;
-	struct mxlk_buf_desc *tail;
+	struct xpcie_buf_desc *head;
+	struct xpcie_buf_desc *tail;
 };
 
-struct mxlk_interface {
+struct xpcie_interface {
 	int id;
-	struct mxlk *mxlk;
+	struct xpcie *xpcie;
 	struct mutex rlock;
-	struct mxlk_list read;
-	struct mxlk_buf_desc *partial_read;
+	struct xpcie_list read;
+	struct xpcie_buf_desc *partial_read;
 	bool data_available;
 	wait_queue_head_t rx_waitqueue;
 };
 
-struct mxlk_debug_stats {
+struct xpcie_debug_stats {
 	struct {
 		size_t cnts;
 		size_t bytes;
@@ -91,47 +91,47 @@ struct mxlk_debug_stats {
 	size_t tx_event_runs;
 };
 
-struct mxlk {
+struct xpcie {
 	u32 status;
 	bool legacy_a0;
 
 #ifdef XLINK_PCIE_REMOTE
 	void __iomem *bar0;
-	struct mxlk_bootio __iomem *io_comm; /* IO communication space */
-	struct mxlk_mmio __iomem *mmio; /* XLink memory space */
+	struct xpcie_bootio __iomem *io_comm; /* IO communication space */
+	struct xpcie_mmio __iomem *mmio; /* XLink memory space */
 	void __iomem *bar4;
 #else
-	struct mxlk_bootio *io_comm; /* IO communication space */
-	struct mxlk_mmio *mmio; /* XLink memory space */
+	struct xpcie_bootio *io_comm; /* IO communication space */
+	struct xpcie_mmio *mmio; /* XLink memory space */
 	void *bar4;
 #endif
 
 	struct workqueue_struct *rx_wq;
 	struct workqueue_struct *tx_wq;
 
-	struct mxlk_interface interfaces[MXLK_NUM_INTERFACES];
+	struct xpcie_interface interfaces[XPCIE_NUM_INTERFACES];
 
 	size_t fragment_size;
-	struct mxlk_cap_txrx *txrx;
-	struct mxlk_stream tx;
-	struct mxlk_stream rx;
+	struct xpcie_cap_txrx *txrx;
+	struct xpcie_stream tx;
+	struct xpcie_stream rx;
 
 	struct mutex wlock;
-	struct mxlk_list write;
+	struct xpcie_list write;
 	bool no_tx_buffer;
 	wait_queue_head_t tx_waitqueue;
 	bool tx_pending;
 	bool stop_flag;
 
-	struct mxlk_list rx_pool;
-	struct mxlk_list tx_pool;
+	struct xpcie_list rx_pool;
+	struct xpcie_list tx_pool;
 
 	struct delayed_work rx_event;
 	struct delayed_work tx_event;
 
 	struct device_attribute debug;
 	bool debug_enable;
-	struct mxlk_debug_stats stats;
+	struct xpcie_debug_stats stats;
 };
 
 #endif

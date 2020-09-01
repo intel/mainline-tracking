@@ -7,18 +7,18 @@
  *
  ****************************************************************************/
 
-#ifndef MXLK_CORE_HEADER_
-#define MXLK_CORE_HEADER_
+#ifndef XPCIE_CORE_HEADER_
+#define XPCIE_CORE_HEADER_
 
-#include "xlink_pcie.h"
+#include "xpcie.h"
 
-int mxlk_core_init(struct mxlk *mxlk);
-void mxlk_core_cleanup(struct mxlk *mxlk);
+int intel_xpcie_core_init(struct xpcie *xpcie);
+void intel_xpcie_core_cleanup(struct xpcie *xpcie);
 
 /*
- * @brief Read buffer from mxlk. Function will block when no data.
+ * @brief Read buffer from xpcie. Function will block when no data.
  *
- * @param[in] mxlk          - pointer to mxlk instance
+ * @param[in] xpcie          - pointer to xpcie instance
  * @param[in] buffer        - pointer to buffer
  * @param[in] length        - max bytes to copy into buffer
  * @param[in] timeout_ms    - timeout in ms for blocking when no data
@@ -29,13 +29,13 @@ void mxlk_core_cleanup(struct mxlk *mxlk);
  *              -ETIME - timeout
  *              -EINTR - interrupted
  */
-int mxlk_core_read(struct mxlk *mxlk, void *buffer, size_t *length,
+int intel_xpcie_core_read(struct xpcie *xpcie, void *buffer, size_t *length,
 		   uint32_t timeout_ms);
 
 /*
- * @brief Writes buffer to mxlk. Function will block when no buffer.
+ * @brief Writes buffer to xpcie. Function will block when no buffer.
  *
- * @param[in] mxlk          - pointer to mxlk instance
+ * @param[in] xpcie          - pointer to xpcie instance
  * @param[in] buffer        - pointer to buffer
  * @param[in] length        - length of buffer to copy from
  * @param[in] timeout_ms    - timeout in ms for blocking when no buffer
@@ -46,11 +46,11 @@ int mxlk_core_read(struct mxlk *mxlk, void *buffer, size_t *length,
  *              -ETIME - timeout
  *              -EINTR - interrupted
  */
-int mxlk_core_write(struct mxlk *mxlk, void *buffer, size_t *length,
+int intel_xpcie_core_write(struct xpcie *xpcie, void *buffer, size_t *length,
 		    uint32_t timeout_ms);
 
 #ifdef XLINK_PCIE_LOCAL
-struct mxlk *mxlk_core_get_by_id(uint32_t sw_device_id);
+struct xpcie *intel_xpcie_core_get_by_id(uint32_t sw_device_id);
 #endif
 
 #endif

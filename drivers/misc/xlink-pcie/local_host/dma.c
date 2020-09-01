@@ -12,7 +12,7 @@
 
 #include "dma.h"
 #include "struct.h"
-#include "../common/xlink_pcie.h"
+#include "../common/xpcie.h"
 
 #define DMA_DBI_OFFSET (0x380000)
 
@@ -146,7 +146,7 @@ struct __packed pcie_dma_chan {
 	u32 dma_llp_high;
 };
 
-enum mxlk_ep_engine_type {
+enum xpcie_ep_engine_type {
 	WRITE_ENGINE,
 	READ_ENGINE
 };
@@ -158,7 +158,7 @@ static u32 dma_chan_offset[2][DMA_CHAN_NUM] = {
 	{ 0x300, 0x500, 0x700, 0x900 }
 };
 
-static void __iomem *mxlk_ep_get_dma_base(struct pci_epf *epf)
+static void __iomem *intel_xpcie_ep_get_dma_base(struct pci_epf *epf)
 {
 	struct pci_epc *epc = epf->epc;
 	struct dw_pcie_ep *ep = epc_get_drvdata(epc);
@@ -167,8 +167,8 @@ static void __iomem *mxlk_ep_get_dma_base(struct pci_epf *epf)
 	return pci->dbi_base + DMA_DBI_OFFSET;
 }
 
-static int mxlk_ep_dma_disable(void __iomem *dma_base,
-			       enum mxlk_ep_engine_type rw)
+static int intel_xpcie_ep_dma_disable(void __iomem *dma_base,
+			       enum xpcie_ep_engine_type rw)
 {
 	int i;
 	struct pcie_dma_reg *dma_reg = (struct pcie_dma_reg *)(dma_base);
@@ -206,8 +206,8 @@ static int mxlk_ep_dma_disable(void __iomem *dma_base,
 	return -EBUSY;
 }
 
-static void mxlk_ep_dma_enable(void __iomem *dma_base,
-			       enum mxlk_ep_engine_type rw)
+static void intel_xpcie_ep_dma_enable(void __iomem *dma_base,
+			       enum xpcie_ep_engine_type rw)
 {
 	int i;
 	u32 offset;
@@ -259,36 +259,36 @@ static void mxlk_ep_dma_enable(void __iomem *dma_base,
  * The DMA controller may start the wrong channel if doorbell occurs at the
  * same time as controller is transitioning to L1.
  */
-static int mxlk_ep_dma_doorbell(struct mxlk_epf *mxlk_epf, int chan,
+static int intel_xpcie_ep_dma_doorbell(struct xpcie_epf *xpcie_epf, int chan,
 				void __iomem *doorbell)
 {
 	int rc = 0;
 	int i = 20;
 	u32 val, pm_val;
 
-	val = ioread32(mxlk_epf->apb_base + PCIE_REGS_PCIE_APP_CNTRL);
+	val = ioread32(xpcie_epf->apb_base + PCIE_REGS_PCIE_APP_CNTRL);
 	iowrite32(val | APP_XFER_PENDING,
-		  mxlk_epf->apb_base + PCIE_REGS_PCIE_APP_CNTRL);
-	pm_val = ioread32(mxlk_epf->apb_base + PCIE_REGS_PCIE_SII_PM_STATE_1);
+		  xpcie_epf->apb_base + PCIE_REGS_PCIE_APP_CNTRL);
+	pm_val = ioread32(xpcie_epf->apb_base + PCIE_REGS_PCIE_SII_PM_STATE_1);
 	while (pm_val & PM_LINKST_IN_L1) {
 		if (i-- < 0) {
 			rc = -ETIME;
 			break;
 		}
 		udelay(5);
-		pm_val = ioread32(mxlk_epf->apb_base +
+		pm_val = ioread32(xpcie_epf->apb_base +
 				  PCIE_REGS_PCIE_SII_PM_STATE_1);
 	}
 
 	iowrite32((u32)chan, doorbell);
 
 	iowrite32(val & ~APP_XFER_PENDING,
-		  mxlk_epf->apb_base + PCIE_REGS_PCIE_APP_CNTRL);
+		  xpcie_epf->apb_base + PCIE_REGS_PCIE_APP_CNTRL);
 
 	return rc;
 }
 
-static int mxlk_ep_dma_err_status(void __iomem *err_status, int chan)
+static int intel_xpcie_ep_dma_err_status(void __iomem *err_status, int chan)
 {
 	if (ioread32(err_status) &
 	    (DMA_AR_ERROR_CH_MASK(chan) | DMA_LL_ERROR_CH_MASK(chan)))
@@ -297,7 +297,8 @@ static int mxlk_ep_dma_err_status(void __iomem *err_status, int chan)
 	return 0;
 }
 
-static int mxlk_ep_dma_rd_err_status_high(void __iomem *err_status, int chan)
+static int intel_xpcie_ep_dma_rd_err_status_high(void __iomem *err_status,
+						 int chan)
 {
 	if (ioread32(err_status) &
 	    (DMA_UNREQ_ERROR_CH_MASK(chan) |
@@ -309,12 +310,12 @@ static int mxlk_ep_dma_rd_err_status_high(void __iomem *err_status, int chan)
 	return 0;
 }
 
-static void mxlk_ep_dma_setup_ll_descs(struct pcie_dma_chan *dma_chan,
-				       struct mxlk_dma_ll_desc_buf *desc_buf,
+static void intel_xpcie_ep_dma_setup_ll_descs(struct pcie_dma_chan *dma_chan,
+				       struct xpcie_dma_ll_desc_buf *desc_buf,
 				       int descs_num)
 {
 	int i = 0;
-	struct mxlk_dma_ll_desc *descs = desc_buf->virt;
+	struct xpcie_dma_ll_desc *descs = desc_buf->virt;
 
 	/* Setup linked list descriptors */
 	for (i = 0; i < descs_num; i++)
@@ -332,16 +333,16 @@ static void mxlk_ep_dma_setup_ll_descs(struct pcie_dma_chan *dma_chan,
 
 }
 
-int mxlk_ep_dma_write_ll(struct pci_epf *epf, int chan, int descs_num)
+int intel_xpcie_ep_dma_write_ll(struct pci_epf *epf, int chan, int descs_num)
 {
 	int i, rc = 0;
-	struct mxlk_epf *mxlk_epf = epf_get_drvdata(epf);
-	void __iomem *dma_base = mxlk_epf->dma_base;
+	struct xpcie_epf *xpcie_epf = epf_get_drvdata(epf);
+	void __iomem *dma_base = xpcie_epf->dma_base;
 	struct pcie_dma_reg *dma_reg = (struct pcie_dma_reg *)dma_base;
 	struct pcie_dma_chan *dma_chan;
-	struct mxlk_dma_ll_desc_buf *desc_buf;
+	struct xpcie_dma_ll_desc_buf *desc_buf;
 
-	if (descs_num <= 0 || descs_num > MXLK_NUM_TX_DESCS)
+	if (descs_num <= 0 || descs_num > XPCIE_NUM_TX_DESCS)
 		return -EINVAL;
 
 	if (chan < 0 || chan >= DMA_CHAN_NUM)
@@ -350,12 +351,13 @@ int mxlk_ep_dma_write_ll(struct pci_epf *epf, int chan, int descs_num)
 	dma_chan = (struct pcie_dma_chan *)
 		(dma_base + dma_chan_offset[WRITE_ENGINE][chan]);
 
-	desc_buf = &mxlk_epf->tx_desc_buf[chan];
+	desc_buf = &xpcie_epf->tx_desc_buf[chan];
 
-	mxlk_ep_dma_setup_ll_descs(dma_chan, desc_buf, descs_num);
+	intel_xpcie_ep_dma_setup_ll_descs(dma_chan, desc_buf, descs_num);
 
 	/* Start DMA transfer. */
-	rc = mxlk_ep_dma_doorbell(mxlk_epf, chan, &dma_reg->dma_write_doorbell);
+	rc = intel_xpcie_ep_dma_doorbell(xpcie_epf, chan,
+					 &dma_reg->dma_write_doorbell);
 	if (rc)
 		return rc;
 
@@ -371,7 +373,8 @@ int mxlk_ep_dma_write_ll(struct pci_epf *epf, int chan, int descs_num)
 		goto cleanup;
 	}
 
-	rc = mxlk_ep_dma_err_status(&dma_reg->dma_write_err_status, chan);
+	rc = intel_xpcie_ep_dma_err_status(&dma_reg->dma_write_err_status,
+					   chan);
 
 cleanup:
 	/* Clear the done/abort interrupt. */
@@ -379,23 +382,23 @@ cleanup:
 		  &dma_reg->dma_write_int_clear);
 
 	if (rc) {
-		mxlk_ep_dma_disable(dma_base, WRITE_ENGINE);
-		mxlk_ep_dma_enable(dma_base, WRITE_ENGINE);
+		intel_xpcie_ep_dma_disable(dma_base, WRITE_ENGINE);
+		intel_xpcie_ep_dma_enable(dma_base, WRITE_ENGINE);
 	}
 
 	return rc;
 }
 
-int mxlk_ep_dma_read_ll(struct pci_epf *epf, int chan, int descs_num)
+int intel_xpcie_ep_dma_read_ll(struct pci_epf *epf, int chan, int descs_num)
 {
 	int i, rc = 0;
-	struct mxlk_epf *mxlk_epf = epf_get_drvdata(epf);
-	void __iomem *dma_base = mxlk_epf->dma_base;
+	struct xpcie_epf *xpcie_epf = epf_get_drvdata(epf);
+	void __iomem *dma_base = xpcie_epf->dma_base;
 	struct pcie_dma_reg *dma_reg = (struct pcie_dma_reg *)dma_base;
 	struct pcie_dma_chan *dma_chan;
-	struct mxlk_dma_ll_desc_buf *desc_buf;
+	struct xpcie_dma_ll_desc_buf *desc_buf;
 
-	if (descs_num <= 0 || descs_num > MXLK_NUM_RX_DESCS)
+	if (descs_num <= 0 || descs_num > XPCIE_NUM_RX_DESCS)
 		return -EINVAL;
 
 	if (chan < 0 || chan >= DMA_CHAN_NUM)
@@ -404,12 +407,13 @@ int mxlk_ep_dma_read_ll(struct pci_epf *epf, int chan, int descs_num)
 	dma_chan = (struct pcie_dma_chan *)
 		(dma_base + dma_chan_offset[READ_ENGINE][chan]);
 
-	desc_buf = &mxlk_epf->rx_desc_buf[chan];
+	desc_buf = &xpcie_epf->rx_desc_buf[chan];
 
-	mxlk_ep_dma_setup_ll_descs(dma_chan, desc_buf, descs_num);
+	intel_xpcie_ep_dma_setup_ll_descs(dma_chan, desc_buf, descs_num);
 
 	/* Start DMA transfer. */
-	rc = mxlk_ep_dma_doorbell(mxlk_epf, chan, &dma_reg->dma_read_doorbell);
+	rc = intel_xpcie_ep_dma_doorbell(xpcie_epf, chan,
+					 &dma_reg->dma_read_doorbell);
 	if (rc)
 		return rc;
 
@@ -425,9 +429,10 @@ int mxlk_ep_dma_read_ll(struct pci_epf *epf, int chan, int descs_num)
 		goto cleanup;
 	}
 
-	rc = mxlk_ep_dma_err_status(&dma_reg->dma_read_err_status_low, chan);
+	rc = intel_xpcie_ep_dma_err_status(&dma_reg->dma_read_err_status_low,
+					   chan);
 	if (!rc) {
-		rc = mxlk_ep_dma_rd_err_status_high(
+		rc = intel_xpcie_ep_dma_rd_err_status_high(
 			&dma_reg->dma_read_err_status_high, chan);
 	}
 cleanup:
@@ -436,75 +441,75 @@ cleanup:
 		  &dma_reg->dma_read_int_clear);
 
 	if (rc) {
-		mxlk_ep_dma_disable(dma_base, READ_ENGINE);
-		mxlk_ep_dma_enable(dma_base, READ_ENGINE);
+		intel_xpcie_ep_dma_disable(dma_base, READ_ENGINE);
+		intel_xpcie_ep_dma_enable(dma_base, READ_ENGINE);
 	}
 
 	return rc;
 }
 
-static void mxlk_ep_dma_free_ll_descs_mem(struct mxlk_epf *mxlk_epf)
+static void intel_xpcie_ep_dma_free_ll_descs_mem(struct xpcie_epf *xpcie_epf)
 {
 	int i;
-	struct device *dma_dev = mxlk_epf->epf->epc->dev.parent;
+	struct device *dma_dev = xpcie_epf->epf->epc->dev.parent;
 
 	for (i = 0; i < DMA_CHAN_NUM; i++) {
-		if (mxlk_epf->tx_desc_buf[i].virt) {
+		if (xpcie_epf->tx_desc_buf[i].virt) {
 			dma_free_coherent(dma_dev,
-					  mxlk_epf->tx_desc_buf[i].size,
-					  mxlk_epf->tx_desc_buf[i].virt,
-					  mxlk_epf->tx_desc_buf[i].phys);
+					  xpcie_epf->tx_desc_buf[i].size,
+					  xpcie_epf->tx_desc_buf[i].virt,
+					  xpcie_epf->tx_desc_buf[i].phys);
 		}
-		if (mxlk_epf->rx_desc_buf[i].virt) {
+		if (xpcie_epf->rx_desc_buf[i].virt) {
 			dma_free_coherent(dma_dev,
-					  mxlk_epf->rx_desc_buf[i].size,
-					  mxlk_epf->rx_desc_buf[i].virt,
-					  mxlk_epf->rx_desc_buf[i].phys);
+					  xpcie_epf->rx_desc_buf[i].size,
+					  xpcie_epf->rx_desc_buf[i].virt,
+					  xpcie_epf->rx_desc_buf[i].phys);
 		}
 
-		memset(&mxlk_epf->tx_desc_buf[i], 0,
-		       sizeof(struct mxlk_dma_ll_desc_buf));
-		memset(&mxlk_epf->rx_desc_buf[i], 0,
-		       sizeof(struct mxlk_dma_ll_desc_buf));
+		memset(&xpcie_epf->tx_desc_buf[i], 0,
+		       sizeof(struct xpcie_dma_ll_desc_buf));
+		memset(&xpcie_epf->rx_desc_buf[i], 0,
+		       sizeof(struct xpcie_dma_ll_desc_buf));
 	}
 }
 
-static int mxlk_ep_dma_alloc_ll_descs_mem(struct mxlk_epf *mxlk_epf)
+static int intel_xpcie_ep_dma_alloc_ll_descs_mem(struct xpcie_epf *xpcie_epf)
 {
 	int i;
-	struct device *dma_dev = mxlk_epf->epf->epc->dev.parent;
-	int tx_num = MXLK_NUM_TX_DESCS + 1;
-	int rx_num = MXLK_NUM_RX_DESCS + 1;
-	size_t tx_size = tx_num * sizeof(struct mxlk_dma_ll_desc);
-	size_t rx_size = rx_num * sizeof(struct mxlk_dma_ll_desc);
+	struct device *dma_dev = xpcie_epf->epf->epc->dev.parent;
+	int tx_num = XPCIE_NUM_TX_DESCS + 1;
+	int rx_num = XPCIE_NUM_RX_DESCS + 1;
+	size_t tx_size = tx_num * sizeof(struct xpcie_dma_ll_desc);
+	size_t rx_size = rx_num * sizeof(struct xpcie_dma_ll_desc);
 
 	for (i = 0; i < DMA_CHAN_NUM; i++) {
-		mxlk_epf->tx_desc_buf[i].virt =
+		xpcie_epf->tx_desc_buf[i].virt =
 			dma_alloc_coherent(dma_dev, tx_size,
-					   &mxlk_epf->tx_desc_buf[i].phys,
+					   &xpcie_epf->tx_desc_buf[i].phys,
 					   GFP_KERNEL);
-		mxlk_epf->rx_desc_buf[i].virt =
+		xpcie_epf->rx_desc_buf[i].virt =
 			dma_alloc_coherent(dma_dev, rx_size,
-					   &mxlk_epf->rx_desc_buf[i].phys,
+					   &xpcie_epf->rx_desc_buf[i].phys,
 					   GFP_KERNEL);
 
-		if (!mxlk_epf->tx_desc_buf[i].virt ||
-		    !mxlk_epf->rx_desc_buf[i].virt) {
-			mxlk_ep_dma_free_ll_descs_mem(mxlk_epf);
+		if (!xpcie_epf->tx_desc_buf[i].virt ||
+		    !xpcie_epf->rx_desc_buf[i].virt) {
+			intel_xpcie_ep_dma_free_ll_descs_mem(xpcie_epf);
 			return -ENOMEM;
 		}
 
-		mxlk_epf->tx_desc_buf[i].size = tx_size;
-		mxlk_epf->rx_desc_buf[i].size = rx_size;
+		xpcie_epf->tx_desc_buf[i].size = tx_size;
+		xpcie_epf->rx_desc_buf[i].size = rx_size;
 	}
 	return 0;
 }
 
-bool mxlk_ep_dma_enabled(struct pci_epf *epf)
+bool intel_xpcie_ep_dma_enabled(struct pci_epf *epf)
 {
-	struct mxlk_epf *mxlk_epf = epf_get_drvdata(epf);
+	struct xpcie_epf *xpcie_epf = epf_get_drvdata(epf);
 	struct pcie_dma_reg *dma_reg = (struct pcie_dma_reg *)
-					mxlk_epf->dma_base;
+					xpcie_epf->dma_base;
 	void __iomem *w_engine_en = &dma_reg->dma_write_engine_en;
 	void __iomem *r_engine_en = &dma_reg->dma_read_engine_en;
 
@@ -512,45 +517,45 @@ bool mxlk_ep_dma_enabled(struct pci_epf *epf)
 		(ioread32(r_engine_en) & DMA_ENGINE_EN_MASK);
 }
 
-int mxlk_ep_dma_reset(struct pci_epf *epf)
+int intel_xpcie_ep_dma_reset(struct pci_epf *epf)
 {
-	struct mxlk_epf *mxlk_epf = epf_get_drvdata(epf);
+	struct xpcie_epf *xpcie_epf = epf_get_drvdata(epf);
 
 	/* Disable the DMA read/write engine. */
-	if (mxlk_ep_dma_disable(mxlk_epf->dma_base, WRITE_ENGINE) ||
-	    mxlk_ep_dma_disable(mxlk_epf->dma_base, READ_ENGINE))
+	if (intel_xpcie_ep_dma_disable(xpcie_epf->dma_base, WRITE_ENGINE) ||
+	    intel_xpcie_ep_dma_disable(xpcie_epf->dma_base, READ_ENGINE))
 		return -EBUSY;
 
-	mxlk_ep_dma_enable(mxlk_epf->dma_base, WRITE_ENGINE);
-	mxlk_ep_dma_enable(mxlk_epf->dma_base, READ_ENGINE);
+	intel_xpcie_ep_dma_enable(xpcie_epf->dma_base, WRITE_ENGINE);
+	intel_xpcie_ep_dma_enable(xpcie_epf->dma_base, READ_ENGINE);
 
 	return 0;
 }
 
-int mxlk_ep_dma_uninit(struct pci_epf *epf)
+int intel_xpcie_ep_dma_uninit(struct pci_epf *epf)
 {
-	struct mxlk_epf *mxlk_epf = epf_get_drvdata(epf);
+	struct xpcie_epf *xpcie_epf = epf_get_drvdata(epf);
 
-	if (mxlk_ep_dma_disable(mxlk_epf->dma_base, WRITE_ENGINE) ||
-	    mxlk_ep_dma_disable(mxlk_epf->dma_base, READ_ENGINE))
+	if (intel_xpcie_ep_dma_disable(xpcie_epf->dma_base, WRITE_ENGINE) ||
+	    intel_xpcie_ep_dma_disable(xpcie_epf->dma_base, READ_ENGINE))
 		return -EBUSY;
 
-	mxlk_ep_dma_free_ll_descs_mem(mxlk_epf);
+	intel_xpcie_ep_dma_free_ll_descs_mem(xpcie_epf);
 
 	return 0;
 }
 
-int mxlk_ep_dma_init(struct pci_epf *epf)
+int intel_xpcie_ep_dma_init(struct pci_epf *epf)
 {
 	int rc = 0;
-	struct mxlk_epf *mxlk_epf = epf_get_drvdata(epf);
+	struct xpcie_epf *xpcie_epf = epf_get_drvdata(epf);
 
-	mxlk_epf->dma_base = mxlk_ep_get_dma_base(epf);
+	xpcie_epf->dma_base = intel_xpcie_ep_get_dma_base(epf);
 
-	rc = mxlk_ep_dma_alloc_ll_descs_mem(mxlk_epf);
+	rc = intel_xpcie_ep_dma_alloc_ll_descs_mem(xpcie_epf);
 	if (rc)
 		return rc;
 
-	return mxlk_ep_dma_reset(epf);
+	return intel_xpcie_ep_dma_reset(epf);
 }
 

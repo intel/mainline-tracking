@@ -7,63 +7,68 @@
  *
  ****************************************************************************/
 
-#ifndef MXLK_UTIL_HEADER_
-#define MXLK_UTIL_HEADER_
+#ifndef XPCIE_UTIL_HEADER_
+#define XPCIE_UTIL_HEADER_
 
-#include "xlink_pcie.h"
+#include "xpcie.h"
 
-enum mxlk_doorbell_direction {
+enum xpcie_doorbell_direction {
 	TO_DEVICE,
 	FROM_DEVICE
 };
 
-enum mxlk_doorbell_type {
+enum xpcie_doorbell_type {
 	DATA_SENT,
 	DATA_RECEIVED,
 	DEV_EVENT
 };
 
-enum mxlk_event_type {
+enum xpcie_event_type {
 	NO_OP,
 	REQUEST_RESET,
 	DEV_SHUTDOWN
 };
 
-void mxlk_set_doorbell(struct mxlk *mxlk, enum mxlk_doorbell_direction dirt,
-		       enum mxlk_doorbell_type type, u8 value);
-u8 mxlk_get_doorbell(struct mxlk *mxlk, enum mxlk_doorbell_direction dirt,
-		     enum mxlk_doorbell_type type);
+void intel_xpcie_set_doorbell(struct xpcie *xpcie,
+			      enum xpcie_doorbell_direction dirt,
+			      enum xpcie_doorbell_type type, u8 value);
+u8 intel_xpcie_get_doorbell(struct xpcie *xpcie,
+			    enum xpcie_doorbell_direction dirt,
+			    enum xpcie_doorbell_type type);
 
-void mxlk_set_device_status(struct mxlk *mxlk, u32 status);
-u32 mxlk_get_device_status(struct mxlk *mxlk);
-u32 mxlk_get_host_status(struct mxlk *mxlk);
-void mxlk_set_host_status(struct mxlk *mxlk, u32 status);
+void intel_xpcie_set_device_status(struct xpcie *xpcie, u32 status);
+u32 intel_xpcie_get_device_status(struct xpcie *xpcie);
+u32 intel_xpcie_get_host_status(struct xpcie *xpcie);
+void intel_xpcie_set_host_status(struct xpcie *xpcie, u32 status);
 
-struct mxlk_buf_desc *mxlk_alloc_bd(size_t length);
-struct mxlk_buf_desc *mxlk_alloc_bd_reuse(size_t length, void *virt,
+struct xpcie_buf_desc *intel_xpcie_alloc_bd(size_t length);
+struct xpcie_buf_desc *intel_xpcie_alloc_bd_reuse(size_t length, void *virt,
 					  dma_addr_t phys);
-void mxlk_free_bd(struct mxlk_buf_desc *bd);
+void intel_xpcie_free_bd(struct xpcie_buf_desc *bd);
 
-int mxlk_list_init(struct mxlk_list *list);
-void mxlk_list_cleanup(struct mxlk_list *list);
-int mxlk_list_put(struct mxlk_list *list, struct mxlk_buf_desc *bd);
-int mxlk_list_put_head(struct mxlk_list *list, struct mxlk_buf_desc *bd);
-struct mxlk_buf_desc *mxlk_list_get(struct mxlk_list *list);
-void mxlk_list_info(struct mxlk_list *list, size_t *bytes, size_t *buffers);
+int intel_xpcie_list_init(struct xpcie_list *list);
+void intel_xpcie_list_cleanup(struct xpcie_list *list);
+int intel_xpcie_list_put(struct xpcie_list *list, struct xpcie_buf_desc *bd);
+int intel_xpcie_list_put_head(struct xpcie_list *list,
+			      struct xpcie_buf_desc *bd);
+struct xpcie_buf_desc *intel_xpcie_list_get(struct xpcie_list *list);
+void intel_xpcie_list_info(struct xpcie_list *list, size_t *bytes,
+			   size_t *buffers);
 
-struct mxlk_buf_desc *mxlk_alloc_rx_bd(struct mxlk *mxlk);
-void mxlk_free_rx_bd(struct mxlk *mxlk, struct mxlk_buf_desc *bd);
-struct mxlk_buf_desc *mxlk_alloc_tx_bd(struct mxlk *mxlk);
-void mxlk_free_tx_bd(struct mxlk *mxlk, struct mxlk_buf_desc *bd);
+struct xpcie_buf_desc *intel_xpcie_alloc_rx_bd(struct xpcie *xpcie);
+void intel_xpcie_free_rx_bd(struct xpcie *xpcie, struct xpcie_buf_desc *bd);
+struct xpcie_buf_desc *intel_xpcie_alloc_tx_bd(struct xpcie *xpcie);
+void intel_xpcie_free_tx_bd(struct xpcie *xpcie, struct xpcie_buf_desc *bd);
 
-int mxlk_interface_init(struct mxlk *mxlk, int id);
-void mxlk_interface_cleanup(struct mxlk_interface *inf);
-void mxlk_interfaces_cleanup(struct mxlk *mxlk);
-int mxlk_interfaces_init(struct mxlk *mxlk);
-void mxlk_add_bd_to_interface(struct mxlk *mxlk, struct mxlk_buf_desc *bd);
+int intel_xpcie_interface_init(struct xpcie *xpcie, int id);
+void intel_xpcie_interface_cleanup(struct xpcie_interface *inf);
+void intel_xpcie_interfaces_cleanup(struct xpcie *xpcie);
+int intel_xpcie_interfaces_init(struct xpcie *xpcie);
+void intel_xpcie_add_bd_to_interface(struct xpcie *xpcie,
+				     struct xpcie_buf_desc *bd);
 
-void mxlk_init_debug(struct mxlk *mxlk, struct device *dev);
-void mxlk_uninit_debug(struct mxlk *mxlk, struct device *dev);
-void mxlk_debug_incr(struct mxlk *mxlk, size_t *attr, size_t v);
+void intel_xpcie_init_debug(struct xpcie *xpcie, struct device *dev);
+void intel_xpcie_uninit_debug(struct xpcie *xpcie, struct device *dev);
+void intel_xpcie_debug_incr(struct xpcie *xpcie, size_t *attr, size_t v);
 
-#endif // MXLK_UTIL_HEADER_
+#endif // XPCIE_UTIL_HEADER_
