@@ -7,17 +7,17 @@
  *
  ****************************************************************************/
 
-#ifndef MXLK_STRUCT_HEADER_
-#define MXLK_STRUCT_HEADER_
+#ifndef XPCIE_STRUCT_HEADER_
+#define XPCIE_STRUCT_HEADER_
 
 #include <linux/pci-epc.h>
 #include <linux/pci-epf.h>
 #include <pcie-keembay.h>
-#include "../common/xlink_pcie.h"
+#include "../common/xpcie.h"
 
 extern bool dma_ll_mode;
 
-struct mxlk_dma_ll_desc {
+struct xpcie_dma_ll_desc {
 	u32 dma_ch_control1;
 	u32 dma_transfer_size;
 	union {
@@ -36,19 +36,19 @@ struct mxlk_dma_ll_desc {
 	};
 } __packed;
 
-struct mxlk_dma_ll_desc_buf {
-	struct mxlk_dma_ll_desc *virt;
+struct xpcie_dma_ll_desc_buf {
+	struct xpcie_dma_ll_desc *virt;
 	dma_addr_t phys;
 	size_t size;
 };
 
-struct mxlk_epf {
+struct xpcie_epf {
 	struct pci_epf			*epf;
 	void				*vaddr[BAR_5 + 1];
 	enum pci_barno			comm_bar;
 	enum pci_barno			bar4;
 	const struct pci_epc_features	*epc_features;
-	struct mxlk			mxlk;
+	struct xpcie			xpcie;
 	int				irq;
 	int				irq_dma;
 	int				irq_err;
@@ -63,15 +63,16 @@ struct mxlk_epf {
 	void				*rx_virt;
 	size_t				rx_size;
 
-	struct mxlk_dma_ll_desc_buf	tx_desc_buf[4];
-	struct mxlk_dma_ll_desc_buf	rx_desc_buf[4];
+	struct xpcie_dma_ll_desc_buf	tx_desc_buf[4];
+	struct xpcie_dma_ll_desc_buf	rx_desc_buf[4];
 };
 
-static inline struct device *mxlk_to_dev(struct mxlk *mxlk)
+static inline struct device *xpcie_to_dev(struct xpcie *xpcie)
 {
-	struct mxlk_epf *mxlk_epf = container_of(mxlk, struct mxlk_epf, mxlk);
+	struct xpcie_epf *xpcie_epf = container_of(xpcie,
+						   struct xpcie_epf, xpcie);
 
-	return &mxlk_epf->epf->dev;
+	return &xpcie_epf->epf->dev;
 }
 
-#endif // MXLK_STRUCT_HEADER_
+#endif // XPCIE_STRUCT_HEADER_

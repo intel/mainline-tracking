@@ -9,20 +9,21 @@
 
 #include "pci.h"
 
-static const struct pci_device_id mxlk_pci_table[] = {
+static const struct pci_device_id xpcie_pci_table[] = {
 	{ PCI_DEVICE(PCI_VENDOR_ID_INTEL, PCI_DEVICE_ID_INTEL_KEEMBAY), 0 },
 	{ 0 }
 };
 
 static bool driver_unload;
 
-static int mxlk_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
+static int intel_xpcie_probe(struct pci_dev *pdev,
+			     const struct pci_device_id *ent)
 {
 	int ret = 0;
 	u32 sw_devid = 0;
 	u32 hw_id = 0;
 	bool new_device = false;
-	struct mxlk_pcie *xdev;
+	struct xpcie_dev *xdev;
 
 	hw_id = ((u16)pdev->bus->number << 8) | PCI_SLOT(pdev->devfn);
 
@@ -32,59 +33,59 @@ static int mxlk_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 		   (XLINK_DEV_SLICE_0 << XLINK_DEV_SLICE_ID_SHIFT) |
 		   (XLINK_DEV_FUNC_VPU << XLINK_DEV_FUNC_SHIFT);
 
-	xdev = mxlk_get_device_by_id(sw_devid);
+	xdev = intel_xpcie_get_device_by_id(sw_devid);
 	if (!xdev) {
-		xdev = mxlk_create_device(sw_devid, pdev);
+		xdev = intel_xpcie_create_device(sw_devid, pdev);
 		if (!xdev)
 			return -ENOMEM;
 
 		new_device = true;
 	}
 
-	ret = mxlk_pci_init(xdev, pdev);
+	ret = intel_xpcie_pci_init(xdev, pdev);
 	if (ret) {
-		mxlk_remove_device(xdev);
+		intel_xpcie_remove_device(xdev);
 		return ret;
 	}
 
 	if (new_device)
-		mxlk_list_add_device(xdev);
+		intel_xpcie_list_add_device(xdev);
 
 	return ret;
 }
 
-static void mxlk_remove(struct pci_dev *pdev)
+static void intel_xpcie_remove(struct pci_dev *pdev)
 {
-	struct mxlk_pcie *xdev = pci_get_drvdata(pdev);
+	struct xpcie_dev *xdev = pci_get_drvdata(pdev);
 
 	if (xdev) {
-		mxlk_pci_cleanup(xdev);
+		intel_xpcie_pci_cleanup(xdev);
 		if (driver_unload)
-			mxlk_remove_device(xdev);
+			intel_xpcie_remove_device(xdev);
 	}
 }
 
-static struct pci_driver mxlk_driver = {
-	.name = MXLK_DRIVER_NAME,
-	.id_table = mxlk_pci_table,
-	.probe = mxlk_probe,
-	.remove = mxlk_remove
+static struct pci_driver xpcie_driver = {
+	.name = XPCIE_DRIVER_NAME,
+	.id_table = xpcie_pci_table,
+	.probe = intel_xpcie_probe,
+	.remove = intel_xpcie_remove
 };
 
-static int __init mxlk_init_module(void)
+static int __init intel_xpcie_init_module(void)
 {
-	return pci_register_driver(&mxlk_driver);
+	return pci_register_driver(&xpcie_driver);
 }
 
-static void __exit mxlk_exit_module(void)
+static void __exit intel_xpcie_exit_module(void)
 {
 	driver_unload = true;
-	pci_unregister_driver(&mxlk_driver);
+	pci_unregister_driver(&xpcie_driver);
 }
 
-module_init(mxlk_init_module);
-module_exit(mxlk_exit_module);
+module_init(intel_xpcie_init_module);
+module_exit(intel_xpcie_exit_module);
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Intel");
-MODULE_DESCRIPTION(MXLK_DRIVER_DESC);
-MODULE_VERSION(MXLK_DRIVER_VERSION);
+MODULE_DESCRIPTION(XPCIE_DRIVER_DESC);
+MODULE_VERSION(XPCIE_DRIVER_VERSION);

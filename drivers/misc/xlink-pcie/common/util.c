@@ -9,63 +9,67 @@
 
 #include "util.h"
 
-void mxlk_set_device_status(struct mxlk *mxlk, u32 status)
+void intel_xpcie_set_device_status(struct xpcie *xpcie, u32 status)
 {
-	mxlk->status = status;
-	mxlk_iowrite32(status, &mxlk->mmio->device_status);
+	xpcie->status = status;
+	intel_xpcie_iowrite32(status, &xpcie->mmio->device_status);
 }
 
-u32 mxlk_get_device_status(struct mxlk *mxlk)
+u32 intel_xpcie_get_device_status(struct xpcie *xpcie)
 {
-	return mxlk_ioread32(&mxlk->mmio->device_status);
+	return intel_xpcie_ioread32(&xpcie->mmio->device_status);
 }
 
-static u8 *mxlk_doorbell_offset(struct mxlk *mxlk,
-				enum mxlk_doorbell_direction dirt,
-				enum mxlk_doorbell_type type)
+static u8 *intel_xpcie_doorbell_offset(struct xpcie *xpcie,
+				enum xpcie_doorbell_direction dirt,
+				enum xpcie_doorbell_type type)
 {
 	if (dirt == TO_DEVICE && type == DATA_SENT)
-		return &mxlk->mmio->htod_tx_doorbell;
+		return &xpcie->mmio->htod_tx_doorbell;
 	if (dirt == TO_DEVICE && type == DATA_RECEIVED)
-		return &mxlk->mmio->htod_rx_doorbell;
+		return &xpcie->mmio->htod_rx_doorbell;
 	if (dirt == TO_DEVICE && type == DEV_EVENT)
-		return &mxlk->mmio->htod_event_doorbell;
+		return &xpcie->mmio->htod_event_doorbell;
 	if (dirt == FROM_DEVICE && type == DATA_SENT)
-		return &mxlk->mmio->dtoh_tx_doorbell;
+		return &xpcie->mmio->dtoh_tx_doorbell;
 	if (dirt == FROM_DEVICE && type == DATA_RECEIVED)
-		return &mxlk->mmio->dtoh_rx_doorbell;
+		return &xpcie->mmio->dtoh_rx_doorbell;
 	if (dirt == FROM_DEVICE && type == DEV_EVENT)
-		return &mxlk->mmio->dtoh_event_doorbell;
+		return &xpcie->mmio->dtoh_event_doorbell;
 
 	return NULL;
 }
 
-void mxlk_set_doorbell(struct mxlk *mxlk, enum mxlk_doorbell_direction dirt,
-		       enum mxlk_doorbell_type type, u8 value)
+void intel_xpcie_set_doorbell(struct xpcie *xpcie,
+			      enum xpcie_doorbell_direction dirt,
+			      enum xpcie_doorbell_type type, u8 value)
 {
-	mxlk_iowrite8(value, mxlk_doorbell_offset(mxlk, dirt, type));
+	intel_xpcie_iowrite8(value,
+			     intel_xpcie_doorbell_offset(xpcie, dirt, type));
 }
 
-u8 mxlk_get_doorbell(struct mxlk *mxlk, enum mxlk_doorbell_direction dirt,
-		       enum mxlk_doorbell_type type)
+u8 intel_xpcie_get_doorbell(struct xpcie *xpcie,
+			    enum xpcie_doorbell_direction dirt,
+			    enum xpcie_doorbell_type type)
 {
-	return mxlk_ioread8(mxlk_doorbell_offset(mxlk, dirt, type));
+	return intel_xpcie_ioread8(intel_xpcie_doorbell_offset(xpcie,
+							       dirt, type));
 }
 
-u32 mxlk_get_host_status(struct mxlk *mxlk)
+u32 intel_xpcie_get_host_status(struct xpcie *xpcie)
 {
-	return mxlk_ioread32(&mxlk->mmio->host_status);
+	return intel_xpcie_ioread32(&xpcie->mmio->host_status);
 }
 
-void mxlk_set_host_status(struct mxlk *mxlk, u32 status)
+void intel_xpcie_set_host_status(struct xpcie *xpcie, u32 status)
 {
-	mxlk->status = status;
-	mxlk_iowrite32(status, &mxlk->mmio->host_status);
+	xpcie->status = status;
+	intel_xpcie_iowrite32(status, &xpcie->mmio->host_status);
 }
 
-struct mxlk_buf_desc *mxlk_alloc_bd(size_t length)
+struct xpcie_buf_desc *intel_xpcie_alloc_bd(size_t length)
 {
-	struct mxlk_buf_desc *bd;
+	struct xpcie_buf_desc *bd;
 
 	bd = kzalloc(sizeof(*bd), GFP_KERNEL);
 	if (!bd)
@@ -85,10 +89,10 @@ struct mxlk_buf_desc *mxlk_alloc_bd(size_t length)
 	return bd;
 }
 
-struct mxlk_buf_desc *mxlk_alloc_bd_reuse(size_t length, void *virt,
+struct xpcie_buf_desc *intel_xpcie_alloc_bd_reuse(size_t length, void *virt,
 					  dma_addr_t phys)
 {
-	struct mxlk_buf_desc *bd;
+	struct xpcie_buf_desc *bd;
 
 	bd = kzalloc(sizeof(*bd), GFP_KERNEL);
 	if (!bd)
@@ -104,7 +108,7 @@ struct mxlk_buf_desc *mxlk_alloc_bd_reuse(size_t length, void *virt,
 	return bd;
 }
 
-void mxlk_free_bd(struct mxlk_buf_desc *bd)
+void intel_xpcie_free_bd(struct xpcie_buf_desc *bd)
 {
 	if (bd) {
 		if (bd->own_mem)
@@ -113,7 +117,7 @@ void mxlk_free_bd(struct mxlk_buf_desc *bd)
 	}
 }
 
-int mxlk_list_init(struct mxlk_list *list)
+int intel_xpcie_list_init(struct xpcie_list *list)
 {
 	spin_lock_init(&list->lock);
 	list->bytes = 0;
@@ -124,22 +128,22 @@ int mxlk_list_init(struct mxlk_list *list)
 	return 0;
 }
 
-void mxlk_list_cleanup(struct mxlk_list *list)
+void intel_xpcie_list_cleanup(struct xpcie_list *list)
 {
-	struct mxlk_buf_desc *bd;
+	struct xpcie_buf_desc *bd;
 
 	spin_lock(&list->lock);
 	while (list->head) {
 		bd = list->head;
 		list->head = bd->next;
-		mxlk_free_bd(bd);
+		intel_xpcie_free_bd(bd);
 	}
 
 	list->head = list->tail = NULL;
 	spin_unlock(&list->lock);
 }
 
-int mxlk_list_put(struct mxlk_list *list, struct mxlk_buf_desc *bd)
+int intel_xpcie_list_put(struct xpcie_list *list, struct xpcie_buf_desc *bd)
 {
 	if (!bd)
 		return -EINVAL;
@@ -160,9 +164,10 @@ int mxlk_list_put(struct mxlk_list *list, struct mxlk_buf_desc *bd)
 	return 0;
 }
 
-int mxlk_list_put_head(struct mxlk_list *list, struct mxlk_buf_desc *bd)
+int intel_xpcie_list_put_head(struct xpcie_list *list,
+			      struct xpcie_buf_desc *bd)
 {
-	struct mxlk_buf_desc *old_head;
+	struct xpcie_buf_desc *old_head;
 
 	if (!bd)
 		return -EINVAL;
@@ -185,9 +190,9 @@ int mxlk_list_put_head(struct mxlk_list *list, struct mxlk_buf_desc *bd)
 	return 0;
 }
 
-struct mxlk_buf_desc *mxlk_list_get(struct mxlk_list *list)
+struct xpcie_buf_desc *intel_xpcie_list_get(struct xpcie_list *list)
 {
-	struct mxlk_buf_desc *bd;
+	struct xpcie_buf_desc *bd;
 
 	spin_lock(&list->lock);
 	bd = list->head;
@@ -204,7 +209,8 @@ struct mxlk_buf_desc *mxlk_list_get(struct mxlk_list *list)
 	return bd;
 }
 
-void mxlk_list_info(struct mxlk_list *list, size_t *bytes, size_t *buffers)
+void intel_xpcie_list_info(struct xpcie_list *list,
+			   size_t *bytes, size_t *buffers)
 {
 	spin_lock(&list->lock);
 	*bytes = list->bytes;
@@ -212,11 +218,11 @@ void mxlk_list_info(struct mxlk_list *list, size_t *bytes, size_t *buffers)
 	spin_unlock(&list->lock);
 }
 
-struct mxlk_buf_desc *mxlk_alloc_rx_bd(struct mxlk *mxlk)
+struct xpcie_buf_desc *intel_xpcie_alloc_rx_bd(struct xpcie *xpcie)
 {
-	struct mxlk_buf_desc *bd;
+	struct xpcie_buf_desc *bd;
 
-	bd = mxlk_list_get(&mxlk->rx_pool);
+	bd = intel_xpcie_list_get(&xpcie->rx_pool);
 	if (bd) {
 		bd->data = bd->head;
 		bd->length = bd->true_len;
@@ -227,49 +233,49 @@ struct mxlk_buf_desc *mxlk_alloc_rx_bd(struct mxlk *mxlk)
 	return bd;
 }
 
-void mxlk_free_rx_bd(struct mxlk *mxlk, struct mxlk_buf_desc *bd)
+void intel_xpcie_free_rx_bd(struct xpcie *xpcie, struct xpcie_buf_desc *bd)
 {
 	if (bd)
-		mxlk_list_put(&mxlk->rx_pool, bd);
+		intel_xpcie_list_put(&xpcie->rx_pool, bd);
 }
 
-struct mxlk_buf_desc *mxlk_alloc_tx_bd(struct mxlk *mxlk)
+struct xpcie_buf_desc *intel_xpcie_alloc_tx_bd(struct xpcie *xpcie)
 {
-	struct mxlk_buf_desc *bd;
+	struct xpcie_buf_desc *bd;
 
-	bd = mxlk_list_get(&mxlk->tx_pool);
+	bd = intel_xpcie_list_get(&xpcie->tx_pool);
 	if (bd) {
 		bd->data = bd->head;
 		bd->length = bd->true_len;
 		bd->next = NULL;
 		bd->interface = 0;
 	} else {
-		mxlk->no_tx_buffer = true;
+		xpcie->no_tx_buffer = true;
 	}
 
 	return bd;
 }
 
-void mxlk_free_tx_bd(struct mxlk *mxlk, struct mxlk_buf_desc *bd)
+void intel_xpcie_free_tx_bd(struct xpcie *xpcie, struct xpcie_buf_desc *bd)
 {
 	if (!bd)
 		return;
 
-	mxlk_list_put(&mxlk->tx_pool, bd);
+	intel_xpcie_list_put(&xpcie->tx_pool, bd);
 
-	mxlk->no_tx_buffer = false;
-	wake_up_interruptible(&mxlk->tx_waitqueue);
+	xpcie->no_tx_buffer = false;
+	wake_up_interruptible(&xpcie->tx_waitqueue);
 }
 
-int mxlk_interface_init(struct mxlk *mxlk, int id)
+int intel_xpcie_interface_init(struct xpcie *xpcie, int id)
 {
-	struct mxlk_interface *inf = mxlk->interfaces + id;
+	struct xpcie_interface *inf = xpcie->interfaces + id;
 
 	inf->id = id;
-	inf->mxlk = mxlk;
+	inf->xpcie = xpcie;
 
 	inf->partial_read = NULL;
-	mxlk_list_init(&inf->read);
+	intel_xpcie_list_init(&inf->read);
 	mutex_init(&inf->rlock);
 	inf->data_available = false;
 	init_waitqueue_head(&inf->rx_waitqueue);
@@ -277,50 +283,51 @@ int mxlk_interface_init(struct mxlk *mxlk, int id)
 	return 0;
 }
 
-void mxlk_interface_cleanup(struct mxlk_interface *inf)
+void intel_xpcie_interface_cleanup(struct xpcie_interface *inf)
 {
-	struct mxlk_buf_desc *bd;
+	struct xpcie_buf_desc *bd;
 
 	mutex_destroy(&inf->rlock);
 
-	mxlk_free_rx_bd(inf->mxlk, inf->partial_read);
-	while ((bd = mxlk_list_get(&inf->read)))
-		mxlk_free_rx_bd(inf->mxlk, bd);
+	intel_xpcie_free_rx_bd(inf->xpcie, inf->partial_read);
+	while ((bd = intel_xpcie_list_get(&inf->read)))
+		intel_xpcie_free_rx_bd(inf->xpcie, bd);
 }
 
-void mxlk_interfaces_cleanup(struct mxlk *mxlk)
+void intel_xpcie_interfaces_cleanup(struct xpcie *xpcie)
 {
 	int index;
 
-	for (index = 0; index < MXLK_NUM_INTERFACES; index++)
-		mxlk_interface_cleanup(mxlk->interfaces + index);
+	for (index = 0; index < XPCIE_NUM_INTERFACES; index++)
+		intel_xpcie_interface_cleanup(xpcie->interfaces + index);
 
-	mxlk_list_cleanup(&mxlk->write);
-	mutex_destroy(&mxlk->wlock);
+	intel_xpcie_list_cleanup(&xpcie->write);
+	mutex_destroy(&xpcie->wlock);
 }
 
-int mxlk_interfaces_init(struct mxlk *mxlk)
+int intel_xpcie_interfaces_init(struct xpcie *xpcie)
 {
 	int index;
 
-	mutex_init(&mxlk->wlock);
-	mxlk_list_init(&mxlk->write);
-	init_waitqueue_head(&mxlk->tx_waitqueue);
-	mxlk->no_tx_buffer = false;
+	mutex_init(&xpcie->wlock);
+	intel_xpcie_list_init(&xpcie->write);
+	init_waitqueue_head(&xpcie->tx_waitqueue);
+	xpcie->no_tx_buffer = false;
 
-	for (index = 0; index < MXLK_NUM_INTERFACES; index++)
-		mxlk_interface_init(mxlk, index);
+	for (index = 0; index < XPCIE_NUM_INTERFACES; index++)
+		intel_xpcie_interface_init(xpcie, index);
 
 	return 0;
 }
 
-void mxlk_add_bd_to_interface(struct mxlk *mxlk, struct mxlk_buf_desc *bd)
+void intel_xpcie_add_bd_to_interface(struct xpcie *xpcie,
+				     struct xpcie_buf_desc *bd)
 {
-	struct mxlk_interface *inf;
+	struct xpcie_interface *inf;
 
-	inf = mxlk->interfaces + bd->interface;
+	inf = xpcie->interfaces + bd->interface;
 
-	mxlk_list_put(&inf->read, bd);
+	intel_xpcie_list_put(&inf->read, bd);
 
 	mutex_lock(&inf->rlock);
 	inf->data_available = true;
@@ -339,22 +346,22 @@ static ssize_t debug_show(struct device *dev, struct device_attribute *attr,
 {
 #ifdef XLINK_PCIE_LOCAL
 	struct pci_epf *epf = container_of(dev, struct pci_epf, dev);
-	struct mxlk_epf *mxlk_epf = epf_get_drvdata(epf);
-	struct mxlk *mxlk = &mxlk_epf->mxlk;
+	struct xpcie_epf *xpcie_epf = epf_get_drvdata(epf);
+	struct xpcie *xpcie = &xpcie_epf->xpcie;
 #else
 	struct pci_dev *pdev = container_of(dev, struct pci_dev, dev);
-	struct mxlk_pcie *xdev = pci_get_drvdata(pdev);
-	struct mxlk *mxlk = &xdev->mxlk;
+	struct xpcie_dev *xdev = pci_get_drvdata(pdev);
+	struct xpcie *xpcie = &xdev->xpcie;
 #endif
 	size_t bytes, tx_list_num, rx_list_num, tx_pool_num, rx_pool_num;
 
-	if (!mxlk->debug_enable)
+	if (!xpcie->debug_enable)
 		return 0;
 
-	mxlk_list_info(&mxlk->write, &bytes, &tx_list_num);
-	mxlk_list_info(&mxlk->interfaces[0].read, &bytes, &rx_list_num);
-	mxlk_list_info(&mxlk->tx_pool, &bytes, &tx_pool_num);
-	mxlk_list_info(&mxlk->rx_pool, &bytes, &rx_pool_num);
+	intel_xpcie_list_info(&xpcie->write, &bytes, &tx_list_num);
+	intel_xpcie_list_info(&xpcie->interfaces[0].read, &bytes, &rx_list_num);
+	intel_xpcie_list_info(&xpcie->tx_pool, &bytes, &tx_pool_num);
+	intel_xpcie_list_info(&xpcie->rx_pool, &bytes, &rx_pool_num);
 
 	snprintf(buf, 4096,
 		 "tx_krn, cnts %zu bytes %zu\n"
@@ -365,13 +372,13 @@ static ssize_t debug_show(struct device *dev, struct device_attribute *attr,
 		 "rx_list %zu rx_pool %zu\n"
 		 "interrupts %zu, send_ints %zu\n"
 		 "rx runs %zu tx runs %zu\n",
-		 mxlk->stats.tx_krn.cnts, mxlk->stats.tx_krn.bytes,
-		 mxlk->stats.tx_usr.cnts, mxlk->stats.tx_usr.bytes,
-		 mxlk->stats.rx_krn.cnts, mxlk->stats.rx_krn.bytes,
-		 mxlk->stats.rx_usr.cnts, mxlk->stats.rx_usr.bytes,
+		 xpcie->stats.tx_krn.cnts, xpcie->stats.tx_krn.bytes,
+		 xpcie->stats.tx_usr.cnts, xpcie->stats.tx_usr.bytes,
+		 xpcie->stats.rx_krn.cnts, xpcie->stats.rx_krn.bytes,
+		 xpcie->stats.rx_usr.cnts, xpcie->stats.rx_usr.bytes,
 		 tx_list_num, tx_pool_num, rx_list_num, rx_pool_num,
-		 mxlk->stats.interrupts, mxlk->stats.send_ints,
-		 mxlk->stats.rx_event_runs, mxlk->stats.tx_event_runs
+		 xpcie->stats.interrupts, xpcie->stats.send_ints,
+		 xpcie->stats.rx_event_runs, xpcie->stats.tx_event_runs
 	 );
 
 	return strlen(buf);
@@ -385,42 +392,42 @@ static ssize_t debug_store(struct device *dev, struct device_attribute *attr,
 
 #ifdef XLINK_PCIE_LOCAL
 	struct pci_epf *epf = container_of(dev, struct pci_epf, dev);
-	struct mxlk_epf *mxlk_epf = epf_get_drvdata(epf);
-	struct mxlk *mxlk = &mxlk_epf->mxlk;
+	struct xpcie_epf *xpcie_epf = epf_get_drvdata(epf);
+	struct xpcie *xpcie = &xpcie_epf->xpcie;
 #else
 	struct pci_dev *pdev = container_of(dev, struct pci_dev, dev);
-	struct mxlk_pcie *xdev = pci_get_drvdata(pdev);
-	struct mxlk *mxlk = &xdev->mxlk;
+	struct xpcie_dev *xdev = pci_get_drvdata(pdev);
+	struct xpcie *xpcie = &xdev->xpcie;
 #endif
 
 	rc = kstrtol(buf, 10, &value);
 	if (rc)
 		return rc;
 
-	mxlk->debug_enable = value ? true : false;
+	xpcie->debug_enable = value ? true : false;
 
-	if (!mxlk->debug_enable)
-		memset(&mxlk->stats, 0, sizeof(struct mxlk_debug_stats));
+	if (!xpcie->debug_enable)
+		memset(&xpcie->stats, 0, sizeof(struct xpcie_debug_stats));
 
 	return count;
 }
 
-void mxlk_init_debug(struct mxlk *mxlk, struct device *dev)
+void intel_xpcie_init_debug(struct xpcie *xpcie, struct device *dev)
 {
 	DEVICE_ATTR_RW(debug);
-	memset(&mxlk->stats, 0, sizeof(struct mxlk_debug_stats));
-	mxlk->debug = dev_attr_debug;
-	device_create_file(dev, &mxlk->debug);
+	memset(&xpcie->stats, 0, sizeof(struct xpcie_debug_stats));
+	xpcie->debug = dev_attr_debug;
+	device_create_file(dev, &xpcie->debug);
 }
 
-void mxlk_uninit_debug(struct mxlk *mxlk, struct device *dev)
+void intel_xpcie_uninit_debug(struct xpcie *xpcie, struct device *dev)
 {
-	device_remove_file(dev, &mxlk->debug);
-	memset(&mxlk->stats, 0, sizeof(struct mxlk_debug_stats));
+	device_remove_file(dev, &xpcie->debug);
+	memset(&xpcie->stats, 0, sizeof(struct xpcie_debug_stats));
 }
 
-void mxlk_debug_incr(struct mxlk *mxlk, size_t *attr, size_t v)
+void intel_xpcie_debug_incr(struct xpcie *xpcie, size_t *attr, size_t v)
 {
-	if (unlikely(mxlk->debug_enable))
+	if (unlikely(xpcie->debug_enable))
 		*attr += v;
 }

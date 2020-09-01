@@ -30,15 +30,15 @@ EXPORT_SYMBOL(xlink_pcie_get_device_list);
 int xlink_pcie_get_device_name(uint32_t sw_device_id, char *device_name,
 			       size_t name_size)
 {
-	struct mxlk *mxlk = mxlk_core_get_by_id(sw_device_id);
+	struct xpcie *xpcie = intel_xpcie_core_get_by_id(sw_device_id);
 
-	if (!mxlk)
+	if (!xpcie)
 		return -ENODEV;
 
 	memset(device_name, 0, name_size);
-	if (name_size > strlen(MXLK_DRIVER_NAME))
-		name_size = strlen(MXLK_DRIVER_NAME);
-	strncpy(device_name, MXLK_DRIVER_NAME, name_size);
+	if (name_size > strlen(XPCIE_DRIVER_NAME))
+		name_size = strlen(XPCIE_DRIVER_NAME);
+	strncpy(device_name, XPCIE_DRIVER_NAME, name_size);
 
 	return 0;
 }
@@ -46,17 +46,17 @@ EXPORT_SYMBOL(xlink_pcie_get_device_name);
 
 int xlink_pcie_get_device_status(uint32_t sw_device_id, uint32_t *device_status)
 {
-	struct mxlk *mxlk = mxlk_core_get_by_id(sw_device_id);
+	struct xpcie *xpcie = intel_xpcie_core_get_by_id(sw_device_id);
 
-	if (!mxlk)
+	if (!xpcie)
 		return -ENODEV;
 
-	switch (mxlk->status) {
-	case MXLK_STATUS_READY:
-	case MXLK_STATUS_RUN:
+	switch (xpcie->status) {
+	case XPCIE_STATUS_READY:
+	case XPCIE_STATUS_RUN:
 		*device_status = _XLINK_DEV_READY;
 		break;
-	case MXLK_STATUS_ERROR:
+	case XPCIE_STATUS_ERROR:
 		*device_status = _XLINK_DEV_ERROR;
 		break;
 	default:
@@ -76,12 +76,12 @@ EXPORT_SYMBOL(xlink_pcie_boot_device);
 
 int xlink_pcie_connect(uint32_t sw_device_id)
 {
-	struct mxlk *mxlk = mxlk_core_get_by_id(sw_device_id);
+	struct xpcie *xpcie = intel_xpcie_core_get_by_id(sw_device_id);
 
-	if (!mxlk)
+	if (!xpcie)
 		return -ENODEV;
 
-	if (mxlk->status != MXLK_STATUS_RUN)
+	if (xpcie->status != XPCIE_STATUS_RUN)
 		return -EIO;
 
 	return 0;
@@ -91,24 +91,24 @@ EXPORT_SYMBOL(xlink_pcie_connect);
 int xlink_pcie_read(uint32_t sw_device_id, void *data, size_t *const size,
 		    uint32_t timeout)
 {
-	struct mxlk *mxlk = mxlk_core_get_by_id(sw_device_id);
+	struct xpcie *xpcie = intel_xpcie_core_get_by_id(sw_device_id);
 
-	if (!mxlk)
+	if (!xpcie)
 		return -ENODEV;
 
-	return mxlk_core_read(mxlk, data, size, timeout);
+	return intel_xpcie_core_read(xpcie, data, size, timeout);
 }
 EXPORT_SYMBOL(xlink_pcie_read);
 
 int xlink_pcie_write(uint32_t sw_device_id, void *data, size_t *const size,
 		     uint32_t timeout)
 {
-	struct mxlk *mxlk = mxlk_core_get_by_id(sw_device_id);
+	struct xpcie *xpcie = intel_xpcie_core_get_by_id(sw_device_id);
 
-	if (!mxlk)
+	if (!xpcie)
 		return -ENODEV;
 
-	return mxlk_core_write(mxlk, data, size, timeout);
+	return intel_xpcie_core_write(xpcie, data, size, timeout);
 }
 EXPORT_SYMBOL(xlink_pcie_write);
 
