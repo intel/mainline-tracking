@@ -10,9 +10,9 @@
 #include <linux/wait.h>
 #include <linux/delay.h>
 
-#include "mxlk_dma.h"
-#include "mxlk_struct.h"
-#include "../common/mxlk.h"
+#include "dma.h"
+#include "struct.h"
+#include "../common/xlink_pcie.h"
 
 #define DMA_DBI_OFFSET (0x380000)
 

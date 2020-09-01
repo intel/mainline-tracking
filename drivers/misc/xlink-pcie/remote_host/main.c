@@ -7,7 +7,7 @@
  *
  ****************************************************************************/
 
-#include "mxlk_pci.h"
+#include "pci.h"
 
 static const struct pci_device_id mxlk_pci_table[] = {
 	{ PCI_DEVICE(PCI_VENDOR_ID_INTEL, PCI_DEVICE_ID_INTEL_KEEMBAY), 0 },

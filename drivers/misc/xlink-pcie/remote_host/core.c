@@ -10,10 +10,10 @@
 #include <linux/uaccess.h>
 #include <linux/delay.h>
 
-#include "mxlk_pci.h"
-#include "../common/mxlk_core.h"
-#include "../common/mxlk_util.h"
-#include "../common/mxlk_capabilities.h"
+#include "pci.h"
+#include "../common/core.h"
+#include "../common/util.h"
+#include "../common/capabilities.h"
 
 #define MXLK_CIRCULAR_INC(val, max) (((val) + 1) & (max - 1))
 

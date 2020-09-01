@@ -11,11 +11,11 @@
 #include <linux/delay.h>
 #include <linux/interrupt.h>
 
-#include "../common/mxlk_core.h"
-#include "../common/mxlk_util.h"
-#include "../common/mxlk_capabilities.h"
-#include "mxlk_epf.h"
-#include "mxlk_struct.h"
+#include "../common/core.h"
+#include "../common/util.h"
+#include "../common/capabilities.h"
+#include "epf.h"
+#include "struct.h"
 
 static struct mxlk *global_mxlk;
 

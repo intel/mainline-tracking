@@ -7,7 +7,7 @@
  *
  ****************************************************************************/
 
-#include "mxlk_util.h"
+#include "util.h"
 
 void mxlk_set_device_status(struct mxlk *mxlk, u32 status)
 {
@@ -329,9 +329,9 @@ void mxlk_add_bd_to_interface(struct mxlk *mxlk, struct mxlk_buf_desc *bd)
 }
 
 #ifdef XLINK_PCIE_REMOTE
-#include "../remote_host/mxlk_pci.h"
+#include "../remote_host/pci.h"
 #else
-#include "../local_host/mxlk_struct.h"
+#include "../local_host/struct.h"
 #endif
 
 static ssize_t debug_show(struct device *dev, struct device_attribute *attr,
