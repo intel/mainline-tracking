@@ -10,7 +10,7 @@
 #ifndef MXLK_CORE_HEADER_
 #define MXLK_CORE_HEADER_
 
-#include "mxlk.h"
+#include "xlink_pcie.h"
 
 int mxlk_core_init(struct mxlk *mxlk);
 void mxlk_core_cleanup(struct mxlk *mxlk);

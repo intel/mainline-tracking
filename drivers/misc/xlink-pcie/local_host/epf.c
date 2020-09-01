@@ -17,12 +17,12 @@
 #include <linux/pci_ids.h>
 #include <linux/reboot.h>
 #include <linux/xlink_drv_inf.h>
-#include "../common/mxlk.h"
-#include "../common/mxlk_core.h"
-#include "../common/mxlk_util.h"
-#include "../common/mxlk_boot.h"
-#include "mxlk_struct.h"
-#include "mxlk_dma.h"
+#include "../common/xlink_pcie.h"
+#include "../common/core.h"
+#include "../common/util.h"
+#include "../common/boot.h"
+#include "struct.h"
+#include "dma.h"
 
 #define BAR2_MIN_SIZE SZ_16K
 #define BAR4_MIN_SIZE SZ_16K

@@ -16,9 +16,9 @@
 #include <linux/wait.h>
 #include <linux/types.h>
 #include <linux/mutex.h>
-#include "mxlk_pci.h"
-#include "../common/mxlk_core.h"
-#include "../common/mxlk_util.h"
+#include "pci.h"
+#include "../common/core.h"
+#include "../common/util.h"
 
 #define BOOT_TIMEOUT 60000
 #define STATUS_TIMEOUT 5000

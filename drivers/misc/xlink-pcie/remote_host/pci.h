@@ -13,9 +13,9 @@
 #include <linux/list.h>
 #include <linux/interrupt.h>
 #include <linux/xlink_drv_inf.h>
-#include "../common/mxlk.h"
-#include "../common/mxlk_boot.h"
-#include "../common/mxlk_util.h"
+#include "../common/xlink_pcie.h"
+#include "../common/boot.h"
+#include "../common/util.h"
 
 #define MXLK_MAX_NAME_LEN (32)
 

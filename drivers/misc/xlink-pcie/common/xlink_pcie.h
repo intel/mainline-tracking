@@ -24,8 +24,8 @@
 #include <linux/cache.h>
 #include <linux/wait.h>
 
-#include "mxlk_common.h"
-#include "mxlk_boot.h"
+#include "common.h"
+#include "boot.h"
 
 #ifdef XLINK_PCIE_REMOTE
 #define MXLK_DRIVER_NAME "mxlk"

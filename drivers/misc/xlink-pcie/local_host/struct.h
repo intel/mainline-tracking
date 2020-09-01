@@ -13,7 +13,7 @@
 #include <linux/pci-epc.h>
 #include <linux/pci-epf.h>
 #include <pcie-keembay.h>
-#include "../common/mxlk.h"
+#include "../common/xlink_pcie.h"
 
 extern bool dma_ll_mode;
 

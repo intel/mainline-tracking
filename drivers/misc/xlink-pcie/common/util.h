@@ -10,7 +10,7 @@
 #ifndef MXLK_UTIL_HEADER_
 #define MXLK_UTIL_HEADER_
 
-#include "mxlk.h"
+#include "xlink_pcie.h"
 
 enum mxlk_doorbell_direction {
 	TO_DEVICE,

@@ -10,8 +10,8 @@
 #ifndef MXLK_CAPABILITIES_HEADER_
 #define MXLK_CAPABILITIES_HEADER_
 
-#include "mxlk.h"
-#include "mxlk_common.h"
+#include "xlink_pcie.h"
+#include "common.h"
 
 #define MXLK_CAP_TTL (32)
 

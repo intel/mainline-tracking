@@ -10,8 +10,8 @@
 #ifndef MXLK_EPF_HEADER_
 #define MXLK_EPF_HEADER_
 
-#include "../common/mxlk.h"
-#include "../common/mxlk_util.h"
+#include "../common/xlink_pcie.h"
+#include "../common/util.h"
 
 extern u32 xlink_sw_id;
 
