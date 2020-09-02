@@ -27,8 +27,9 @@ asm (
 	".pushsection \".text\", \"ax\"\n\t"
 	".balign 4096\n\t"
 	"test_page: .globl test_page\n\t"
-	".fill 4094,1,0xcc\n\t"
+	".fill 4090,1,0xcc\n\t"
 	"test_syscall_insn:\n\t"
+	".byte 0xf3, 0x0f, 0x1e, 0xfa\n\t" /* endbr64 */
 	"syscall\n\t"
 	".ifne . - test_page - 4096\n\t"
 	".error \"test page is not one page long\"\n\t"
@@ -151,7 +152,7 @@ static void test_syscall_fallthrough_to(unsigned long ip)
 
 	if (sigsetjmp(jmpbuf, 1) == 0) {
 		asm volatile ("call *%[syscall_insn]" :: "a" (SYS_getpid),
-			      [syscall_insn] "rm" (ip - 2));
+			      [syscall_insn] "rm" (ip - 6));
 		errx(1, "[FAIL]\tSyscall trampoline returned");
 	}
 
