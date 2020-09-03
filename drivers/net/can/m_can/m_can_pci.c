@@ -166,8 +166,8 @@ static void m_can_pci_remove(struct pci_dev *pci)
 	/* Disable interrupt control at CAN wrapper IP */
 	writel(0x0, priv->base + CTL_CSR_INT_CTL_OFFSET);
 
-	pci_free_irq_vectors(pci);
 	m_can_class_unregister(mcan_class);
+	pci_free_irq_vectors(pci);
 }
 
 static __maybe_unused int m_can_pci_suspend(struct device *dev)
