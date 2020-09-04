@@ -691,6 +691,11 @@ struct phy_device *mdiobus_scan(struct mii_bus *bus, int addr)
 		if (IS_ERR(phydev))
 			phydev = get_phy_device(bus, addr, true);
 		break;
+	case MDIOBUS_C45_C22:
+		phydev = get_phy_device(bus, addr, true);
+		if (IS_ERR(phydev))
+			phydev = get_phy_device(bus, addr, false);
+		break;
 	}
 
 	if (IS_ERR(phydev))
