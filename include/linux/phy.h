@@ -360,6 +360,7 @@ struct mii_bus {
 		MDIOBUS_C22,
 		MDIOBUS_C45,
 		MDIOBUS_C22_C45,
+		MDIOBUS_C45_C22,
 	} probe_capabilities;
 
 	/** @shared_lock: protect access to the shared element */
