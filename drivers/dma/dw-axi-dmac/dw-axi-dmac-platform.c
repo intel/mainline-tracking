@@ -264,14 +264,37 @@ dma_chan_tx_status(struct dma_chan *dchan, dma_cookie_t cookie,
 		  struct dma_tx_state *txstate)
 {
 	struct axi_dma_chan *chan = dchan_to_axi_dma_chan(dchan);
-	enum dma_status ret;
+	struct virt_dma_desc *vdesc;
+	enum dma_status status;
+	u32 completed_length;
+	unsigned long flags;
+	u32 completed_blks;
+	size_t bytes = 0;
+	u32 length;
+	u32 len;
 
-	ret = dma_cookie_status(dchan, cookie, txstate);
+	status = dma_cookie_status(dchan, cookie, txstate);
+	if (status == DMA_COMPLETE)
+		return status;
 
-	if (chan->is_paused && ret == DMA_IN_PROGRESS)
-		ret = DMA_PAUSED;
+	spin_lock_irqsave(&chan->vc.lock, flags);
 
-	return ret;
+	vdesc = vchan_find_desc(&chan->vc, cookie);
+
+	if (vdesc) {
+		length = vd_to_axi_desc(vdesc)->length;
+		completed_blks = vd_to_axi_desc(vdesc)->completed_blks;
+		len = vd_to_axi_desc(vdesc)->hw_desc[0].len;
+		completed_length = completed_blks * len;
+		bytes = length - completed_length;
+	} else {
+		bytes = vd_to_axi_desc(vdesc)->length;
+	}
+
+	spin_unlock_irqrestore(&chan->vc.lock, flags);
+	dma_set_residue(txstate, bytes);
+
+	return status;
 }
 
 static void write_desc_llp(struct axi_dma_hw_desc *desc, dma_addr_t adr)
@@ -496,6 +519,7 @@ dma_chan_prep_dma_memcpy(struct dma_chan *dchan, dma_addr_t dst_adr,
 
 	desc->chan = chan;
 	num = 0;
+	desc->length = 0;
 	while (len) {
 		xfer_len = len;
 
@@ -548,7 +572,8 @@ dma_chan_prep_dma_memcpy(struct dma_chan *dchan, dma_addr_t dst_adr,
 		set_desc_src_master(hw_desc);
 		set_desc_dest_master(hw_desc, desc);
 
-
+		hw_desc->len = xfer_len;
+		desc->length += hw_desc->len;
 		/* update the length and addresses for the next loop cycle */
 		len -= xfer_len;
 		dst_adr += xfer_len;
@@ -610,6 +635,7 @@ dw_axi_dma_chan_prep_cyclic(struct dma_chan *dchan, dma_addr_t dma_addr,
 
 	chan->direction = direction;
 	chan->cyclic = true;
+	desc->length = 0;
 
 	switch (direction) {
 	case DMA_MEM_TO_DEV:
@@ -674,6 +700,9 @@ dw_axi_dma_chan_prep_cyclic(struct dma_chan *dchan, dma_addr_t dma_addr,
 		hw_desc->lli->ctl_lo = cpu_to_le32(ctllo);
 
 		set_desc_src_master(hw_desc);
+
+		hw_desc->len = period_len;
+		desc->length += hw_desc->len;
 
 		/* Set end-of-link to the linked descriptor, so that cyclic
 		 * callback function can be triggered during interrupt.
@@ -754,6 +783,7 @@ dw_axi_dma_chan_prep_slave_sg(struct dma_chan *dchan, struct scatterlist *sgl,
 	}
 
 	desc->chan = chan;
+	desc->length = 0;
 
 	for_each_sg(sgl, sg, sg_len, i) {
 		mem = sg_dma_address(sg);
@@ -803,6 +833,8 @@ dw_axi_dma_chan_prep_slave_sg(struct dma_chan *dchan, struct scatterlist *sgl,
 		hw_desc->lli->ctl_lo = cpu_to_le32(ctllo);
 
 		set_desc_src_master(hw_desc);
+		hw_desc->len = len;
+		desc->length += hw_desc->len;
 	}
 
 	if (unlikely(!desc))
@@ -1267,7 +1299,7 @@ static int dw_probe(struct platform_device *pdev)
 	dw->dma.dst_addr_widths = AXI_DMA_BUSWIDTHS;
 	dw->dma.directions = BIT(DMA_MEM_TO_MEM);
 	dw->dma.directions |= BIT(DMA_MEM_TO_DEV) | BIT(DMA_DEV_TO_MEM);
-	dw->dma.residue_granularity = DMA_RESIDUE_GRANULARITY_DESCRIPTOR;
+	dw->dma.residue_granularity = DMA_RESIDUE_GRANULARITY_BURST;
 
 	dw->dma.dev = chip->dev;
 	dw->dma.device_tx_status = dma_chan_tx_status;
