@@ -62,7 +62,7 @@ struct xpcie_dev *intel_xpcie_get_device_by_id(u32 id)
 struct xpcie_dev *intel_xpcie_create_device(u32 sw_device_id,
 					    struct pci_dev *pdev)
 {
-	struct xpcie_dev *xdev = kzalloc(sizeof(struct xpcie_dev), GFP_KERNEL);
+	struct xpcie_dev *xdev = kzalloc(sizeof(*xdev), GFP_KERNEL);
 
 	if (!xdev)
 		return NULL;
@@ -239,58 +239,14 @@ static irqreturn_t intel_xpcie_interrupt(int irq, void *args)
 
 static void intel_xpcie_pci_irq_cleanup(struct xpcie_dev *xdev)
 {
-#if KERNEL_VERSION(4, 8, 0) <= LINUX_VERSION_CODE
-	int irq = pci_irq_vector(xdev->pci, 0);
-
-	if (irq < 0)
-		return;
-
-	synchronize_irq(irq);
-	free_irq(irq, xdev);
-	pci_free_irq_vectors(xdev->pci);
-#else
 	if (!pci_msi_enabled())
 		return;
 
 	synchronize_irq(xdev->pci->irq);
 	free_irq(xdev->pci->irq, xdev);
 	pci_disable_msi(xdev->pci);
-#endif
 }
 
-#if KERNEL_VERSION(4, 8, 0) <= LINUX_VERSION_CODE
-static int intel_xpcie_pci_irq_init(struct xpcie_dev *xdev)
-{
-	int irq;
-	int rc;
-
-	rc = pci_alloc_irq_vectors(xdev->pci, 1, 1, PCI_IRQ_MSI);
-	if (rc < 0) {
-		dev_err(&xdev->pci->dev,
-			"failed to allocate %d MSI vectors\n", 1);
-		return rc;
-	}
-
-	irq = pci_irq_vector(xdev->pci, 0);
-	if (irq < 0) {
-		dev_err(&xdev->pci->dev, "failed to get irq\n");
-		rc = irq;
-		goto error_irq;
-	}
-	rc = request_irq(irq, &intel_xpcie_interrupt, 0,
-			 XPCIE_DRIVER_NAME, xdev);
-	if (rc) {
-		dev_err(&xdev->pci->dev, "failed to request irqs\n");
-		goto error_irq;
-	}
-
-	return 0;
-
-error_irq:
-	pci_free_irq_vectors(xdev->pci);
-	return rc;
-}
-#else
 static int intel_xpcie_pci_irq_init(struct xpcie_dev *xdev)
 {
 	int rc;
@@ -302,7 +258,7 @@ static int intel_xpcie_pci_irq_init(struct xpcie_dev *xdev)
 	}
 
 	rc = request_irq(xdev->pci->irq, &intel_xpcie_interrupt, 0,
-			    XPCIE_DRIVER_NAME, xdev);
+			 XPCIE_DRIVER_NAME, xdev);
 	if (rc) {
 		dev_err(&xdev->pci->dev, "failed to request irqs\n");
 		goto error_irq;
@@ -314,10 +270,9 @@ error_irq:
 	pci_disable_msi(xdev->pci);
 	return rc;
 }
-#endif
 
 static int xpcie_device_wait_status(struct xpcie_dev *xdev, u32 image_id,
-				   u32 timeout_ms)
+				    u32 timeout_ms)
 {
 	u32 status = XPCIE_BOOT_STATUS_START;
 	int count = 0;
@@ -354,7 +309,7 @@ static int xpcie_device_wait_status(struct xpcie_dev *xdev, u32 image_id,
 }
 
 static int xpcie_device_transfer(struct xpcie_dev *xdev, u32 image_id,
-				dma_addr_t addr, size_t size)
+				 dma_addr_t addr, size_t size)
 {
 	int rc;
 
@@ -373,8 +328,8 @@ static int xpcie_device_transfer(struct xpcie_dev *xdev, u32 image_id,
 }
 
 static int xpcie_device_download_common(struct xpcie_dev *xdev, u32 image_id,
-				       const void *buf, size_t buf_size,
-				       bool no_copy)
+					const void *buf, size_t buf_size,
+					bool no_copy)
 {
 	int rc = 0;
 	size_t size;
@@ -408,7 +363,7 @@ static int xpcie_device_download_common(struct xpcie_dev *xdev, u32 image_id,
 }
 
 static int xpcie_device_download_firmware(struct xpcie_dev *xdev, u32 image_id,
-					 const char *fw_image)
+					  const char *fw_image)
 {
 	const struct firmware *firmware;
 	struct device *dev = &xdev->pci->dev;
@@ -439,7 +394,7 @@ static int xpcie_device_download_firmware(struct xpcie_dev *xdev, u32 image_id,
 	}
 
 	rc = xpcie_device_download_common(xdev, image_id, firmware->data,
-					 firmware->size, false);
+					  firmware->size, false);
 
 	kfree(xdev->dma_buf);
 	xdev->dma_buf = NULL;
@@ -453,7 +408,7 @@ firmware_cleanup:
 static int xpcie_device_flashless_boot(struct xpcie_dev *xdev)
 {
 	if (xpcie_device_download_firmware(xdev, XPCIE_BOOT_BOOT_ID,
-					  xdev->fw_name)) {
+					   xdev->fw_name)) {
 		dev_err(&xdev->pci->dev, "failed to download boot image\n");
 		return -EIO;
 	}
@@ -466,7 +421,7 @@ static int xpcie_device_flashless_boot(struct xpcie_dev *xdev)
 static int xpcie_device_fip(struct xpcie_dev *xdev)
 {
 	if (xpcie_device_download_firmware(xdev, XPCIE_BOOT_FIP_ID,
-					  xdev->fw_name)) {
+					   xdev->fw_name)) {
 		dev_err(&xdev->pci->dev, "failed to download FIP image\n");
 		return -EIO;
 	}
@@ -792,7 +747,8 @@ int intel_xpcie_pci_boot_device(u32 id, const char *binary_name)
 	}
 
 	rc = intel_xpcie_wait_event((xdev->xpcie.status == expected) ||
-			     (xdev->xpcie.status == XPCIE_STATUS_RECOVERY));
+				    (xdev->xpcie.status ==
+				     XPCIE_STATUS_RECOVERY));
 
 	if (xdev->xpcie.status == XPCIE_STATUS_RECOVERY)
 		rc = -EIO;
@@ -915,7 +871,7 @@ static int intel_xpcie_recovery_send_left(struct xpcie_dev *xdev,
 	int rc;
 
 	rc = xpcie_device_download_common(xdev, XPCIE_BOOT_RAW_ID, NULL,
-			xdev->dma_buf_offset, true);
+					  xdev->dma_buf_offset, true);
 	xdev->dma_buf_offset = 0;
 	if (reset_offset)
 		xdev->partition_offset = 0;
@@ -945,7 +901,7 @@ create_error:
 }
 
 static int intel_xpcie_pci_erase_partition(struct xpcie_dev *xdev,
-				    const char *partition, size_t len)
+					   const char *partition, size_t len)
 {
 	int rc = 0;
 
@@ -969,8 +925,8 @@ erase_error:
 }
 
 static int intel_xpcie_pci_flash_partition_start(struct xpcie_dev *xdev,
-					  const char *partition,
-					  size_t name_len)
+						 const char *partition,
+						 size_t name_len)
 {
 	int rc = 0;
 
@@ -986,7 +942,7 @@ static int intel_xpcie_pci_flash_partition_start(struct xpcie_dev *xdev,
 
 	memset(xdev->partition_name, 0, XPCIE_BOOT_DEST_STRLEN);
 	memcpy(xdev->partition_name, partition,
-		(name_len >= XPCIE_BOOT_DEST_STRLEN) ?
+	       (name_len >= XPCIE_BOOT_DEST_STRLEN) ?
 			(XPCIE_BOOT_DEST_STRLEN - 1) : name_len);
 	xdev->partition_offset = 0;
 
@@ -999,7 +955,7 @@ start_error:
 }
 
 static int intel_xpcie_pci_flash_partition_send(struct xpcie_dev *xdev,
-					 const void *data, size_t size)
+						const void *data, size_t size)
 {
 	int rc = 0;
 	int size_left = size;
@@ -1021,7 +977,7 @@ static int intel_xpcie_pci_flash_partition_send(struct xpcie_dev *xdev,
 		size = (size > (SECTION_SIZE - xdev->dma_buf_offset)) ?
 			(SECTION_SIZE - xdev->dma_buf_offset) : size;
 		memcpy(xdev->dma_buf + xdev->dma_buf_offset,
-			data, size);
+		       data, size);
 		xdev->dma_buf_offset += size;
 		size_left -= size;
 		data += size;
@@ -1061,8 +1017,8 @@ done_error:
 }
 
 static ssize_t partition_store(struct device *dev,
-				struct device_attribute *attr,
-				const char *buf, size_t count)
+			       struct device_attribute *attr,
+			       const char *buf, size_t count)
 {
 	int rc;
 
@@ -1103,8 +1059,8 @@ static ssize_t create_partitions_store(struct device *dev,
 static DEVICE_ATTR_WO(create_partitions);
 
 static ssize_t erase_partition_store(struct device *dev,
-				    struct device_attribute *attr,
-				    const char *buf, size_t count)
+				     struct device_attribute *attr,
+				     const char *buf, size_t count)
 {
 	int rc;
 	long value;
@@ -1116,7 +1072,7 @@ static ssize_t erase_partition_store(struct device *dev,
 
 	if (value) {
 		rc = intel_xpcie_pci_erase_partition(xdev, xdev->partition_name,
-					      XPCIE_BOOT_DEST_STRLEN);
+						     XPCIE_BOOT_DEST_STRLEN);
 		if (rc) {
 			dev_err(dev, "failed to erase partition\n");
 			return rc;

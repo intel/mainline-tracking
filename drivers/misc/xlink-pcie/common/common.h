@@ -19,29 +19,23 @@
 #define PCI_DEVICE_ID_INTEL_KEEMBAY 0x6240
 #endif
 
-/*
- * Number of interfaces to statically allocate resources for
- */
+/* Number of interfaces to statically allocate resources for */
 #define XPCIE_NUM_INTERFACES (1)
 
 #define XPCIE_FRAGMENT_SIZE SZ_128K
 #define XPCIE_NUM_TX_DESCS (64)
 #define XPCIE_NUM_RX_DESCS (64)
 
-/*
- * Status encoding of the transfer descriptors
- */
+/* Status encoding of the transfer descriptors */
 #define XPCIE_DESC_STATUS_SUCCESS (0)
 #define XPCIE_DESC_STATUS_ERROR (0xFFFF)
 
-/*
- * Layout transfer descriptors used by device and host
- */
+/* Layout transfer descriptors used by device and host */
 struct xpcie_transfer_desc {
-	uint64_t address;
-	uint32_t length;
-	uint16_t status;
-	uint16_t interface;
+	u64 address;
+	u32 length;
+	u16 status;
+	u16 interface;
 } __packed;
 
 #define XPCIE_IO_COMM_SIZE SZ_16K
@@ -56,14 +50,12 @@ struct xpcie_transfer_desc {
 	_VERSION(XPCIE_VERSION_MAJOR, XPCIE_VERSION_MINOR, XPCIE_VERSION_BUILD)
 
 struct xpcie_version {
-	uint8_t major;
-	uint8_t minor;
-	uint16_t build;
+	u8 major;
+	u8 minor;
+	u16 build;
 } __packed;
 
-/*
- * Status encoding of both device and host
- */
+/* Status encoding of both device and host */
 #define XPCIE_STATUS_ERROR (0xFFFFFFFF)
 #define XPCIE_STATUS_UNINIT (0)
 #define XPCIE_STATUS_BOOT_FW (1)
@@ -74,51 +66,43 @@ struct xpcie_version {
 #define XPCIE_STATUS_OFF (6)
 #define XPCIE_STATUS_BOOT_PRE_OS (7)
 
-/*
- * MMIO layout and offsets shared between device and host
- */
+/* MMIO layout and offsets shared between device and host */
 struct xpcie_mmio {
 	struct xpcie_version version;
-	uint32_t device_status;
-	uint32_t host_status;
-	uint8_t legacy_a0;
-	uint8_t htod_tx_doorbell;
-	uint8_t htod_rx_doorbell;
-	uint8_t htod_event_doorbell;
-	uint8_t dtoh_tx_doorbell;
-	uint8_t dtoh_rx_doorbell;
-	uint8_t dtoh_event_doorbell;
-	uint8_t reserved;
-	uint32_t cap_offset;
+	u32 device_status;
+	u32 host_status;
+	u8 legacy_a0;
+	u8 htod_tx_doorbell;
+	u8 htod_rx_doorbell;
+	u8 htod_event_doorbell;
+	u8 dtoh_tx_doorbell;
+	u8 dtoh_rx_doorbell;
+	u8 dtoh_event_doorbell;
+	u8 reserved;
+	u32 cap_offset;
 } __packed;
 
-/*
- * Defined capabilities located in mmio space
- */
+/* Defined capabilities located in mmio space */
 #define XPCIE_CAP_NULL (0)
 #define XPCIE_CAP_TXRX (1)
 
-/*
- * Header at the beginning of each capability to define and link to next
- */
+/* Header at the beginning of each capability to define and link to next */
 struct xpcie_cap_hdr {
-	uint16_t id;
-	uint16_t next;
+	u16 id;
+	u16 next;
 } __packed;
 
 #define XPCIE_CAP_HDR_ID (offsetof(struct xpcie_cap_hdr, id))
 #define XPCIE_CAP_HDR_NEXT (offsetof(struct xpcie_cap_hdr, next))
 
 struct xpcie_cap_pipe {
-	uint32_t ring;
-	uint32_t ndesc;
-	uint32_t head;
-	uint32_t tail;
+	u32 ring;
+	u32 ndesc;
+	u32 head;
+	u32 tail;
 } __packed;
 
-/*
- * Transmit and Receive capability
- */
+/* Transmit and Receive capability */
 struct xpcie_cap_txrx {
 	struct xpcie_cap_hdr hdr;
 	u32 fragment_size;
@@ -164,6 +148,6 @@ static inline void _iowrite64(u64 value, void __iomem *addr)
 #define intel_xpcie_ioread16(addr) (*(addr))
 #define intel_xpcie_ioread8(addr)  (*(addr))
 
-#endif // XLINK_PCIE_REMOTE
+#endif /* XLINK_PCIE_REMOTE */
 
-#endif
+#endif /* XPCIE_COMMON_HEADER_ */

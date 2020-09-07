@@ -21,4 +21,4 @@ int intel_xpcie_ep_dma_write_ll(struct pci_epf *epf, int chan, int descs_num);
 bool intel_xpcie_ep_dma_enabled(struct pci_epf *epf);
 int intel_xpcie_ep_dma_reset(struct pci_epf *epf);
 
-#endif // XPCIE_DMA_HEADER_
+#endif /* XPCIE_DMA_HEADER_ */

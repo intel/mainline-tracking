@@ -15,11 +15,11 @@
 
 extern u32 xlink_sw_id;
 
-extern void intel_xpcie_register_host_irq(struct xpcie *xpcie,
-					  irq_handler_t func);
+void intel_xpcie_register_host_irq(struct xpcie *xpcie,
+				   irq_handler_t func);
 
-extern int intel_xpcie_raise_irq(struct xpcie *xpcie,
-				 enum xpcie_doorbell_type type);
+int intel_xpcie_raise_irq(struct xpcie *xpcie,
+			  enum xpcie_doorbell_type type);
 
 /*
  * These two functions are for DMA linked list mode.
@@ -27,9 +27,9 @@ extern int intel_xpcie_raise_irq(struct xpcie *xpcie,
  * Caller should set the dst/src addresses and length for DMA descriptors in
  * xpcie_epf.dma_ll_tx_descs/dma_ll_rx_descs.
  */
-extern int intel_xpcie_copy_from_host_ll(struct xpcie *xpcie,
-					 int chan, int descs_num);
-extern int intel_xpcie_copy_to_host_ll(struct xpcie *xpcie,
-				       int chan, int descs_num);
+int intel_xpcie_copy_from_host_ll(struct xpcie *xpcie,
+				  int chan, int descs_num);
+int intel_xpcie_copy_to_host_ll(struct xpcie *xpcie,
+				int chan, int descs_num);
 
-#endif // XPCIE_EPF_HEADER_
+#endif /* XPCIE_EPF_HEADER_ */

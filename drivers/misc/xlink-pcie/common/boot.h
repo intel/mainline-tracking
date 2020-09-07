@@ -62,4 +62,4 @@ struct xpcie_bootio {
 	u64 dev_id;
 } __packed;
 
-#endif // XPCIE_BOOT_HEADER_
+#endif /* XPCIE_BOOT_HEADER_ */

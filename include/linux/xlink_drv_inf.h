@@ -47,17 +47,17 @@ enum _xlink_device_status {
 	_XLINK_DEV_READY
 };
 
-int xlink_pcie_get_device_list(uint32_t *sw_device_id_list,
-			       uint32_t *num_devices);
-int xlink_pcie_get_device_name(uint32_t sw_device_id, char *device_name,
+int xlink_pcie_get_device_list(u32 *sw_device_id_list,
+			       u32 *num_devices);
+int xlink_pcie_get_device_name(u32 sw_device_id, char *device_name,
 			       size_t name_size);
-int xlink_pcie_get_device_status(uint32_t sw_device_id,
-				 uint32_t *device_status);
-int xlink_pcie_boot_device(uint32_t sw_device_id, const char *binary_name);
-int xlink_pcie_connect(uint32_t sw_device_id);
-int xlink_pcie_read(uint32_t sw_device_id, void *data, size_t *const size,
-		    uint32_t timeout);
-int xlink_pcie_write(uint32_t sw_device_id, void *data, size_t *const size,
-		     uint32_t timeout);
-int xlink_pcie_reset_device(uint32_t sw_device_id);
+int xlink_pcie_get_device_status(u32 sw_device_id,
+				 u32 *device_status);
+int xlink_pcie_boot_device(u32 sw_device_id, const char *binary_name);
+int xlink_pcie_connect(u32 sw_device_id);
+int xlink_pcie_read(u32 sw_device_id, void *data, size_t *const size,
+		    u32 timeout);
+int xlink_pcie_write(u32 sw_device_id, void *data, size_t *const size,
+		     u32 timeout);
+int xlink_pcie_reset_device(u32 sw_device_id);
 #endif

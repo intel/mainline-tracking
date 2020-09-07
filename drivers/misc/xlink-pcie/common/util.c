@@ -21,8 +21,8 @@ u32 intel_xpcie_get_device_status(struct xpcie *xpcie)
 }
 
 static u8 *intel_xpcie_doorbell_offset(struct xpcie *xpcie,
-				enum xpcie_doorbell_direction dirt,
-				enum xpcie_doorbell_type type)
+				       enum xpcie_doorbell_direction dirt,
+				       enum xpcie_doorbell_type type)
 {
 	if (dirt == TO_DEVICE && type == DATA_SENT)
 		return &xpcie->mmio->htod_tx_doorbell;
@@ -82,7 +82,8 @@ struct xpcie_buf_desc *intel_xpcie_alloc_bd(size_t length)
 	}
 
 	bd->data = bd->head;
-	bd->length = bd->true_len = length;
+	bd->length = length;
+	bd->true_len = length;
 	bd->next = NULL;
 	bd->own_mem = true;
 
@@ -90,7 +91,7 @@ struct xpcie_buf_desc *intel_xpcie_alloc_bd(size_t length)
 }
 
 struct xpcie_buf_desc *intel_xpcie_alloc_bd_reuse(size_t length, void *virt,
-					  dma_addr_t phys)
+						  dma_addr_t phys)
 {
 	struct xpcie_buf_desc *bd;
 
@@ -101,7 +102,8 @@ struct xpcie_buf_desc *intel_xpcie_alloc_bd_reuse(size_t length, void *virt,
 	bd->head = virt;
 	bd->phys = phys;
 	bd->data = bd->head;
-	bd->length = bd->true_len = length;
+	bd->length = length;
+	bd->true_len = length;
 	bd->next = NULL;
 	bd->own_mem = false;
 
@@ -139,7 +141,8 @@ void intel_xpcie_list_cleanup(struct xpcie_list *list)
 		intel_xpcie_free_bd(bd);
 	}
 
-	list->head = list->tail = NULL;
+	list->head = NULL;
+	list->tail = NULL;
 	spin_unlock(&list->lock);
 }
 
@@ -264,7 +267,7 @@ void intel_xpcie_free_tx_bd(struct xpcie *xpcie, struct xpcie_buf_desc *bd)
 	intel_xpcie_list_put(&xpcie->tx_pool, bd);
 
 	xpcie->no_tx_buffer = false;
-	wake_up_interruptible(&xpcie->tx_waitqueue);
+	wake_up_interruptible(&xpcie->tx_waitq);
 }
 
 int intel_xpcie_interface_init(struct xpcie *xpcie, int id)
@@ -277,8 +280,8 @@ int intel_xpcie_interface_init(struct xpcie *xpcie, int id)
 	inf->partial_read = NULL;
 	intel_xpcie_list_init(&inf->read);
 	mutex_init(&inf->rlock);
-	inf->data_available = false;
-	init_waitqueue_head(&inf->rx_waitqueue);
+	inf->data_avail = false;
+	init_waitqueue_head(&inf->rx_waitq);
 
 	return 0;
 }
@@ -311,7 +314,7 @@ int intel_xpcie_interfaces_init(struct xpcie *xpcie)
 
 	mutex_init(&xpcie->wlock);
 	intel_xpcie_list_init(&xpcie->write);
-	init_waitqueue_head(&xpcie->tx_waitqueue);
+	init_waitqueue_head(&xpcie->tx_waitq);
 	xpcie->no_tx_buffer = false;
 
 	for (index = 0; index < XPCIE_NUM_INTERFACES; index++)
@@ -330,9 +333,9 @@ void intel_xpcie_add_bd_to_interface(struct xpcie *xpcie,
 	intel_xpcie_list_put(&inf->read, bd);
 
 	mutex_lock(&inf->rlock);
-	inf->data_available = true;
+	inf->data_avail = true;
 	mutex_unlock(&inf->rlock);
-	wake_up_interruptible(&inf->rx_waitqueue);
+	wake_up_interruptible(&inf->rx_waitq);
 }
 
 #ifdef XLINK_PCIE_REMOTE

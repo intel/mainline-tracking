@@ -21,7 +21,7 @@
 
 struct xpcie_dev {
 	struct list_head list;
-	struct mutex lock;
+	struct mutex lock; /* Device Lock */
 
 	struct pci_dev *pci;
 	char name[XPCIE_MAX_NAME_LEN];
@@ -76,4 +76,4 @@ int intel_xpcie_pci_reset_device(u32 id);
 
 u64 intel_xpcie_pci_hw_dev_id(struct xpcie_dev *xdev);
 
-#endif
+#endif /* XPCIE_PCI_HEADER_ */
