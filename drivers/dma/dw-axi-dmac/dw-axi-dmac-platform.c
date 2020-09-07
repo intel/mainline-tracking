@@ -445,6 +445,53 @@ static void dma_chan_free_chan_resources(struct dma_chan *dchan)
 	pm_runtime_put(chan->chip->dev);
 }
 
+static void dw_axi_dma_set_hw_channel(struct axi_dma_chip *chip, u32 hs_id, bool set)
+{
+	u32 mask = 0x000000FF;
+	unsigned long start = 0;
+	unsigned long reg_value;
+	unsigned long reg_mask;
+	unsigned long reg_set;
+	u32 val;
+
+	/* 0x3F means channel is free for use
+	 * set/free the handshake number to the channel
+	 */
+	if (set) {
+		reg_set = 0x3F;
+		val = hs_id;
+	} else {
+		reg_set = hs_id;
+		val = 0x3F;
+	}
+
+	reg_value = ioread32(chip->apb_regs + DMAC_APB_HW_HS_SEL_0);
+	/* Check first four channels */
+	for_each_set_clump8(start, reg_mask, &reg_value, 32) {
+		if (reg_mask == reg_set) {
+			mask = rol32(mask, start * 8);
+			reg_value &= ~mask;
+			reg_value |= rol32(val, start * 8);
+			iowrite32(reg_value, chip->apb_regs + DMAC_APB_HW_HS_SEL_0);
+			return;
+		}
+	}
+	/* Check last four channels */
+	reg_value = ioread32(chip->apb_regs + DMAC_APB_HW_HS_SEL_1);
+	mask = 0x000000FF;
+	start = 0;
+
+	for_each_set_clump8(start, reg_mask, &reg_value, 32) {
+		if (reg_mask == reg_set) {
+			mask = rol32(mask, start * 8);
+			reg_value &= ~mask;
+			reg_value |= rol32(val, start * 8);
+			iowrite32(reg_value, chip->apb_regs + DMAC_APB_HW_HS_SEL_1);
+			return;
+		}
+	}
+}
+
 /*
  * If DW_axi_dmac sees CHx_CTL.ShadowReg_Or_LLI_Last bit of the fetched LLI
  * as 1, it understands that the current block is the final block in the
@@ -724,6 +771,8 @@ dw_axi_dma_chan_prep_cyclic(struct dma_chan *dchan, dma_addr_t dma_addr,
 		llp = hw_desc->llp;
 	} while (num_periods);
 
+	if (chan->chip->apb_regs)
+		dw_axi_dma_set_hw_channel(chan->chip, chan->hw_hs_num, true);
 	return vchan_tx_prep(&chan->vc, &desc->vd, flags);
 
 err_desc_get:
@@ -850,6 +899,8 @@ dw_axi_dma_chan_prep_slave_sg(struct dma_chan *dchan, struct scatterlist *sgl,
 		llp = hw_desc->llp;
 	} while (sg_len);
 
+	if (chan->chip->apb_regs)
+		dw_axi_dma_set_hw_channel(chan->chip, chan->hw_hs_num, true);
 	return vchan_tx_prep(&chan->vc, &desc->vd, flags);
 
 err_desc_get:
@@ -1018,6 +1069,9 @@ static int dma_chan_terminate_all(struct dma_chan *dchan)
 			dev_err(dchan2dev(dchan),
 				"%s failed to stop\n", axi_chan_name(chan));
 	}
+
+	if (chan->chip->apb_regs && chan->direction != DMA_MEM_TO_MEM)
+		dw_axi_dma_set_hw_channel(chan->chip, chan->hw_hs_num, false);
 
 	vchan_get_all_descriptors(&chan->vc, &head);
 
