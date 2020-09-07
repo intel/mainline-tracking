@@ -12,8 +12,8 @@
 #include <linux/xlink_drv_inf.h>
 #include "pci.h"
 
-int xlink_pcie_get_device_list(uint32_t *sw_device_id_list,
-			       uint32_t *num_devices)
+int xlink_pcie_get_device_list(u32 *sw_device_id_list,
+			       u32 *num_devices)
 {
 	*num_devices = intel_xpcie_get_device_num(sw_device_id_list);
 
@@ -21,7 +21,7 @@ int xlink_pcie_get_device_list(uint32_t *sw_device_id_list,
 }
 EXPORT_SYMBOL(xlink_pcie_get_device_list);
 
-int xlink_pcie_get_device_name(uint32_t sw_device_id, char *device_name,
+int xlink_pcie_get_device_name(u32 sw_device_id, char *device_name,
 			       size_t name_size)
 {
 	return intel_xpcie_get_device_name_by_id(sw_device_id,
@@ -29,7 +29,7 @@ int xlink_pcie_get_device_name(uint32_t sw_device_id, char *device_name,
 }
 EXPORT_SYMBOL(xlink_pcie_get_device_name);
 
-int xlink_pcie_get_device_status(uint32_t sw_device_id, uint32_t *device_status)
+int xlink_pcie_get_device_status(u32 sw_device_id, u32 *device_status)
 {
 	int rc;
 	u32 status;
@@ -61,33 +61,33 @@ int xlink_pcie_get_device_status(uint32_t sw_device_id, uint32_t *device_status)
 }
 EXPORT_SYMBOL(xlink_pcie_get_device_status);
 
-int xlink_pcie_boot_device(uint32_t sw_device_id, const char *binary_name)
+int xlink_pcie_boot_device(u32 sw_device_id, const char *binary_name)
 {
 	return intel_xpcie_pci_boot_device(sw_device_id, binary_name);
 }
 EXPORT_SYMBOL(xlink_pcie_boot_device);
 
-int xlink_pcie_connect(uint32_t sw_device_id)
+int xlink_pcie_connect(u32 sw_device_id)
 {
 	return intel_xpcie_pci_connect_device(sw_device_id);
 }
 EXPORT_SYMBOL(xlink_pcie_connect);
 
-int xlink_pcie_read(uint32_t sw_device_id, void *data, size_t *const size,
-		    uint32_t timeout)
+int xlink_pcie_read(u32 sw_device_id, void *data, size_t *const size,
+		    u32 timeout)
 {
 	return intel_xpcie_pci_read(sw_device_id, data, size, timeout);
 }
 EXPORT_SYMBOL(xlink_pcie_read);
 
-int xlink_pcie_write(uint32_t sw_device_id, void *data, size_t *const size,
-		     uint32_t timeout)
+int xlink_pcie_write(u32 sw_device_id, void *data, size_t *const size,
+		     u32 timeout)
 {
 	return intel_xpcie_pci_write(sw_device_id, data, size, timeout);
 }
 EXPORT_SYMBOL(xlink_pcie_write);
 
-int xlink_pcie_reset_device(uint32_t sw_device_id)
+int xlink_pcie_reset_device(u32 sw_device_id)
 {
 	return intel_xpcie_pci_reset_device(sw_device_id);
 }

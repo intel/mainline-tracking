@@ -75,4 +75,4 @@ static inline struct device *xpcie_to_dev(struct xpcie *xpcie)
 	return &xpcie_epf->epf->dev;
 }
 
-#endif // XPCIE_STRUCT_HEADER_
+#endif /* XPCIE_STRUCT_HEADER_ */

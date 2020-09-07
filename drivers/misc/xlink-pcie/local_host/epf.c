@@ -124,7 +124,8 @@ int intel_xpcie_raise_irq(struct xpcie *xpcie, enum xpcie_doorbell_type type)
 }
 
 static void __iomem *intel_xpcie_epc_alloc_addr(struct pci_epc *epc,
-					 phys_addr_t *phys_addr, size_t size)
+						phys_addr_t *phys_addr,
+						size_t size)
 {
 	void __iomem *virt_addr;
 	unsigned long flags;
@@ -184,7 +185,8 @@ static int intel_xpcie_check_bar(struct pci_epf *epf,
 }
 
 static int intel_xpcie_configure_bar(struct pci_epf *epf,
-			      const struct pci_epc_features *epc_features)
+				     const struct pci_epc_features
+					*epc_features)
 {
 	struct pci_epf_bar *epf_bar;
 	bool bar_fixed_64bit;
@@ -201,16 +203,16 @@ static int intel_xpcie_configure_bar(struct pci_epf *epf,
 
 		if (i == BAR_2) {
 			ret = intel_xpcie_check_bar(epf, epf_bar, BAR_2,
-					     BAR2_MIN_SIZE,
-					     epc_features->reserved_bar);
+						    BAR2_MIN_SIZE,
+						    epc_features->reserved_bar);
 			if (ret)
 				return ret;
 		}
 
 		if (i == BAR_4) {
 			ret = intel_xpcie_check_bar(epf, epf_bar, BAR_4,
-					     BAR4_MIN_SIZE,
-					     epc_features->reserved_bar);
+						    BAR4_MIN_SIZE,
+						    epc_features->reserved_bar);
 			if (ret)
 				return ret;
 		}
@@ -244,7 +246,7 @@ static void intel_xpcie_cleanup_bars(struct pci_epf *epf)
 }
 
 static int intel_xpcie_setup_bar(struct pci_epf *epf, enum pci_barno barno,
-			  size_t min_size, size_t align)
+				 size_t min_size, size_t align)
 {
 	int ret;
 	void *vaddr = NULL;
@@ -458,9 +460,7 @@ static void intel_xpcie_epf_shutdown(struct device *dev)
 	struct pci_epf *epf = to_pci_epf(dev);
 	struct xpcie_epf *xpcie_epf = epf_get_drvdata(epf);
 
-	/*
-	 * Notify host in case PCIe hot plug not supported
-	 */
+	/* Notify host in case PCIe hot plug not supported */
 	if (xpcie_epf && xpcie_epf->xpcie.status == XPCIE_STATUS_RUN) {
 		intel_xpcie_set_doorbell(&xpcie_epf->xpcie, FROM_DEVICE,
 					 DEV_EVENT, DEV_SHUTDOWN);

@@ -15,7 +15,7 @@
 #include "../common/util.h"
 #include "../common/capabilities.h"
 
-#define XPCIE_CIRCULAR_INC(val, max) (((val) + 1) & (max - 1))
+#define XPCIE_CIRCULAR_INC(val, max) (((val) + 1) & ((max) - 1))
 
 static int rx_pool_size = SZ_32M;
 module_param(rx_pool_size, int, 0664);
@@ -42,7 +42,7 @@ static int intel_xpcie_version_check(struct xpcie *xpcie)
 }
 
 static int intel_xpcie_map_dma(struct xpcie *xpcie, struct xpcie_buf_desc *bd,
-			int direction)
+			       int direction)
 {
 	struct xpcie_dev *xdev = container_of(xpcie, struct xpcie_dev, xpcie);
 	struct device *dev = &xdev->pci->dev;
@@ -72,9 +72,9 @@ static void intel_xpcie_txrx_cleanup(struct xpcie *xpcie)
 
 	xpcie->stop_flag = true;
 	xpcie->no_tx_buffer = false;
-	inf->data_available = true;
-	wake_up_interruptible(&xpcie->tx_waitqueue);
-	wake_up_interruptible(&inf->rx_waitqueue);
+	inf->data_avail = true;
+	wake_up_interruptible(&xpcie->tx_waitq);
+	wake_up_interruptible(&inf->rx_waitq);
 	mutex_lock(&xpcie->wlock);
 	mutex_lock(&inf->rlock);
 
@@ -284,7 +284,7 @@ static void intel_xpcie_rx_event_handler(struct work_struct *work)
 		if (unlikely(status != XPCIE_DESC_STATUS_SUCCESS) ||
 		    unlikely(interface >= XPCIE_NUM_INTERFACES)) {
 			dev_err(xpcie_to_dev(xpcie),
-			"detected rx desc failure, status(%u), interface(%u)\n",
+				"rx desc failure, status(%u), interface(%u)\n",
 			status, interface);
 			intel_xpcie_free_rx_bd(xpcie, bd);
 		} else {
@@ -338,7 +338,7 @@ static void intel_xpcie_tx_event_handler(struct work_struct *work)
 	tail = intel_xpcie_get_tdr_tail(&tx->pipe);
 	head = intel_xpcie_get_tdr_head(&tx->pipe);
 
-	// clean old entries first
+	/* clean old entries first */
 	while (old != head) {
 		bd = tx->ddr[old];
 		td = tx->pipe.tdr + old;
@@ -418,14 +418,14 @@ static irqreturn_t intel_xpcie_interrupt(int irq, void *args)
 static int intel_xpcie_events_init(struct xpcie *xpcie)
 {
 	xpcie->rx_wq = alloc_ordered_workqueue(XPCIE_DRIVER_NAME,
-					      WQ_MEM_RECLAIM | WQ_HIGHPRI);
+					       WQ_MEM_RECLAIM | WQ_HIGHPRI);
 	if (!xpcie->rx_wq) {
 		dev_err(xpcie_to_dev(xpcie), "failed to allocate workqueue\n");
 		return -ENOMEM;
 	}
 
 	xpcie->tx_wq = alloc_ordered_workqueue(XPCIE_DRIVER_NAME,
-					      WQ_MEM_RECLAIM | WQ_HIGHPRI);
+					       WQ_MEM_RECLAIM | WQ_HIGHPRI);
 	if (!xpcie->tx_wq) {
 		dev_err(xpcie_to_dev(xpcie), "failed to allocate workqueue\n");
 		destroy_workqueue(xpcie->rx_wq);
@@ -499,7 +499,7 @@ void intel_xpcie_core_cleanup(struct xpcie *xpcie)
 }
 
 int intel_xpcie_core_read(struct xpcie *xpcie, void *buffer, size_t *length,
-		   uint32_t timeout_ms)
+			  uint32_t timeout_ms)
 {
 	int ret = 0;
 	struct xpcie_interface *inf = &xpcie->interfaces[0];
@@ -524,15 +524,17 @@ int intel_xpcie_core_read(struct xpcie *xpcie, void *buffer, size_t *length,
 		return -EINTR;
 
 	do {
-		while (!inf->data_available) {
+		while (!inf->data_avail) {
 			mutex_unlock(&inf->rlock);
 			if (timeout_ms == 0) {
-				ret = wait_event_interruptible(
-					inf->rx_waitqueue, inf->data_available);
+				ret = wait_event_interruptible(inf->rx_waitq,
+							       inf->data_avail);
 			} else {
-				ret = wait_event_interruptible_timeout(
-					inf->rx_waitqueue, inf->data_available,
-					jiffies_timeout - jiffies_passed);
+				ret =
+			wait_event_interruptible_timeout(inf->rx_waitq,
+							 inf->data_avail,
+							 jiffies_timeout -
+							 jiffies_passed);
 				if (ret == 0)
 					return -ETIME;
 			}
@@ -557,7 +559,9 @@ int intel_xpcie_core_read(struct xpcie *xpcie, void *buffer, size_t *length,
 			bd->data += bcopy;
 			bd->length -= bcopy;
 
-			intel_xpcie_debug_incr(xpcie, &xpcie->stats.rx_usr.bytes, bcopy);
+			intel_xpcie_debug_incr(xpcie,
+					       &xpcie->stats.rx_usr.bytes,
+					       bcopy);
 
 			if (bd->length == 0) {
 				intel_xpcie_free_rx_bd(xpcie, bd);
@@ -565,11 +569,11 @@ int intel_xpcie_core_read(struct xpcie *xpcie, void *buffer, size_t *length,
 			}
 		}
 
-		// save for next time
+		/* save for next time */
 		inf->partial_read = bd;
 
 		if (!bd)
-			inf->data_available = false;
+			inf->data_avail = false;
 
 		*length = len - remaining;
 
@@ -583,7 +587,7 @@ int intel_xpcie_core_read(struct xpcie *xpcie, void *buffer, size_t *length,
 }
 
 int intel_xpcie_core_write(struct xpcie *xpcie, void *buffer, size_t *length,
-		    uint32_t timeout_ms)
+			   uint32_t timeout_ms)
 {
 	int ret;
 	size_t len = *length;
@@ -608,17 +612,20 @@ int intel_xpcie_core_write(struct xpcie *xpcie, void *buffer, size_t *length,
 		return -EINTR;
 
 	do {
-		bd = head = intel_xpcie_alloc_tx_bd(xpcie);
+		bd = intel_xpcie_alloc_tx_bd(xpcie);
+		head = bd;
 		while (!head) {
 			mutex_unlock(&xpcie->wlock);
 			if (timeout_ms == 0) {
-				ret = wait_event_interruptible(
-					xpcie->tx_waitqueue,
-					!xpcie->no_tx_buffer);
+				ret =
+				wait_event_interruptible(xpcie->tx_waitq,
+							 !xpcie->no_tx_buffer);
 			} else {
-				ret = wait_event_interruptible_timeout(
-					xpcie->tx_waitqueue, !xpcie->no_tx_buffer,
-					jiffies_timeout - jiffies_passed);
+				ret =
+			wait_event_interruptible_timeout(xpcie->tx_waitq,
+							 !xpcie->no_tx_buffer,
+							 jiffies_timeout -
+							 jiffies_passed);
 				if (ret == 0)
 					return -ETIME;
 			}
@@ -629,7 +636,8 @@ int intel_xpcie_core_write(struct xpcie *xpcie, void *buffer, size_t *length,
 			if (ret < 0)
 				return -EINTR;
 
-			bd = head = intel_xpcie_alloc_tx_bd(xpcie);
+			bd = intel_xpcie_alloc_tx_bd(xpcie);
+			head = bd;
 		}
 
 		while (remaining && bd) {
@@ -643,7 +651,9 @@ int intel_xpcie_core_write(struct xpcie *xpcie, void *buffer, size_t *length,
 			bd->length = bcopy;
 			bd->interface = inf->id;
 
-			intel_xpcie_debug_incr(xpcie, &xpcie->stats.tx_usr.bytes, bcopy);
+			intel_xpcie_debug_incr(xpcie,
+					       &xpcie->stats.tx_usr.bytes,
+					       bcopy);
 
 			if (remaining) {
 				bd->next = intel_xpcie_alloc_tx_bd(xpcie);

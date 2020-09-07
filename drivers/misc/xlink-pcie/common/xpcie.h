@@ -63,6 +63,7 @@ struct xpcie_stream {
 };
 
 struct xpcie_list {
+	/* list lock */
 	spinlock_t lock;
 	size_t bytes;
 	size_t buffers;
@@ -73,11 +74,11 @@ struct xpcie_list {
 struct xpcie_interface {
 	int id;
 	struct xpcie *xpcie;
-	struct mutex rlock;
+	struct mutex rlock; /* Read lock */
 	struct xpcie_list read;
 	struct xpcie_buf_desc *partial_read;
-	bool data_available;
-	wait_queue_head_t rx_waitqueue;
+	bool data_avail;
+	wait_queue_head_t rx_waitq;
 };
 
 struct xpcie_debug_stats {
@@ -116,10 +117,11 @@ struct xpcie {
 	struct xpcie_stream tx;
 	struct xpcie_stream rx;
 
+	/* Write Lock */
 	struct mutex wlock;
 	struct xpcie_list write;
 	bool no_tx_buffer;
-	wait_queue_head_t tx_waitqueue;
+	wait_queue_head_t tx_waitq;
 	bool tx_pending;
 	bool stop_flag;
 
@@ -134,4 +136,4 @@ struct xpcie {
 	struct xpcie_debug_stats stats;
 };
 
-#endif
+#endif /* XPCIE_HEADER_ */

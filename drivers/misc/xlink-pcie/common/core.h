@@ -30,7 +30,7 @@ void intel_xpcie_core_cleanup(struct xpcie *xpcie);
  *              -EINTR - interrupted
  */
 int intel_xpcie_core_read(struct xpcie *xpcie, void *buffer, size_t *length,
-		   uint32_t timeout_ms);
+			  u32 timeout_ms);
 
 /*
  * @brief Writes buffer to xpcie. Function will block when no buffer.
@@ -47,10 +47,10 @@ int intel_xpcie_core_read(struct xpcie *xpcie, void *buffer, size_t *length,
  *              -EINTR - interrupted
  */
 int intel_xpcie_core_write(struct xpcie *xpcie, void *buffer, size_t *length,
-		    uint32_t timeout_ms);
+			   u32 timeout_ms);
 
 #ifdef XLINK_PCIE_LOCAL
-struct xpcie *intel_xpcie_core_get_by_id(uint32_t sw_device_id);
+struct xpcie *intel_xpcie_core_get_by_id(u32 sw_device_id);
 #endif
 
-#endif
+#endif /* XPCIE_CORE_HEADER_ */

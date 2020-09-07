@@ -43,7 +43,7 @@ void intel_xpcie_set_host_status(struct xpcie *xpcie, u32 status);
 
 struct xpcie_buf_desc *intel_xpcie_alloc_bd(size_t length);
 struct xpcie_buf_desc *intel_xpcie_alloc_bd_reuse(size_t length, void *virt,
-					  dma_addr_t phys);
+						  dma_addr_t phys);
 void intel_xpcie_free_bd(struct xpcie_buf_desc *bd);
 
 int intel_xpcie_list_init(struct xpcie_list *list);
@@ -71,4 +71,4 @@ void intel_xpcie_init_debug(struct xpcie *xpcie, struct device *dev);
 void intel_xpcie_uninit_debug(struct xpcie *xpcie, struct device *dev);
 void intel_xpcie_debug_incr(struct xpcie *xpcie, size_t *attr, size_t v);
 
-#endif // XPCIE_UTIL_HEADER_
+#endif /* XPCIE_UTIL_HEADER_ */

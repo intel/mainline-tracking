@@ -22,30 +22,30 @@ void *intel_xpcie_cap_find(struct xpcie *xpcie, u32 start, u16 id)
 	struct xpcie_cap_hdr *hdr;
 	struct xpcie_cap_hdr cur_hdr;
 
-	// If user didn't specify start, assume start of mmio
+	/* If user didn't specify start, assume start of mmio */
 	if (!start)
 		start = intel_xpcie_ioread32(&xpcie->mmio->cap_offset);
 
-	// Read header info
+	/* Read header info */
 #ifdef XLINK_PCIE_REMOTE
 	hdr = (struct xpcie_cap_hdr *)((void __iomem *)xpcie->mmio + start);
 #else
 	hdr = (struct xpcie_cap_hdr *)((void *)xpcie->mmio + start);
 #endif
-	// Check if we still have time to live
+	/* Check if we still have time to live */
 	while (ttl--) {
 #ifdef XLINK_PCIE_REMOTE
 		memcpy_fromio(&cur_hdr, hdr, sizeof(struct xpcie_cap_hdr));
 #else
 		cur_hdr = *hdr;
 #endif
-		// If cap matches, return header
+		/* If cap matches, return header */
 		if (cur_hdr.id == id)
 			return hdr;
-		// If cap is NULL, we are at the end of the list
+		/* If cap is NULL, we are at the end of the list */
 		else if (cur_hdr.id == XPCIE_CAP_NULL)
 			return NULL;
-		// If no match and no end of list, traverse the linked list
+		/* If no match and no end of list, traverse the linked list */
 		else
 #ifdef XLINK_PCIE_REMOTE
 			hdr = (struct xpcie_cap_hdr *)
@@ -56,7 +56,7 @@ void *intel_xpcie_cap_find(struct xpcie *xpcie, u32 start, u16 id)
 #endif
 	}
 
-	// If we reached here, the capability list is corrupted
+	/* If we reached here, the capability list is corrupted */
 	return NULL;
 }
 
@@ -131,4 +131,4 @@ u32 intel_xpcie_get_tdr_tail(struct xpcie_pipe *p)
 {
 	return intel_xpcie_ioread32(p->tail);
 }
-#endif // XPCIE_CAPABILITIES_HEADER_
+#endif /* XPCIE_CAPABILITIES_HEADER_ */
