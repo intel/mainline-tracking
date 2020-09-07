@@ -19,6 +19,7 @@
 #include <linux/kernel.h>
 #include <linux/module.h>
 #include <linux/of.h>
+#include <linux/of_dma.h>
 #include <linux/platform_device.h>
 #include <linux/pm_runtime.h>
 #include <linux/property.h>
@@ -1099,6 +1100,24 @@ static int __maybe_unused axi_dma_runtime_resume(struct device *dev)
 	return axi_dma_resume(chip);
 }
 
+static struct dma_chan *dw_axi_dma_of_xlate(struct of_phandle_args *dma_spec,
+					    struct of_dma *ofdma)
+{
+	struct dw_axi_dma *dw = ofdma->of_dma_data;
+	struct axi_dma_chan *chan;
+	struct dma_chan *dchan;
+
+	dchan = dma_get_any_slave_channel(&dw->dma);
+	if (!dchan) {
+		pr_err("dw axi dma_get_any_slave_channel FAILED!!\n");
+		return NULL;
+	}
+
+	chan = dchan_to_axi_dma_chan(dchan);
+	chan->hw_hs_num = dma_spec->args[0];
+	return dchan;
+}
+
 static int parse_device_properties(struct axi_dma_chip *chip)
 {
 	struct device *dev = chip->dev;
@@ -1288,6 +1307,16 @@ static int dw_probe(struct platform_device *pdev)
 	if (ret)
 		goto err_pm_disable;
 
+	/* Register with OF helpers for DMA lookups */
+	if (chip->dev->of_node) {
+		ret = of_dma_controller_register(pdev->dev.of_node,
+						 dw_axi_dma_of_xlate, dw);
+		if (ret < 0) {
+			dev_err(&pdev->dev,
+				"OF_DMA registration failed %d\n", ret);
+		}
+	}
+
 	dev_info(chip->dev, "DesignWare AXI DMA Controller, %d channels\n",
 		 dw->hdata->nr_channels);
 
@@ -1320,6 +1349,10 @@ static int dw_remove(struct platform_device *pdev)
 	axi_dma_suspend(chip);
 
 	devm_free_irq(chip->dev, chip->irq, chip);
+
+	if (chip->dev->of_node) {
+		of_dma_controller_free(chip->dev->of_node);
+	}
 
 	list_for_each_entry_safe(chan, _chan, &dw->dma.channels,
 			vc.chan.device_node) {
