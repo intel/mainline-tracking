@@ -28,6 +28,25 @@ static int cet_copy_status_to_user(struct cet_status *cet, u64 __user *ubuf)
 	return copy_to_user(ubuf, buf, sizeof(buf));
 }
 
+static int handle_alloc_shstk(u64 arg2)
+{
+	unsigned long addr, size;
+
+	if (get_user(size, (unsigned long __user *)arg2))
+		return -EFAULT;
+
+	addr = cet_alloc_shstk(size, 0);
+	if (IS_ERR_VALUE(addr))
+		return PTR_ERR((void *)addr);
+
+	if (put_user((u64)addr, (u64 __user *)arg2)) {
+		vm_munmap(addr, size);
+		return -EFAULT;
+	}
+
+	return 0;
+}
+
 int prctl_cet(int option, u64 arg2)
 {
 	struct cet_status *cet;
@@ -58,6 +77,9 @@ int prctl_cet(int option, u64 arg2)
 			return -EINVAL;
 		cet->locked = 1;
 		return 0;
+
+	case ARCH_X86_CET_ALLOC_SHSTK:
+		return handle_alloc_shstk(arg2);
 
 	default:
 		return -ENOSYS;
