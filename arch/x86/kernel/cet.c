@@ -150,6 +150,32 @@ static int create_rstor_token(bool ia32, unsigned long ssp,
 	return 0;
 }
 
+unsigned long cet_alloc_shstk(unsigned long len, int flags)
+{
+	unsigned long token;
+	unsigned long addr, ssp;
+
+	addr = alloc_shstk(round_up(len, PAGE_SIZE), flags);
+
+	if (IS_ERR_VALUE(addr))
+		return addr;
+
+	/* Restore token is 8 bytes and aligned to 8 bytes */
+	ssp = addr + len;
+	token = ssp;
+
+	if (!in_ia32_syscall())
+		token |= TOKEN_MODE_64;
+	ssp -= 8;
+
+	if (write_user_shstk_64(ssp, token)) {
+		vm_munmap(addr, len);
+		return -EINVAL;
+	}
+
+	return addr;
+}
+
 int cet_setup_shstk(void)
 {
 	unsigned long addr, size;
