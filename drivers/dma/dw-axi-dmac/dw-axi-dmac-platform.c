@@ -12,6 +12,7 @@
 #include <linux/device.h>
 #include <linux/dmaengine.h>
 #include <linux/dmapool.h>
+#include <linux/dma-mapping.h>
 #include <linux/err.h>
 #include <linux/interrupt.h>
 #include <linux/io.h>
@@ -1356,6 +1357,16 @@ static int dw_probe(struct platform_device *pdev)
 	ret = parse_device_properties(chip);
 	if (ret)
 		return ret;
+
+	/* SNPS datasheet mentioned Max supported block is 1024.
+	 * register width is 4 bytes.
+	 * Therefore, set constraint to 1024 * 4 = PAGE_SIZE.
+	 */
+	if (chip->apb_regs) {
+		dw->dma.dev = &pdev->dev;
+		dw->dma.dev->dma_parms = &dw->dma_parms;
+		dma_set_max_seg_size(&pdev->dev, PAGE_SIZE);
+	}
 
 	dw->chan = devm_kcalloc(chip->dev, hdata->nr_channels,
 				sizeof(*dw->chan), GFP_KERNEL);
