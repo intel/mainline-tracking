@@ -47,8 +47,6 @@
 #define DMA_ABORT_INTERRUPT_CH_MASK(_c) (BIT(_c) << DMA_ABORT_INTERRUPT_SHIFT)
 #define DMA_DONE_INTERRUPT_MASK (0xFF)
 #define DMA_DONE_INTERRUPT_CH_MASK(_c) (BIT(_c))
-#define DMA_DONE_ABORT_INTERRUPT_CH_MASK(_c)				\
-	(DMA_DONE_INTERRUPT_CH_MASK(_c) | DMA_ABORT_INTERRUPT_CH_MASK(_c))
 #define DMA_ALL_INTERRUPT_MASK                                            \
 	(DMA_ABORT_INTERRUPT_MASK | DMA_DONE_INTERRUPT_MASK)
 
@@ -364,7 +362,8 @@ int intel_xpcie_ep_dma_write_ll(struct pci_epf *epf, int chan, int descs_num)
 	for (i = 0; i < 1000000; i++) {
 		usleep_range(5, 10);
 		if (ioread32(&dma_reg->dma_write_int_status) &
-		    DMA_DONE_ABORT_INTERRUPT_CH_MASK(chan))
+		    (DMA_DONE_INTERRUPT_CH_MASK(chan) |
+		     DMA_ABORT_INTERRUPT_CH_MASK(chan)))
 			break;
 	}
 	if (i == 1000000) {
@@ -377,7 +376,8 @@ int intel_xpcie_ep_dma_write_ll(struct pci_epf *epf, int chan, int descs_num)
 
 cleanup:
 	/* Clear the done/abort interrupt. */
-	iowrite32(DMA_DONE_ABORT_INTERRUPT_CH_MASK(chan),
+	iowrite32((DMA_DONE_INTERRUPT_CH_MASK(chan) |
+		   DMA_ABORT_INTERRUPT_CH_MASK(chan)),
 		  &dma_reg->dma_write_int_clear);
 
 	if (rc) {
@@ -420,7 +420,8 @@ int intel_xpcie_ep_dma_read_ll(struct pci_epf *epf, int chan, int descs_num)
 	for (i = 0; i < 1000000; i++) {
 		usleep_range(5, 10);
 		if (ioread32(&dma_reg->dma_read_int_status) &
-		    DMA_DONE_ABORT_INTERRUPT_CH_MASK(chan))
+		    (DMA_DONE_INTERRUPT_CH_MASK(chan) |
+		     DMA_ABORT_INTERRUPT_CH_MASK(chan)))
 			break;
 	}
 	if (i == 1000000) {
@@ -437,7 +438,8 @@ int intel_xpcie_ep_dma_read_ll(struct pci_epf *epf, int chan, int descs_num)
 	}
 cleanup:
 	/* Clear the done/abort interrupt. */
-	iowrite32(DMA_DONE_ABORT_INTERRUPT_CH_MASK(chan),
+	iowrite32((DMA_DONE_INTERRUPT_CH_MASK(chan) |
+		   DMA_ABORT_INTERRUPT_CH_MASK(chan)),
 		  &dma_reg->dma_read_int_clear);
 
 	if (rc) {
@@ -558,4 +560,3 @@ int intel_xpcie_ep_dma_init(struct pci_epf *epf)
 
 	return intel_xpcie_ep_dma_reset(epf);
 }
-

@@ -174,8 +174,6 @@ bar_error:
 	return -EIO;
 }
 
-#define STR_EQUAL(a, b) !strncmp(a, b, strlen(b))
-
 static enum xpcie_stage intel_xpcie_check_magic(struct xpcie_dev *xdev)
 {
 	char magic[XPCIE_BOOT_MAGIC_STRLEN];
@@ -186,22 +184,28 @@ static enum xpcie_stage intel_xpcie_check_magic(struct xpcie_dev *xdev)
 	if (strlen(magic) == 0)
 		return STAGE_UNINIT;
 
-	if (STR_EQUAL(magic, XPCIE_BOOT_MAGIC_ROM))
+	if (!strncmp(magic, XPCIE_BOOT_MAGIC_ROM,
+		     strlen(XPCIE_BOOT_MAGIC_ROM)))
 		return STAGE_ROM;
 
-	if (STR_EQUAL(magic, XPCIE_BOOT_MAGIC_EMMC))
+	if (!strncmp(magic, XPCIE_BOOT_MAGIC_EMMC,
+		     strlen(XPCIE_BOOT_MAGIC_EMMC)))
 		return STAGE_ROM;
 
-	if (STR_EQUAL(magic, XPCIE_BOOT_MAGIC_BL2))
+	if (!strncmp(magic, XPCIE_BOOT_MAGIC_BL2,
+		     strlen(XPCIE_BOOT_MAGIC_BL2)))
 		return STAGE_BL2;
 
-	if (STR_EQUAL(magic, XPCIE_BOOT_MAGIC_UBOOT))
+	if (!strncmp(magic, XPCIE_BOOT_MAGIC_UBOOT,
+		     strlen(XPCIE_BOOT_MAGIC_UBOOT)))
 		return STAGE_UBOOT;
 
-	if (STR_EQUAL(magic, XPCIE_BOOT_MAGIC_RECOV))
+	if (!strncmp(magic, XPCIE_BOOT_MAGIC_RECOV,
+		     strlen(XPCIE_BOOT_MAGIC_RECOV)))
 		return STAGE_RECOV;
 
-	if (STR_EQUAL(magic, XPCIE_BOOT_MAGIC_YOCTO))
+	if (!strncmp(magic, XPCIE_BOOT_MAGIC_YOCTO,
+		     strlen(XPCIE_BOOT_MAGIC_YOCTO)))
 		return STAGE_OS;
 
 	return STAGE_UNINIT;
@@ -239,25 +243,35 @@ static irqreturn_t intel_xpcie_interrupt(int irq, void *args)
 
 static void intel_xpcie_pci_irq_cleanup(struct xpcie_dev *xdev)
 {
-	if (!pci_msi_enabled())
+	int irq = pci_irq_vector(xdev->pci, 0);
+
+	if (irq < 0)
 		return;
 
-	synchronize_irq(xdev->pci->irq);
-	free_irq(xdev->pci->irq, xdev);
-	pci_disable_msi(xdev->pci);
+	synchronize_irq(irq);
+	free_irq(irq, xdev);
+	pci_free_irq_vectors(xdev->pci);
 }
 
 static int intel_xpcie_pci_irq_init(struct xpcie_dev *xdev)
 {
+	int irq;
 	int rc;
 
-	rc = pci_enable_msi(xdev->pci);
-	if (rc < 1) {
-		dev_err(&xdev->pci->dev, "failed to allocate MSI vectors\n");
+	rc = pci_alloc_irq_vectors(xdev->pci, 1, 1, PCI_IRQ_MSI);
+	if (rc < 0) {
+		dev_err(&xdev->pci->dev,
+			"failed to allocate %d MSI vectors\n", 1);
 		return rc;
 	}
 
-	rc = request_irq(xdev->pci->irq, &intel_xpcie_interrupt, 0,
+	irq = pci_irq_vector(xdev->pci, 0);
+	if (irq < 0) {
+		dev_err(&xdev->pci->dev, "failed to get irq\n");
+		rc = irq;
+		goto error_irq;
+	}
+	rc = request_irq(irq, &intel_xpcie_interrupt, 0,
 			 XPCIE_DRIVER_NAME, xdev);
 	if (rc) {
 		dev_err(&xdev->pci->dev, "failed to request irqs\n");
@@ -267,7 +281,7 @@ static int intel_xpcie_pci_irq_init(struct xpcie_dev *xdev)
 	return 0;
 
 error_irq:
-	pci_disable_msi(xdev->pci);
+	pci_free_irq_vectors(xdev->pci);
 	return rc;
 }
 
