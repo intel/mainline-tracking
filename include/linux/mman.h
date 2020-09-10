@@ -103,6 +103,14 @@ static inline bool arch_validate_prot(unsigned long prot, unsigned long addr)
 #define arch_validate_prot arch_validate_prot
 #endif
 
+#ifndef arch_vma_supports_prot
+/*
+ * Allow architectures to check if the existing vma can support the new
+ * protection from mprotect().
+ */
+#define arch_vma_supports_prot(vma, prot) true
+#endif
+
 /*
  * Optimisation macro.  It is equivalent to:
  *      (x & bit1) ? bit2 : 0

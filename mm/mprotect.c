@@ -551,7 +551,7 @@ static int do_mprotect_pkey(unsigned long start, size_t len,
 
 	vma = find_vma(current->mm, start);
 	error = -ENOMEM;
-	if (!vma)
+	if (!vma || !arch_vma_supports_prot(vma, prot))
 		goto out;
 	prev = vma->vm_prev;
 	if (unlikely(grows & PROT_GROWSDOWN)) {
