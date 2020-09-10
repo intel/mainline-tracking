@@ -18,4 +18,3 @@ config XLINK_PCIE_LH_DRIVER
 	  Choose M here to compile this driver as a module, name is mxlk_ep.
 	  This driver is used for XLink communication over PCIe and is to be
 	  loaded on the Intel Keem Bay platform.
-
