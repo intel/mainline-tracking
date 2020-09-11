@@ -316,9 +316,10 @@ static void intel_xpcie_ep_dma_setup_ll_descs(struct pcie_dma_chan *dma_chan,
 	struct xpcie_dma_ll_desc *descs = desc_buf->virt;
 
 	/* Setup linked list descriptors */
-	for (i = 0; i < descs_num; i++)
+	for (i = 0; i < descs_num - 1; i++)
 		descs[i].dma_ch_control1 = DMA_CH_CONTROL1_CB_MASK;
-	descs[descs_num - 1].dma_ch_control1 |= DMA_CH_CONTROL1_LIE_MASK;
+	descs[descs_num - 1].dma_ch_control1 = DMA_CH_CONTROL1_LIE_MASK |
+						DMA_CH_CONTROL1_CB_MASK;
 	descs[descs_num].dma_ch_control1 = DMA_CH_CONTROL1_LLP_MASK |
 					   DMA_CH_CONTROL1_TCB_MASK;
 	descs[descs_num].src_addr = (phys_addr_t)desc_buf->phys;
