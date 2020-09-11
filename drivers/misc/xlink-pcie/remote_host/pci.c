@@ -575,8 +575,8 @@ int intel_xpcie_pci_cleanup(struct xpcie_dev *xdev)
 	intel_xpcie_pci_cleanup_recovery_sysfs(xdev);
 	intel_xpcie_uninit_debug(&xdev->xpcie, &xdev->pci->dev);
 
-	cancel_delayed_work_sync(&xdev->wait_event);
-	cancel_delayed_work_sync(&xdev->shutdown_event);
+	cancel_delayed_work(&xdev->wait_event);
+	cancel_delayed_work(&xdev->shutdown_event);
 	xdev->core_irq_callback = NULL;
 	intel_xpcie_pci_irq_cleanup(xdev);
 
