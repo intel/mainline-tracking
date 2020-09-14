@@ -14,7 +14,6 @@
 #include <linux/interrupt.h>
 #include <linux/xlink_drv_inf.h>
 #include "../common/xpcie.h"
-#include "../common/boot.h"
 #include "../common/util.h"
 
 #define XPCIE_MAX_NAME_LEN (32)
@@ -34,8 +33,6 @@ struct xpcie_dev {
 	bool irq_enabled;
 	irq_handler_t core_irq_callback;
 
-	char partition_name[XPCIE_BOOT_DEST_STRLEN];
-	unsigned long partition_offset;
 	void *dma_buf;
 	size_t dma_buf_offset;
 
@@ -67,13 +64,8 @@ struct xpcie_dev *intel_xpcie_get_device_by_id(u32 id);
 int intel_xpcie_get_device_name_by_id(u32 id, char *device_name,
 				      size_t name_size);
 int intel_xpcie_get_device_status_by_id(u32 id, u32 *status);
-
-int intel_xpcie_pci_boot_device(u32 id, const char *binary_name);
 int intel_xpcie_pci_connect_device(u32 id);
 int intel_xpcie_pci_read(u32 id, void *data, size_t *size, u32 timeout);
 int intel_xpcie_pci_write(u32 id, void *data, size_t *size, u32 timeout);
 int intel_xpcie_pci_reset_device(u32 id);
-
-u64 intel_xpcie_pci_hw_dev_id(struct xpcie_dev *xdev);
-
 #endif /* XPCIE_PCI_HEADER_ */

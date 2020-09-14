@@ -63,7 +63,7 @@ EXPORT_SYMBOL(xlink_pcie_get_device_status);
 
 int xlink_pcie_boot_device(u32 sw_device_id, const char *binary_name)
 {
-	return intel_xpcie_pci_boot_device(sw_device_id, binary_name);
+	return 0;
 }
 EXPORT_SYMBOL(xlink_pcie_boot_device);
 
