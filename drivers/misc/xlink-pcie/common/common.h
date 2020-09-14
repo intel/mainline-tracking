@@ -66,6 +66,9 @@ struct xpcie_version {
 #define XPCIE_STATUS_OFF (6)
 #define XPCIE_STATUS_BOOT_PRE_OS (7)
 
+#define XPCIE_MAGIC_STRLEN (16)
+#define XPCIE_MAGIC_YOCTO "VPUYOCTO"
+
 /* MMIO layout and offsets shared between device and host */
 struct xpcie_mmio {
 	struct xpcie_version version;
@@ -80,6 +83,7 @@ struct xpcie_mmio {
 	u8 dtoh_event_doorbell;
 	u8 reserved;
 	u32 cap_offset;
+	u8 magic[XPCIE_MAGIC_STRLEN];
 } __packed;
 
 /* Defined capabilities located in mmio space */

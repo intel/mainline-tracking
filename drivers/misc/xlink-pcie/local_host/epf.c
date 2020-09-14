@@ -20,7 +20,6 @@
 #include "../common/xpcie.h"
 #include "../common/core.h"
 #include "../common/util.h"
-#include "../common/boot.h"
 #include "struct.h"
 #include "dma.h"
 
@@ -240,7 +239,6 @@ static void intel_xpcie_cleanup_bars(struct pci_epf *epf)
 
 	intel_xpcie_cleanup_bar(epf, BAR_2);
 	intel_xpcie_cleanup_bar(epf, BAR_4);
-	xpcie_epf->xpcie.io_comm = NULL;
 	xpcie_epf->xpcie.mmio = NULL;
 	xpcie_epf->xpcie.bar4 = NULL;
 }
@@ -298,8 +296,7 @@ static int intel_xpcie_setup_bars(struct pci_epf *epf, size_t align)
 	}
 
 	xpcie_epf->comm_bar = BAR_2;
-	xpcie_epf->xpcie.io_comm = xpcie_epf->vaddr[BAR_2];
-	xpcie_epf->xpcie.mmio = (void *)xpcie_epf->xpcie.io_comm +
+	xpcie_epf->xpcie.mmio = (void *)xpcie_epf->vaddr[BAR_2] +
 				XPCIE_MMIO_OFFSET;
 
 	xpcie_epf->bar4 = BAR_4;
@@ -403,15 +400,15 @@ static int intel_xpcie_epf_bind(struct pci_epf *epf)
 	intel_xpcie_set_device_status(&xpcie_epf->xpcie, XPCIE_STATUS_RUN);
 	intel_xpcie_set_doorbell(&xpcie_epf->xpcie, FROM_DEVICE,
 				 DEV_EVENT, NO_OP);
-	strncpy(xpcie_epf->xpcie.io_comm->magic, XPCIE_BOOT_MAGIC_YOCTO,
-		strlen(XPCIE_BOOT_MAGIC_YOCTO));
+	strncpy(xpcie_epf->xpcie.mmio->magic, XPCIE_MAGIC_YOCTO,
+		strlen(XPCIE_MAGIC_YOCTO));
 
 	return 0;
 
 bind_error:
 	intel_xpcie_set_device_status(&xpcie_epf->xpcie, XPCIE_STATUS_ERROR);
-	strncpy(xpcie_epf->xpcie.io_comm->magic, XPCIE_BOOT_MAGIC_YOCTO,
-		strlen(XPCIE_BOOT_MAGIC_YOCTO));
+	strncpy(xpcie_epf->xpcie.mmio->magic, XPCIE_MAGIC_YOCTO,
+		strlen(XPCIE_MAGIC_YOCTO));
 
 	return ret;
 }

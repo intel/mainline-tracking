@@ -25,7 +25,6 @@
 #include <linux/wait.h>
 
 #include "common.h"
-#include "boot.h"
 
 #ifdef XLINK_PCIE_REMOTE
 #define XPCIE_DRIVER_NAME "mxlk"
@@ -98,11 +97,9 @@ struct xpcie {
 
 #ifdef XLINK_PCIE_REMOTE
 	void __iomem *bar0;
-	struct xpcie_bootio __iomem *io_comm; /* IO communication space */
 	struct xpcie_mmio __iomem *mmio; /* XLink memory space */
 	void __iomem *bar4;
 #else
-	struct xpcie_bootio *io_comm; /* IO communication space */
 	struct xpcie_mmio *mmio; /* XLink memory space */
 	void *bar4;
 #endif
