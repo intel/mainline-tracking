@@ -45,6 +45,12 @@
 #include <stdbool.h>
 #include <sys/ptrace.h>
 #include <sys/user.h>
+#include <sys/mman.h>
+#include <x86intrin.h>
+
+/* Pull in ARCH_X86_CET_MMAP_SHSTK */
+#include "../../../../arch/x86/include/uapi/asm/prctl.h"
+int arch_prctl(int code, unsigned long *addr);
 
 /* Pull in AR_xyz defines. */
 typedef unsigned int u32;
@@ -766,6 +772,30 @@ int main()
 	int total_nerrs = 0;
 	unsigned short my_cs, my_ss;
 
+#if defined(__x86_64__) && defined(CAN_BUILD_CET)
+	unsigned long arg[3], ssp_64, ssp_32;
+
+	ssp_64 = _get_ssp();
+
+	if (ssp_64 != 0) {
+		/* Alloc a shadow stack within 32-bit address range */
+		arg[0] = 0x1000;
+		arg[1] = MAP_32BIT;
+		if (arch_prctl(ARCH_X86_CET_MMAP_SHSTK, arg)) {
+			printf("[FAIL]\tCannot allocate shadow stack\n");
+			return 1;
+		}
+
+		/*
+		 * The top of shadow stack is an 8-byte token, point ssp_32
+		 * to the token.
+		 */
+		ssp_32 = arg[0] + 0x1000 - 8;
+		asm volatile("rstorssp (%0)\n":: "r" (ssp_32));
+		asm volatile("saveprevssp");
+	}
+#endif
+
 	asm volatile ("mov %%cs,%0" : "=r" (my_cs));
 	asm volatile ("mov %%ss,%0" : "=r" (my_ss));
 	setup_ldt();
@@ -870,6 +900,16 @@ int main()
 
 #ifdef __x86_64__
 	total_nerrs += test_nonstrict_ss();
+
+#ifdef CAN_BUILD_CET
+	if (ssp_64 != 0) {
+		/* Point ssp_64 to the restore token */
+		ssp_64 -= 8;
+		asm volatile("rstorssp (%0)\n":: "r" (ssp_64));
+		asm volatile("saveprevssp");
+		munmap((void *)arg[0], 0x1000);
+	}
+#endif
 #endif
 
 	return total_nerrs ? 1 : 0;
