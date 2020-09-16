@@ -15,6 +15,8 @@
 #include <pcie-keembay.h>
 #include "../common/xpcie.h"
 
+#define KEEMBAY_XPCIE_STEPPING_MAXLEN 8
+
 extern bool dma_ll_mode;
 
 struct xpcie_dma_ll_desc {
@@ -54,6 +56,7 @@ struct xpcie_epf {
 	int				irq_err;
 	void __iomem			*apb_base;
 	void __iomem			*dma_base;
+	char				stepping[KEEMBAY_XPCIE_STEPPING_MAXLEN];
 
 	irq_handler_t			core_irq_callback;
 	dma_addr_t			tx_phys;
