@@ -16,7 +16,7 @@
 #include "../common/xpcie.h"
 #include "../common/util.h"
 
-#define XPCIE_MAX_NAME_LEN (32)
+#define XPCIE_MAX_NAME_LEN	(32)
 
 struct xpcie_dev {
 	struct list_head list;

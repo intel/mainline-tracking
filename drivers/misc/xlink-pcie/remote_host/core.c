@@ -15,8 +15,6 @@
 #include "../common/util.h"
 #include "../common/capabilities.h"
 
-#define XPCIE_CIRCULAR_INC(val, max) (((val) + 1) & ((max) - 1))
-
 static int rx_pool_size = SZ_32M;
 module_param(rx_pool_size, int, 0664);
 MODULE_PARM_DESC(rx_pool_size, "receive pool size (default 32 MiB)");
@@ -354,7 +352,7 @@ static void intel_xpcie_tx_event_handler(struct work_struct *work)
 	}
 	tx->pipe.old = old;
 
-	// add new entries
+	/* add new entries */
 	while (XPCIE_CIRCULAR_INC(tail, ndesc) != head) {
 		bd = intel_xpcie_list_get(&xpcie->write);
 		if (!bd)
