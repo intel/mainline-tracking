@@ -12,6 +12,9 @@
 
 #include "xpcie.h"
 
+/* max should be always power of '2' */
+#define XPCIE_CIRCULAR_INC(val, max) (((val) + 1) & ((max) - 1))
+
 int intel_xpcie_core_init(struct xpcie *xpcie);
 void intel_xpcie_core_cleanup(struct xpcie *xpcie);
 

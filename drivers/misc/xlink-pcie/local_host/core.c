@@ -19,8 +19,6 @@
 
 static struct xpcie *global_xpcie;
 
-#define XPCIE_CIRCULAR_INC(val, max) (((val) + 1) & ((max) - 1))
-
 static int rx_pool_size = SZ_32M;
 module_param(rx_pool_size, int, 0664);
 MODULE_PARM_DESC(rx_pool_size, "receiving pool size (default 32 MiB)");
