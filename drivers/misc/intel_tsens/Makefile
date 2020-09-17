@@ -1,0 +1,5 @@
+#
+# Makefile for intel tsens Thermal Linux driver
+#
+
+obj-$(CONFIG_INTEL_TSENS_LOCAL_HOST)	+= intel_tsens_thermal.o
