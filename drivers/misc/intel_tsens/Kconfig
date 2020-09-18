@@ -22,3 +22,15 @@ config INTEL_TSENS_IA_HOST
 	  This driver is used for reading thermal data via I2C SMBUS
 	  and registers itself to thermal framework, which can be
 	  used by thermal daemon in remote IA host
+
+config KEEMBAY_THERMAL
+	tristate "Temperature sensor driver for intel keembay"
+	depends on INTEL_TSENS_LOCAL_HOST && ARCH_KEEMBAY
+	help
+	  Enable this option if you want to have support for keembay
+	  thermal management sensors.
+
+	  Choose M here to compile this driver as a module, name is
+	  keembay_thermal.
+	  This driver is used for reading onchip temperature sensor
+	  values from keembay SoC.
