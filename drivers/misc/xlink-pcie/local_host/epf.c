@@ -16,6 +16,7 @@
 #include <linux/compiler.h>
 #include <linux/pci_ids.h>
 #include <linux/reboot.h>
+#include <linux/platform_device.h>
 #include <linux/xlink_drv_inf.h>
 #include <linux/err.h>
 #include <linux/of.h>
@@ -345,6 +346,12 @@ static int intel_xpcie_epf_get_platform_data(struct device *dev,
 	if (IS_ERR(xpcie_epf->apb_base))
 		return PTR_ERR(xpcie_epf->apb_base);
 
+	res = platform_get_resource_byname(pdev, IORESOURCE_MEM, "dbi");
+	xpcie_epf->dbi_base =
+		devm_ioremap(dev, res->start, resource_size(res));
+	if (IS_ERR(xpcie_epf->dbi_base))
+		return PTR_ERR(xpcie_epf->dbi_base);
+
 	strncpy(xpcie_epf->stepping, "B0", strlen("B0"));
 	soc_node = of_get_parent(pdev->dev.of_node);
 	if (soc_node) {
@@ -366,16 +373,13 @@ static int intel_xpcie_epf_bind(struct pci_epf *epf)
 {
 	struct pci_epc *epc = epf->epc;
 	struct xpcie_epf *xpcie_epf = epf_get_drvdata(epf);
+	struct device *dev = epc->dev.parent;
 	const struct pci_epc_features *features;
 	bool msi_capable = true;
 	size_t align = 0;
 	int ret;
 	u32 bus_num = 0;
 	u32 dev_num = 0;
-
-	struct dw_pcie_ep *ep = epc_get_drvdata(epc);
-	struct dw_pcie *pci = to_dw_pcie_from_ep(ep);
-	struct device *dev = pci->dev;
 
 	if (WARN_ON_ONCE(!epc))
 		return -EINVAL;

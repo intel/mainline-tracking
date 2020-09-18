@@ -12,7 +12,6 @@
 
 #include <linux/pci-epc.h>
 #include <linux/pci-epf.h>
-#include <pcie-keembay.h>
 #include "../common/xpcie.h"
 
 #define KEEMBAY_XPCIE_STEPPING_MAXLEN 8
@@ -56,6 +55,7 @@ struct xpcie_epf {
 	int				irq_err;
 	void __iomem			*apb_base;
 	void __iomem			*dma_base;
+	void __iomem			*dbi_base;
 	char				stepping[KEEMBAY_XPCIE_STEPPING_MAXLEN];
 
 	irq_handler_t			core_irq_callback;
