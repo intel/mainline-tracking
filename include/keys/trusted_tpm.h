@@ -47,6 +47,21 @@ int tpm2_unseal_trusted(struct tpm_chip *chip,
 			struct trusted_key_payload *payload,
 			struct trusted_key_options *options);
 
+#if defined(CONFIG_TRUSTED_KEYS) || \
+  (defined(CONFIG_TRUSTED_KEYS_MODULE) && defined(CONFIG_ENCRYPTED_KEYS_MODULE))
+void trusted_key_enable_access(void);
+void trusted_key_disable_access(void);
+#else
+static inline void trusted_key_enable_access(void)
+{
+
+}
+static inline void trusted_key_disable_access(void)
+{
+
+}
+#endif
+
 #define TPM_DEBUG 0
 
 #if TPM_DEBUG

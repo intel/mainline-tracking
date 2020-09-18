@@ -8,6 +8,8 @@
 #include <linux/err.h>
 #include <linux/tpm.h>
 #include <linux/tpm_command.h>
+#include <linux/pkeys.h>
+#include <uapi/asm-generic/mman-common.h>
 
 #include <keys/trusted-type.h>
 #include <keys/trusted_tpm.h>
@@ -96,7 +98,11 @@ int tpm2_seal_trusted(struct tpm_chip *chip,
 	tpm_buf_append_u16(&buf, TPM_DIGEST_SIZE);
 	tpm_buf_append(&buf, options->blobauth, TPM_DIGEST_SIZE);
 	tpm_buf_append_u16(&buf, payload->key_len + 1);
+
+	trusted_key_enable_access();
 	tpm_buf_append(&buf, payload->key, payload->key_len);
+	trusted_key_disable_access();
+
 	tpm_buf_append_u8(&buf, payload->migratable);
 
 	/* public */
@@ -278,7 +284,10 @@ static int tpm2_unseal_cmd(struct tpm_chip *chip,
 		}
 		data = &buf.data[TPM_HEADER_SIZE + 6];
 
+		trusted_key_enable_access();
 		memcpy(payload->key, data, data_len - 1);
+		trusted_key_disable_access();
+
 		payload->key_len = data_len - 1;
 		payload->migratable = data[data_len - 1];
 	}

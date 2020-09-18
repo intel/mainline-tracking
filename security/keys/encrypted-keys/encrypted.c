@@ -20,6 +20,7 @@
 #include <linux/err.h>
 #include <keys/user-type.h>
 #include <keys/trusted-type.h>
+#include <keys/trusted_tpm.h>
 #include <keys/encrypted-type.h>
 #include <linux/key-type.h>
 #include <linux/random.h>
@@ -344,10 +345,12 @@ static int calc_hmac(u8 *digest, const u8 *key, unsigned int keylen,
 }
 
 enum derived_key_type { ENC_KEY, AUTH_KEY };
+enum master_key_type { TRUSTED_KEY, USER_KEY };
 
 /* Derive authentication/encryption key from trusted key */
 static int get_derived_key(u8 *derived_key, enum derived_key_type key_type,
-			   const u8 *master_key, size_t master_keylen)
+			   const u8 *master_key, size_t master_keylen,
+			   enum master_key_type m_key_type)
 {
 	u8 *derived_buf;
 	unsigned int derived_buf_len;
@@ -366,8 +369,13 @@ static int get_derived_key(u8 *derived_key, enum derived_key_type key_type,
 	else
 		strcpy(derived_buf, "ENC_KEY");
 
+	if (unlikely(m_key_type == TRUSTED_KEY))
+		trusted_key_enable_access();
 	memcpy(derived_buf + strlen(derived_buf) + 1, master_key,
 	       master_keylen);
+	if (unlikely(m_key_type == TRUSTED_KEY))
+		trusted_key_disable_access();
+
 	ret = crypto_shash_tfm_digest(hash_tfm, derived_buf, derived_buf_len,
 				      derived_key);
 	kfree_sensitive(derived_buf);
@@ -408,7 +416,8 @@ static struct skcipher_request *init_skcipher_req(const u8 *key,
 }
 
 static struct key *request_master_key(struct encrypted_key_payload *epayload,
-				      const u8 **master_key, size_t *master_keylen)
+				      const u8 **master_key, size_t *master_keylen,
+				      enum master_key_type *m_key_type)
 {
 	struct key *mkey = ERR_PTR(-EINVAL);
 
@@ -417,11 +426,13 @@ static struct key *request_master_key(struct encrypted_key_payload *epayload,
 		mkey = request_trusted_key(epayload->master_desc +
 					   KEY_TRUSTED_PREFIX_LEN,
 					   master_key, master_keylen);
+		*m_key_type = TRUSTED_KEY;
 	} else if (!strncmp(epayload->master_desc, KEY_USER_PREFIX,
 			    KEY_USER_PREFIX_LEN)) {
 		mkey = request_user_key(epayload->master_desc +
 					KEY_USER_PREFIX_LEN,
 					master_key, master_keylen);
+		*m_key_type = USER_KEY;
 	} else
 		goto out;
 
@@ -486,13 +497,14 @@ out:
 }
 
 static int datablob_hmac_append(struct encrypted_key_payload *epayload,
-				const u8 *master_key, size_t master_keylen)
+				const u8 *master_key, size_t master_keylen,
+				enum master_key_type m_key_type)
 {
 	u8 derived_key[HASH_SIZE];
 	u8 *digest;
 	int ret;
 
-	ret = get_derived_key(derived_key, AUTH_KEY, master_key, master_keylen);
+	ret = get_derived_key(derived_key, AUTH_KEY, master_key, master_keylen, m_key_type);
 	if (ret < 0)
 		goto out;
 
@@ -509,7 +521,7 @@ out:
 /* verify HMAC before decrypting encrypted key */
 static int datablob_hmac_verify(struct encrypted_key_payload *epayload,
 				const u8 *format, const u8 *master_key,
-				size_t master_keylen)
+				size_t master_keylen, enum master_key_type m_key_type)
 {
 	u8 derived_key[HASH_SIZE];
 	u8 digest[HASH_SIZE];
@@ -517,7 +529,7 @@ static int datablob_hmac_verify(struct encrypted_key_payload *epayload,
 	char *p;
 	unsigned short len;
 
-	ret = get_derived_key(derived_key, AUTH_KEY, master_key, master_keylen);
+	ret = get_derived_key(derived_key, AUTH_KEY, master_key, master_keylen, m_key_type);
 	if (ret < 0)
 		goto out;
 
@@ -664,6 +676,7 @@ static int encrypted_key_decrypt(struct encrypted_key_payload *epayload,
 	size_t master_keylen;
 	size_t asciilen;
 	int ret;
+	enum master_key_type m_key_type;
 
 	encrypted_datalen = roundup(epayload->decrypted_datalen, blksize);
 	asciilen = (ivsize + 1 + encrypted_datalen + HASH_SIZE) * 2;
@@ -685,17 +698,17 @@ static int encrypted_key_decrypt(struct encrypted_key_payload *epayload,
 	if (ret < 0)
 		return -EINVAL;
 
-	mkey = request_master_key(epayload, &master_key, &master_keylen);
+	mkey = request_master_key(epayload, &master_key, &master_keylen, &m_key_type);
 	if (IS_ERR(mkey))
 		return PTR_ERR(mkey);
 
-	ret = datablob_hmac_verify(epayload, format, master_key, master_keylen);
+	ret = datablob_hmac_verify(epayload, format, master_key, master_keylen, m_key_type);
 	if (ret < 0) {
 		pr_err("encrypted_key: bad hmac (%d)\n", ret);
 		goto out;
 	}
 
-	ret = get_derived_key(derived_key, ENC_KEY, master_key, master_keylen);
+	ret = get_derived_key(derived_key, ENC_KEY, master_key, master_keylen, m_key_type);
 	if (ret < 0)
 		goto out;
 
@@ -908,6 +921,7 @@ static long encrypted_read(const struct key *key, char *buffer,
 	char *ascii_buf;
 	size_t asciiblob_len;
 	int ret;
+	enum master_key_type m_key_type;
 
 	epayload = dereference_key_locked(key);
 
@@ -919,11 +933,11 @@ static long encrypted_read(const struct key *key, char *buffer,
 	if (!buffer || buflen < asciiblob_len)
 		return asciiblob_len;
 
-	mkey = request_master_key(epayload, &master_key, &master_keylen);
+	mkey = request_master_key(epayload, &master_key, &master_keylen, &m_key_type);
 	if (IS_ERR(mkey))
 		return PTR_ERR(mkey);
 
-	ret = get_derived_key(derived_key, ENC_KEY, master_key, master_keylen);
+	ret = get_derived_key(derived_key, ENC_KEY, master_key, master_keylen, m_key_type);
 	if (ret < 0)
 		goto out;
 
@@ -931,7 +945,7 @@ static long encrypted_read(const struct key *key, char *buffer,
 	if (ret < 0)
 		goto out;
 
-	ret = datablob_hmac_append(epayload, master_key, master_keylen);
+	ret = datablob_hmac_append(epayload, master_key, master_keylen, m_key_type);
 	if (ret < 0)
 		goto out;
 
