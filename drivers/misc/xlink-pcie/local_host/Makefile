@@ -5,5 +5,5 @@ obj-$(CONFIG_XLINK_PCIE_LH_DRIVER) += mxlk_ep.o
 mxlk_ep-objs := epf.o
 mxlk_ep-objs += core.o
 mxlk_ep-objs += dma.o
-mxlk_ep-objs += if.o
+mxlk_ep-objs += ../common/if.o
 mxlk_ep-objs += ../common/util.o
