@@ -18,6 +18,8 @@
 
 struct device;
 
+struct device;
+
 /**
  * struct dw_dma_slave - Controller-specific information about a slave
  *
