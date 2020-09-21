@@ -6,11 +6,6 @@
  * Author: Felipe Balbi (Intel)
  */
 
-#include <linux/bitops.h>
-#include <linux/can/dev.h>
-#include <linux/delay.h>
-#include <linux/interrupt.h>
-#include <linux/io.h>
 #include <linux/kernel.h>
 #include <linux/module.h>
 #include <linux/netdevice.h>
