@@ -1107,6 +1107,9 @@ static int spurious_kernel_fault_check(unsigned long error_code, pte_t *pte,
 		 * are running the PKS test.  If so, pks_test_callback() will
 		 * clear the protection mechanism and return true to indicate
 		 * we can safely return.
+		 *
+		 * NOTE: This must be after the global_pkey_is_enabled() call
+		 * to allow the fixup code to be tested.
 		 */
 		if (pks_test_callback(irq_state))
 			return 1;
