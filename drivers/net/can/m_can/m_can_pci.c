@@ -191,7 +191,7 @@ static struct pci_driver m_can_pci_driver = {
 	.id_table = m_can_pci_id_table,
 	.driver = {
 		.pm = &m_can_pci_pm_ops,
-	}
+	},
 };
 
 module_pci_driver(m_can_pci_driver);
