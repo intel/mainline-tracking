@@ -135,7 +135,7 @@ static unsigned long change_pte_range(struct vm_area_struct *vma, pmd_t *pmd,
 			if (dirty_accountable && pte_dirty(ptent) &&
 					(pte_soft_dirty(ptent) ||
 					 !(vma->vm_flags & VM_SOFTDIRTY))) {
-				ptent = pte_mkwrite(ptent);
+				ptent = maybe_mkwrite(ptent, vma);
 			}
 			ptep_modify_prot_commit(vma, addr, pte, oldpte, ptent);
 			pages++;
@@ -551,7 +551,7 @@ static int do_mprotect_pkey(unsigned long start, size_t len,
 
 	vma = find_vma(current->mm, start);
 	error = -ENOMEM;
-	if (!vma)
+	if (!vma || !arch_vma_supports_prot(vma, prot))
 		goto out;
 	prev = vma->vm_prev;
 	if (unlikely(grows & PROT_GROWSDOWN)) {
