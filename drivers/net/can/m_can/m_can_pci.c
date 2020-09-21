@@ -70,8 +70,7 @@ static struct m_can_ops m_can_pci_ops = {
 	.read_fifo = iomap_read_fifo,
 };
 
-static int m_can_pci_probe(struct pci_dev *pci,
-		const struct pci_device_id *id)
+static int m_can_pci_probe(struct pci_dev *pci, const struct pci_device_id *id)
 {
 	struct m_can_classdev *mcan_class;
 	struct m_can_pci_priv *priv;
