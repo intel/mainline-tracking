@@ -200,8 +200,8 @@ static struct pci_driver m_can_pci_driver = {
 	}
 };
 
+module_pci_driver(m_can_pci_driver);
+
 MODULE_AUTHOR("Felipe Balbi (Intel)");
 MODULE_LICENSE("GPL");
 MODULE_DESCRIPTION("CAN bus driver for Bosch M_CAN controller on PCI bus");
-
-module_pci_driver(m_can_pci_driver);
