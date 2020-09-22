@@ -145,7 +145,6 @@ static int m_can_pci_probe(struct pci_dev *pci, const struct pci_device_id *id)
 	return 0;
 
 err:
-	pm_runtime_disable(&pci->dev);
 	pci_free_irq_vectors(pci);
 	return ret;
 }
