@@ -69,9 +69,9 @@ static struct m_can_ops m_can_pci_ops = {
 
 static int m_can_pci_probe(struct pci_dev *pci, const struct pci_device_id *id)
 {
+	struct device *dev = &pci->dev;
 	struct m_can_classdev *mcan_class;
 	struct m_can_pci_priv *priv;
-	struct device *dev;
 	void __iomem *base;
 	int ret;
 
@@ -84,8 +84,6 @@ static int m_can_pci_probe(struct pci_dev *pci, const struct pci_device_id *id)
 	ret = pcim_iomap_regions(pci, BIT(M_CAN_PCI_MMIO_BAR), pci_name(pci));
 	if (ret)
 		return ret;
-
-	dev = &pci->dev;
 
 	base = pcim_iomap_table(pci)[M_CAN_PCI_MMIO_BAR];
 
