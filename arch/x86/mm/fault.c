@@ -553,8 +553,10 @@ show_fault_oops(struct pt_regs *regs, unsigned long error_code, unsigned long ad
 		 (error_code & X86_PF_PK)    ? "protection keys violation" :
 					       "permissions violation");
 
+#ifdef CONFIG_ARCH_HAS_PKEYS
 	if (irq_state && (error_code & X86_PF_PK))
 		pr_alert("PKRS: 0x%x\n", irq_state->pkrs);
+#endif
 
 	if (!(error_code & X86_PF_USER) && user_mode(regs)) {
 		struct desc_ptr idt, gdt;

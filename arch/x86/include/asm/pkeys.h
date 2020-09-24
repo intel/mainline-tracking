@@ -48,6 +48,7 @@ static inline int arch_override_mprotect_pkey(struct vm_area_struct *vma,
 extern int __arch_set_user_pkey_access(struct task_struct *tsk, int pkey,
 		unsigned long init_val);
 
+#ifdef CONFIG_ARCH_HAS_PKEYS
 #define ARCH_VM_PKEY_FLAGS (VM_PKEY_BIT0 | VM_PKEY_BIT1 | VM_PKEY_BIT2 | VM_PKEY_BIT3)
 
 #define mm_pkey_allocation_map(mm)	(mm->context.pkey_allocation_map)
@@ -135,6 +136,7 @@ static inline int vma_pkey(struct vm_area_struct *vma)
 
 	return (vma->vm_flags & vma_pkey_mask) >> VM_PKEY_SHIFT;
 }
+#endif
 
 u32 update_pkey_val(u32 pk_reg, int pkey, unsigned int flags);
 
