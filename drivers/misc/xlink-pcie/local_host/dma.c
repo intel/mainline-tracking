@@ -86,6 +86,8 @@
 #define PCIE_REGS_PCIE_SII_PM_STATE_1	0xb4
 #define PM_LINKST_IN_L1			BIT(10)
 
+#define DMA_POLLING_TIMEOUT		1000000
+
 struct __packed pcie_dma_reg {
 	u32 dma_ctrl_data_arb_prior;
 	u32 reserved1;
@@ -358,14 +360,15 @@ int intel_xpcie_ep_dma_write_ll(struct pci_epf *epf, int chan, int descs_num)
 		return rc;
 
 	/* Wait for DMA transfer to complete. */
-	for (i = 0; i < 1000000; i++) {
+	for (i = 0; i < DMA_POLLING_TIMEOUT; i++) {
 		usleep_range(5, 10);
 		if (ioread32(&dma_reg->dma_write_int_status) &
 		    (DMA_DONE_INTERRUPT_CH_MASK(chan) |
 		     DMA_ABORT_INTERRUPT_CH_MASK(chan)))
 			break;
 	}
-	if (i == 1000000) {
+	if (i == DMA_POLLING_TIMEOUT) {
+		dev_err(&xpcie_epf->epf->dev, "DMA Wr timeout\n");
 		rc = -ETIME;
 		goto cleanup;
 	}
@@ -416,14 +419,15 @@ int intel_xpcie_ep_dma_read_ll(struct pci_epf *epf, int chan, int descs_num)
 		return rc;
 
 	/* Wait for DMA transfer to complete. */
-	for (i = 0; i < 1000000; i++) {
+	for (i = 0; i < DMA_POLLING_TIMEOUT; i++) {
 		usleep_range(5, 10);
 		if (ioread32(&dma_reg->dma_read_int_status) &
 		    (DMA_DONE_INTERRUPT_CH_MASK(chan) |
 		     DMA_ABORT_INTERRUPT_CH_MASK(chan)))
 			break;
 	}
-	if (i == 1000000) {
+	if (i == DMA_POLLING_TIMEOUT) {
+		dev_err(&xpcie_epf->epf->dev, "DMA Rd timeout\n");
 		rc = -ETIME;
 		goto cleanup;
 	}
