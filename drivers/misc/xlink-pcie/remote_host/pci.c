@@ -242,6 +242,8 @@ static int intel_xpcie_pci_prepare_dev_reset(struct xpcie_dev *xdev,
 
 	mutex_unlock(&xdev->lock);
 
+	intel_xpcie_pci_notify_event(xdev, NOTIFY_DEVICE_DISCONNECTED);
+
 	return 0;
 }
 
@@ -506,4 +508,39 @@ int intel_xpcie_pci_reset_device(u32 id)
 		return -ENOMEM;
 
 	return intel_xpcie_pci_prepare_dev_reset(xdev, true);
+}
+
+int intel_xpcie_pci_register_device_event(u32 sw_device_id,
+					  xlink_device_event event_notif_fn)
+{
+	struct xpcie_dev *xdev = intel_xpcie_get_device_by_id(sw_device_id);
+
+	if (!xdev)
+		return -ENOMEM;
+
+	xdev->event_fn = event_notif_fn;
+
+	return 0;
+}
+
+int intel_xpcie_pci_unregister_device_event(u32 sw_device_id)
+{
+	struct xpcie_dev *xdev = intel_xpcie_get_device_by_id(sw_device_id);
+
+	if (!xdev)
+		return -ENOMEM;
+
+	xdev->event_fn = NULL;
+
+	return 0;
+}
+
+void intel_xpcie_pci_notify_event(struct xpcie_dev *xdev,
+				  enum xlink_device_event_type event_type)
+{
+	if (event_type >= NUM_EVENT_TYPE)
+		return;
+
+	if (xdev->event_fn)
+		xdev->event_fn(xdev->devid, event_type);
 }
