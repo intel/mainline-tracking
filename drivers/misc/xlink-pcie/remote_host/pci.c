@@ -92,6 +92,14 @@ void intel_xpcie_list_del_device(struct xpcie_dev *xdev)
 	mutex_unlock(&dev_list_mutex);
 }
 
+struct xpcie *intel_xpcie_dev_to_xpcie(struct device *dev)
+{
+	struct pci_dev *pdev = container_of(dev, struct pci_dev, dev);
+	struct xpcie_dev *xdev = pci_get_drvdata(pdev);
+
+	return &xdev->xpcie;
+}
+
 static void intel_xpcie_pci_set_aspm(struct xpcie_dev *xdev, int aspm)
 {
 	u8 cap_exp;
@@ -219,7 +227,23 @@ static void xpcie_device_poll(struct work_struct *work)
 }
 
 static int intel_xpcie_pci_prepare_dev_reset(struct xpcie_dev *xdev,
-					     bool notify);
+					     bool notify)
+{
+	if (mutex_lock_interruptible(&xdev->lock))
+		return -EINTR;
+
+	if (xdev->core_irq_callback) {
+		xdev->core_irq_callback = NULL;
+		intel_xpcie_core_cleanup(&xdev->xpcie);
+	}
+	xdev->xpcie.status = XPCIE_STATUS_OFF;
+	if (notify)
+		intel_xpcie_pci_raise_irq(xdev, DEV_EVENT, REQUEST_RESET);
+
+	mutex_unlock(&xdev->lock);
+
+	return 0;
+}
 
 static void xpcie_device_shutdown(struct work_struct *work)
 {
@@ -472,25 +496,6 @@ int intel_xpcie_pci_write(u32 id, void *data, size_t *size, u32 timeout)
 		return -ENODEV;
 
 	return intel_xpcie_core_write(&xdev->xpcie, data, size, timeout);
-}
-
-static int intel_xpcie_pci_prepare_dev_reset(struct xpcie_dev *xdev,
-					     bool notify)
-{
-	if (mutex_lock_interruptible(&xdev->lock))
-		return -EINTR;
-
-	if (xdev->core_irq_callback) {
-		xdev->core_irq_callback = NULL;
-		intel_xpcie_core_cleanup(&xdev->xpcie);
-	}
-	xdev->xpcie.status = XPCIE_STATUS_OFF;
-	if (notify)
-		intel_xpcie_pci_raise_irq(xdev, DEV_EVENT, REQUEST_RESET);
-
-	mutex_unlock(&xdev->lock);
-
-	return 0;
 }
 
 int intel_xpcie_pci_reset_device(u32 id)

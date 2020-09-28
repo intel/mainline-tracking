@@ -347,16 +347,12 @@ void intel_xpcie_add_bd_to_interface(struct xpcie *xpcie,
 static ssize_t debug_show(struct device *dev, struct device_attribute *attr,
 			  char *buf)
 {
-#ifdef XLINK_PCIE_LOCAL
-	struct pci_epf *epf = container_of(dev, struct pci_epf, dev);
-	struct xpcie_epf *xpcie_epf = epf_get_drvdata(epf);
-	struct xpcie *xpcie = &xpcie_epf->xpcie;
-#else
-	struct pci_dev *pdev = container_of(dev, struct pci_dev, dev);
-	struct xpcie_dev *xdev = pci_get_drvdata(pdev);
-	struct xpcie *xpcie = &xdev->xpcie;
-#endif
+	struct xpcie *xpcie;
 	size_t bytes, tx_list_num, rx_list_num, tx_pool_num, rx_pool_num;
+
+	xpcie = intel_xpcie_dev_to_xpcie(dev);
+	if (!xpcie)
+		return -EINVAL;
 
 	if (!xpcie->debug_enable)
 		return 0;
@@ -392,16 +388,11 @@ static ssize_t debug_store(struct device *dev, struct device_attribute *attr,
 {
 	long value;
 	int rc;
+	struct xpcie *xpcie;
 
-#ifdef XLINK_PCIE_LOCAL
-	struct pci_epf *epf = container_of(dev, struct pci_epf, dev);
-	struct xpcie_epf *xpcie_epf = epf_get_drvdata(epf);
-	struct xpcie *xpcie = &xpcie_epf->xpcie;
-#else
-	struct pci_dev *pdev = container_of(dev, struct pci_dev, dev);
-	struct xpcie_dev *xdev = pci_get_drvdata(pdev);
-	struct xpcie *xpcie = &xdev->xpcie;
-#endif
+	xpcie = intel_xpcie_dev_to_xpcie(dev);
+	if (!xpcie)
+		return -EINVAL;
 
 	rc = kstrtol(buf, 10, &value);
 	if (rc)

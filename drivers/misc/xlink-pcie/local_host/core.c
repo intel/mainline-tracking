@@ -41,6 +41,11 @@ module_param(rx_pool_coherent, bool, 0664);
 MODULE_PARM_DESC(rx_pool_coherent,
 		 "receiving pool using coherent memory (default false)");
 
+static struct xpcie *intel_xpcie_core_get_by_id(u32 sw_device_id)
+{
+	return (sw_device_id == xlink_sw_id) ? global_xpcie : NULL;
+}
+
 static int intel_xpcie_map_dma(struct xpcie *xpcie, struct xpcie_buf_desc *bd,
 			       int direction)
 {
@@ -656,8 +661,8 @@ void intel_xpcie_core_cleanup(struct xpcie *xpcie)
 	intel_xpcie_uninit_debug(xpcie, &xpcie_epf->epf->dev);
 }
 
-int intel_xpcie_core_read(struct xpcie *xpcie, void *buffer, size_t *length,
-			  u32 timeout_ms)
+int intel_xpcie_core_read(struct xpcie *xpcie, void *buffer,
+			  size_t *length, u32 timeout_ms)
 {
 	int ret = 0;
 	struct xpcie_interface *inf = &xpcie->interfaces[0];
@@ -746,8 +751,8 @@ int intel_xpcie_core_read(struct xpcie *xpcie, void *buffer, size_t *length,
 	return 0;
 }
 
-int intel_xpcie_core_write(struct xpcie *xpcie, void *buffer, size_t *length,
-			   u32 timeout_ms)
+int intel_xpcie_core_write(struct xpcie *xpcie, void *buffer,
+			   size_t *length, u32 timeout_ms)
 {
 	int ret;
 	size_t len = *length;
@@ -838,7 +843,84 @@ int intel_xpcie_core_write(struct xpcie *xpcie, void *buffer, size_t *length,
 	return 0;
 }
 
-struct xpcie *intel_xpcie_core_get_by_id(u32 sw_device_id)
+int intel_xpcie_get_device_status_by_id(u32 id, u32 *status)
 {
-	return (sw_device_id == xlink_sw_id) ? global_xpcie : NULL;
+	struct xpcie *xpcie = intel_xpcie_core_get_by_id(id);
+
+	if (!xpcie)
+		return -ENODEV;
+
+	*status = xpcie->status;
+
+	return 0;
+}
+
+u32 intel_xpcie_get_device_num(u32 *id_list)
+{
+	u32 num_devices = 0;
+
+	if (xlink_sw_id) {
+		num_devices = 1;
+		*id_list = xlink_sw_id;
+	}
+
+	return num_devices;
+}
+
+int intel_xpcie_get_device_name_by_id(u32 id,
+				      char *device_name, size_t name_size)
+{
+	struct xpcie *xpcie;
+
+	xpcie = intel_xpcie_core_get_by_id(id);
+	if (!xpcie)
+		return -ENODEV;
+
+	memset(device_name, 0, name_size);
+	if (name_size > strlen(XPCIE_DRIVER_NAME))
+		name_size = strlen(XPCIE_DRIVER_NAME);
+	strncpy(device_name, XPCIE_DRIVER_NAME, name_size);
+
+	return 0;
+}
+
+int intel_xpcie_pci_connect_device(u32 id)
+{
+	struct xpcie *xpcie;
+
+	xpcie = intel_xpcie_core_get_by_id(id);
+	if (!xpcie)
+		return -ENODEV;
+
+	if (xpcie->status != XPCIE_STATUS_RUN)
+		return -EIO;
+
+	return 0;
+}
+
+int intel_xpcie_pci_read(u32 id, void *data, size_t *size, u32 timeout)
+{
+	struct xpcie *xpcie;
+
+	xpcie = intel_xpcie_core_get_by_id(id);
+	if (!xpcie)
+		return -ENODEV;
+
+	return intel_xpcie_core_read(xpcie, data, size, timeout);
+}
+
+int intel_xpcie_pci_write(u32 id, void *data, size_t *size, u32 timeout)
+{
+	struct xpcie *xpcie;
+
+	xpcie = intel_xpcie_core_get_by_id(id);
+	if (!xpcie)
+		return -ENODEV;
+
+	return intel_xpcie_core_write(xpcie, data, size, timeout);
+}
+
+int intel_xpcie_pci_reset_device(u32 id)
+{
+	return 0;
 }

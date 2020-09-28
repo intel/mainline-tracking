@@ -17,43 +17,17 @@
 
 int intel_xpcie_core_init(struct xpcie *xpcie);
 void intel_xpcie_core_cleanup(struct xpcie *xpcie);
-
-/*
- * @brief Read buffer from xpcie. Function will block when no data.
- *
- * @param[in] xpcie          - pointer to xpcie instance
- * @param[in] buffer        - pointer to buffer
- * @param[in] length        - max bytes to copy into buffer
- * @param[in] timeout_ms    - timeout in ms for blocking when no data
- *
- * @return:
- *      >=0 - number of bytes read
- *      <0  - linux error code
- *              -ETIME - timeout
- *              -EINTR - interrupted
- */
 int intel_xpcie_core_read(struct xpcie *xpcie, void *buffer, size_t *length,
 			  u32 timeout_ms);
-
-/*
- * @brief Writes buffer to xpcie. Function will block when no buffer.
- *
- * @param[in] xpcie          - pointer to xpcie instance
- * @param[in] buffer        - pointer to buffer
- * @param[in] length        - length of buffer to copy from
- * @param[in] timeout_ms    - timeout in ms for blocking when no buffer
- *
- * @return:
- *      >=0 - number of bytes write
- *      <0  - linux error code
- *              -ETIME - timeout
- *              -EINTR - interrupted
- */
 int intel_xpcie_core_write(struct xpcie *xpcie, void *buffer, size_t *length,
 			   u32 timeout_ms);
-
-#ifdef XLINK_PCIE_LOCAL
-struct xpcie *intel_xpcie_core_get_by_id(u32 sw_device_id);
-#endif
-
+u32 intel_xpcie_get_device_num(u32 *id_list);
+struct xpcie_dev *intel_xpcie_get_device_by_id(u32 id);
+int intel_xpcie_get_device_name_by_id(u32 id, char *device_name,
+				      size_t name_size);
+int intel_xpcie_get_device_status_by_id(u32 id, u32 *status);
+int intel_xpcie_pci_connect_device(u32 id);
+int intel_xpcie_pci_read(u32 id, void *data, size_t *size, u32 timeout);
+int intel_xpcie_pci_write(u32 id, void *data, size_t *size, u32 timeout);
+int intel_xpcie_pci_reset_device(u32 id);
 #endif /* XPCIE_CORE_HEADER_ */

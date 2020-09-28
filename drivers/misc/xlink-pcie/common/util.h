@@ -70,5 +70,5 @@ void intel_xpcie_add_bd_to_interface(struct xpcie *xpcie,
 void intel_xpcie_init_debug(struct xpcie *xpcie, struct device *dev);
 void intel_xpcie_uninit_debug(struct xpcie *xpcie, struct device *dev);
 void intel_xpcie_debug_incr(struct xpcie *xpcie, size_t *attr, size_t v);
-
+struct xpcie *intel_xpcie_dev_to_xpcie(struct device *dev);
 #endif /* XPCIE_UTIL_HEADER_ */

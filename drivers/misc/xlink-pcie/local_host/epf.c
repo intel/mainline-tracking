@@ -170,6 +170,14 @@ int intel_xpcie_copy_to_host_ll(struct xpcie *xpcie, int chan, int descs_num)
 	return intel_xpcie_ep_dma_write_ll(epf, chan, descs_num);
 }
 
+struct xpcie *intel_xpcie_dev_to_xpcie(struct device *dev)
+{
+	struct pci_epf *epf = container_of(dev, struct pci_epf, dev);
+	struct xpcie_epf *xpcie_epf = epf_get_drvdata(epf);
+
+	return &xpcie_epf->xpcie;
+}
+
 static int intel_xpcie_check_bar(struct pci_epf *epf,
 				 struct pci_epf_bar *epf_bar,
 				 enum pci_barno barno,
@@ -437,7 +445,6 @@ static int intel_xpcie_epf_bind(struct pci_epf *epf)
 		goto bind_error;
 	}
 
-	dev_info(&epf->dev, "xlink_sw_id 0x%x\n", xlink_sw_id);
 	/* Enable interrupt */
 	writel(LBC_CII_EVENT_FLAG,
 	       xpcie_epf->apb_base + PCIE_REGS_PCIE_INTR_ENABLE);
