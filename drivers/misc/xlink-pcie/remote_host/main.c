@@ -8,6 +8,7 @@
  ****************************************************************************/
 
 #include "pci.h"
+#include "../common/core.h"
 
 static const struct pci_device_id xpcie_pci_table[] = {
 	{ PCI_DEVICE(PCI_VENDOR_ID_INTEL, PCI_DEVICE_ID_INTEL_KEEMBAY), 0 },
