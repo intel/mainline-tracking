@@ -29,9 +29,9 @@ static int intel_xpcie_version_check(struct xpcie *xpcie)
 
 	memcpy_fromio(&version, &xpcie->mmio->version, sizeof(version));
 
-	dev_info(xpcie_to_dev(xpcie), "ver: device %u.%u.%u, host %u.%u.%u\n",
-		 version.major, version.minor, version.build,
-		 XPCIE_VERSION_MAJOR, XPCIE_VERSION_MINOR, XPCIE_VERSION_BUILD);
+	dev_dbg(xpcie_to_dev(xpcie), "ver: device %u.%u.%u, host %u.%u.%u\n",
+		version.major, version.minor, version.build,
+		XPCIE_VERSION_MAJOR, XPCIE_VERSION_MINOR, XPCIE_VERSION_BUILD);
 
 	if (ioread8(&xpcie->mmio->legacy_a0))
 		xpcie->legacy_a0 = true;

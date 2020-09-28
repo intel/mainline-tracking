@@ -56,15 +56,12 @@ struct xpcie_version {
 } __packed;
 
 /* Status encoding of both device and host */
-#define XPCIE_STATUS_ERROR (0xFFFFFFFF)
-#define XPCIE_STATUS_UNINIT (0)
-#define XPCIE_STATUS_BOOT_FW (1)
-#define XPCIE_STATUS_BOOT_OS (2)
-#define XPCIE_STATUS_READY (3)
-#define XPCIE_STATUS_RECOVERY (4)
-#define XPCIE_STATUS_RUN (5)
-#define XPCIE_STATUS_OFF (6)
-#define XPCIE_STATUS_BOOT_PRE_OS (7)
+#define XPCIE_STATUS_ERROR	(0xFFFFFFFF)
+#define XPCIE_STATUS_UNINIT	(0)
+#define XPCIE_STATUS_READY	(1)
+#define XPCIE_STATUS_RECOVERY	(2)
+#define XPCIE_STATUS_OFF	(3)
+#define XPCIE_STATUS_RUN	(4)
 
 #define XPCIE_MAGIC_STRLEN (16)
 #define XPCIE_MAGIC_YOCTO "VPUYOCTO"
@@ -132,14 +129,14 @@ static inline void _iowrite64(u64 value, void __iomem *addr)
 
 #ifdef XLINK_PCIE_REMOTE
 
-#define intel_xpcie_iowrite64 _iowrite64
-#define intel_xpcie_iowrite32 iowrite32
-#define intel_xpcie_iowrite16 iowrite16
-#define intel_xpcie_iowrite8 iowrite8
-#define intel_xpcie_ioread64 _ioread64
-#define intel_xpcie_ioread32 ioread32
-#define intel_xpcie_ioread16 ioread16
-#define intel_xpcie_ioread8 ioread8
+#define intel_xpcie_iowrite64	_iowrite64
+#define intel_xpcie_iowrite32	iowrite32
+#define intel_xpcie_iowrite16	iowrite16
+#define intel_xpcie_iowrite8	iowrite8
+#define intel_xpcie_ioread64	_ioread64
+#define intel_xpcie_ioread32	ioread32
+#define intel_xpcie_ioread16	ioread16
+#define intel_xpcie_ioread8	ioread8
 
 #else
 
@@ -147,10 +144,10 @@ static inline void _iowrite64(u64 value, void __iomem *addr)
 #define intel_xpcie_iowrite32(value, addr)	{ *(addr) = value; }
 #define intel_xpcie_iowrite16(value, addr)	{ *(addr) = value; }
 #define intel_xpcie_iowrite8(value, addr)	{ *(addr) = value; }
-#define intel_xpcie_ioread64(addr) (*(addr))
-#define intel_xpcie_ioread32(addr) (*(addr))
-#define intel_xpcie_ioread16(addr) (*(addr))
-#define intel_xpcie_ioread8(addr)  (*(addr))
+#define intel_xpcie_ioread64(addr)		(*(addr))
+#define intel_xpcie_ioread32(addr)		(*(addr))
+#define intel_xpcie_ioread16(addr)		(*(addr))
+#define intel_xpcie_ioread8(addr)		(*(addr))
 
 #endif /* XLINK_PCIE_REMOTE */
 

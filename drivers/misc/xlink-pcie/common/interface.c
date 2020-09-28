@@ -14,8 +14,7 @@
 #include "core.h"
 
 /* Define xpcie driver interface API */
-int xlink_pcie_get_device_list(u32 *sw_device_id_list,
-			       u32 *num_devices)
+int xlink_pcie_get_device_list(u32 *sw_device_id_list, u32 *num_devices)
 {
 	*num_devices = intel_xpcie_get_device_num(sw_device_id_list);
 

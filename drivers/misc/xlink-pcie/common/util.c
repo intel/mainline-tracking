@@ -290,11 +290,11 @@ void intel_xpcie_interface_cleanup(struct xpcie_interface *inf)
 {
 	struct xpcie_buf_desc *bd;
 
-	mutex_destroy(&inf->rlock);
-
 	intel_xpcie_free_rx_bd(inf->xpcie, inf->partial_read);
 	while ((bd = intel_xpcie_list_get(&inf->read)))
 		intel_xpcie_free_rx_bd(inf->xpcie, bd);
+
+	mutex_destroy(&inf->rlock);
 }
 
 void intel_xpcie_interfaces_cleanup(struct xpcie *xpcie)

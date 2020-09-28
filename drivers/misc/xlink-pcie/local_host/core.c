@@ -107,8 +107,8 @@ static int intel_xpcie_set_version(struct xpcie *xpcie)
 
 	memcpy(&xpcie->mmio->version, &version, sizeof(version));
 
-	dev_info(xpcie_to_dev(xpcie), "ver: device %u.%u.%u\n",
-		 version.major, version.minor, version.build);
+	dev_dbg(xpcie_to_dev(xpcie), "ver: device %u.%u.%u\n",
+		version.major, version.minor, version.build);
 
 	return 0;
 }
@@ -302,7 +302,6 @@ static void intel_xpcie_start_rx(struct xpcie *xpcie, unsigned long delay)
 static void intel_xpcie_rx_event_handler(struct work_struct *work)
 {
 	struct xpcie *xpcie = container_of(work, struct xpcie, rx_event.work);
-
 	int rc;
 	u16 interface;
 	u32 head, tail, ndesc, length;
@@ -793,7 +792,7 @@ int intel_xpcie_core_write(struct xpcie *xpcie, void *buffer,
 			wait_event_interruptible_timeout(xpcie->tx_waitq,
 							 !xpcie->no_tx_buffer,
 							 jiffies_timeout -
-							 jiffies_passed);
+							  jiffies_passed);
 				if (ret == 0)
 					return -ETIME;
 			}
