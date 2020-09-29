@@ -448,8 +448,9 @@ config HISI_HIKEY_USB
 	  using only one USB controller.
 
 config XBAY_RAS
-	tristate "xBAY RAS Collector Driver"
+	bool "xBAY RAS Collector Driver"
 	depends on HAS_IOMEM
+	depends on ARM64
 	help
 	  This option enables support for XBay RAS Collector driver. This
 	  enables a sysfs interface to read the RAS EDAC information from
