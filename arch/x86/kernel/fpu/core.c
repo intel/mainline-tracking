@@ -294,7 +294,7 @@ int fpu_clone(struct task_struct *dst)
 
 	/* UINTR state is not expected to be inherited (in the current design). */
 	if (static_cpu_has(X86_FEATURE_UINTR)) {
-		uintr_state = get_xsave_addr(&dst_fpu->state.xsave, XFEATURE_UINTR);
+		uintr_state = get_xsave_addr(dst_fpu, XFEATURE_UINTR);
 		if (uintr_state)
 			memset(uintr_state, 0, sizeof(*uintr_state));
 	}
