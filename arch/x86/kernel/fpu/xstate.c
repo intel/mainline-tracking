@@ -562,22 +562,29 @@ static void check_xstate_against_struct(int nr)
 	}
 }
 
-/*
- * This essentially double-checks what the cpu told us about
- * how large the XSAVE buffer needs to be.  We are recalculating
- * it to be safe.
+/**
+ * calculate_xstate_size - Calculate the xstate per-task buffer size.
  *
- * Independent XSAVE features allocate their own buffers and are not
- * covered by these checks. Only the size of the buffer for task->fpu
- * is checked here.
+ * This essentially double-checks what the CPU told us about how large the
+ * XSAVE buffer needs to be. We are recalculating it to be safe.
+ *
+ * Independent XSAVE features allocate their own buffers and are always
+ * excluded. Only the size of the buffer for task->fpu is checked here.
+ *
+ * @include_dynamic_states:	A knob to include dynamic states or not.
+ *
+ * Return:			The calculated xstate size.
  */
-static void do_extra_xstate_size_checks(void)
+static unsigned int calculate_xstate_size(bool include_dynamic_states)
 {
-	int paranoid_xstate_size = FXSAVE_SIZE + XSAVE_HDR_SIZE;
+	unsigned int xstate_size = FXSAVE_SIZE + XSAVE_HDR_SIZE;
 	int i;
 
 	for (i = FIRST_EXTENDED_XFEATURE; i < XFEATURE_MAX; i++) {
 		if (!xfeature_enabled(i))
+			continue;
+
+		if ((xfeatures_mask_user_dynamic & BIT_ULL(i)) && !include_dynamic_states)
 			continue;
 
 		check_xstate_against_struct(i);
@@ -590,7 +597,7 @@ static void do_extra_xstate_size_checks(void)
 
 		/* Align from the end of the previous feature */
 		if (xfeature_is_aligned(i))
-			paranoid_xstate_size = ALIGN(paranoid_xstate_size, 64);
+			xstate_size = ALIGN(xstate_size, 64);
 		/*
 		 * The offset of a given state in the non-compacted
 		 * format is given to us in a CPUID leaf.  We check
@@ -598,20 +605,16 @@ static void do_extra_xstate_size_checks(void)
 		 * setup_xstate_features(). XSAVES uses compacted format.
 		 */
 		if (!cpu_feature_enabled(X86_FEATURE_XSAVES))
-			paranoid_xstate_size = xfeature_uncompacted_offset(i);
+			xstate_size = xfeature_uncompacted_offset(i);
 		/*
 		 * The compacted-format offset always depends on where
 		 * the previous state ended.
 		 */
-		paranoid_xstate_size += xfeature_size(i);
+		xstate_size += xfeature_size(i);
 	}
-	/*
-	 * The size accounts for all the possible states reserved in the
-	 * per-task buffer.  Check against the maximum size.
-	 */
-	XSTATE_WARN_ON(paranoid_xstate_size != fpu_buf_cfg.max_size);
-}
 
+	return xstate_size;
+}
 
 /*
  * Get total size of enabled xstates in XCR0 | IA32_XSS.
@@ -694,7 +697,7 @@ static bool is_supported_xstate_size(unsigned int test_xstate_size)
 static int __init init_xstate_size(void)
 {
 	/* Recompute the context size for enabled features: */
-	unsigned int possible_xstate_size;
+	unsigned int possible_xstate_size, xstate_size;
 	unsigned int xsave_size;
 
 	xsave_size = get_xsave_size();
@@ -705,23 +708,21 @@ static int __init init_xstate_size(void)
 		possible_xstate_size = xsave_size;
 
 	/*
-	 * The size accounts for all the possible states reserved in the
-	 * per-task buffer.  Set the maximum with this value.
+	 * Calculate the maximum xstate size, including the dynamic states.
 	 */
 	fpu_buf_cfg.max_size = possible_xstate_size;
-
-	/* Perform an extra check for the maximum size. */
-	do_extra_xstate_size_checks();
+	xstate_size = calculate_xstate_size(true);
+	XSTATE_WARN_ON(possible_xstate_size != xstate_size);
 
 	/*
-	 * Set the minimum to be the same as the maximum. The dynamic
-	 * user states are not supported yet.
+	 * Calculate the minimum xstate size, i.e., excluding the dynamic
+	 * xstates.
 	 */
-	fpu_buf_cfg.min_size = possible_xstate_size;
-
-	/* Ensure the minimum size fits in the statically-allocated buffer: */
-	if (!is_supported_xstate_size(fpu_buf_cfg.min_size))
+	xstate_size = calculate_xstate_size(false);
+	if (!is_supported_xstate_size(xstate_size))
 		return -EINVAL;
+
+	fpu_buf_cfg.min_size = xstate_size;
 
 	/*
 	 * User space is always in standard format.
