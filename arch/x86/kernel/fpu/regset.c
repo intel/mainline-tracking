@@ -190,7 +190,7 @@ int cetregs_get(struct task_struct *target, const struct user_regset *regset,
 		return -ENODEV;
 
 	sync_fpstate(fpu);
-	cetregs = get_xsave_addr(&fpu->state.xsave, XFEATURE_CET_USER);
+	cetregs = get_xsave_addr(fpu, XFEATURE_CET_USER);
 	if (!cetregs)
 		return -ENODEV;
 
@@ -209,7 +209,7 @@ int cetregs_set(struct task_struct *target, const struct user_regset *regset,
 		return -ENODEV;
 
 	fpu_force_restore(fpu);
-	cetregs = get_xsave_addr(&fpu->state.xsave, XFEATURE_CET_USER);
+	cetregs = get_xsave_addr(fpu, XFEATURE_CET_USER);
 	if (!cetregs)
 		return -ENODEV;
 

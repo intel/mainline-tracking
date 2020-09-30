@@ -77,7 +77,7 @@ int ibt_get_clear_wait_endbr(void)
 		 * XFEATURE_CET_USER is in init state (cet is not active).
 		 * Return zero status.
 		 */
-		cet = get_xsave_addr(&current->thread.fpu.state.xsave,
+		cet = get_xsave_addr(&current->thread.fpu,
 				     XFEATURE_CET_USER);
 		if (cet) {
 			msr_val = cet->user_cet;

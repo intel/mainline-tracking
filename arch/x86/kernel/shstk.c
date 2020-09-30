@@ -100,7 +100,7 @@ int shstk_alloc_thread_stack(struct task_struct *tsk, unsigned long clone_flags,
 	 * from the parent.  If get_xsave_addr() returns null, then XFEATURE_
 	 * CET_USER is still in init state, which certainly is an error.
 	 */
-	state = get_xsave_addr(&tsk->thread.fpu.state.xsave, XFEATURE_CET_USER);
+	state = get_xsave_addr(&tsk->thread.fpu, XFEATURE_CET_USER);
 	if (!state)
 		return -EINVAL;
 
@@ -207,7 +207,7 @@ static unsigned long get_user_shstk_addr(void)
 		 * null, XFEAUTRE_CET_USER is in init state.  Shadow stack
 		 * pointer is null in this case, so return zero.
 		 */
-		p = get_xsave_addr(&fpu->state.xsave, XFEATURE_CET_USER);
+		p = get_xsave_addr(fpu, XFEATURE_CET_USER);
 		if (p)
 			ssp = p->user_ssp;
 	}
