@@ -244,9 +244,8 @@ void fpstate_init(struct fpu *fpu)
 
 	if (likely(fpu)) {
 		state = fpu->state;
-		/* The dynamic user states are not prepared yet. */
-		mask = xfeatures_mask_all & ~xfeatures_mask_user_dynamic;
-		size = fpu_buf_cfg.min_size;
+		mask = fpu->state_mask;
+		size = calculate_xstate_buf_size_from_mask(fpu->state_mask);
 	} else {
 		state = &init_fpstate;
 		mask = xfeatures_mask_all;
@@ -283,14 +282,16 @@ int fpu_clone(struct task_struct *dst)
 	if (!cpu_feature_enabled(X86_FEATURE_FPU))
 		return 0;
 
+	/*
+	 * The child does not inherit the dynamic states. Thus, use the
+	 * buffer embedded in struct task_struct, which has the minimum
+	 * size.
+	 */
+	dst_fpu->state_mask = (xfeatures_mask_all & ~xfeatures_mask_user_dynamic);
 	dst_fpu->state = &dst_fpu->__default_state;
-
 	/*
 	 * Don't let 'init optimized' areas of the XSAVE area
 	 * leak into the child task:
-	 *
-	 * The child does not inherit the dynamic states. So,
-	 * the xstate buffer has the minimum size.
 	 */
 	memset(&dst_fpu->state->xsave, 0, fpu_buf_cfg.min_size);
 
@@ -397,6 +398,10 @@ static void fpu_reset_fpstate(void)
 	 * flush_thread().
 	 */
 	memcpy(fpu->state, &init_fpstate, init_fpstate_copy_size());
+	/* Adjust the xstate buffer format for current. */
+	if (cpu_feature_enabled(X86_FEATURE_XSAVES))
+		fpstate_init_xstate(&fpu->state->xsave, fpu->state_mask);
+
 	set_thread_flag(TIF_NEED_FPU_LOAD);
 	fpregs_unlock();
 }

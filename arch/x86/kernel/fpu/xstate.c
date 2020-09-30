@@ -10,6 +10,7 @@
 #include <linux/pkeys.h>
 #include <linux/seq_file.h>
 #include <linux/proc_fs.h>
+#include <linux/vmalloc.h>
 
 #include <asm/fpu/api.h>
 #include <asm/fpu/internal.h>
@@ -19,6 +20,7 @@
 
 #include <asm/tlbflush.h>
 #include <asm/cpufeature.h>
+#include <asm/trace/fpu.h>
 
 /*
  * Although we spell it out in here, the Processor Trace
@@ -84,6 +86,12 @@ static unsigned int xstate_comp_offsets[XFEATURE_MAX] __ro_after_init =
 	{ [ 0 ... XFEATURE_MAX - 1] = -1};
 static unsigned int xstate_supervisor_only_offsets[XFEATURE_MAX] __ro_after_init =
 	{ [ 0 ... XFEATURE_MAX - 1] = -1};
+/*
+ * True if the buffer of the corresponding XFEATURE is located on the next 64
+ * byte boundary. Otherwise, it follows the preceding component immediately.
+ */
+static bool xstate_64byte_aligned[XFEATURE_MAX] __ro_after_init =
+	{ [ 0 ... XFEATURE_MAX - 1] = false};
 
 struct fpu_xstate_buffer_config fpu_buf_cfg __ro_after_init;
 EXPORT_SYMBOL_GPL(fpu_buf_cfg);
@@ -137,6 +145,60 @@ static bool xfeature_is_supervisor(int xfeature_nr)
 
 	cpuid_count(XSTATE_CPUID, xfeature_nr, &eax, &ebx, &ecx, &edx);
 	return ecx & 1;
+}
+
+/**
+ * calculate_xstate_buf_size_from_mask - Calculate the amount of space
+ *					 needed to store an xstate buffer
+ *					 with the given features
+ * @mask:	The set of components for which the space is needed.
+ *
+ * Consults values populated in setup_xstate_features(). Must be called
+ * after that setup.
+ *
+ * Returns:	The buffer size
+ */
+unsigned int calculate_xstate_buf_size_from_mask(u64 mask)
+{
+	unsigned int size = FXSAVE_SIZE + XSAVE_HDR_SIZE;
+	int i, last_feature_nr;
+
+	if (!mask)
+		return 0;
+
+	/*
+	 * The minimum buffer size excludes the dynamic user state. When a
+	 * task uses the state, the buffer can grow up to the max size.
+	 */
+	if (mask == (xfeatures_mask_all & ~xfeatures_mask_user_dynamic))
+		return fpu_buf_cfg.min_size;
+	else if (mask == xfeatures_mask_all)
+		return fpu_buf_cfg.max_size;
+
+	last_feature_nr = fls64(mask) - 1;
+	if (last_feature_nr < FIRST_EXTENDED_XFEATURE)
+		return size;
+
+	/*
+	 * Each state offset in the non-compacted format is fixed. Take the
+	 * size from the last feature 'nr'.
+	 */
+	if (!cpu_feature_enabled(X86_FEATURE_XSAVES))
+		return xstate_offsets[last_feature_nr] + xstate_sizes[last_feature_nr];
+
+	/*
+	 * With the given mask, no relevant size is found so far. So,
+	 * calculate it by summing up each state size.
+	 */
+	for (i = FIRST_EXTENDED_XFEATURE; i <= last_feature_nr; i++) {
+		if (!(mask & BIT_ULL(i)))
+			continue;
+
+		if (xstate_64byte_aligned[i])
+			size = ALIGN(size, 64);
+		size += xstate_sizes[i];
+	}
+	return size;
 }
 
 /*
@@ -210,6 +272,7 @@ static void __init setup_xstate_features(void)
 			continue;
 
 		xstate_offsets[i] = ebx;
+		xstate_64byte_aligned[i] = (ecx & 2) ? true : false;
 
 		/*
 		 * In our xstate size checks, we assume that the highest-numbered
@@ -820,6 +883,12 @@ void __init fpu__init_system_xstate(void)
 		goto out_disable;
 
 	/*
+	 * Initially, the FPU buffer used is the static one, without
+	 * dynamic states.
+	 */
+	current->thread.fpu.state_mask = (xfeatures_mask_all & ~xfeatures_mask_user_dynamic);
+
+	/*
 	 * Update info used for ptrace frames; use standard-format size and no
 	 * supervisor xstates:
 	 */
@@ -1009,6 +1078,60 @@ int arch_set_user_pkey_access(struct task_struct *tsk, int pkey,
 }
 #endif /* ! CONFIG_ARCH_HAS_PKEYS */
 
+void free_xstate_buffer(struct fpu *fpu)
+{
+	vfree(fpu->state);
+}
+
+/**
+ * realloc_xstate_buffer - Re-alloc a buffer with the size calculated from
+ *			   @mask.
+ *
+ * @fpu:	A struct fpu * pointer
+ * @mask:	The bitmap tells which components to be reserved in the new
+ *		buffer.
+ *
+ * It deals with enlarging the xstate buffer with dynamic states.
+ *
+ * Use vzalloc() simply here. If the task with a vzalloc()-allocated buffer
+ * tends to terminate quickly, vfree()-induced IPIs may be a concern.
+ * Caching may be helpful for this. But the task with large state is likely
+ * to live longer.
+ *
+ * Also, this method does not shrink or reclaim the buffer.
+ *
+ * Returns 0 on success, -ENOMEM on allocation error.
+ */
+int realloc_xstate_buffer(struct fpu *fpu, u64 mask)
+{
+	union fpregs_state *state;
+	u64 state_mask;
+
+	state_mask = fpu->state_mask | mask;
+	if ((state_mask & fpu->state_mask) == state_mask)
+		return 0;
+
+	state = vzalloc(calculate_xstate_buf_size_from_mask(state_mask));
+	if (!state)
+		return -ENOMEM;
+
+	/*
+	 * As long as the register state is intact, save the xstate in the
+	 * new buffer at the next context switch or ptrace's context
+	 * injection.
+	 */
+	if (cpu_feature_enabled(X86_FEATURE_XSAVES))
+		fpstate_init_xstate(&state->xsave, state_mask);
+
+	/* Free the old buffer */
+	if (fpu->state != &fpu->__default_state)
+		free_xstate_buffer(fpu);
+
+	fpu->state = state;
+	fpu->state_mask = state_mask;
+	return 0;
+}
+
 static void copy_feature(bool from_xstate, struct membuf *to, void *xstate,
 			 void *init_xstate, unsigned int size)
 {
@@ -1160,6 +1283,8 @@ static int copy_uabi_to_xstate(struct fpu *fpu, const void *kbuf,
 
 	if (validate_user_xstate_header(&hdr))
 		return -EINVAL;
+
+	hdr.xfeatures &= fpu->state_mask;
 
 	/* Validate MXCSR when any of the related features is in use */
 	mask = XFEATURE_MASK_FP | XFEATURE_MASK_SSE | XFEATURE_MASK_YMM;
