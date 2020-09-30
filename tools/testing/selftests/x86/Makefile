@@ -19,7 +19,7 @@ TARGETS_C_32BIT_ONLY := entry_from_vm86 test_syscall_vdso unwind_vdso \
 			test_FCMOV test_FCOMI test_FISTTP \
 			vdso_restorer
 TARGETS_C_64BIT_ONLY := fsgsbase sysret_rip syscall_numbering \
-			corrupt_xstate_header
+			corrupt_xstate_header amx
 
 ifeq ($(CAN_BUILD_UINTR),1)
 TARGETS_C_64BIT_ONLY := $(TARGETS_C_64BIT_ONLY) uintr
