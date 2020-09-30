@@ -1175,6 +1175,45 @@ DEFINE_IDTENTRY(exc_device_not_available)
 {
 	unsigned long cr0 = read_cr0();
 
+	if (boot_cpu_has(X86_FEATURE_XFD)) {
+		u64 xfd_err;
+
+		rdmsrl_safe(MSR_IA32_XFD_ERR, &xfd_err);
+		wrmsrl_safe(MSR_IA32_XFD_ERR, 0);
+
+		if (xfd_err) {
+			u64 xfd_event = xfd_err & xfd_capable();
+
+			if (WARN_ON(!xfd_event)) {
+				/*
+				 * Unexpected event is raised. But update XFD state to
+				 * unblock the task.
+				 */
+				xfd_write(xfd_read() & ~xfd_err);
+			} else {
+				struct fpu *fpu = &current->thread.fpu;
+				int err = -1;
+
+				/*
+				 * Make sure not in interrupt context as handling a
+				 * trap from userspace.
+				 */
+				if (!WARN_ON(in_interrupt())) {
+					err = alloc_xstate_buffer(fpu, xfd_event);
+					if (!err)
+						xfd_write((fpu->state_mask & xfd_capable()) ^
+							  xfd_capable());
+				}
+
+				/* Raise a signal when it failed to handle. */
+				if (err)
+					force_sig_fault(SIGILL, ILL_ILLOPC,
+							error_get_trap_addr(regs));
+			}
+			return;
+		}
+	}
+
 #ifdef CONFIG_MATH_EMULATION
 	if (!boot_cpu_has(X86_FEATURE_FPU) && (cr0 & X86_CR0_EM)) {
 		struct math_emu_info info = { };
