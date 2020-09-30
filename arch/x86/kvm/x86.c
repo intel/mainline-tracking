@@ -4736,7 +4736,7 @@ static void fill_xsave(u8 *dest, struct kvm_vcpu *vcpu)
 			memcpy(dest + offset, &vcpu->arch.pkru,
 			       sizeof(vcpu->arch.pkru));
 		} else {
-			src = get_xsave_addr(xsave, xfeature_nr);
+			src = get_xsave_addr(vcpu->arch.guest_fpu, xfeature_nr);
 			if (src)
 				memcpy(dest + offset, src, size);
 		}
@@ -4779,7 +4779,7 @@ static void load_xsave(struct kvm_vcpu *vcpu, u8 *src)
 			memcpy(&vcpu->arch.pkru, src + offset,
 			       sizeof(vcpu->arch.pkru));
 		} else {
-			void *dest = get_xsave_addr(xsave, xfeature_nr);
+			void *dest = get_xsave_addr(vcpu->arch.guest_fpu, xfeature_nr);
 
 			if (dest)
 				memcpy(dest, src + offset, size);
@@ -10865,12 +10865,10 @@ void kvm_vcpu_reset(struct kvm_vcpu *vcpu, bool init_event)
 		 */
 		if (init_event)
 			kvm_put_guest_fpu(vcpu);
-		mpx_state_buffer = get_xsave_addr(&vcpu->arch.guest_fpu->state.xsave,
-					XFEATURE_BNDREGS);
+		mpx_state_buffer = get_xsave_addr(vcpu->arch.guest_fpu, XFEATURE_BNDREGS);
 		if (mpx_state_buffer)
 			memset(mpx_state_buffer, 0, sizeof(struct mpx_bndreg_state));
-		mpx_state_buffer = get_xsave_addr(&vcpu->arch.guest_fpu->state.xsave,
-					XFEATURE_BNDCSR);
+		mpx_state_buffer = get_xsave_addr(vcpu->arch.guest_fpu, XFEATURE_BNDCSR);
 		if (mpx_state_buffer)
 			memset(mpx_state_buffer, 0, sizeof(struct mpx_bndcsr));
 		if (init_event)
