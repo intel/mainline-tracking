@@ -546,7 +546,8 @@ static void __init print_xstate_offset_size(void)
 	 XFEATURE_MASK_BNDCSR |			\
 	 XFEATURE_MASK_CET_USER |		\
 	 XFEATURE_MASK_PASID |			\
-	 XFEATURE_MASK_UINTR)
+	 XFEATURE_MASK_UINTR |			\
+	 XFEATURE_MASK_XTILE)
 
 /*
  * setup the xstate image representing the init state
@@ -1066,6 +1067,9 @@ void __init fpu__init_system_xstate(void)
 
 	xfeatures_mask_all &= XFEATURE_MASK_USER_SUPPORTED |
 			      XFEATURE_MASK_SUPERVISOR_SUPPORTED;
+
+	if (!IS_ENABLED(CONFIG_X86_64))
+		xfeatures_mask_all &= ~XFEATURE_MASK_XTILE;
 
 	/* Store it for paranoia check at the end */
 	xfeatures = xfeatures_mask_all;
