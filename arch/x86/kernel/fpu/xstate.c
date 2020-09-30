@@ -1290,6 +1290,7 @@ void copy_xstate_to_uabi_buf(struct membuf to, struct task_struct *tsk,
 	zerofrom = offsetof(struct xregs_state, extended_state_area);
 
 	for (i = FIRST_EXTENDED_XFEATURE; i < XFEATURE_MAX; i++) {
+		u64 mask = BIT_ULL(i);
 		/*
 		 * The ptrace buffer is in non-compacted XSAVE format.
 		 * In non-compacted format disabled features still occupy
@@ -1297,7 +1298,7 @@ void copy_xstate_to_uabi_buf(struct membuf to, struct task_struct *tsk,
 		 * compacted init_fpstate. The gap tracking will zero this
 		 * later.
 		 */
-		if (!(xfeatures_mask_uabi() & BIT_ULL(i)))
+		if (!(xfeatures_mask_uabi() & mask))
 			continue;
 
 		/*
@@ -1317,10 +1318,24 @@ void copy_xstate_to_uabi_buf(struct membuf to, struct task_struct *tsk,
 			pkru.pkru = tsk->thread.pkru;
 			membuf_write(&to, &pkru, sizeof(pkru));
 		} else {
-			copy_feature(header.xfeatures & BIT_ULL(i), &to,
-				     __raw_xsave_addr(&tsk->thread.fpu, i),
-				     __raw_xsave_addr(NULL, i),
-				     xstate_sizes[i]);
+			unsigned int size = xstate_sizes[i];
+			void *from = NULL;
+
+			/*
+			 * Copy the xstate if available. Otherwise, copy the
+			 * non-zero init states for legacy states (FP and
+			 * SSE) or fill zeros.
+			 */
+
+			if (header.xfeatures & mask)
+				from = __raw_xsave_addr(&tsk->thread.fpu, i);
+			else if (XFEATURE_MASK_FPSSE & mask)
+				from = __raw_xsave_addr(NULL, i);
+
+			if (from)
+				membuf_write(&to, from, size);
+			else
+				membuf_zero(&to, size);
 		}
 		/*
 		 * Keep track of the last copied state in the non-compacted
@@ -1362,6 +1377,8 @@ static int copy_uabi_to_xstate(struct fpu *fpu, const void *kbuf,
 	if (validate_user_xstate_header(&hdr))
 		return -EINVAL;
 
+	hdr.xfeatures &= fpu->state_mask;
+
 	/* Validate MXCSR when any of the related features is in use */
 	mask = XFEATURE_MASK_FP | XFEATURE_MASK_SSE | XFEATURE_MASK_YMM;
 	if (hdr.xfeatures & mask) {
@@ -1387,6 +1404,9 @@ static int copy_uabi_to_xstate(struct fpu *fpu, const void *kbuf,
 
 		if (hdr.xfeatures & mask) {
 			void *dst = __raw_xsave_addr(fpu, i);
+
+			if (!dst)
+				continue;
 
 			offset = xstate_offsets[i];
 			size = xstate_sizes[i];
