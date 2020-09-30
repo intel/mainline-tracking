@@ -148,9 +148,35 @@ static bool xfeature_is_supervisor(int xfeature_nr)
 }
 
 /**
+ * get_xstate_comp_offset - Find the feature offset in the compacted format.
+ * @mask:	The set of components located in the compacted format
+ * @feature_nr:	The feature number
+ *
+ * Returns:	The offset value
+ */
+static unsigned int get_xstate_comp_offset(u64 mask, int feature_nr)
+{
+	unsigned int next_offset, offset = 0;
+	int i;
+
+	if (feature_nr < FIRST_EXTENDED_XFEATURE)
+		return xstate_comp_offsets[feature_nr];
+
+	for (next_offset = FXSAVE_SIZE + XSAVE_HDR_SIZE, i = FIRST_EXTENDED_XFEATURE;
+	     i <= feature_nr; i++) {
+		if (!(mask & BIT_ULL(i)))
+			continue;
+
+		offset = xstate_64byte_aligned[i] ? ALIGN(next_offset, 64) : next_offset;
+		next_offset += xstate_sizes[i];
+	}
+	return offset;
+}
+
+/**
  * calculate_xstate_buf_size_from_mask - Calculate the amount of space
- *					 needed to store an xstate buffer
- *					 with the given features
+ *					 needed to store buffer with the
+ *					 given features.
  * @mask:	The set of components for which the space is needed.
  *
  * Consults values populated in setup_xstate_features(). Must be called
@@ -160,8 +186,8 @@ static bool xfeature_is_supervisor(int xfeature_nr)
  */
 unsigned int calculate_xstate_buf_size_from_mask(u64 mask)
 {
-	unsigned int size = FXSAVE_SIZE + XSAVE_HDR_SIZE;
-	int i, last_feature_nr;
+	unsigned int offset;
+	int last_feature_nr;
 
 	if (!mask)
 		return 0;
@@ -177,7 +203,7 @@ unsigned int calculate_xstate_buf_size_from_mask(u64 mask)
 
 	last_feature_nr = fls64(mask) - 1;
 	if (last_feature_nr < FIRST_EXTENDED_XFEATURE)
-		return size;
+		return FXSAVE_SIZE + XSAVE_HDR_SIZE;
 
 	/*
 	 * Each state offset in the non-compacted format is fixed. Take the
@@ -190,15 +216,8 @@ unsigned int calculate_xstate_buf_size_from_mask(u64 mask)
 	 * With the given mask, no relevant size is found so far. So,
 	 * calculate it by summing up each state size.
 	 */
-	for (i = FIRST_EXTENDED_XFEATURE; i <= last_feature_nr; i++) {
-		if (!(mask & BIT_ULL(i)))
-			continue;
-
-		if (xstate_64byte_aligned[i])
-			size = ALIGN(size, 64);
-		size += xstate_sizes[i];
-	}
-	return size;
+	offset = get_xstate_comp_offset(mask, last_feature_nr);
+	return offset + xstate_sizes[last_feature_nr];
 }
 
 /*
@@ -957,19 +976,29 @@ void fpu__resume_cpu(void)
  */
 static void *__raw_xsave_addr(struct fpu *fpu, int xfeature_nr)
 {
+	unsigned int offset;
 	void *xsave;
 
 	if (!xfeature_enabled(xfeature_nr)) {
-		WARN_ON_FPU(1);
-		return NULL;
-	}
-
-	if (fpu)
-		xsave = &fpu->state->xsave;
-	else
+		goto not_found;
+	} else if (!fpu) {
 		xsave = &init_fpstate.xsave;
 
-	return xsave + xstate_comp_offsets[xfeature_nr];
+		offset = get_xstate_comp_offset(xfeatures_mask_all, xfeature_nr);
+		if (offset > sizeof(init_fpstate))
+			goto not_found;
+	} else if (!(fpu->state_mask & BIT_ULL(xfeature_nr))) {
+		goto not_found;
+	} else {
+		xsave = &fpu->state->xsave;
+		offset = get_xstate_comp_offset(fpu->state_mask, xfeature_nr);
+	}
+
+	return xsave + offset;
+
+not_found:
+	WARN_ON_FPU(1);
+	return NULL;
 }
 /*
  * Given the xsave area and a state inside, this function returns the
