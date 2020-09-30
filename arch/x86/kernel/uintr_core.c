@@ -306,7 +306,7 @@ static void teardown_uitt(void)
 	} else {
 		struct uintr_state *p;
 
-		p = get_xsave_addr(&fpu->state.xsave, XFEATURE_UINTR);
+		p = get_xsave_addr(fpu, XFEATURE_UINTR);
 		if (p) {
 			p->uitt_size = 0;
 			p->uitt_addr = 0;
@@ -349,7 +349,7 @@ static int init_uitt(void)
 
 		xsave = &fpu->state.xsave;
 		xsave->header.xfeatures |= XFEATURE_MASK_UINTR;
-		p = get_xsave_addr(&fpu->state.xsave, XFEATURE_UINTR);
+		p = get_xsave_addr(fpu, XFEATURE_UINTR);
 		if (p) {
 			p->uitt_size = UINTR_MAX_UITT_NR;
 			p->uitt_addr = (u64)ui_send->uitt_ctx->uitt | 1;
@@ -587,7 +587,7 @@ int do_uintr_unregister_handler(void)
 	} else {
 		struct uintr_state *p;
 
-		p = get_xsave_addr(&fpu->state.xsave, XFEATURE_UINTR);
+		p = get_xsave_addr(fpu, XFEATURE_UINTR);
 		if (p) {
 			p->handler = 0;
 			p->stack_adjust = 0;
@@ -672,7 +672,7 @@ int do_uintr_register_handler(u64 handler)
 
 		xsave = &fpu->state.xsave;
 		xsave->header.xfeatures |= XFEATURE_MASK_UINTR;
-		p = get_xsave_addr(&fpu->state.xsave, XFEATURE_UINTR);
+		p = get_xsave_addr(fpu, XFEATURE_UINTR);
 		if (p) {
 			p->handler = handler;
 			p->upid_addr = (u64)ui_recv->upid_ctx->upid;
@@ -842,7 +842,7 @@ void uintr_free(struct task_struct *t)
 	} else {
 		struct uintr_state *p;
 
-		p = get_xsave_addr(&fpu->state.xsave, XFEATURE_UINTR);
+		p = get_xsave_addr(fpu, XFEATURE_UINTR);
 		if (p) {
 			p->handler = 0;
 			p->uirr = 0;
