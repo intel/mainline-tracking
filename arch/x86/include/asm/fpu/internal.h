@@ -535,14 +535,35 @@ static inline void switch_fpu_prepare(struct fpu *old_fpu, int cpu)
  * Misc helper functions:
  */
 
+/**
+ * xfd_switch - Switches the MSR IA32_XFD context if needed.
+ * @prev:	The previous task's struct fpu pointer
+ * @next:	The next task's struct fpu pointer
+ */
+static inline void xfd_switch(struct fpu *prev, struct fpu *next)
+{
+	u64 prev_xfd_mask, next_xfd_mask;
+
+	if (!cpu_feature_enabled(X86_FEATURE_XFD) || !xfeatures_mask_user_dynamic)
+		return;
+
+	prev_xfd_mask = prev->state_mask & xfeatures_mask_user_dynamic;
+	next_xfd_mask = next->state_mask & xfeatures_mask_user_dynamic;
+
+	if (unlikely(prev_xfd_mask != next_xfd_mask))
+		wrmsrl_safe(MSR_IA32_XFD, xfeatures_mask_user_dynamic ^ next_xfd_mask);
+}
+
 /*
  * Delay loading of the complete FPU state until the return to userland.
  * PKRU is handled separately.
  */
-static inline void switch_fpu_finish(struct fpu *new_fpu)
+static inline void switch_fpu_finish(struct fpu *old_fpu, struct fpu *new_fpu)
 {
-	if (cpu_feature_enabled(X86_FEATURE_FPU))
+	if (cpu_feature_enabled(X86_FEATURE_FPU)) {
 		set_thread_flag(TIF_NEED_FPU_LOAD);
+		xfd_switch(old_fpu, new_fpu);
+	}
 }
 
 #endif /* _ASM_X86_FPU_INTERNAL_H */

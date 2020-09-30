@@ -105,6 +105,16 @@ void arch_thread_struct_whitelist(unsigned long *offset, unsigned long *size)
 	*size = fpu_buf_cfg.min_size;
 }
 
+void arch_release_task_struct(struct task_struct *task)
+{
+	if (!cpu_feature_enabled(X86_FEATURE_FPU))
+		return;
+
+	/* Free up only the dynamically-allocated memory. */
+	if (task->thread.fpu.state != &task->thread.fpu.__default_state)
+		free_xstate_buffer(&task->thread.fpu);
+}
+
 /*
  * Free thread data structures etc..
  */
