@@ -5,6 +5,7 @@
 #include <asm/fpu/internal.h>
 #include <asm/tlbflush.h>
 #include <asm/setup.h>
+#include <asm/cmdline.h>
 
 #include <linux/sched.h>
 #include <linux/sched/task.h>
@@ -213,6 +214,40 @@ static void __init fpu__init_system_xstate_size_legacy(void)
 	set_xstate_config(XSTATE_USER_MINSIG_SIZE, xstate_size);
 }
 
+/*
+ * Find supported xfeatures based on cpu features and command-line input.
+ * This must be called after fpu__init_parse_early_param() is called and
+ * xfeatures_mask_all is enumerated.
+ */
+
+bool amx_enable = true;
+bool amx_abi = false;
+
+bool check_task_state_perm(struct task_struct *tsk, u64 state_mask)
+{
+	bool perm;
+
+	perm = ((state_mask & tsk->thread.fpu.dynamic_state_perm) == state_mask);
+	if (!amx_abi) {
+		if (!perm)
+			WARN(1, "x86/fpu:[%d] ARCH_SET_STATE_ENABLE was missing.\n",
+			     task_pid_nr(tsk));
+		perm = true;
+	}
+	return perm;
+}
+
+u64 __init fpu__get_supported_xfeatures_mask(void)
+{
+	u64 mask = XFEATURE_MASK_USER_SUPPORTED | XFEATURE_MASK_SUPERVISOR_SUPPORTED;
+
+	if (!IS_ENABLED(CONFIG_X86_64) || !amx_enable) {
+		mask  &= ~(XFEATURE_MASK_XTILE);
+	}
+
+	return mask;
+}
+
 /* Legacy code to initialize eager fpu mode. */
 static void __init fpu__init_system_ctx_switch(void)
 {
@@ -222,12 +257,27 @@ static void __init fpu__init_system_ctx_switch(void)
 	on_boot_cpu = 0;
 }
 
+static void __init fpu__init_parse_early_param(void)
+{
+	char arg[20];
+
+	if (cmdline_find_option(boot_command_line, "amx", arg, sizeof(arg))) {
+		if (!strcmp(arg, "off"))
+			amx_abi = true;
+		else if (!strcmp(arg, "on"))
+			amx_abi = false;
+		else if (!strcmp(arg, "disable"))
+			amx_enable = false;
+	}
+}
+
 /*
  * Called on the boot CPU once per system bootup, to set up the initial
  * FPU state that is later cloned into all processes:
  */
 void __init fpu__init_system(struct cpuinfo_x86 *c)
 {
+	fpu__init_parse_early_param();
 	fpu__init_system_early_generic(c);
 
 	/*
