@@ -191,6 +191,26 @@ static bool xfeature_is_supervisor(int xfeature_nr)
 }
 
 /**
+ * xfd_supported - Check if the feature supports Extended Feature Disable (XFD).
+ * @feature_nr:	The feature number.
+ *
+ * Returns:	True if supported; otherwise, false.
+ */
+static bool xfd_supported(int feature_nr)
+{
+	u32 eax, ebx, ecx, edx;
+
+	if (!boot_cpu_has(X86_FEATURE_XFD))
+		return false;
+
+	/*
+	 * If state component 'i' supports it, ECX[2] return 1; otherwise, 0.
+	 */
+	cpuid_count(XSTATE_CPUID, feature_nr, &eax, &ebx, &ecx, &edx);
+	return ecx & 4;
+}
+
+/**
  * get_xstate_comp_offset - Find the feature's offset in the compacted
  *			    format.
  * @mask:	This bitmap tells which components reserved in the format.
@@ -282,6 +302,9 @@ void fpu__init_cpu_xstate(void)
 		wrmsrl(MSR_IA32_XSS, xfeatures_mask_supervisor() |
 				     xfeatures_mask_independent());
 	}
+
+	if (boot_cpu_has(X86_FEATURE_XFD))
+		xfd_write(xfd_capable());
 }
 
 static bool xfeature_enabled(enum xfeature xfeature)
@@ -484,8 +507,9 @@ static void __init print_xstate_offset_size(void)
 	for (i = FIRST_EXTENDED_XFEATURE; i < XFEATURE_MAX; i++) {
 		if (!xfeature_enabled(i))
 			continue;
-		pr_info("x86/fpu: xstate_offset[%d]: %4d, xstate_sizes[%d]: %4d\n",
-			 i, xstate_comp_offsets[i], i, xstate_sizes[i]);
+		pr_info("x86/fpu: xstate_offset[%d]: %4d, xstate_sizes[%d]: %4d (%s)\n",
+			i, xstate_comp_offsets[i], i, xstate_sizes[i],
+			(xfeatures_mask_user_dynamic & BIT_ULL(i)) ? "dynamic" : "default");
 	}
 }
 
@@ -937,6 +961,16 @@ void __init fpu__init_system_xstate(void)
 	/* Do not support the dynamically allocated buffer yet. */
 	xfeatures_mask_user_dynamic = 0;
 
+	for (i = FIRST_EXTENDED_XFEATURE; i < XFEATURE_MAX; i++) {
+		u64 feature_mask = BIT_ULL(i);
+
+		if (!(xfeatures_mask_uabi() & feature_mask))
+			continue;
+
+		if (xfd_supported(i))
+			xfeatures_mask_user_dynamic |= feature_mask;
+	}
+
 	/* Enable xstate instructions to be able to continue with initialization: */
 	fpu__init_cpu_xstate();
 	err = init_xstate_size();
@@ -997,6 +1031,12 @@ void fpu__resume_cpu(void)
 	if (cpu_feature_enabled(X86_FEATURE_XSAVES)) {
 		wrmsrl(MSR_IA32_XSS, xfeatures_mask_supervisor()  |
 				     xfeatures_mask_independent());
+	}
+
+	if (boot_cpu_has(X86_FEATURE_XFD)) {
+		u64 fpu_xfd_mask = current->thread.fpu.state_mask & xfd_capable();
+
+		xfd_write(xfd_capable() ^ fpu_xfd_mask);
 	}
 }
 
