@@ -325,6 +325,17 @@
 			Format: <a>,<b>
 			See also Documentation/input/joydev/joystick.rst
 
+	amx=		[X86-64]
+			disable     - for admin to be able to permanently
+			              diable AMX on a booted kernel.
+			on          - a debug option to allow all processes
+			              to access AMX state without invoking
+			              the system call.
+			off         - the default -- AMX is enabled, but it
+			              is of by default for all processes,
+			              until they successfully invoke the
+			              system call.
+
 	analog.map=	[HW,JOY] Analog joystick and gamepad support
 			Specifies type or capabilities of an analog joystick
 			connected to one of 16 gameports

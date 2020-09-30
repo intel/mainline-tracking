@@ -1199,7 +1199,7 @@ DEFINE_IDTENTRY(exc_device_not_available)
 				 * and not in interrupt context as handling a trap from
 				 * userspace.
 				 */
-				if (((xfd_event & fpu->dynamic_state_perm) == xfd_event) &&
+				if (check_task_state_perm(current, xfd_event) &&
 				    !WARN_ON(in_interrupt())) {
 					err = alloc_xstate_buffer(fpu, xfd_event);
 					if (!err)

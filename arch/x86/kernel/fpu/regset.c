@@ -181,7 +181,7 @@ int xstateregs_set(struct task_struct *target, const struct user_regset *regset,
 		/* Check the permission and expand the xstate buffer. */
 		dynstate_mask = state_mask & xfeatures_mask_user_dynamic;
 		if (dynstate_mask) {
-			if ((dynstate_mask & fpu->dynamic_state_perm) != dynstate_mask) {
+			if (!check_task_state_perm(target, dynstate_mask)) {
 				ret = -EFAULT;
 				goto out;
 			}
