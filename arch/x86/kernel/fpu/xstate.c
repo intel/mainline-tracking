@@ -1167,6 +1167,30 @@ static void copy_feature(bool from_xstate, struct membuf *to, void *xstate,
 	membuf_write(to, from_xstate ? xstate : init_xstate, size);
 }
 
+static void copy_extended_feature(struct membuf *to, struct fpu *fpu,
+				  struct xstate_header *hdr,
+				  int feature_nr)
+{
+	unsigned int size = xstate_sizes[feature_nr];
+	u64 mask = BIT_ULL(feature_nr);
+	void *from = NULL;
+
+	/*
+	 * Copy from the XSTATE buffer if available. Otherwise, write the
+	 * init value as recorded for legacy states (FP and SSE) or as
+	 * zeros for others.
+	 */
+	if (hdr->xfeatures & mask) {
+		from = __raw_xsave_addr(fpu, feature_nr);
+		membuf_write(to, from, size);
+	} else if (XFEATURE_MASK_FPSSE & mask) {
+		from = __raw_xsave_addr(NULL, feature_nr);
+		membuf_write(to, from, size);
+	} else {
+		membuf_zero(to, size);
+	}
+}
+
 /**
  * copy_xstate_to_uabi_buf - Copy kernel saved xstate to a UABI buffer
  * @to:		membuf descriptor
@@ -1268,10 +1292,7 @@ void copy_xstate_to_uabi_buf(struct membuf to, struct task_struct *tsk,
 			pkru.pkru = tsk->thread.pkru;
 			membuf_write(&to, &pkru, sizeof(pkru));
 		} else {
-			copy_feature(header.xfeatures & BIT_ULL(i), &to,
-				     __raw_xsave_addr(&tsk->thread.fpu, i),
-				     __raw_xsave_addr(NULL, i),
-				     xstate_sizes[i]);
+			copy_extended_feature(&to, &tsk->thread.fpu, &header, i);
 		}
 		/*
 		 * Keep track of the last copied state in the non-compacted
