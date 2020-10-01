@@ -20,11 +20,10 @@ static bool driver_unload;
 static int intel_xpcie_probe(struct pci_dev *pdev,
 			     const struct pci_device_id *ent)
 {
-	int ret = 0;
-	u32 sw_devid = 0;
-	u32 hw_id = 0;
+	u32 hw_id = 0, sw_devid = 0;
 	bool new_device = false;
 	struct xpcie_dev *xdev;
+	int ret = 0;
 
 	hw_id = ((u16)pdev->bus->number << 8) | PCI_SLOT(pdev->devfn);
 
