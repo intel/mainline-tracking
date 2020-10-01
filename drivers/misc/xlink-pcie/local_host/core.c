@@ -72,16 +72,17 @@ static void intel_xpcie_unmap_dma(struct xpcie *xpcie,
 
 static void intel_xpcie_set_cap_txrx(struct xpcie *xpcie)
 {
-	struct xpcie_cap_txrx *cap;
-	struct xpcie_cap_hdr *hdr;
-	u32 start = sizeof(struct xpcie_mmio);
 	size_t hdr_len = sizeof(struct xpcie_cap_txrx);
 	size_t tx_len = sizeof(struct xpcie_transfer_desc) *
 				XPCIE_NUM_TX_DESCS;
 	size_t rx_len = sizeof(struct xpcie_transfer_desc) *
 				XPCIE_NUM_RX_DESCS;
-	u16 next = (u16)(start + hdr_len + tx_len + rx_len);
+	u32 start = sizeof(struct xpcie_mmio);
+	struct xpcie_cap_txrx *cap;
+	struct xpcie_cap_hdr *hdr;
+	u16 next;
 
+	next = (u16)(start + hdr_len + tx_len + rx_len);
 	xpcie->mmio->cap_offset = start;
 	cap = (void *)xpcie->mmio + start;
 	memset(cap, 0, sizeof(struct xpcie_cap_txrx));
@@ -167,14 +168,13 @@ static void intel_xpcie_txrx_cleanup(struct xpcie *xpcie)
 static int intel_xpcie_txrx_init(struct xpcie *xpcie,
 				 struct xpcie_cap_txrx *cap)
 {
-	int index;
-	int ndesc;
-	struct xpcie_buf_desc *bd;
-	struct xpcie_stream *tx = &xpcie->tx;
-	struct xpcie_stream *rx = &xpcie->rx;
 	struct xpcie_epf *xpcie_epf = container_of(xpcie,
 						   struct xpcie_epf, xpcie);
 	struct device *dma_dev = xpcie_epf->epf->epc->dev.parent;
+	struct xpcie_stream *tx = &xpcie->tx;
+	struct xpcie_stream *rx = &xpcie->rx;
+	struct xpcie_buf_desc *bd;
+	int index, ndesc;
 
 	xpcie->txrx = cap;
 	xpcie->fragment_size = cap->fragment_size;
@@ -272,8 +272,8 @@ error:
 
 static int intel_xpcie_discover_txrx(struct xpcie *xpcie)
 {
-	int error;
 	struct xpcie_cap_txrx *cap;
+	int error;
 
 	cap = intel_xpcie_cap_find(xpcie, 0, XPCIE_CAP_TXRX);
 	if (cap) {
@@ -302,21 +302,18 @@ static void intel_xpcie_start_rx(struct xpcie *xpcie, unsigned long delay)
 static void intel_xpcie_rx_event_handler(struct work_struct *work)
 {
 	struct xpcie *xpcie = container_of(work, struct xpcie, rx_event.work);
-	int rc;
-	u16 interface;
-	u32 head, tail, ndesc, length;
-	u64 address;
-	u32 initial_head;
-	int descs_num = 0;
-	int chan = 0;
-	struct xpcie_stream *rx = &xpcie->rx;
 	struct xpcie_epf *xpcie_epf = container_of(xpcie,
 						   struct xpcie_epf, xpcie);
-	struct xpcie_dma_ll_desc *desc;
 	struct xpcie_buf_desc *bd_head, *bd_tail, *bd;
-	struct xpcie_transfer_desc *td;
+	u32 head, tail, ndesc, length, initial_head;
 	unsigned long delay = msecs_to_jiffies(1);
+	struct xpcie_stream *rx = &xpcie->rx;
+	struct xpcie_dma_ll_desc *desc;
+	struct xpcie_transfer_desc *td;
+	int descs_num = 0, chan = 0, rc;
 	bool reset_work = false;
+	u16 interface;
+	u64 address;
 
 	intel_xpcie_debug_incr(xpcie, &xpcie->stats.rx_event_runs, 1);
 
@@ -435,20 +432,16 @@ task_exit:
 static void intel_xpcie_tx_event_handler(struct work_struct *work)
 {
 	struct xpcie *xpcie = container_of(work, struct xpcie, tx_event.work);
-
-	int rc;
-	u32 head, tail, ndesc;
-	u64 address;
-	u32 initial_tail;
-	int descs_num = 0;
-	int chan = 0;
-	struct xpcie_stream *tx = &xpcie->tx;
 	struct xpcie_epf *xpcie_epf = container_of(xpcie,
 						   struct xpcie_epf, xpcie);
-	struct xpcie_dma_ll_desc *desc;
 	struct xpcie_buf_desc *bd_head, *bd_tail, *bd;
+	struct xpcie_stream *tx = &xpcie->tx;
+	u32 head, tail, ndesc, initial_tail;
+	struct xpcie_dma_ll_desc *desc;
 	struct xpcie_transfer_desc *td;
 	size_t bytes = 0, buffers = 0;
+	int descs_num = 0, chan = 0, rc;
+	u64 address;
 
 	intel_xpcie_debug_incr(xpcie, &xpcie->stats.tx_event_runs, 1);
 
@@ -608,9 +601,9 @@ static void intel_xpcie_events_cleanup(struct xpcie *xpcie)
 
 int intel_xpcie_core_init(struct xpcie *xpcie)
 {
-	int error;
 	struct xpcie_epf *xpcie_epf = container_of(xpcie,
 						   struct xpcie_epf, xpcie);
+	int error;
 
 	intel_xpcie_init_debug(xpcie, &xpcie_epf->epf->dev);
 
@@ -663,15 +656,16 @@ void intel_xpcie_core_cleanup(struct xpcie *xpcie)
 int intel_xpcie_core_read(struct xpcie *xpcie, void *buffer,
 			  size_t *length, u32 timeout_ms)
 {
-	int ret = 0;
-	struct xpcie_interface *inf = &xpcie->interfaces[0];
-	size_t len = *length;
-	size_t remaining = len;
-	struct xpcie_buf_desc *bd;
-	unsigned long jiffies_start = jiffies;
-	long jiffies_passed = 0;
 	long jiffies_timeout = (long)msecs_to_jiffies(timeout_ms);
+	struct xpcie_interface *inf = &xpcie->interfaces[0];
+	unsigned long jiffies_start = jiffies;
+	struct xpcie_buf_desc *bd;
+	long jiffies_passed = 0;
+	size_t len, remaining;
+	int ret = 0;
 
+	len = *length;
+	remaining = len;
 	*length = 0;
 	if (len == 0)
 		return -EINVAL;
@@ -753,15 +747,16 @@ int intel_xpcie_core_read(struct xpcie *xpcie, void *buffer,
 int intel_xpcie_core_write(struct xpcie *xpcie, void *buffer,
 			   size_t *length, u32 timeout_ms)
 {
-	int ret;
-	size_t len = *length;
-	size_t remaining = len;
-	struct xpcie_interface *inf = &xpcie->interfaces[0];
-	struct xpcie_buf_desc *bd, *head;
-	unsigned long jiffies_start = jiffies;
-	long jiffies_passed = 0;
 	long jiffies_timeout = (long)msecs_to_jiffies(timeout_ms);
+	struct xpcie_interface *inf = &xpcie->interfaces[0];
+	unsigned long jiffies_start = jiffies;
+	struct xpcie_buf_desc *bd, *head;
+	long jiffies_passed = 0;
+	size_t remaining, len;
+	int ret;
 
+	len = *length;
+	remaining = len;
 	*length = 0;
 	if (len == 0)
 		return -EINVAL;

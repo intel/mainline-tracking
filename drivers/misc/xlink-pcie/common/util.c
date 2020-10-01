@@ -347,8 +347,8 @@ void intel_xpcie_add_bd_to_interface(struct xpcie *xpcie,
 static ssize_t debug_show(struct device *dev, struct device_attribute *attr,
 			  char *buf)
 {
-	struct xpcie *xpcie;
 	size_t bytes, tx_list_num, rx_list_num, tx_pool_num, rx_pool_num;
+	struct xpcie *xpcie;
 
 	xpcie = intel_xpcie_dev_to_xpcie(dev);
 	if (!xpcie)
@@ -386,9 +386,9 @@ static ssize_t debug_show(struct device *dev, struct device_attribute *attr,
 static ssize_t debug_store(struct device *dev, struct device_attribute *attr,
 			   const char *buf, size_t count)
 {
+	struct xpcie *xpcie;
 	long value;
 	int rc;
-	struct xpcie *xpcie;
 
 	xpcie = intel_xpcie_dev_to_xpcie(dev);
 	if (!xpcie)

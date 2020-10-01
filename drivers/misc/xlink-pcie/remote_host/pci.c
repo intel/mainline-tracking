@@ -102,8 +102,8 @@ struct xpcie *intel_xpcie_dev_to_xpcie(struct device *dev)
 
 static void intel_xpcie_pci_set_aspm(struct xpcie_dev *xdev, int aspm)
 {
-	u8 cap_exp;
 	u16 link_control;
+	u8 cap_exp;
 
 	cap_exp = pci_find_capability(xdev->pci, PCI_CAP_ID_EXP);
 	if (!cap_exp) {
@@ -184,8 +184,7 @@ static void intel_xpcie_pci_irq_cleanup(struct xpcie_dev *xdev)
 static int intel_xpcie_pci_irq_init(struct xpcie_dev *xdev,
 				    irq_handler_t irq_handler)
 {
-	int irq;
-	int rc;
+	int rc, irq;
 
 	rc = pci_alloc_irq_vectors(xdev->pci, 1, 1, PCI_IRQ_MSI);
 	if (rc < 0) {
@@ -390,8 +389,8 @@ int intel_xpcie_pci_raise_irq(struct xpcie_dev *xdev,
 
 u32 intel_xpcie_get_device_num(u32 *id_list)
 {
-	u32 num = 0;
 	struct xpcie_dev *p;
+	u32 num = 0;
 
 	mutex_lock(&dev_list_mutex);
 

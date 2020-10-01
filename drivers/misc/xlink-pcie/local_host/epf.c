@@ -65,11 +65,11 @@ u32 xlink_sw_id;
 
 static irqreturn_t intel_xpcie_err_interrupt(int irq, void *args)
 {
+	struct xpcie_epf *xpcie_epf;
 	struct xpcie *xpcie = args;
-	struct xpcie_epf *xpcie_epf = container_of(xpcie,
-						   struct xpcie_epf, xpcie);
 	u32 val;
 
+	xpcie_epf = container_of(xpcie, struct xpcie_epf, xpcie);
 	val = ioread32(xpcie_epf->apb_base + PCIE_REGS_PCIE_ERR_INTR_FLAGS);
 	if (val & LINK_REQ_RST_FLG)
 		intel_xpcie_ep_dma_reset(xpcie_epf->epf);
@@ -81,12 +81,12 @@ static irqreturn_t intel_xpcie_err_interrupt(int irq, void *args)
 
 static irqreturn_t intel_xpcie_host_interrupt(int irq, void *args)
 {
+	struct xpcie_epf *xpcie_epf;
 	struct xpcie *xpcie = args;
-	struct xpcie_epf *xpcie_epf = container_of(xpcie,
-						   struct xpcie_epf, xpcie);
-	u32 val;
 	u8 event;
+	u32 val;
 
+	xpcie_epf = container_of(xpcie, struct xpcie_epf, xpcie);
 	val = ioread32(xpcie_epf->apb_base + PCIE_REGS_PCIE_INTR_FLAGS);
 	if (val & LBC_CII_EVENT_FLAG) {
 		iowrite32(LBC_CII_EVENT_FLAG,
@@ -202,8 +202,8 @@ static int intel_xpcie_configure_bar(struct pci_epf *epf,
 {
 	struct pci_epf_bar *epf_bar;
 	bool bar_fixed_64bit;
-	int i;
 	int ret;
+	int i;
 
 	for (i = BAR_0; i <= BAR_5; i++) {
 		epf_bar = &epf->bar[i];
@@ -235,8 +235,8 @@ static int intel_xpcie_configure_bar(struct pci_epf *epf,
 
 static void intel_xpcie_cleanup_bar(struct pci_epf *epf, enum pci_barno barno)
 {
-	struct pci_epc *epc = epf->epc;
 	struct xpcie_epf *xpcie_epf = epf_get_drvdata(epf);
+	struct pci_epc *epc = epf->epc;
 
 	if (xpcie_epf->vaddr[barno]) {
 		pci_epc_clear_bar(epc, epf->func_no, &epf->bar[barno]);
@@ -259,11 +259,11 @@ static void intel_xpcie_cleanup_bars(struct pci_epf *epf)
 static int intel_xpcie_setup_bar(struct pci_epf *epf, enum pci_barno barno,
 				 size_t min_size, size_t align)
 {
-	int ret;
-	void *vaddr = NULL;
-	struct pci_epc *epc = epf->epc;
 	struct xpcie_epf *xpcie_epf = epf_get_drvdata(epf);
 	struct pci_epf_bar *bar = &epf->bar[barno];
+	struct pci_epc *epc = epf->epc;
+	void *vaddr = NULL;
+	int ret;
 
 	bar->flags |= PCI_BASE_ADDRESS_MEM_TYPE_64;
 	if (!bar->size)
@@ -321,9 +321,9 @@ static int intel_xpcie_setup_bars(struct pci_epf *epf, size_t align)
 static int intel_xpcie_epf_get_platform_data(struct device *dev,
 					     struct xpcie_epf *xpcie_epf)
 {
-	struct resource *res;
 	struct platform_device *pdev = to_platform_device(dev);
 	struct device_node *soc_node, *version_node;
+	struct resource *res;
 	const char *prop;
 	int prop_size;
 
@@ -379,19 +379,20 @@ static int intel_xpcie_epf_get_platform_data(struct device *dev,
 
 static int intel_xpcie_epf_bind(struct pci_epf *epf)
 {
-	struct pci_epc *epc = epf->epc;
 	struct xpcie_epf *xpcie_epf = epf_get_drvdata(epf);
-	struct device *dev = epc->dev.parent;
 	const struct pci_epc_features *features;
+	struct pci_epc *epc = epf->epc;
 	bool msi_capable = true;
+	struct device *dev;
 	size_t align = 0;
-	int ret;
 	u32 bus_num = 0;
 	u32 dev_num = 0;
+	int ret;
 
 	if (WARN_ON_ONCE(!epc))
 		return -EINVAL;
 
+	dev = epc->dev.parent;
 	features = pci_epc_get_features(epc, epf->func_no);
 	xpcie_epf->epc_features = features;
 	if (features) {
@@ -485,8 +486,8 @@ bind_error:
 
 static void intel_xpcie_epf_unbind(struct pci_epf *epf)
 {
-	struct pci_epc *epc = epf->epc;
 	struct xpcie_epf *xpcie_epf = epf_get_drvdata(epf);
+	struct pci_epc *epc = epf->epc;
 
 	free_irq(xpcie_epf->irq, &xpcie_epf->xpcie);
 	free_irq(xpcie_epf->irq_err, &xpcie_epf->xpcie);
@@ -507,8 +508,8 @@ static void intel_xpcie_epf_linkup(struct pci_epf *epf)
 
 static int intel_xpcie_epf_probe(struct pci_epf *epf)
 {
-	struct xpcie_epf *xpcie_epf;
 	struct device *dev = &epf->dev;
+	struct xpcie_epf *xpcie_epf;
 	int ret = 0;
 
 	xpcie_epf = devm_kzalloc(dev, sizeof(*xpcie_epf), GFP_KERNEL);
@@ -525,8 +526,9 @@ static int intel_xpcie_epf_probe(struct pci_epf *epf)
 static void intel_xpcie_epf_shutdown(struct device *dev)
 {
 	struct pci_epf *epf = to_pci_epf(dev);
-	struct xpcie_epf *xpcie_epf = epf_get_drvdata(epf);
+	struct xpcie_epf *xpcie_epf;
 
+	xpcie_epf = epf_get_drvdata(epf);
 	/* Notify host in case PCIe hot plug not supported */
 	if (xpcie_epf && xpcie_epf->xpcie.status == XPCIE_STATUS_RUN) {
 		intel_xpcie_set_doorbell(&xpcie_epf->xpcie, FROM_DEVICE,
