@@ -198,11 +198,9 @@ static const struct pwm_ops dwc_pwm_ops = {
 
 static int dwc_pwm_probe(struct pci_dev *pci, const struct pci_device_id *id)
 {
+	struct device *dev = &pci->dev;
 	struct dwc_pwm *dwc;
-	struct device *dev;
 	int ret;
-
-	dev = &pci->dev;
 
 	dwc = devm_kzalloc(&pci->dev, sizeof(*dwc), GFP_KERNEL);
 	if (!dwc)
