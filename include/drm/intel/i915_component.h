@@ -32,6 +32,7 @@ enum i915_component_type {
 	I915_COMPONENT_PXP,
 	I915_COMPONENT_GSC_PROXY,
 	INTEL_COMPONENT_LB,
+	I915_COMPONENT_IAF,
 };
 
 /* MAX_PORT is the number of port
