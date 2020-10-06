@@ -25,6 +25,7 @@
 #include "../common/xpcie.h"
 #include "../common/core.h"
 #include "../common/util.h"
+#include "epf.h"
 #include "struct.h"
 #include "dma.h"
 
@@ -382,7 +383,6 @@ static int intel_xpcie_epf_bind(struct pci_epf *epf)
 	struct xpcie_epf *xpcie_epf = epf_get_drvdata(epf);
 	const struct pci_epc_features *features;
 	struct pci_epc *epc = epf->epc;
-	bool msi_capable = true;
 	struct device *dev;
 	size_t align = 0;
 	u32 bus_num = 0;
@@ -396,7 +396,6 @@ static int intel_xpcie_epf_bind(struct pci_epf *epf)
 	features = pci_epc_get_features(epc, epf->func_no);
 	xpcie_epf->epc_features = features;
 	if (features) {
-		msi_capable = features->msi_capable;
 		align = features->align;
 		ret = intel_xpcie_configure_bar(epf, features);
 		if (ret)
