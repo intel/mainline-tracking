@@ -1997,6 +1997,12 @@ M:     Mark Gross <mgross@linux.intel.com>
 S:     Supported
 F:     drivers/misc/xlink-core/
 
+ARM/INTEL XLINK IPC SUPPORT
+M:	Seamus Kelly <seamus.kelly@intel.com>
+M:	Mark Gross <mgross@linux.intel.com>
+S:	Supported
+F:	drivers/misc/xlink-ipc/
+
 ARM/INTEL RESEARCH IMOTE/STARGATE 2 MACHINE SUPPORT
 M:	Jonathan Cameron <jic23@cam.ac.uk>
 L:	linux-arm-kernel@lists.infradead.org (moderated for non-subscribers)
