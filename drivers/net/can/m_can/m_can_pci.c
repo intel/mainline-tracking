@@ -17,14 +17,12 @@
 #include "m_can.h"
 
 #define M_CAN_PCI_MMIO_BAR		0
-#define M_CAN_MRAM_OFFSET		0x800
 
 #define M_CAN_CLOCK_FREQ_EHL		100000000
 #define CTL_CSR_INT_CTL_OFFSET		0x508
 
 struct m_can_pci_priv {
 	void __iomem *base;
-	void __iomem *mram_base;
 };
 
 static u32 iomap_read_reg(struct m_can_classdev *cdev, int reg)
@@ -100,7 +98,6 @@ static int m_can_pci_probe(struct pci_dev *pci, const struct pci_device_id *id)
 		return -ENOMEM;
 
 	priv->base = base;
-	priv->mram_base = base + M_CAN_MRAM_OFFSET;
 
 	ret = pci_alloc_irq_vectors(pci, 1, 1, PCI_IRQ_ALL_TYPES);
 	if (ret < 0)
