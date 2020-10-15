@@ -25,7 +25,6 @@
 struct m_can_pci_priv {
 	void __iomem *base;
 	void __iomem *mram_base;
-	struct m_can_classdev *mcan_dev;
 };
 
 static u32 iomap_read_reg(struct m_can_classdev *cdev, int reg)
@@ -113,7 +112,6 @@ static int m_can_pci_probe(struct pci_dev *pci, const struct pci_device_id *id)
 
 	priv->base = base;
 	priv->mram_base = base + M_CAN_MRAM_OFFSET;
-	priv->mcan_dev = mcan_class;
 
 	ret = pci_alloc_irq_vectors(pci, 1, 1, PCI_IRQ_ALL_TYPES);
 	if (ret < 0)
