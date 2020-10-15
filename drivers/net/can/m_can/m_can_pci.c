@@ -99,17 +99,6 @@ static int m_can_pci_probe(struct pci_dev *pci, const struct pci_device_id *id)
 	if (!mcan_class)
 		return -ENOMEM;
 
-	/*
-	 * "bosch,mram-cfg" has been parsed and updated the mcfg[] in
-	 * m_can_class_allocate_dev.
-	 * Due to dby_can_wrapper design in EHL, we need to accommodate
-	 * for the mram base from PCI MMIO BAR base + 0x800
-	 */
-	mcan_class->mcfg[MRAM_TXB].off += M_CAN_MRAM_OFFSET;
-	mcan_class->mcfg[MRAM_TXE].off += M_CAN_MRAM_OFFSET;
-	mcan_class->mcfg[MRAM_RXF0].off += M_CAN_MRAM_OFFSET;
-	mcan_class->mcfg[MRAM_RXF1].off += M_CAN_MRAM_OFFSET;
-
 	priv->base = base;
 	priv->mram_base = base + M_CAN_MRAM_OFFSET;
 
