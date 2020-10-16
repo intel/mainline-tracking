@@ -186,7 +186,9 @@ static int intel_tsens_bind(struct thermal_zone_device *tz,
 	 * then call the bind device
 	 */
 	if (strncmp(TSENS_BINDING_NAME, cdev->type,
-		    strlen(TSENS_BINDING_NAME)) == 0) {
+		    strlen(TSENS_BINDING_NAME)) == 0 ||
+		(strncmp(tz->type, cdev->type,
+				THERMAL_NAME_LENGTH) == 0)) {
 		ret = thermal_zone_bind_cooling_device
 				(tz,
 				THERMAL_TRIP_ACTIVE,
