@@ -1,0 +1,10 @@
+#
+# kConfig for KeemBay Thermal Linux driver
+#
+
+config HOST_KMB_EMC
+	tristate "IA Host Keembay emc Driver"
+	depends on SENSORS_EMC2103 != m
+	default m
+	help
+	  Enable this option to get the KMB emc in the IA host
