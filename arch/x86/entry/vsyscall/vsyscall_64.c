@@ -38,6 +38,9 @@
 #include <asm/fixmap.h>
 #include <asm/traps.h>
 #include <asm/paravirt.h>
+#include <asm/fpu/xstate.h>
+#include <asm/fpu/types.h>
+#include <asm/fpu/internal.h>
 
 #define CREATE_TRACE_POINTS
 #include "vsyscall_trace.h"
@@ -286,6 +289,44 @@ do_ret:
 	/* Emulate a ret instruction. */
 	regs->ip = caller;
 	regs->sp += 8;
+
+#ifdef CONFIG_X86_CET
+	if (tsk->thread.cet.shstk_size || tsk->thread.cet.ibt_enabled) {
+		struct cet_user_state *cet;
+		struct fpu *fpu;
+
+		fpu = &tsk->thread.fpu;
+		fpregs_lock();
+
+		if (!test_thread_flag(TIF_NEED_FPU_LOAD)) {
+			copy_fpregs_to_fpstate(fpu);
+			set_thread_flag(TIF_NEED_FPU_LOAD);
+		}
+
+		cet = get_xsave_addr(&fpu->state.xsave, XFEATURE_CET_USER);
+		if (!cet) {
+			/*
+			 * This should not happen.  The task is
+			 * CET-enabled, but CET xstate is in INIT.
+			 */
+			WARN_ONCE(1, "CET is enabled, but no xstates");
+			fpregs_unlock();
+			goto sigsegv;
+		}
+
+		if (cet->user_cet & CET_SHSTK_EN) {
+			if (cet->user_ssp && (cet->user_ssp + 8 < TASK_SIZE_MAX))
+				cet->user_ssp += 8;
+		}
+
+		if (cet->user_cet & CET_ENDBR_EN)
+			cet->user_cet &= ~CET_WAIT_ENDBR;
+
+		__fpu_invalidate_fpregs_state(fpu);
+		fpregs_unlock();
+	}
+#endif
+
 	return true;
 
 sigsegv:

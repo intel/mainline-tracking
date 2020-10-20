@@ -73,6 +73,20 @@ static __always_inline __pure bool use_fxsr(void)
 	return static_cpu_has(X86_FEATURE_FXSR);
 }
 
+static inline void wrmsr_after_xrstors(void)
+{
+#ifdef CONFIG_X86_SHADOW_STACK_USER
+	if (current->thread.cet.wrmsr_after_xrstors) {
+		struct cet_user_state *cet_user;
+		current->thread.cet.wrmsr_after_xrstors = 0;
+		cet_user = get_xsave_addr(&current->thread.fpu.state.xsave,
+					  XFEATURE_CET_USER);
+		if (cet_user)
+			wrmsrl(MSR_IA32_PL3_SSP, cet_user->user_ssp);
+	}
+#endif
+}
+
 /*
  * fpstate handling functions:
  */
@@ -442,6 +456,16 @@ static inline void copy_kernel_to_fpregs(union fpregs_state *fpstate)
 	__copy_kernel_to_fpregs(fpstate, -1);
 }
 
+#ifdef CONFIG_X86_CET
+extern int save_cet_to_sigframe(int ia32, void __user *fp,
+				unsigned long restorer);
+#else
+static inline int save_cet_to_sigframe(int ia32, void __user *fp,
+				unsigned long restorer)
+{
+	return 0;
+}
+#endif
 extern int copy_fpstate_to_sigframe(void __user *buf, void __user *fp, int size);
 
 /*
