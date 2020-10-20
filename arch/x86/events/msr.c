@@ -92,6 +92,7 @@ static bool test_intel(int idx, void *data)
 	case INTEL_FAM6_KABYLAKE:
 	case INTEL_FAM6_COMETLAKE_L:
 	case INTEL_FAM6_COMETLAKE:
+	case INTEL_FAM6_ROCKETLAKE:
 	case INTEL_FAM6_ICELAKE_L:
 	case INTEL_FAM6_ICELAKE:
 	case INTEL_FAM6_ICELAKE_X:
