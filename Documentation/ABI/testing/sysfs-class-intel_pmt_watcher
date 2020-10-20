@@ -1,0 +1,203 @@
+What:		/sys/class/intel_pmt_watcher/
+Date:		April 2020
+KernelVersion:	5.8
+Contact:	David Box <david.e.box@linux.intel.com>
+Description:
+		The intel_pmt_watcher/ class directory contains information for
+		devices that expose sampling and tracing capabilities using
+		Intel Platform Monitoring Technolgy (PMT).
+
+What:		/sys/class/intel_pmt_watcher/smplrX
+Date:		April 2020
+KernelVersion:	5.8
+Contact:	David Box <david.e.box@linux.intel.com>
+Description:
+		The smplrX directory contains files for configuring an instance
+		of a PMT watcher device that can perform hardware sampling.
+		Each smplrX device has an associated /dev/smplrX device node.
+		This node can be opened and mapped to access the resulting
+		sample data. The registers to be sampled are determined from
+		an XML file of specified guid for the parent device. Programs
+		use this XML file to determine which registers to sample by
+		selecting the corresponing bit in the "vector" file.
+
+What:		/sys/class/intel_pmt_watcher/trcrX
+Date:		April 2020
+KernelVersion:	5.8
+Contact:	David Box <david.e.box@linux.intel.com>
+Description:
+		The trcrX directory contains files for configuring an instance
+		of a PMT watcher device that can perform hardware tracing.
+		The associated /dev/trxrX node is only a place holder for
+		the device. File operations cannot be performed on it. The
+		resulting trace data is placed in the destination specified by
+		the "destination" file. The registers to be traced are
+		determined from an XML file of specified guid for the parent
+		device. Programs use this XML file to determine which registers
+		to sample by selecting the corresponing bit in the vector file.
+
+What:		/sys/class/intel_pmt_watcher/.../guid
+Date:		April 2020
+KernelVersion:	5.8
+Contact:	David Box <david.e.box@linux.intel.com>
+Description:
+		(RO) The guid for this watcher device. The guid identifies the
+		version of the XML file for the parent device that should be
+		used to determine the register layout.
+
+What:		/sys/class/intel_pmt_watcher/.../mode
+Date:		April 2020
+KernelVersion:	5.8
+Contact:	David Box <david.e.box@linux.intel.com>
+Description:
+		(RW) The operating mode of the sampler/tracer. Modes are one
+		of the following:
+
+			disabled:	Not operational
+			oneshot:	One sample or trace
+			periodic:	Periodic sampling or tracing
+
+		mode select works as follows:
+
+		Selecting a non 'disabled' mode will automatically start the
+		sample/trace according to the options selected in the other
+		configuration files (period_us, vector, destination, and token,
+		as applicable). This files will also become read only until
+		mode is set back to 'disabled'.
+
+		Transitions
+
+			Current		Next
+			-------		----
+			disabled	Any
+			oneshot		disabled
+			periodic	disabled
+
+
+What:		/sys/class/intel_pmt_watcher/.../period_us
+Date:		April 2020
+KernelVersion:	5.8
+Contact:	David Box <david.e.box@linux.intel.com>
+Description:
+		(RW) The sampling/tracing period in microseconds. Applicable
+		to 'periodic' mode only. This file is only writable when mode
+		is set to 'Disabled'.
+
+What:		/sys/class/intel_pmt_watcher/.../enable_id_limit
+Date:		April 2020
+KernelVersion:	5.8
+Contact:	David Box <david.e.box@linux.intel.com>
+Description:
+		(RO) This value represents the upper limit on ID values that
+		can be accepted by the sampler or tracer.
+
+What:		/sys/class/intel_pmt_watcher/.../enable_vector
+Date:		April 2020
+KernelVersion:	5.8
+Contact:	David Box <david.e.box@linux.intel.com>
+Description:
+		(RW) Bitmask representing the selected metrics to be sampled or
+		traced. Programs correlate the regiter to be sampled with the
+		bit position by using the XML file. Each bit represents a 64 bit
+		register to sample. This file is only writable when mode is set
+		to 'Disabled'
+
+What:		/sys/class/intel_pmt_watcher/.../enable_list
+Date:		April 2020
+KernelVersion:	5.8
+Contact:	David Box <david.e.box@linux.intel.com>
+Description:
+		(RW) Comma separated list representing the selected metrics to
+		be sampled or traced. Sample IDs are matched to registers based
+		on the XML file. Each ID represents a 64 bit register to sample.
+		This file is only writable when mode is set to 'Disabled'
+
+What:		/sys/class/intel_pmt_watcher/trcrX/destination
+Date:		April 2020
+KernelVersion:	5.8
+Contact:	David Box <david.e.box@linux.intel.com>
+Description:
+		(RW) The storage destination for the trace data. This value is
+		not writable when mode is 'Disabled'.
+
+What:		/sys/class/intel_pmt_watcher/smplrX/destination
+Date:		April 2020
+KernelVersion:	5.8
+Contact:	David Box <david.e.box@linux.intel.com>
+Description:
+		(RO) Not applicable. Set to -1.
+
+What:		/sys/class/cta_watcher/trcrX/stream_uid
+Date:		April 2020
+KernelVersion:	5.8
+Contact:	David Box <david.e.box@linux.intel.com>
+Description:
+		(RW) The unique stream ID for the trace data. This value is
+		not writable when mode is 'Disabled'. If the tracer does not
+		support stream UID the value will be set to -1.
+
+What:		/sys/class/cta_watcher/smplrX/stream_uid
+Date:		April 2020
+KernelVersion:	5.8
+Contact:	David Box <david.e.box@linux.intel.com>
+Description:
+		(RO) Not applicable. Set to -1.
+
+What:		/sys/class/intel_pmt_telem/smplrX/size
+Date:		April 2020
+KernelVersion:	5.8
+Contact:	David Box <david.e.box@linux.intel.com>
+Description:
+		(RO) The length of the result buffer in bytes that corresponds
+		to the mapping size for the /dev/smplrX device node.
+
+What:		/sys/class/intel_pmt_watcher/smplrX/offset
+Date:		April 2020
+KernelVersion:	5.8
+Contact:	David Box <david.e.box@linux.intel.com>
+Description:
+		(RO) The offset of the result buffer in bytes that corresponds
+		to the mapping for the /dev/smplrX device node.
+
+What:		/sys/class/intel_pmt_watcher/smplrX/token
+Date:		April 2020
+KernelVersion:	5.8
+Contact:	David Box <david.e.box@linux.intel.com>
+Description:
+		(RO) Not applicable. Set to -1.
+
+What:		/sys/class/intel_pmt_watcher/trcrX/size
+Date:		April 2020
+KernelVersion:	5.8
+Contact:	David Box <david.e.box@linux.intel.com>
+Description:
+		(RO) Not applicable. Set to -1.
+
+What:		/sys/class/intel_pmt_watcher/trcrX/offset
+Date:		April 2020
+KernelVersion:	5.8
+Contact:	David Box <david.e.box@linux.intel.com>
+Description:
+		(RO) Not applicable. Set to -1.
+
+What:		/sys/class/intel_pmt_watcher/trcrX/token
+Date:		April 2020
+KernelVersion:	5.8
+Contact:	David Box <david.e.box@linux.intel.com>
+Description:
+		(RW) 8 bit Token value.
+
+What:		/sys/class/intel_pmt_watcher/smplrX/vector_limit
+Date:		April 2020
+KernelVersion:	5.8
+Contact:	David Box <david.e.box@linux.intel.com>
+Description:
+		(RO) The maximum number of select bits that can be enabled
+		in the vector file.
+
+What:		/sys/class/intel_pmt_watcher/trcrX/vector_limit
+Date:		April 2020
+KernelVersion:	5.8
+Contact:	David Box <david.e.box@linux.intel.com>
+Description:
+		(RO) Not applicable. Set to -1.
