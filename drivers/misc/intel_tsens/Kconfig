@@ -1,0 +1,36 @@
+config INTEL_TSENS_LOCAL_HOST
+	tristate "Temperature sensor driver for intel tsens"
+	depends on I2C && THERMAL && OF
+	help
+	  This option enables tsens i2c and thermal local Host driver.
+
+	  Choose M here to compile this driver as a module, name is
+          intel_tsens_thermal.
+	  This driver is used for reporting thermal data via thermal
+	  framework and registers itself as i2c slave driver,
+	  Enable this option if you want to have support for thermal
+	  management controller
+
+config INTEL_TSENS_IA_HOST
+	tristate "Temperature sensor driver for intel tsens remote host"
+	depends on I2C && THERMAL
+	help
+	  This option enables tsens i2c and thermal local Host driver.
+
+	  Choose M here to compile this driver as a module, name is
+	  intel_tsens_host.
+	  This driver is used for reading thermal data via I2C SMBUS
+	  and registers itself to thermal framework, which can be
+	  used by thermal daemon in remote IA host
+
+config KEEMBAY_THERMAL
+	tristate "Temperature sensor driver for intel keembay"
+	depends on INTEL_TSENS_LOCAL_HOST && ARCH_KEEMBAY
+	help
+	  Enable this option if you want to have support for keembay
+	  thermal management sensors.
+
+	  Choose M here to compile this driver as a module, name is
+	  keembay_thermal.
+	  This driver is used for reading onchip temperature sensor
+	  values from keembay SoC.
