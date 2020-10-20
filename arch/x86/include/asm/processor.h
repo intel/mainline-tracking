@@ -18,6 +18,7 @@ struct vm86;
 #include <asm/cpufeatures.h>
 #include <asm/page.h>
 #include <asm/pgtable_types.h>
+#include <asm/pkeys_internal.h>
 #include <asm/percpu.h>
 #include <asm/msr.h>
 #include <asm/desc_defs.h>
@@ -547,6 +548,11 @@ struct thread_struct {
 	struct cet_status	cet;
 #endif
 
+#ifdef	CONFIG_ARCH_HAS_SUPERVISOR_PKEYS
+	/* Saved Protection key register for supervisor mappings */
+	u32			saved_pkrs;
+#endif
+
 	/* Floating point and extended processor state */
 	struct fpu		fpu;
 	/*
@@ -855,8 +861,15 @@ static inline void spin_lock_prefetch(const void *x)
  */
 #define ARCH_SHADOW_STACK_GUARD_GAP PAGE_SIZE
 
+#ifdef CONFIG_ARCH_HAS_SUPERVISOR_PKEYS
+#define INIT_THREAD_PKRS	.saved_pkrs = INIT_PKRS_VALUE,
+#else
+#define INIT_THREAD_PKRS
+#endif
+
 #define INIT_THREAD  {						\
 	.addr_limit		= KERNEL_DS,			\
+	INIT_THREAD_PKRS					\
 }
 
 extern unsigned long KSTK_ESP(struct task_struct *task);

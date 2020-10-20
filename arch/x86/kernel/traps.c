@@ -59,6 +59,7 @@
 #include <asm/umip.h>
 #include <asm/insn.h>
 #include <asm/insn-eval.h>
+#include <asm/vdso.h>
 
 #ifdef CONFIG_X86_64
 #include <asm/x86_init.h>
@@ -116,6 +117,9 @@ do_trap_no_signal(struct task_struct *tsk, int trapnr, const char *str,
 		tsk->thread.error_code = error_code;
 		tsk->thread.trap_nr = trapnr;
 		die(str, regs, error_code);
+	} else {
+		if (fixup_vdso_exception(regs, trapnr, error_code, 0))
+			return 0;
 	}
 
 	/*
@@ -254,11 +258,11 @@ DEFINE_IDTENTRY_RAW(exc_invalid_op)
 	if (!user_mode(regs) && handle_bug(regs))
 		return;
 
-	state = irqentry_enter(regs);
+	irqentry_enter(regs, &state);
 	instrumentation_begin();
 	handle_invalid_op(regs);
 	instrumentation_end();
-	irqentry_exit(regs, state);
+	irqentry_exit(regs, &state);
 }
 
 DEFINE_IDTENTRY(exc_coproc_segment_overrun)
@@ -342,6 +346,7 @@ __visible void __noreturn handle_stack_overflow(const char *message,
  */
 DEFINE_IDTENTRY_DF(exc_double_fault)
 {
+	irqentry_state_t irq_state;
 	static const char str[] = "double fault";
 	struct task_struct *tsk = current;
 
@@ -404,7 +409,7 @@ DEFINE_IDTENTRY_DF(exc_double_fault)
 	}
 #endif
 
-	idtentry_enter_nmi(regs);
+	idtentry_enter_nmi(regs, &irq_state);
 	instrumentation_begin();
 	notify_die(DIE_TRAP, str, regs, error_code, X86_TRAP_DF, SIGSEGV);
 
@@ -548,6 +553,9 @@ DEFINE_IDTENTRY_ERRORCODE(exc_general_protection)
 	if (user_mode(regs)) {
 		tsk->thread.error_code = error_code;
 		tsk->thread.trap_nr = X86_TRAP_GP;
+
+		if (fixup_vdso_exception(regs, X86_TRAP_GP, error_code, 0))
+			return;
 
 		show_signal(tsk, SIGSEGV, "", desc, regs, error_code);
 		force_sig(SIGSEGV);
@@ -709,12 +717,15 @@ DEFINE_IDTENTRY_RAW(exc_int3)
 		instrumentation_end();
 		irqentry_exit_to_user_mode(regs);
 	} else {
-		bool irq_state = idtentry_enter_nmi(regs);
+		irqentry_state_t irq_state;
+
+		idtentry_enter_nmi(regs, &irq_state);
+
 		instrumentation_begin();
 		if (!do_int3(regs))
 			die("int3", regs, 0);
 		instrumentation_end();
-		idtentry_exit_nmi(regs, irq_state);
+		idtentry_exit_nmi(regs, &irq_state);
 	}
 }
 
@@ -872,9 +883,12 @@ static void handle_debug(struct pt_regs *regs, unsigned long dr6, bool user)
 #endif
 
 	if (notify_die(DIE_DEBUG, "debug", regs, (long)&dr6, 0,
-		       SIGTRAP) == NOTIFY_STOP) {
-		return;
-	}
+		       SIGTRAP) == NOTIFY_STOP)
+		goto out;
+
+	if (user_mode(regs) &&
+	    fixup_vdso_exception(regs, X86_TRAP_DB, 0, 0))
+		goto out;
 
 	/* It's safe to allow irq's after DR6 has been saved */
 	cond_local_irq_enable(regs);
@@ -920,7 +934,9 @@ static __always_inline void exc_debug_kernel(struct pt_regs *regs,
 	 * includes the entry stack is excluded for everything.
 	 */
 	unsigned long dr7 = local_db_save();
-	bool irq_state = idtentry_enter_nmi(regs);
+	irqentry_state_t irq_state;
+
+	idtentry_enter_nmi(regs, &irq_state);
 	instrumentation_begin();
 
 	/*
@@ -939,8 +955,7 @@ static __always_inline void exc_debug_kernel(struct pt_regs *regs,
 	handle_debug(regs, dr6, false);
 
 	instrumentation_end();
-	idtentry_exit_nmi(regs, irq_state);
-
+	idtentry_exit_nmi(regs, &irq_state);
 	local_db_restore(dr7);
 }
 
@@ -1036,6 +1051,9 @@ static void math_error(struct pt_regs *regs, int trapnr)
 	/* Retry when we get spurious exceptions: */
 	if (!si_code)
 		goto exit;
+
+	if (fixup_vdso_exception(regs, trapnr, 0, 0))
+		return;
 
 	force_sig_fault(SIGFPE, si_code,
 			(void __user *)uprobe_get_trap_addr(regs));

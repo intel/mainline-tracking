@@ -115,6 +115,7 @@ extern void *__vmalloc_node_range(unsigned long size, unsigned long align,
 			const void *caller);
 void *__vmalloc_node(unsigned long size, unsigned long align, gfp_t gfp_mask,
 		int node, const void *caller);
+extern void *vmalloc_pks(unsigned long size, int pkey);
 
 extern void vfree(const void *addr);
 extern void vfree_atomic(const void *addr);

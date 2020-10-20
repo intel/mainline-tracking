@@ -18,6 +18,7 @@
 #include <linux/uaccess.h>		/* faulthandler_disabled()	*/
 #include <linux/efi.h>			/* efi_recover_from_page_fault()*/
 #include <linux/mm_types.h>
+#include <linux/pkeys.h>
 
 #include <asm/cpufeature.h>		/* boot_cpu_has, ...		*/
 #include <asm/traps.h>			/* dotraplinkage, ...		*/
@@ -30,6 +31,9 @@
 #include <asm/cpu_entry_area.h>		/* exception stack		*/
 #include <asm/pgtable_areas.h>		/* VMALLOC_START, ...		*/
 #include <asm/kvm_para.h>		/* kvm_handle_async_pf		*/
+#include <asm/vdso.h>			/* fixup_vdso_exception()	*/
+
+#include <asm-generic/mman-common.h>
 
 #define CREATE_TRACE_POINTS
 #include <asm/trace/exceptions.h>
@@ -504,7 +508,8 @@ static void show_ldttss(const struct desc_ptr *gdt, const char *name, u16 index)
 }
 
 static void
-show_fault_oops(struct pt_regs *regs, unsigned long error_code, unsigned long address)
+show_fault_oops(struct pt_regs *regs, unsigned long error_code, unsigned long address,
+		irqentry_state_t *irq_state)
 {
 	if (!oops_may_print())
 		return;
@@ -547,6 +552,11 @@ show_fault_oops(struct pt_regs *regs, unsigned long error_code, unsigned long ad
 		 (error_code & X86_PF_RSVD)  ? "reserved bit violation" :
 		 (error_code & X86_PF_PK)    ? "protection keys violation" :
 					       "permissions violation");
+
+#ifdef CONFIG_ARCH_HAS_PKEYS
+	if (irq_state && (error_code & X86_PF_PK))
+		pr_alert("PKRS: 0x%x\n", irq_state->pkrs);
+#endif
 
 	if (!(error_code & X86_PF_USER) && user_mode(regs)) {
 		struct desc_ptr idt, gdt;
@@ -602,6 +612,18 @@ pgtable_bad(struct pt_regs *regs, unsigned long error_code,
 	oops_end(flags, regs, sig);
 }
 
+static void sanitize_error_code(unsigned long address,
+				unsigned long *error_code)
+{
+	/*
+	 * To avoid leaking information about the kernel page
+	 * table layout, pretend that user-mode accesses to
+	 * kernel addresses are always protection faults.
+	 */
+	if (address >= TASK_SIZE_MAX)
+		*error_code |= X86_PF_PROT;
+}
+
 static void set_signal_archinfo(unsigned long address,
 				unsigned long error_code)
 {
@@ -626,7 +648,8 @@ static void set_signal_archinfo(unsigned long address,
 
 static noinline void
 no_context(struct pt_regs *regs, unsigned long error_code,
-	   unsigned long address, int signal, int si_code)
+	   unsigned long address, int signal, int si_code,
+	   irqentry_state_t *irq_state)
 {
 	struct task_struct *tsk = current;
 	unsigned long flags;
@@ -658,6 +681,8 @@ no_context(struct pt_regs *regs, unsigned long error_code,
 		 * faulting through the emulate_vsyscall() logic.
 		 */
 		if (current->thread.sig_on_uaccess_err && signal) {
+			sanitize_error_code(address, &error_code);
+
 			set_signal_archinfo(address, error_code);
 
 			/* XXX: hwpoison faults will set the wrong code. */
@@ -732,7 +757,7 @@ oops:
 	 */
 	flags = oops_begin();
 
-	show_fault_oops(regs, error_code, address);
+	show_fault_oops(regs, error_code, address, irq_state);
 
 	if (task_stack_end_corrupted(tsk))
 		printk(KERN_EMERG "Thread overran stack, or stack corrupted\n");
@@ -785,7 +810,8 @@ static bool is_vsyscall_vaddr(unsigned long vaddr)
 
 static void
 __bad_area_nosemaphore(struct pt_regs *regs, unsigned long error_code,
-		       unsigned long address, u32 pkey, int si_code)
+		       unsigned long address, u32 pkey, int si_code,
+		       irqentry_state_t *state)
 {
 	struct task_struct *tsk = current;
 
@@ -806,13 +832,11 @@ __bad_area_nosemaphore(struct pt_regs *regs, unsigned long error_code,
 		if (is_errata100(regs, address))
 			return;
 
-		/*
-		 * To avoid leaking information about the kernel page table
-		 * layout, pretend that user-mode accesses to kernel addresses
-		 * are always protection faults.
-		 */
-		if (address >= TASK_SIZE_MAX)
-			error_code |= X86_PF_PROT;
+		sanitize_error_code(address, &error_code);
+
+		if (fixup_vdso_exception(regs, X86_TRAP_PF, error_code,
+		    address))
+			return;
 
 		if (likely(show_unhandled_signals))
 			show_signal_msg(regs, error_code, address, tsk);
@@ -832,14 +856,14 @@ __bad_area_nosemaphore(struct pt_regs *regs, unsigned long error_code,
 	if (is_f00f_bug(regs, address))
 		return;
 
-	no_context(regs, error_code, address, SIGSEGV, si_code);
+	no_context(regs, error_code, address, SIGSEGV, si_code, state);
 }
 
 static noinline void
 bad_area_nosemaphore(struct pt_regs *regs, unsigned long error_code,
-		     unsigned long address)
+		     unsigned long address, irqentry_state_t *state)
 {
-	__bad_area_nosemaphore(regs, error_code, address, 0, SEGV_MAPERR);
+	__bad_area_nosemaphore(regs, error_code, address, 0, SEGV_MAPERR, state);
 }
 
 static void
@@ -853,7 +877,7 @@ __bad_area(struct pt_regs *regs, unsigned long error_code,
 	 */
 	mmap_read_unlock(mm);
 
-	__bad_area_nosemaphore(regs, error_code, address, pkey, si_code);
+	__bad_area_nosemaphore(regs, error_code, address, pkey, si_code, NULL);
 }
 
 static noinline void
@@ -923,12 +947,17 @@ do_sigbus(struct pt_regs *regs, unsigned long error_code, unsigned long address,
 {
 	/* Kernel mode? Handle exceptions or die: */
 	if (!(error_code & X86_PF_USER)) {
-		no_context(regs, error_code, address, SIGBUS, BUS_ADRERR);
+		no_context(regs, error_code, address, SIGBUS, BUS_ADRERR, NULL);
 		return;
 	}
 
 	/* User-space => ok to do another page fault: */
 	if (is_prefetch(regs, error_code, address))
+		return;
+
+	sanitize_error_code(address, &error_code);
+
+	if (fixup_vdso_exception(regs, X86_TRAP_PF, error_code, address))
 		return;
 
 	set_signal_archinfo(address, error_code);
@@ -957,7 +986,7 @@ mm_fault_error(struct pt_regs *regs, unsigned long error_code,
 	       unsigned long address, vm_fault_t fault)
 {
 	if (fatal_signal_pending(current) && !(error_code & X86_PF_USER)) {
-		no_context(regs, error_code, address, 0, 0);
+		no_context(regs, error_code, address, 0, 0, NULL);
 		return;
 	}
 
@@ -965,7 +994,7 @@ mm_fault_error(struct pt_regs *regs, unsigned long error_code,
 		/* Kernel mode? Handle exceptions or die: */
 		if (!(error_code & X86_PF_USER)) {
 			no_context(regs, error_code, address,
-				   SIGSEGV, SEGV_MAPERR);
+				   SIGSEGV, SEGV_MAPERR, NULL);
 			return;
 		}
 
@@ -980,15 +1009,118 @@ mm_fault_error(struct pt_regs *regs, unsigned long error_code,
 			     VM_FAULT_HWPOISON_LARGE))
 			do_sigbus(regs, error_code, address, fault);
 		else if (fault & VM_FAULT_SIGSEGV)
-			bad_area_nosemaphore(regs, error_code, address);
+			bad_area_nosemaphore(regs, error_code, address, NULL);
 		else
 			BUG();
 	}
 }
 
-static int spurious_kernel_fault_check(unsigned long error_code, pte_t *pte)
+#ifdef CONFIG_ARCH_HAS_SUPERVISOR_PKEYS
+/*
+ * check if we have had a 'global' pkey update.  If so, handle this like a lazy
+ * TLB; fix up the local MSR and return
+ *
+ * See arch/x86/kernel/process.c for the explanation on how global is handled
+ * with a simple '&' operation.
+ *
+ * Also we don't update the current thread saved_pkrs because we don't want the
+ * global value to 'stick' with the thread.  Rather we want this to be valid
+ * only for the remainder of this time slice.  For subsequent time slices the
+ * global value will be factored in during schedule; see arch/x86/kernel/process.c
+ *
+ * Finally we have a trade off between performance and forcing a restriction of
+ * permissions across all CPUs on a global update.
+ *
+ * Given the following window.
+ *
+ *          Global PKRS            CPU #0                CPU #1
+ *             cache                 MSR                   MSR
+ *
+ *                  |                  |                     |
+ *   Global         |----------\       |                     |
+ *   Restriction    |           ------------> read           |             <= T1
+ *   (on CPU #0)    |                  |       |             |
+ *    ------\       |                  |       |             |
+ *           ------>|                  |       |             |
+ *                  |                  |       |             |
+ *    Update CPU #1 |--------\         |       |             |
+ *                  |         --------------\  |             |
+ *                  |                  |     --|------------>|
+ *    Global remote |                  |       |             |
+ *     MSR update   |                  |       |             |
+ *     (CPU 2-n)    |                  |       |             |
+ *                  |-----> CPU's      |       v             |
+ *   local          |       (2-N)      |     local --\       |
+ *   update         |                  |     update   ------>|(Update      <= T2
+ *    ----------------\                |                     | Incorrect)
+ *                  |  -----------\    |                     |
+ *                  |              --->|(Update OK)          |
+ *         Context  |                  |                     |
+ *         Switch   |----------\       |                     |
+ *                  |           ------------> read           |
+ *                  |                  |       |             |
+ *                  |                  |       |             |
+ *                  |                  |       v             |
+ *                  |                  |     local --\       |
+ *                  |                  |     update   ------>|(Update
+ *                  |                  |                     | Correct)
+ *
+ * We allow for a larger window of the global pkey being open because global
+ * updates should be rare and we don't want to burden normal faults with having
+ * to read the global state.
+ */
+static bool global_pkey_is_enabled(pte_t *pte, bool is_write,
+				   irqentry_state_t *irq_state)
 {
-	if ((error_code & X86_PF_WRITE) && !pte_write(*pte))
+	u8 pkey = pte_flags_pkey(pte->pte);
+	int pkey_shift = pkey * PKR_BITS_PER_PKEY;
+	u32 mask = (((1 << PKR_BITS_PER_PKEY) - 1) << pkey_shift);
+	u32 global = READ_ONCE(pkrs_global_cache);
+	u32 val;
+
+	/* Return early if global access is not valid */
+	val = (global & mask) >> pkey_shift;
+	if ((val & PKR_AD_BIT) || (is_write && (val & PKR_WD_BIT)))
+		return false;
+
+	irq_state->pkrs &= global;
+
+	return true;
+}
+#else /* !CONFIG_ARCH_HAS_SUPERVISOR_PKEYS */
+__always_inline bool global_pkey_is_enabled(pte_t *pte, bool is_write,
+					    irqentry_state_t *irq_state)
+{
+	return false;
+}
+#endif
+
+static int spurious_kernel_fault_check(unsigned long error_code, pte_t *pte,
+				       irqentry_state_t *irq_state)
+{
+	bool is_write = (error_code & X86_PF_WRITE);
+
+	if (error_code & X86_PF_PK) {
+		if (global_pkey_is_enabled(pte, is_write, irq_state))
+			return 1;
+
+		/*
+		 * If we get a protection key exception it could be because we
+		 * are running the PKS test.  If so, pks_test_callback() will
+		 * clear the protection mechanism and return true to indicate
+		 * we can safely return.
+		 *
+		 * NOTE: This must be after the global_pkey_is_enabled() call
+		 * to allow the fixup code to be tested.
+		 */
+		if (pks_test_callback(irq_state))
+			return 1;
+
+		WARN_ON_ONCE(1);
+		return 0;
+	}
+
+	if (is_write && !pte_write(*pte))
 		return 0;
 
 	if ((error_code & X86_PF_INSTR) && !pte_exec(*pte))
@@ -998,7 +1130,7 @@ static int spurious_kernel_fault_check(unsigned long error_code, pte_t *pte)
 }
 
 /*
- * Handle a spurious fault caused by a stale TLB entry.
+ * Handle a spurious fault caused by a stale TLB entry or a lazy PKRS update.
  *
  * This allows us to lazily refresh the TLB when increasing the
  * permissions of a kernel page (RO -> RW or NX -> X).  Doing it
@@ -1013,13 +1145,19 @@ static int spurious_kernel_fault_check(unsigned long error_code, pte_t *pte)
  * There are no security implications to leaving a stale TLB when
  * increasing the permissions on a page.
  *
+ * Similarly, PKRS increases in permissions are done on a thread local level.
+ * But if the caller indicates the permission should be allowd globaly we can
+ * lazily update only those threads which fault and avoid a global IPI MSR
+ * update.
+ *
  * Returns non-zero if a spurious fault was handled, zero otherwise.
  *
  * See Intel Developer's Manual Vol 3 Section 4.10.4.3, bullet 3
  * (Optional Invalidation).
  */
 static noinline int
-spurious_kernel_fault(unsigned long error_code, unsigned long address)
+spurious_kernel_fault(unsigned long error_code, unsigned long address,
+		      irqentry_state_t *irq_state)
 {
 	pgd_t *pgd;
 	p4d_t *p4d;
@@ -1029,17 +1167,19 @@ spurious_kernel_fault(unsigned long error_code, unsigned long address)
 	int ret;
 
 	/*
-	 * Only writes to RO or instruction fetches from NX may cause
-	 * spurious faults.
+	 * Only PKey faults or writes to RO or instruction fetches from NX may
+	 * cause spurious faults.
 	 *
 	 * These could be from user or supervisor accesses but the TLB
 	 * is only lazily flushed after a kernel mapping protection
 	 * change, so user accesses are not expected to cause spurious
 	 * faults.
 	 */
-	if (error_code != (X86_PF_WRITE | X86_PF_PROT) &&
-	    error_code != (X86_PF_INSTR | X86_PF_PROT))
-		return 0;
+	if (!(error_code & X86_PF_PK)) {
+		if (error_code != (X86_PF_WRITE | X86_PF_PROT) &&
+		    error_code != (X86_PF_INSTR | X86_PF_PROT))
+			return 0;
+	}
 
 	pgd = init_mm.pgd + pgd_index(address);
 	if (!pgd_present(*pgd))
@@ -1050,27 +1190,31 @@ spurious_kernel_fault(unsigned long error_code, unsigned long address)
 		return 0;
 
 	if (p4d_large(*p4d))
-		return spurious_kernel_fault_check(error_code, (pte_t *) p4d);
+		return spurious_kernel_fault_check(error_code, (pte_t *) p4d,
+						   irq_state);
 
 	pud = pud_offset(p4d, address);
 	if (!pud_present(*pud))
 		return 0;
 
 	if (pud_large(*pud))
-		return spurious_kernel_fault_check(error_code, (pte_t *) pud);
+		return spurious_kernel_fault_check(error_code, (pte_t *) pud,
+						   irq_state);
 
 	pmd = pmd_offset(pud, address);
 	if (!pmd_present(*pmd))
 		return 0;
 
 	if (pmd_large(*pmd))
-		return spurious_kernel_fault_check(error_code, (pte_t *) pmd);
+		return spurious_kernel_fault_check(error_code, (pte_t *) pmd,
+						   irq_state);
 
 	pte = pte_offset_kernel(pmd, address);
 	if (!pte_present(*pte))
 		return 0;
 
-	ret = spurious_kernel_fault_check(error_code, pte);
+	ret = spurious_kernel_fault_check(error_code, pte,
+					  irq_state);
 	if (!ret)
 		return 0;
 
@@ -1078,7 +1222,8 @@ spurious_kernel_fault(unsigned long error_code, unsigned long address)
 	 * Make sure we have permissions in PMD.
 	 * If not, then there's a bug in the page tables:
 	 */
-	ret = spurious_kernel_fault_check(error_code, (pte_t *) pmd);
+	ret = spurious_kernel_fault_check(error_code, (pte_t *) pmd,
+					  irq_state);
 	WARN_ONCE(!ret, "PMD has incorrect permission bits\n");
 
 	return ret;
@@ -1099,6 +1244,19 @@ access_error(unsigned long error_code, struct vm_area_struct *vma)
 	 * a follow-up action to resolve the fault, like a COW.
 	 */
 	if (error_code & X86_PF_PK)
+		return 1;
+
+	/*
+	 * Access is blocked by the Enclave Page Cache Map (EPCM), i.e. the
+	 * access is allowed by the PTE but not the EPCM. This usually happens
+	 * when the EPCM is yanked out from under us, e.g. by hardware after a
+	 * suspend/resume cycle. In any case, software, i.e. the kernel, can't
+	 * fix the source of the fault as the EPCM can't be directly modified by
+	 * software. Handle the fault as an access error in order to signal
+	 * userspace so that userspace can rebuild their enclave(s), even though
+	 * userspace may not have actually violated access permissions.
+	 */
+	if (unlikely(error_code & X86_PF_SGX))
 		return 1;
 
 	/*
@@ -1159,15 +1317,8 @@ static int fault_in_kernel_space(unsigned long address)
  */
 static void
 do_kern_addr_fault(struct pt_regs *regs, unsigned long hw_error_code,
-		   unsigned long address)
+		   unsigned long address, irqentry_state_t *irq_state)
 {
-	/*
-	 * Protection keys exceptions only happen on user pages.  We
-	 * have no user pages in the kernel portion of the address
-	 * space, so do not expect them here.
-	 */
-	WARN_ON_ONCE(hw_error_code & X86_PF_PK);
-
 #ifdef CONFIG_X86_32
 	/*
 	 * We can fault-in kernel-space virtual memory on-demand. The
@@ -1199,8 +1350,11 @@ do_kern_addr_fault(struct pt_regs *regs, unsigned long hw_error_code,
 	}
 #endif
 
-	/* Was the fault spurious, caused by lazy TLB invalidation? */
-	if (spurious_kernel_fault(hw_error_code, address))
+	/*
+	 * Was the fault spurious; caused by lazy TLB invalidation or PKRS
+	 * update?
+	 */
+	if (spurious_kernel_fault(hw_error_code, address, irq_state))
 		return;
 
 	/* kprobes don't want to hook the spurious faults: */
@@ -1215,7 +1369,7 @@ do_kern_addr_fault(struct pt_regs *regs, unsigned long hw_error_code,
 	 * Don't take the mm semaphore here. If we fixup a prefetch
 	 * fault we could otherwise deadlock:
 	 */
-	bad_area_nosemaphore(regs, hw_error_code, address);
+	bad_area_nosemaphore(regs, hw_error_code, address, irq_state);
 }
 NOKPROBE_SYMBOL(do_kern_addr_fault);
 
@@ -1256,7 +1410,7 @@ void do_user_addr_fault(struct pt_regs *regs,
 		     !(hw_error_code & X86_PF_USER) &&
 		     !(regs->flags & X86_EFLAGS_AC)))
 	{
-		bad_area_nosemaphore(regs, hw_error_code, address);
+		bad_area_nosemaphore(regs, hw_error_code, address, NULL);
 		return;
 	}
 
@@ -1265,7 +1419,7 @@ void do_user_addr_fault(struct pt_regs *regs,
 	 * in a region with pagefaults disabled then we must not take the fault
 	 */
 	if (unlikely(faulthandler_disabled() || !mm)) {
-		bad_area_nosemaphore(regs, hw_error_code, address);
+		bad_area_nosemaphore(regs, hw_error_code, address, NULL);
 		return;
 	}
 
@@ -1335,7 +1489,7 @@ void do_user_addr_fault(struct pt_regs *regs,
 			 * Fault from code in kernel from
 			 * which we do not expect faults.
 			 */
-			bad_area_nosemaphore(regs, hw_error_code, address);
+			bad_area_nosemaphore(regs, hw_error_code, address, NULL);
 			return;
 		}
 retry:
@@ -1394,7 +1548,7 @@ good_area:
 	if (fault_signal_pending(fault, regs)) {
 		if (!user_mode(regs))
 			no_context(regs, hw_error_code, address, SIGBUS,
-				   BUS_ADRERR);
+				   BUS_ADRERR, NULL);
 		return;
 	}
 
@@ -1434,7 +1588,7 @@ trace_page_fault_entries(struct pt_regs *regs, unsigned long error_code,
 
 static __always_inline void
 handle_page_fault(struct pt_regs *regs, unsigned long error_code,
-			      unsigned long address)
+		  unsigned long address, irqentry_state_t *irq_state)
 {
 	trace_page_fault_entries(regs, error_code, address);
 
@@ -1443,7 +1597,7 @@ handle_page_fault(struct pt_regs *regs, unsigned long error_code,
 
 	/* Was the fault on kernel-controlled part of the address space? */
 	if (unlikely(fault_in_kernel_space(address))) {
-		do_kern_addr_fault(regs, error_code, address);
+		do_kern_addr_fault(regs, error_code, address, irq_state);
 	} else {
 		do_user_addr_fault(regs, error_code, address);
 		/*
@@ -1479,7 +1633,7 @@ DEFINE_IDTENTRY_RAW_ERRORCODE(exc_page_fault)
 	 *
 	 * Fingers crossed.
 	 *
-	 * The async #PF handling code takes care of idtentry handling
+	 * The async #PF handling code takes care of irqentry handling
 	 * itself.
 	 */
 	if (kvm_handle_async_pf(regs, (u32)address))
@@ -1495,11 +1649,11 @@ DEFINE_IDTENTRY_RAW_ERRORCODE(exc_page_fault)
 	 * code reenabled RCU to avoid subsequent wreckage which helps
 	 * debugability.
 	 */
-	state = irqentry_enter(regs);
+	irqentry_enter(regs, &state);
 
 	instrumentation_begin();
-	handle_page_fault(regs, error_code, address);
+	handle_page_fault(regs, error_code, address, &state);
 	instrumentation_end();
 
-	irqentry_exit(regs, state);
+	irqentry_exit(regs, &state);
 }

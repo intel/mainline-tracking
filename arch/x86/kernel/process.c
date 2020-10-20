@@ -44,6 +44,8 @@
 #include <asm/proto.h>
 #include <asm/frame.h>
 #include <asm/cet.h>
+#include <asm/pkeys.h>
+#include <asm/pkeys_internal.h>
 
 #include "process.h"
 
@@ -195,6 +197,90 @@ int copy_thread(unsigned long clone_flags, unsigned long sp, unsigned long arg,
 	return ret;
 }
 
+#ifdef CONFIG_ARCH_HAS_SUPERVISOR_PKEYS
+static inline void pks_init_task(struct task_struct *tsk)
+{
+	/* New tasks get the most restrictive PKRS value */
+	tsk->thread.saved_pkrs = INIT_PKRS_VALUE;
+}
+
+extern u32 pkrs_global_cache;
+
+/**
+ * The global PKRS value can only increase access.  Because 01b and 11b both
+ * disable access.  The following truth table is our desired result for each of
+ * the pkeys when we add in the global permissions.
+ *
+ * 00 R/W    - Write enabled (all access)
+ * 10 Read   - write disabled (Read only)
+ * 01 NO Acc - access disabled
+ * 11 NO Acc - also access disabled
+ *
+ * local  global  desired   required
+ *                result    operation
+ * 00      00         00      &
+ * 00      10         00      &
+ * 00      01         00      &
+ * 00      11         00      &
+ *
+ * 10      00         00      &
+ * 10      10         10      &
+ * 10      01         10      ^ special case
+ * 10      11         10      &
+ *
+ * 01      00         00      &
+ * 01      10         10      ^ special case
+ * 01      01         01      &
+ * 01      11         01      &
+ *
+ * 11      00         00      &
+ * 11      10         10      &
+ * 11      01         01      &
+ * 11      11         11      &
+ *
+ * In order to eliminate the need to loop through each pkey and deal with the 2
+ * above special cases we force all 01b values to 11b through the API thus
+ * resulting in the simplified truth table below.
+ *
+ * 00 R/W    - Write enabled (all access)
+ * 10 Read   - write disabled (Read only)
+ * 01 NO Acc - access disabled
+ *    (Not allowed in the API always use 11)
+ * 11 NO Acc - access disabled
+ *
+ * local  global  desired   effective
+ *                result    operation
+ * 00      00         00      &
+ * 00      10         00      &
+ * 00      11         00      &
+ * 00      11         00      &
+ *
+ * 10      00         00      &
+ * 10      10         10      &
+ * 10      11         10      &
+ * 10      11         10      &
+ *
+ * 11      00         00      &
+ * 11      10         10      &
+ * 11      11         11      &
+ * 11      11         11      &
+ *
+ * 11      00         00      &
+ * 11      10         10      &
+ * 11      11         11      &
+ * 11      11         11      &
+ *
+ * Thus we can simply 'AND' in the global pkrs value.
+ */
+static inline void pks_sched_in(void)
+{
+	write_pkrs(current->thread.saved_pkrs & pkrs_global_cache);
+}
+#else
+static inline void pks_init_task(struct task_struct *tsk) { }
+static inline void pks_sched_in(void) { }
+#endif
+
 void flush_thread(void)
 {
 	struct task_struct *tsk = current;
@@ -203,6 +289,8 @@ void flush_thread(void)
 	memset(tsk->thread.tls_array, 0, sizeof(tsk->thread.tls_array));
 
 	fpu__clear_all(&tsk->thread.fpu);
+
+	pks_init_task(tsk);
 }
 
 void disable_TSC(void)
@@ -652,6 +740,8 @@ void __switch_to_xtra(struct task_struct *prev_p, struct task_struct *next_p)
 
 	if ((tifp ^ tifn) & _TIF_SLD)
 		switch_to_sld(tifn);
+
+	pks_sched_in();
 }
 
 /*

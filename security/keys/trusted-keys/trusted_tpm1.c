@@ -26,8 +26,46 @@
 #include <linux/capability.h>
 #include <linux/tpm.h>
 #include <linux/tpm_command.h>
+#include <linux/pkeys.h>
+#include <linux/vmalloc.h>
+#include <uapi/asm-generic/mman-common.h>
 
 #include <keys/trusted_tpm.h>
+
+#define PKEY_INVALID (INT_MIN)
+static int trusted_keys_pkey = PKEY_INVALID;
+
+#if defined(CONFIG_TRUSTED_KEYS) || \
+  (defined(CONFIG_TRUSTED_KEYS_MODULE) && defined(CONFIG_ENCRYPTED_KEYS_MODULE))
+void trusted_key_disable_access(void)
+{
+	if (trusted_keys_pkey == PKEY_INVALID)
+		return;
+
+	pks_update_protection(trusted_keys_pkey, PKEY_DISABLE_ACCESS, false);
+
+}
+EXPORT_SYMBOL_GPL(trusted_key_disable_access);
+
+void trusted_key_enable_access(void)
+{
+	if (trusted_keys_pkey == PKEY_INVALID)
+		return;
+
+	pks_update_protection(trusted_keys_pkey, 0, false);
+}
+EXPORT_SYMBOL_GPL(trusted_key_enable_access);
+#endif
+
+static void trusted_payload_free(struct trusted_key_payload *p)
+{
+
+	trusted_key_enable_access();
+	memzero_explicit(p->key, MAX_KEY_SIZE + 1);
+	trusted_key_disable_access();
+	vfree(p->key);
+	kzfree(p);
+}
 
 static const char hmac_alg[] = "hmac(sha1)";
 static const char hash_alg[] = "sha1";
@@ -663,12 +701,15 @@ static int key_seal(struct trusted_key_payload *p,
 	if (ret)
 		return ret;
 
+	trusted_key_enable_access();
 	/* include migratable flag at end of sealed key */
 	p->key[p->key_len] = p->migratable;
 
 	ret = tpm_seal(&tb, o->keytype, o->keyhandle, o->keyauth,
 		       p->key, p->key_len + 1, p->blob, &p->blob_len,
 		       o->blobauth, o->pcrinfo, o->pcrinfo_len);
+	trusted_key_disable_access();
+
 	if (ret < 0)
 		pr_info("trusted_key: srkseal failed (%d)\n", ret);
 
@@ -689,6 +730,7 @@ static int key_unseal(struct trusted_key_payload *p,
 	if (ret)
 		return ret;
 
+	trusted_key_enable_access();
 	ret = tpm_unseal(&tb, o->keyhandle, o->keyauth, p->blob, p->blob_len,
 			 o->blobauth, p->key, &p->key_len);
 	if (ret < 0)
@@ -696,6 +738,7 @@ static int key_unseal(struct trusted_key_payload *p,
 	else
 		/* pull migratable flag out of sealed key */
 		p->migratable = p->key[--p->key_len];
+	trusted_key_disable_access();
 
 	tpm_buf_destroy(&tb);
 	return ret;
@@ -935,8 +978,20 @@ static struct trusted_key_payload *trusted_payload_alloc(struct key *key)
 	if (ret < 0)
 		return p;
 	p = kzalloc(sizeof *p, GFP_KERNEL);
-	if (p)
+	if (p) {
 		p->migratable = 1; /* migratable by default */
+		if (trusted_keys_pkey == PKEY_INVALID)
+			p->key = vmalloc(MAX_KEY_SIZE + 1);
+		else
+			p->key = vmalloc_pks(MAX_KEY_SIZE + 1, trusted_keys_pkey);
+
+		if (!(p->key)) {
+			kzfree(p);
+			return ERR_PTR(-ENOMEM);
+		}
+
+	}
+
 	return p;
 }
 
@@ -1012,7 +1067,9 @@ static int trusted_instantiate(struct key *key,
 		break;
 	case Opt_new:
 		key_len = payload->key_len;
+		trusted_key_enable_access();
 		ret = tpm_get_random(chip, payload->key, key_len);
+		trusted_key_disable_access();
 		if (ret != key_len) {
 			pr_info("trusted_key: key_create failed (%d)\n", ret);
 			goto out;
@@ -1036,7 +1093,7 @@ out:
 	if (!ret)
 		rcu_assign_keypointer(key, payload);
 	else
-		kfree_sensitive(payload);
+		trusted_payload_free(payload);
 	return ret;
 }
 
@@ -1045,7 +1102,7 @@ static void trusted_rcu_free(struct rcu_head *rcu)
 	struct trusted_key_payload *p;
 
 	p = container_of(rcu, struct trusted_key_payload, rcu);
-	kfree_sensitive(p);
+	trusted_payload_free(p);
 }
 
 /*
@@ -1087,34 +1144,38 @@ static int trusted_update(struct key *key, struct key_preparsed_payload *prep)
 	ret = datablob_parse(datablob, new_p, new_o);
 	if (ret != Opt_update) {
 		ret = -EINVAL;
-		kfree_sensitive(new_p);
+		trusted_payload_free(new_p);
 		goto out;
 	}
 
 	if (!new_o->keyhandle) {
 		ret = -EINVAL;
-		kfree_sensitive(new_p);
+		trusted_payload_free(new_p);
 		goto out;
 	}
 
 	/* copy old key values, and reseal with new pcrs */
 	new_p->migratable = p->migratable;
 	new_p->key_len = p->key_len;
+
+	trusted_key_enable_access();
 	memcpy(new_p->key, p->key, p->key_len);
+	trusted_key_disable_access();
+
 	dump_payload(p);
 	dump_payload(new_p);
 
 	ret = key_seal(new_p, new_o);
 	if (ret < 0) {
 		pr_info("trusted_key: key_seal failed (%d)\n", ret);
-		kfree_sensitive(new_p);
+		trusted_payload_free(new_p);
 		goto out;
 	}
 	if (new_o->pcrlock) {
 		ret = pcrlock(new_o->pcrlock);
 		if (ret < 0) {
 			pr_info("trusted_key: pcrlock failed (%d)\n", ret);
-			kfree_sensitive(new_p);
+			trusted_payload_free(new_p);
 			goto out;
 		}
 	}
@@ -1219,7 +1280,7 @@ static int __init init_digests(void)
 
 static int __init init_trusted(void)
 {
-	int ret;
+	int ret, key_id;
 
 	/* encrypted_keys.ko depends on successful load of this module even if
 	 * TPM is not used.
@@ -1237,6 +1298,14 @@ static int __init init_trusted(void)
 	ret = register_key_type(&key_type_trusted);
 	if (ret < 0)
 		goto err_release;
+
+	/* Attempt to reserve a PKS key for protecting the trusted keys.
+	 * Note the pkey is never free'ed. This is run at init time and
+	 * we either get the key or we do not.
+	 */
+	key_id = pks_key_alloc("Keyring Trusted Keys");
+	if (key_id >= 0)
+		trusted_keys_pkey = key_id;
 	return 0;
 err_release:
 	trusted_shash_release();
