@@ -476,4 +476,5 @@ source "drivers/misc/habanalabs/Kconfig"
 source "drivers/misc/uacce/Kconfig"
 source "drivers/misc/pvpanic/Kconfig"
 source "drivers/misc/Gpio-asm28xx/Kconfig"
+source "drivers/misc/intel_tsens/Kconfig"
 endmenu
