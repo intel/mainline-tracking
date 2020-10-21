@@ -688,6 +688,12 @@ static void dg1_ctx_workarounds_init(struct intel_engine_cs *engine,
 			  DG1_HZ_READ_SUPPRESSION_OPTIMIZATION_DISABLE);
 }
 
+static void adls_ctx_workarounds_init(struct intel_engine_cs *engine,
+				      struct i915_wa_list *wal)
+{
+	gen12_ctx_workarounds_init(engine, wal);
+}
+
 static void
 __intel_engine_init_ctx_wa(struct intel_engine_cs *engine,
 			   struct i915_wa_list *wal,
@@ -700,7 +706,9 @@ __intel_engine_init_ctx_wa(struct intel_engine_cs *engine,
 
 	wa_init_start(wal, name, engine->name);
 
-	if (IS_DG1(i915))
+	if (IS_ALDERLAKE_S(i915))
+		adls_ctx_workarounds_init(engine, wal);
+	else if (IS_DG1(i915))
 		dg1_ctx_workarounds_init(engine, wal);
 	else if (IS_ROCKETLAKE(i915) || IS_TIGERLAKE(i915))
 		tgl_ctx_workarounds_init(engine, wal);
@@ -1287,9 +1295,17 @@ dg1_gt_workarounds_init(struct drm_i915_private *i915, struct i915_wa_list *wal)
 }
 
 static void
+adls_gt_workarounds_init(struct drm_i915_private *i915, struct i915_wa_list *wal)
+{
+	gen12_gt_workarounds_init(i915, wal);
+}
+
+static void
 gt_init_workarounds(struct drm_i915_private *i915, struct i915_wa_list *wal)
 {
-	if (IS_DG1(i915))
+	if (IS_ALDERLAKE_S(i915))
+		adls_gt_workarounds_init(i915, wal);
+	else if (IS_DG1(i915))
 		dg1_gt_workarounds_init(i915, wal);
 	else if (IS_TIGERLAKE(i915))
 		tgl_gt_workarounds_init(i915, wal);
@@ -1670,6 +1686,11 @@ static void dg1_whitelist_build(struct intel_engine_cs *engine)
 				  RING_FORCE_TO_NONPRIV_ACCESS_RD);
 }
 
+static void adls_whitelist_build(struct intel_engine_cs *engine)
+{
+	tgl_whitelist_build(engine);
+}
+
 void intel_engine_init_whitelist(struct intel_engine_cs *engine)
 {
 	struct drm_i915_private *i915 = engine->i915;
@@ -1677,7 +1698,9 @@ void intel_engine_init_whitelist(struct intel_engine_cs *engine)
 
 	wa_init_start(w, "whitelist", engine->name);
 
-	if (IS_DG1(i915))
+	if (IS_ALDERLAKE_S(i915))
+		adls_whitelist_build(engine);
+	else if (IS_DG1(i915))
 		dg1_whitelist_build(engine);
 	else if (IS_GEN(i915, 12))
 		tgl_whitelist_build(engine);
