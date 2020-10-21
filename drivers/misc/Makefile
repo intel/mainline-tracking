@@ -61,3 +61,4 @@ obj-$(CONFIG_HOST_KMB_TJ)       += Gpio-asm28xx/
 obj-$(CONFIG_XBAY_RAS)          += xbay_ras/
 obj-y                           += intel_tsens/
 obj-$(CONFIG_XLINK_SMBUS)	+= xlink-smbus/
+obj-y				+= hddl_device/

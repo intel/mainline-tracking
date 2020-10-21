@@ -26,8 +26,12 @@
 #define HDDL_SOFT_RESET		_IOW(HDDL_MAGIC, 'b', void*)
 
 struct sw_id_hddl_data {
+	char iox_name[15];
 	u32 board_id;
 	u32 soc_id;
+	u32 iox_addr;
+	u32 iox_pin;
+	u32 pci_pin;
 	u32 soc_adaptor_no[2];
 	u32 sw_id;
 	u32 return_id;
@@ -75,8 +79,12 @@ struct intel_hddl_tsens_msg {
 } __packed __aligned(HDDL_ALIGN);
 
 struct intel_hddl_board_info {
+	char iox_name[15];
 	int board_id;
 	int soc_id;
+	int iox_addr;
+	int iox_pin;
+	int pci_pin;
 } __packed __aligned(HDDL_ALIGN);
 
 struct intel_tsens_data {

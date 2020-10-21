@@ -1994,6 +1994,7 @@ F:	drivers/misc/intel_tsens/
 ARM/INTEL TSENS SUPPORT
 M:	Udhayakumar C <udhayakumar.c@intel.com>
 S:	Supported
+F:	drivers/misc/hddl_device/
 F:	drivers/misc/intel_tsens/
 
 ARM/INTEL RESEARCH IMOTE/STARGATE 2 MACHINE SUPPORT
