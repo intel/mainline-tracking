@@ -7273,6 +7273,8 @@ bool intel_phy_is_combo(struct drm_i915_private *dev_priv, enum phy phy)
 {
 	if (phy == PHY_NONE)
 		return false;
+	else if (IS_ALDERLAKE_S(dev_priv))
+		return phy <= PHY_E;
 	else if (IS_ROCKETLAKE(dev_priv))
 		return phy <= PHY_D;
 	else if (IS_JSL_EHL(dev_priv))
@@ -7285,7 +7287,7 @@ bool intel_phy_is_combo(struct drm_i915_private *dev_priv, enum phy phy)
 
 bool intel_phy_is_tc(struct drm_i915_private *dev_priv, enum phy phy)
 {
-	if (IS_ROCKETLAKE(dev_priv))
+	if (IS_ROCKETLAKE(dev_priv) || IS_ALDERLAKE_S(dev_priv))
 		return false;
 	else if (INTEL_GEN(dev_priv) >= 12)
 		return phy >= PHY_D && phy <= PHY_I;
@@ -7297,7 +7299,9 @@ bool intel_phy_is_tc(struct drm_i915_private *dev_priv, enum phy phy)
 
 enum phy intel_port_to_phy(struct drm_i915_private *i915, enum port port)
 {
-	if (IS_ROCKETLAKE(i915) && port >= PORT_D)
+	if (IS_ALDERLAKE_S(i915) && port >= PORT_D)
+		return (enum phy)port - 2;
+	else if (IS_ROCKETLAKE(i915) && port >= PORT_D)
 		return (enum phy)port - 1;
 	else if (IS_JSL_EHL(i915) && port == PORT_D)
 		return PHY_A;
