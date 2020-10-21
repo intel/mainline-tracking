@@ -10902,6 +10902,20 @@ static void icl_get_ddi_pll(struct drm_i915_private *dev_priv, enum port port,
 	icl_set_active_port_dpll(pipe_config, port_dpll_id);
 }
 
+static void adls_get_ddi_pll(struct drm_i915_private *dev_priv, enum port port,
+			     struct intel_crtc_state *pipe_config)
+{
+	enum phy phy = intel_port_to_phy(dev_priv, port);
+	enum intel_dpll_id id;
+	u32 val;
+
+	val = I915_READ(ADLS_DPCLKA_CFGCR(phy));
+	val &= ADLS_DPCLKA_CFGCR_DDI_CLK_SEL_MASK(phy);
+	id = val >> ADLS_DPCLKA_CFGCR_DDI_SHIFT(phy);
+
+	pipe_config->shared_dpll = intel_get_shared_dpll_by_id(dev_priv, id);
+}
+
 static void bxt_get_ddi_pll(struct drm_i915_private *dev_priv,
 				enum port port,
 				struct intel_crtc_state *pipe_config)
@@ -11149,7 +11163,9 @@ static void hsw_get_ddi_port_state(struct intel_crtc *crtc,
 			port = TRANS_DDI_FUNC_CTL_VAL_TO_PORT(tmp);
 	}
 
-	if (INTEL_GEN(dev_priv) >= 11)
+	if (IS_ALDERLAKE_S(dev_priv))
+		adls_get_ddi_pll(dev_priv, port, pipe_config);
+	else if (INTEL_GEN(dev_priv) >= 11)
 		icl_get_ddi_pll(dev_priv, port, pipe_config);
 	else if (IS_CANNONLAKE(dev_priv))
 		cnl_get_ddi_pll(dev_priv, port, pipe_config);
