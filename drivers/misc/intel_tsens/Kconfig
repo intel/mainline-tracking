@@ -15,6 +15,20 @@ config INTEL_TSENS_LOCAL_HOST
 	  Say Y if using a processor that includes the Intel VPU such as
 	  Keem Bay.  If unsure, say N.
 
+config INTEL_TSENS_I2C_SLAVE
+	bool "I2C slave driver for Intel tsens"
+	depends on INTEL_TSENS_LOCAL_HOST
+	depends on I2C=y && I2C_SLAVE
+	help
+	  This option enables tsens I2C slave driver.
+
+	  This driver is used for reporting thermal data via I2C
+	  SMBUS to remote host.
+	  Enable this option if you want to have support for thermal
+	  management controller.
+	  Say Y if using a processor that includes the Intel VPU such as
+	  Keem Bay.  If unsure, say N.
+
 config INTEL_TSENS_IA_HOST
 	tristate "Temperature sensor driver for Intel tsens remote host"
 	depends on I2C && THERMAL
