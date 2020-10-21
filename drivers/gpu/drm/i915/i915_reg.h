@@ -10302,11 +10302,14 @@ enum skl_power_gate {
 /* CNL PLL */
 #define DPLL0_ENABLE		0x46010
 #define DPLL1_ENABLE		0x46014
+#define _ADLS_DPLL2_ENABLE	0x46018
+#define _ADLS_DPLL3_ENABLE	0x46030
 #define  PLL_ENABLE		(1 << 31)
 #define  PLL_LOCK		(1 << 30)
 #define  PLL_POWER_ENABLE	(1 << 27)
 #define  PLL_POWER_STATE	(1 << 26)
-#define CNL_DPLL_ENABLE(pll)	_MMIO_PLL(pll, DPLL0_ENABLE, DPLL1_ENABLE)
+#define CNL_DPLL_ENABLE(pll)	_MMIO_PLL3(pll, DPLL0_ENABLE, DPLL1_ENABLE, \
+					   _ADLS_DPLL2_ENABLE, _ADLS_DPLL3_ENABLE)
 
 #define TBT_PLL_ENABLE		_MMIO(0x46020)
 
@@ -10551,6 +10554,20 @@ enum skl_power_gate {
 						   _TGL_DPLL1_CFGCR1, \
 						   _DG1_DPLL2_CFGCR1, \
 						   _DG1_DPLL3_CFGCR1)
+
+#define _ADLS_DPLL3_CFGCR0		0x1642C0
+#define _ADLS_DPLL4_CFGCR0		0x164294
+#define ADLS_DPLL_CFGCR0(pll)		_MMIO_PLL3(pll, _TGL_DPLL0_CFGCR0, \
+						   _TGL_DPLL1_CFGCR0, \
+						   _ADLS_DPLL3_CFGCR0, \
+						   _ADLS_DPLL4_CFGCR0)
+
+#define _ADLS_DPLL3_CFGCR1		0x1642C4
+#define _ADLS_DPLL4_CFGCR1		0x164298
+#define ADLS_DPLL_CFGCR1(pll)		_MMIO_PLL3(pll, _TGL_DPLL0_CFGCR1, \
+						   _TGL_DPLL1_CFGCR1, \
+						   _ADLS_DPLL3_CFGCR1, \
+						   _ADLS_DPLL4_CFGCR1)
 
 #define _DKL_PHY1_BASE			0x168000
 #define _DKL_PHY2_BASE			0x169000
