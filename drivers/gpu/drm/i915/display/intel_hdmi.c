@@ -3145,6 +3145,22 @@ static u8 dg1_port_to_ddc_pin(struct drm_i915_private *dev_priv, enum port port)
 	return intel_port_to_phy(dev_priv, port) + 1;
 }
 
+static u8 adls_port_to_ddc_pin(struct drm_i915_private *dev_priv, enum port port)
+{
+	enum phy phy = intel_port_to_phy(dev_priv, port);
+
+	WARN_ON(port == PORT_B || port == PORT_C);
+
+	/*
+	 * Pin mapping for ADL-S requires TC pins for all combo phy outputs
+	 * except first combo output.
+	 */
+	if (IS_ALDERLAKE_S(dev_priv) && phy >= PHY_B)
+		return GMBUS_PIN_9_TC1_ICP + phy - PHY_B;
+
+	return GMBUS_PIN_1_BXT + phy;
+}
+
 static u8 g4x_port_to_ddc_pin(struct drm_i915_private *dev_priv,
 			      enum port port)
 {
@@ -3182,7 +3198,9 @@ static u8 intel_hdmi_ddc_pin(struct intel_encoder *encoder)
 		return ddc_pin;
 	}
 
-	if (INTEL_PCH_TYPE(dev_priv) >= PCH_DG1)
+	if (IS_ALDERLAKE_S(dev_priv))
+		ddc_pin = adls_port_to_ddc_pin(dev_priv, port);
+	else if (INTEL_PCH_TYPE(dev_priv) >= PCH_DG1)
 		ddc_pin = dg1_port_to_ddc_pin(dev_priv, port);
 	else if (IS_ROCKETLAKE(dev_priv))
 		ddc_pin = rkl_port_to_ddc_pin(dev_priv, port);
