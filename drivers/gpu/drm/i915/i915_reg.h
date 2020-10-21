@@ -10824,6 +10824,8 @@ enum skl_power_gate {
 #define  SKL_DRAM_DDR_TYPE_LPDDR3		(2 << 0)
 #define  SKL_DRAM_DDR_TYPE_LPDDR4		(3 << 0)
 
+#define  ADLS_MAD_INTER_CHANNEL_0_0_0_MCHBAR _MMIO(MCHBAR_MIRROR_BASE_SNB + 0x6048)
+
 #define SKL_MAD_DIMM_CH0_0_0_0_MCHBAR_MCMAIN	_MMIO(MCHBAR_MIRROR_BASE_SNB + 0x500C)
 #define SKL_MAD_DIMM_CH1_0_0_0_MCHBAR_MCMAIN	_MMIO(MCHBAR_MIRROR_BASE_SNB + 0x5010)
 #define  SKL_DRAM_S_SHIFT			16
@@ -10850,6 +10852,9 @@ enum skl_power_gate {
 #define  CNL_DRAM_RANK_2			(0x1 << 9)
 #define  CNL_DRAM_RANK_3			(0x2 << 9)
 #define  CNL_DRAM_RANK_4			(0x3 << 9)
+
+#define ADLS_MAD_DIMM_CH0_0_0_0_MCHBAR		_MMIO(MCHBAR_MIRROR_BASE_SNB + 0x6054)
+#define ADLS_MAD_DIMM_CH1_0_0_0_MCHBAR		_MMIO(MCHBAR_MIRROR_BASE_SNB + 0x6058)
 
 /* Please see hsw_read_dcomp() and hsw_write_dcomp() before using this register,
  * since on HSW we can't write to it using I915_WRITE. */
