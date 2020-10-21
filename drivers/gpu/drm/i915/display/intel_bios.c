@@ -1685,8 +1685,26 @@ static enum port dvo_port_to_port(struct drm_i915_private *dev_priv,
 		[PORT_D] = { DVO_PORT_HDMIC, DVO_PORT_DPC, -1 },
 		[PORT_E] = { DVO_PORT_HDMID, DVO_PORT_DPD, -1 },
 	};
+	/*
+	 * Alderlake S ports used in the driver are PORT_A, PORT_D, PORT_E,
+	 * PORT_F and PORT_G, we need to map that to correct VBT sections.
+	 */
+	static const int adls_port_mapping[][3] = {
+		[PORT_A] = { DVO_PORT_HDMIA, DVO_PORT_DPA, -1 },
+		[PORT_B] = { -1 },
+		[PORT_C] = { -1 },
+		[PORT_D] = { DVO_PORT_HDMIB, DVO_PORT_DPB, -1 },
+		[PORT_E] = { DVO_PORT_HDMIC, DVO_PORT_DPC, -1 },
+		[PORT_F] = { DVO_PORT_HDMID, DVO_PORT_DPD, -1 },
+		[PORT_G] = { DVO_PORT_HDMIE, DVO_PORT_DPE, -1 },
+	};
 
-	if (IS_DG1(dev_priv) || IS_ROCKETLAKE(dev_priv))
+	if (IS_ALDERLAKE_S(dev_priv))
+		return __dvo_port_to_port(ARRAY_SIZE(adls_port_mapping),
+					  ARRAY_SIZE(adls_port_mapping[0]),
+					  adls_port_mapping,
+					  dvo_port);
+	else if (IS_DG1(dev_priv) || IS_ROCKETLAKE(dev_priv))
 		return __dvo_port_to_port(ARRAY_SIZE(rkl_port_mapping),
 					  ARRAY_SIZE(rkl_port_mapping[0]),
 					  rkl_port_mapping,
@@ -2648,18 +2666,28 @@ enum aux_ch intel_bios_port_aux_ch(struct drm_i915_private *dev_priv,
 		aux_ch = AUX_CH_A;
 		break;
 	case DP_AUX_B:
-		aux_ch = AUX_CH_B;
+		aux_ch = (IS_ALDERLAKE_S(dev_priv)) ?
+			AUX_CH_D : AUX_CH_B;
 		break;
 	case DP_AUX_C:
-		aux_ch = (IS_DG1(dev_priv) || IS_ROCKETLAKE(dev_priv)) ?
-			AUX_CH_D : AUX_CH_C;
+		if (IS_ALDERLAKE_S(dev_priv))
+			aux_ch = AUX_CH_E;
+		else if (IS_DG1(dev_priv) || IS_ROCKETLAKE(dev_priv))
+			aux_ch = AUX_CH_D;
+		else
+			aux_ch = AUX_CH_C;
 		break;
 	case DP_AUX_D:
-		aux_ch = (IS_DG1(dev_priv) || IS_ROCKETLAKE(dev_priv)) ?
-			AUX_CH_E : AUX_CH_D;
+		if (IS_ALDERLAKE_S(dev_priv))
+			aux_ch = AUX_CH_F;
+		else if (IS_DG1(dev_priv) || IS_ROCKETLAKE(dev_priv))
+			aux_ch = AUX_CH_E;
+		else
+			aux_ch = AUX_CH_D;
 		break;
 	case DP_AUX_E:
-		aux_ch = AUX_CH_E;
+		aux_ch = (IS_ALDERLAKE_S(dev_priv)) ?
+			AUX_CH_G : AUX_CH_E;
 		break;
 	case DP_AUX_F:
 		aux_ch = AUX_CH_F;
