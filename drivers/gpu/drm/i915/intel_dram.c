@@ -183,13 +183,21 @@ skl_dram_get_channels_info(struct drm_i915_private *i915)
 	u32 val;
 	int ret;
 
-	val = intel_uncore_read(&i915->uncore,
+	if (IS_ALDERLAKE_S(i915))
+		val = intel_uncore_read(&i915->uncore,
+				ADLS_MAD_DIMM_CH0_0_0_0_MCHBAR);
+	else
+		val = intel_uncore_read(&i915->uncore,
 				SKL_MAD_DIMM_CH0_0_0_0_MCHBAR_MCMAIN);
 	ret = skl_dram_get_channel_info(i915, &ch0, 0, val);
 	if (ret == 0)
 		dram_info->num_channels++;
 
-	val = intel_uncore_read(&i915->uncore,
+	if (IS_ALDERLAKE_S(i915))
+		val = intel_uncore_read(&i915->uncore,
+				ADLS_MAD_DIMM_CH1_0_0_0_MCHBAR);
+	else
+		val = intel_uncore_read(&i915->uncore,
 				SKL_MAD_DIMM_CH1_0_0_0_MCHBAR_MCMAIN);
 	ret = skl_dram_get_channel_info(i915, &ch1, 1, val);
 	if (ret == 0)
@@ -230,7 +238,11 @@ skl_get_dram_type(struct drm_i915_private *i915)
 {
 	u32 val;
 
-	val = intel_uncore_read(&i915->uncore,
+	if (IS_ALDERLAKE_S(i915))
+		val = intel_uncore_read(&i915->uncore,
+				ADLS_MAD_INTER_CHANNEL_0_0_0_MCHBAR);
+	else
+		val = intel_uncore_read(&i915->uncore,
 				SKL_MAD_INTER_CHANNEL_0_0_0_MCHBAR_MCMAIN);
 
 	switch (val & SKL_DRAM_DDR_TYPE_MASK) {
