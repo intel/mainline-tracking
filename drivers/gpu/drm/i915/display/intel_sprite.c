@@ -2182,7 +2182,7 @@ static int skl_plane_check_fb(const struct intel_crtc_state *crtc_state,
 	}
 
 	/* Wa_1606054188:tgl */
-	if (IS_TIGERLAKE(dev_priv) &&
+	if ((IS_TIGERLAKE(dev_priv) || IS_ALDERLAKE_S(dev_priv)) &&
 	    plane_state->ckey.flags & I915_SET_COLORKEY_SOURCE &&
 	    intel_format_is_p01x(fb->format->format)) {
 		drm_dbg_kms(&dev_priv->drm,
