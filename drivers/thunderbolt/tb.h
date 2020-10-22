@@ -943,6 +943,20 @@ struct tb_xdomain *tb_xdomain_alloc(struct tb *tb, struct device *parent,
 				    const uuid_t *remote_uuid);
 void tb_xdomain_add(struct tb_xdomain *xd);
 void tb_xdomain_remove(struct tb_xdomain *xd);
+
+static inline struct tb_xdomain *tb_xdomain_get(struct tb_xdomain *xd)
+{
+	if (xd)
+		get_device(&xd->dev);
+	return xd;
+}
+
+static inline void tb_xdomain_put(struct tb_xdomain *xd)
+{
+	if (xd)
+		put_device(&xd->dev);
+}
+
 struct tb_xdomain *tb_xdomain_find_by_link_depth(struct tb *tb, u8 link,
 						 u8 depth);
 struct tb_xdomain *tb_xdomain_find_by_uuid(struct tb *tb, const uuid_t *uuid);
