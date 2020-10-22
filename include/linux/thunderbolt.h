@@ -257,19 +257,6 @@ int tb_xdomain_enable_paths(struct tb_xdomain *xd, u16 transmit_path,
 			    u16 receive_ring);
 int tb_xdomain_disable_paths(struct tb_xdomain *xd);
 
-static inline struct tb_xdomain *tb_xdomain_get(struct tb_xdomain *xd)
-{
-	if (xd)
-		get_device(&xd->dev);
-	return xd;
-}
-
-static inline void tb_xdomain_put(struct tb_xdomain *xd)
-{
-	if (xd)
-		put_device(&xd->dev);
-}
-
 static inline bool tb_is_xdomain(const struct device *dev)
 {
 	return dev->type == &tb_xdomain_type;
