@@ -602,8 +602,6 @@ extern struct device_type tb_switch_type;
 
 int tb_domain_init(void);
 void tb_domain_exit(void);
-int tb_xdomain_init(void);
-void tb_xdomain_exit(void);
 
 struct tb *tb_domain_alloc(struct tb_nhi *nhi, size_t privsize);
 int tb_domain_add(struct tb *tb);
@@ -936,6 +934,12 @@ static inline u64 tb_downstream_route(struct tb_port *port)
 	       | ((u64) port->port << (port->sw->config.depth * 8));
 }
 
+#ifdef CONFIG_USB4_XDOMAIN
+extern bool tb_xdomain_enabled;
+
+int tb_xdomain_init(void);
+void tb_xdomain_exit(void);
+
 bool tb_xdomain_handle_request(struct tb *tb, enum tb_cfg_pkg_type type,
 			       const void *buf, size_t size);
 struct tb_xdomain *tb_xdomain_alloc(struct tb *tb, struct device *parent,
@@ -943,19 +947,6 @@ struct tb_xdomain *tb_xdomain_alloc(struct tb *tb, struct device *parent,
 				    const uuid_t *remote_uuid);
 void tb_xdomain_add(struct tb_xdomain *xd);
 void tb_xdomain_remove(struct tb_xdomain *xd);
-
-static inline struct tb_xdomain *tb_xdomain_get(struct tb_xdomain *xd)
-{
-	if (xd)
-		get_device(&xd->dev);
-	return xd;
-}
-
-static inline void tb_xdomain_put(struct tb_xdomain *xd)
-{
-	if (xd)
-		put_device(&xd->dev);
-}
 
 struct tb_xdomain *tb_xdomain_find_by_link_depth(struct tb *tb, u8 link,
 						 u8 depth);
@@ -972,6 +963,60 @@ tb_xdomain_find_by_route_locked(struct tb *tb, u64 route)
 	mutex_unlock(&tb->lock);
 
 	return xd;
+}
+#else
+#define tb_xdomain_enabled	false
+
+static inline int tb_xdomain_init(void) { return 0; }
+static inline void tb_xdomain_exit(void) { }
+
+static inline bool tb_xdomain_handle_request(struct tb *tb,
+					     enum tb_cfg_pkg_type type,
+					     const void *buf, size_t size)
+{
+	return true;
+}
+
+static inline struct tb_xdomain *
+tb_xdomain_alloc(struct tb *tb, struct device *parent, u64 route,
+		 const uuid_t *local_uuid, const uuid_t *remote_uuid)
+{
+	return NULL;
+}
+
+static inline void tb_xdomain_add(struct tb_xdomain *xd) { }
+static inline void tb_xdomain_remove(struct tb_xdomain *xd) { }
+
+static inline struct tb_xdomain *
+tb_xdomain_find_by_link_depth(struct tb *tb, u8 link, u8 depth)
+{
+	return NULL;
+}
+
+static inline struct tb_xdomain *tb_xdomain_find_by_uuid(struct tb *tb,
+							 const uuid_t *uuid)
+{
+	return NULL;
+}
+
+static inline struct tb_xdomain *tb_xdomain_find_by_route(struct tb *tb,
+							  u64 route)
+{
+	return NULL;
+}
+#endif
+
+static inline struct tb_xdomain *tb_xdomain_get(struct tb_xdomain *xd)
+{
+	if (xd)
+		get_device(&xd->dev);
+	return xd;
+}
+
+static inline void tb_xdomain_put(struct tb_xdomain *xd)
+{
+	if (xd)
+		put_device(&xd->dev);
 }
 
 int tb_retimer_scan(struct tb_port *port);
