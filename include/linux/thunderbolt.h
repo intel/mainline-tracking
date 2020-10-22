@@ -86,17 +86,6 @@ struct tb {
 	unsigned long privdata[];
 };
 
-extern struct bus_type tb_bus_type;
-extern struct device_type tb_service_type;
-extern struct device_type tb_xdomain_type;
-
-#define TB_LINKS_PER_PHY_PORT	2
-
-static inline unsigned int tb_phy_port_from_link(unsigned int link)
-{
-	return (link - 1) / TB_LINKS_PER_PHY_PORT;
-}
-
 /**
  * struct tb_property_dir - XDomain property directory
  * @uuid: Directory UUID or %NULL if root directory
@@ -141,34 +130,6 @@ struct tb_property {
 		u32 immediate;
 	} value;
 };
-
-struct tb_property_dir *tb_property_parse_dir(const u32 *block,
-					      size_t block_len);
-ssize_t tb_property_format_dir(const struct tb_property_dir *dir, u32 *block,
-			       size_t block_len);
-struct tb_property_dir *tb_property_create_dir(const uuid_t *uuid);
-void tb_property_free_dir(struct tb_property_dir *dir);
-int tb_property_add_immediate(struct tb_property_dir *parent, const char *key,
-			      u32 value);
-int tb_property_add_data(struct tb_property_dir *parent, const char *key,
-			 const void *buf, size_t buflen);
-int tb_property_add_text(struct tb_property_dir *parent, const char *key,
-			 const char *text);
-int tb_property_add_dir(struct tb_property_dir *parent, const char *key,
-			struct tb_property_dir *dir);
-void tb_property_remove(struct tb_property *tb_property);
-struct tb_property *tb_property_find(struct tb_property_dir *dir,
-			const char *key, enum tb_property_type type);
-struct tb_property *tb_property_get_next(struct tb_property_dir *dir,
-					 struct tb_property *prev);
-
-#define tb_property_for_each(dir, property)			\
-	for (property = tb_property_get_next(dir, NULL);	\
-	     property;						\
-	     property = tb_property_get_next(dir, property))
-
-int tb_register_property_dir(const char *key, struct tb_property_dir *dir);
-void tb_unregister_property_dir(const char *key, struct tb_property_dir *dir);
 
 /**
  * struct tb_xdomain - Cross-domain (XDomain) connection
@@ -250,6 +211,84 @@ struct tb_xdomain {
 	u8 depth;
 };
 
+/**
+ * struct tb_service - Thunderbolt service
+ * @dev: XDomain device
+ * @id: ID of the service (shown in sysfs)
+ * @key: Protocol key from the properties directory
+ * @prtcid: Protocol ID from the properties directory
+ * @prtcvers: Protocol version from the properties directory
+ * @prtcrevs: Protocol software revision from the properties directory
+ * @prtcstns: Protocol settings mask from the properties directory
+ * @debugfs_dir: Pointer to the service debugfs directory. Always created
+ *		 when debugfs is enabled. Can be used by service drivers to
+ *		 add their own entries under the service.
+ *
+ * Each domain exposes set of services it supports as collection of
+ * properties. For each service there will be one corresponding
+ * &struct tb_service. Service drivers are bound to these.
+ */
+struct tb_service {
+	struct device dev;
+	int id;
+	const char *key;
+	u32 prtcid;
+	u32 prtcvers;
+	u32 prtcrevs;
+	u32 prtcstns;
+	struct dentry *debugfs_dir;
+};
+
+/**
+ * tb_service_driver - Thunderbolt service driver
+ * @driver: Driver structure
+ * @probe: Called when the driver is probed
+ * @remove: Called when the driver is removed (optional)
+ * @shutdown: Called at shutdown time to stop the service (optional)
+ * @id_table: Table of service identifiers the driver supports
+ */
+struct tb_service_driver {
+	struct device_driver driver;
+	int (*probe)(struct tb_service *svc, const struct tb_service_id *id);
+	void (*remove)(struct tb_service *svc);
+	void (*shutdown)(struct tb_service *svc);
+	const struct tb_service_id *id_table;
+};
+
+extern struct bus_type tb_bus_type;
+
+#ifdef CONFIG_USB4_XDOMAIN
+extern struct device_type tb_service_type;
+extern struct device_type tb_xdomain_type;
+
+struct tb_property_dir *tb_property_parse_dir(const u32 *block,
+					      size_t block_len);
+ssize_t tb_property_format_dir(const struct tb_property_dir *dir, u32 *block,
+			       size_t block_len);
+struct tb_property_dir *tb_property_create_dir(const uuid_t *uuid);
+void tb_property_free_dir(struct tb_property_dir *dir);
+int tb_property_add_immediate(struct tb_property_dir *parent, const char *key,
+			      u32 value);
+int tb_property_add_data(struct tb_property_dir *parent, const char *key,
+			 const void *buf, size_t buflen);
+int tb_property_add_text(struct tb_property_dir *parent, const char *key,
+			 const char *text);
+int tb_property_add_dir(struct tb_property_dir *parent, const char *key,
+			struct tb_property_dir *dir);
+void tb_property_remove(struct tb_property *tb_property);
+struct tb_property *tb_property_find(struct tb_property_dir *dir,
+			const char *key, enum tb_property_type type);
+struct tb_property *tb_property_get_next(struct tb_property_dir *dir,
+					 struct tb_property *prev);
+
+#define tb_property_for_each(dir, property)			\
+	for (property = tb_property_get_next(dir, NULL);	\
+	     property;						\
+	     property = tb_property_get_next(dir, property))
+
+int tb_register_property_dir(const char *key, struct tb_property_dir *dir);
+void tb_unregister_property_dir(const char *key, struct tb_property_dir *dir);
+
 int tb_xdomain_lane_bonding_enable(struct tb_xdomain *xd);
 void tb_xdomain_lane_bonding_disable(struct tb_xdomain *xd);
 int tb_xdomain_enable_paths(struct tb_xdomain *xd, u16 transmit_path,
@@ -305,34 +344,6 @@ struct tb_protocol_handler {
 int tb_register_protocol_handler(struct tb_protocol_handler *handler);
 void tb_unregister_protocol_handler(struct tb_protocol_handler *handler);
 
-/**
- * struct tb_service - Thunderbolt service
- * @dev: XDomain device
- * @id: ID of the service (shown in sysfs)
- * @key: Protocol key from the properties directory
- * @prtcid: Protocol ID from the properties directory
- * @prtcvers: Protocol version from the properties directory
- * @prtcrevs: Protocol software revision from the properties directory
- * @prtcstns: Protocol settings mask from the properties directory
- * @debugfs_dir: Pointer to the service debugfs directory. Always created
- *		 when debugfs is enabled. Can be used by service drivers to
- *		 add their own entries under the service.
- *
- * Each domain exposes set of services it supports as collection of
- * properties. For each service there will be one corresponding
- * &struct tb_service. Service drivers are bound to these.
- */
-struct tb_service {
-	struct device dev;
-	int id;
-	const char *key;
-	u32 prtcid;
-	u32 prtcvers;
-	u32 prtcrevs;
-	u32 prtcstns;
-	struct dentry *debugfs_dir;
-};
-
 static inline struct tb_service *tb_service_get(struct tb_service *svc)
 {
 	if (svc)
@@ -358,22 +369,6 @@ static inline struct tb_service *tb_to_service(struct device *dev)
 	return NULL;
 }
 
-/**
- * tb_service_driver - Thunderbolt service driver
- * @driver: Driver structure
- * @probe: Called when the driver is probed
- * @remove: Called when the driver is removed (optional)
- * @shutdown: Called at shutdown time to stop the service (optional)
- * @id_table: Table of service identifiers the driver supports
- */
-struct tb_service_driver {
-	struct device_driver driver;
-	int (*probe)(struct tb_service *svc, const struct tb_service_id *id);
-	void (*remove)(struct tb_service *svc);
-	void (*shutdown)(struct tb_service *svc);
-	const struct tb_service_id *id_table;
-};
-
 #define TB_SERVICE(key, id)				\
 	.match_flags = TBSVC_MATCH_PROTOCOL_KEY |	\
 		       TBSVC_MATCH_PROTOCOL_ID,		\
@@ -396,6 +391,39 @@ static inline void tb_service_set_drvdata(struct tb_service *svc, void *data)
 static inline struct tb_xdomain *tb_service_parent(struct tb_service *svc)
 {
 	return tb_to_xdomain(svc->dev.parent);
+}
+#else
+static inline int tb_xdomain_disable_paths(struct tb_xdomain *xd)
+{
+	return 0;
+}
+
+static inline bool tb_is_xdomain(const struct device *dev)
+{
+	return false;
+}
+
+static inline struct tb_xdomain *tb_to_xdomain(struct device *dev)
+{
+	return NULL;
+}
+
+static inline bool tb_is_service(const struct device *dev)
+{
+	return false;
+}
+
+static inline struct tb_service *tb_to_service(struct device *dev)
+{
+	return NULL;
+}
+#endif
+
+#define TB_LINKS_PER_PHY_PORT	2
+
+static inline unsigned int tb_phy_port_from_link(unsigned int link)
+{
+	return (link - 1) / TB_LINKS_PER_PHY_PORT;
 }
 
 /**
