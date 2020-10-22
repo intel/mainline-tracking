@@ -238,6 +238,7 @@ static int intel_tsens_get_temp(int type, int *temp, void *pdata)
 struct intel_tsens_i2c_plat_data i2c_plat_data = {
 	.get_temp	= intel_tsens_get_temp,
 };
+EXPORT_SYMBOL_GPL(i2c_plat_data);
 
 static void intel_tsens_remove_thermal_zones(struct intel_tsens_priv *priv)
 {
