@@ -1648,7 +1648,6 @@ struct tb_xdomain *tb_xdomain_find_by_uuid(struct tb *tb, const uuid_t *uuid)
 	xd = switch_find_xdomain(tb->root_switch, &lookup);
 	return tb_xdomain_get(xd);
 }
-EXPORT_SYMBOL_GPL(tb_xdomain_find_by_uuid);
 
 /**
  * tb_xdomain_find_by_link_depth() - Find an XDomain by link and depth
@@ -1706,7 +1705,6 @@ struct tb_xdomain *tb_xdomain_find_by_route(struct tb *tb, u64 route)
 	xd = switch_find_xdomain(tb->root_switch, &lookup);
 	return tb_xdomain_get(xd);
 }
-EXPORT_SYMBOL_GPL(tb_xdomain_find_by_route);
 
 bool tb_xdomain_handle_request(struct tb *tb, enum tb_cfg_pkg_type type,
 			       const void *buf, size_t size)

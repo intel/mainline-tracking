@@ -945,6 +945,20 @@ void tb_xdomain_add(struct tb_xdomain *xd);
 void tb_xdomain_remove(struct tb_xdomain *xd);
 struct tb_xdomain *tb_xdomain_find_by_link_depth(struct tb *tb, u8 link,
 						 u8 depth);
+struct tb_xdomain *tb_xdomain_find_by_uuid(struct tb *tb, const uuid_t *uuid);
+struct tb_xdomain *tb_xdomain_find_by_route(struct tb *tb, u64 route);
+
+static inline struct tb_xdomain *
+tb_xdomain_find_by_route_locked(struct tb *tb, u64 route)
+{
+	struct tb_xdomain *xd;
+
+	mutex_lock(&tb->lock);
+	xd = tb_xdomain_find_by_route(tb, route);
+	mutex_unlock(&tb->lock);
+
+	return xd;
+}
 
 int tb_retimer_scan(struct tb_port *port);
 void tb_retimer_remove_all(struct tb_port *port);
