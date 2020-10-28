@@ -10,9 +10,7 @@
 #include <linux/wait.h>
 #include <linux/delay.h>
 
-#include "dma.h"
-#include "struct.h"
-#include "../common/xpcie.h"
+#include "epf.h"
 
 #define DMA_DBI_OFFSET			(0x380000)
 
@@ -87,8 +85,6 @@
 #define PM_LINKST_IN_L1			BIT(10)
 
 #define DMA_POLLING_TIMEOUT		1000000
-
-#define DMA_CHAN_NUM			(4)
 
 struct __packed pcie_dma_reg {
 	u32 dma_ctrl_data_arb_prior;
@@ -170,19 +166,20 @@ static int intel_xpcie_ep_dma_disable(void __iomem *dma_base,
 				      enum xpcie_ep_engine_type rw)
 {
 	int i;
-	struct pcie_dma_reg *dma_reg = (struct pcie_dma_reg *)(dma_base);
-	void __iomem *engine_en = (rw == WRITE_ENGINE) ?
+	struct __iomem pcie_dma_reg * dma_reg =
+				(struct __iomem pcie_dma_reg *)dma_base;
+	void __iomem *engine_en = (void __iomem *)((rw == WRITE_ENGINE) ?
 					&dma_reg->dma_write_engine_en :
-					&dma_reg->dma_read_engine_en;
-	void __iomem *int_mask = (rw == WRITE_ENGINE) ?
+					&dma_reg->dma_read_engine_en);
+	void __iomem *int_mask = (void __iomem *)((rw == WRITE_ENGINE) ?
 					&dma_reg->dma_write_int_mask :
-					&dma_reg->dma_read_int_mask;
-	void __iomem *int_clear = (rw == WRITE_ENGINE) ?
+					&dma_reg->dma_read_int_mask);
+	void __iomem *int_clear = (void __iomem *)((rw == WRITE_ENGINE) ?
 					&dma_reg->dma_write_int_clear :
-					&dma_reg->dma_read_int_clear;
-	void __iomem *ll_err = (rw == WRITE_ENGINE) ?
+					&dma_reg->dma_read_int_clear);
+	void __iomem *ll_err = (void __iomem *)((rw == WRITE_ENGINE) ?
 					&dma_reg->dma_write_linked_list_err_en :
-					&dma_reg->dma_read_linked_list_err_en;
+					&dma_reg->dma_read_linked_list_err_en);
 
 	iowrite32(0x0, engine_en);
 
@@ -208,25 +205,26 @@ static int intel_xpcie_ep_dma_disable(void __iomem *dma_base,
 static void intel_xpcie_ep_dma_enable(void __iomem *dma_base,
 				      enum xpcie_ep_engine_type rw)
 {
-	struct pcie_dma_reg *dma_reg = (struct pcie_dma_reg *)(dma_base);
-	void __iomem *engine_en = (rw == WRITE_ENGINE) ?
+	struct __iomem pcie_dma_reg * dma_reg =
+				(struct __iomem pcie_dma_reg *)(dma_base);
+	void __iomem *engine_en = (void __iomem *)((rw == WRITE_ENGINE) ?
 					&dma_reg->dma_write_engine_en :
-					&dma_reg->dma_read_engine_en;
-	void __iomem *int_mask = (rw == WRITE_ENGINE) ?
+					&dma_reg->dma_read_engine_en);
+	void __iomem *int_mask = (void __iomem *)((rw == WRITE_ENGINE) ?
 					&dma_reg->dma_write_int_mask :
-					&dma_reg->dma_read_int_mask;
-	void __iomem *int_clear = (rw == WRITE_ENGINE) ?
+					&dma_reg->dma_read_int_mask);
+	void __iomem *int_clear = (void __iomem *)((rw == WRITE_ENGINE) ?
 					&dma_reg->dma_write_int_clear :
-					&dma_reg->dma_read_int_clear;
-	void __iomem *ll_err = (rw == WRITE_ENGINE) ?
+					&dma_reg->dma_read_int_clear);
+	void __iomem *ll_err = (void __iomem *)((rw == WRITE_ENGINE) ?
 					&dma_reg->dma_write_linked_list_err_en :
-					&dma_reg->dma_read_linked_list_err_en;
-	void __iomem *arb_weight = (rw == WRITE_ENGINE) ?
+					&dma_reg->dma_read_linked_list_err_en);
+	void __iomem *arb_weight = (void __iomem *)((rw == WRITE_ENGINE) ?
 				&dma_reg->dma_write_channel_arb_weight_low :
-				&dma_reg->dma_read_channel_arb_weight_low;
+				&dma_reg->dma_read_channel_arb_weight_low);
 	u32 weight = (rw == WRITE_ENGINE) ? DMA_CHAN_WRITE_ALL_MAX_WEIGHT :
 					    DMA_CHAN_READ_ALL_MAX_WEIGHT;
-	struct pcie_dma_chan *dma_chan;
+	struct __iomem pcie_dma_chan * dma_chan;
 	u32 offset;
 	int i;
 
@@ -247,8 +245,9 @@ static void intel_xpcie_ep_dma_enable(void __iomem *dma_base,
 	/* Enable linked list mode. */
 	for (i = 0; i < DMA_CHAN_NUM; i++) {
 		offset = dma_chan_offset[rw][i];
-		dma_chan = (struct pcie_dma_chan *)(dma_base + offset);
-		iowrite32(DMA_CH_CONTROL1_LLE_MASK, &dma_chan->dma_ch_control1);
+		dma_chan = (struct __iomem pcie_dma_chan *)(dma_base + offset);
+		iowrite32(DMA_CH_CONTROL1_LLE_MASK,
+			  (void __iomem *)&dma_chan->dma_ch_control1);
 	}
 }
 
@@ -308,13 +307,13 @@ static int intel_xpcie_ep_dma_rd_err_sts_h(void __iomem *err_status,
 	return 0;
 }
 
-static void intel_xpcie_ep_dma_setup_ll_descs(struct pcie_dma_chan *dma_chan,
-					      struct xpcie_dma_ll_desc_buf
-						*desc_buf,
-					      int descs_num)
+static void
+intel_xpcie_ep_dma_setup_ll_descs(struct __iomem pcie_dma_chan * dma_chan,
+				  struct xpcie_dma_ll_desc_buf *desc_buf,
+				  int descs_num)
 {
 	struct xpcie_dma_ll_desc *descs = desc_buf->virt;
-	int i = 0;
+	int i;
 
 	/* Setup linked list descriptors */
 	for (i = 0; i < descs_num - 1; i++)
@@ -327,9 +326,10 @@ static void intel_xpcie_ep_dma_setup_ll_descs(struct pcie_dma_chan *dma_chan,
 
 	/* Setup linked list settings */
 	iowrite32(DMA_CH_CONTROL1_LLE_MASK | DMA_CH_CONTROL1_CCS_MASK,
-		  &dma_chan->dma_ch_control1);
-	iowrite32((u32)desc_buf->phys, &dma_chan->dma_llp_low);
-	iowrite32((u64)desc_buf->phys >> 32, &dma_chan->dma_llp_high);
+		  (void __iomem *)&dma_chan->dma_ch_control1);
+	iowrite32((u32)desc_buf->phys, (void __iomem *)&dma_chan->dma_llp_low);
+	iowrite32((u64)desc_buf->phys >> 32,
+		  (void __iomem *)&dma_chan->dma_llp_high);
 }
 
 int intel_xpcie_ep_dma_write_ll(struct pci_epf *epf, int chan, int descs_num)
@@ -337,9 +337,10 @@ int intel_xpcie_ep_dma_write_ll(struct pci_epf *epf, int chan, int descs_num)
 	struct xpcie_epf *xpcie_epf = epf_get_drvdata(epf);
 	void __iomem *dma_base = xpcie_epf->dma_base;
 	struct xpcie_dma_ll_desc_buf *desc_buf;
-	struct pcie_dma_chan *dma_chan;
-	struct pcie_dma_reg *dma_reg;
-	int i, rc = 0;
+	struct __iomem pcie_dma_chan * dma_chan;
+	struct __iomem pcie_dma_reg * dma_reg =
+				(struct __iomem pcie_dma_reg *)(dma_base);
+	int i, rc;
 
 	if (descs_num <= 0 || descs_num > XPCIE_NUM_TX_DESCS)
 		return -EINVAL;
@@ -347,8 +348,7 @@ int intel_xpcie_ep_dma_write_ll(struct pci_epf *epf, int chan, int descs_num)
 	if (chan < 0 || chan >= DMA_CHAN_NUM)
 		return -EINVAL;
 
-	dma_reg = (struct pcie_dma_reg *)dma_base;
-	dma_chan = (struct pcie_dma_chan *)
+	dma_chan = (struct __iomem pcie_dma_chan *)
 		(dma_base + dma_chan_offset[WRITE_ENGINE][chan]);
 
 	desc_buf = &xpcie_epf->tx_desc_buf[chan];
@@ -357,6 +357,7 @@ int intel_xpcie_ep_dma_write_ll(struct pci_epf *epf, int chan, int descs_num)
 
 	/* Start DMA transfer. */
 	rc = intel_xpcie_ep_dma_doorbell(xpcie_epf, chan,
+					 (void __iomem *)
 					 &dma_reg->dma_write_doorbell);
 	if (rc)
 		return rc;
@@ -364,7 +365,7 @@ int intel_xpcie_ep_dma_write_ll(struct pci_epf *epf, int chan, int descs_num)
 	/* Wait for DMA transfer to complete. */
 	for (i = 0; i < DMA_POLLING_TIMEOUT; i++) {
 		usleep_range(5, 10);
-		if (ioread32(&dma_reg->dma_write_int_status) &
+		if (ioread32((void __iomem *)&dma_reg->dma_write_int_status) &
 		    (DMA_DONE_INTERRUPT_CH_MASK(chan) |
 		     DMA_ABORT_INTERRUPT_CH_MASK(chan)))
 			break;
@@ -375,14 +376,15 @@ int intel_xpcie_ep_dma_write_ll(struct pci_epf *epf, int chan, int descs_num)
 		goto cleanup;
 	}
 
-	rc = intel_xpcie_ep_dma_err_status(&dma_reg->dma_write_err_status,
+	rc = intel_xpcie_ep_dma_err_status((void __iomem *)
+					   &dma_reg->dma_write_err_status,
 					   chan);
 
 cleanup:
 	/* Clear the done/abort interrupt. */
 	iowrite32((DMA_DONE_INTERRUPT_CH_MASK(chan) |
 		   DMA_ABORT_INTERRUPT_CH_MASK(chan)),
-		  &dma_reg->dma_write_int_clear);
+		  (void __iomem *)&dma_reg->dma_write_int_clear);
 
 	if (rc) {
 		intel_xpcie_ep_dma_disable(dma_base, WRITE_ENGINE);
@@ -397,9 +399,10 @@ int intel_xpcie_ep_dma_read_ll(struct pci_epf *epf, int chan, int descs_num)
 	struct xpcie_epf *xpcie_epf = epf_get_drvdata(epf);
 	void __iomem *dma_base = xpcie_epf->dma_base;
 	struct xpcie_dma_ll_desc_buf *desc_buf;
-	struct pcie_dma_chan *dma_chan;
-	struct pcie_dma_reg *dma_reg;
-	int i, rc = 0;
+	struct __iomem pcie_dma_chan * dma_chan;
+	struct __iomem pcie_dma_reg * dma_reg =
+				(struct __iomem pcie_dma_reg *)(dma_base);
+	int i, rc;
 
 	if (descs_num <= 0 || descs_num > XPCIE_NUM_RX_DESCS)
 		return -EINVAL;
@@ -407,8 +410,7 @@ int intel_xpcie_ep_dma_read_ll(struct pci_epf *epf, int chan, int descs_num)
 	if (chan < 0 || chan >= DMA_CHAN_NUM)
 		return -EINVAL;
 
-	dma_reg = (struct pcie_dma_reg *)dma_base;
-	dma_chan = (struct pcie_dma_chan *)
+	dma_chan = (struct __iomem pcie_dma_chan *)
 		(dma_base + dma_chan_offset[READ_ENGINE][chan]);
 
 	desc_buf = &xpcie_epf->rx_desc_buf[chan];
@@ -417,6 +419,7 @@ int intel_xpcie_ep_dma_read_ll(struct pci_epf *epf, int chan, int descs_num)
 
 	/* Start DMA transfer. */
 	rc = intel_xpcie_ep_dma_doorbell(xpcie_epf, chan,
+					 (void __iomem *)
 					 &dma_reg->dma_read_doorbell);
 	if (rc)
 		return rc;
@@ -424,7 +427,7 @@ int intel_xpcie_ep_dma_read_ll(struct pci_epf *epf, int chan, int descs_num)
 	/* Wait for DMA transfer to complete. */
 	for (i = 0; i < DMA_POLLING_TIMEOUT; i++) {
 		usleep_range(5, 10);
-		if (ioread32(&dma_reg->dma_read_int_status) &
+		if (ioread32((void __iomem *)&dma_reg->dma_read_int_status) &
 		    (DMA_DONE_INTERRUPT_CH_MASK(chan) |
 		     DMA_ABORT_INTERRUPT_CH_MASK(chan)))
 			break;
@@ -435,18 +438,20 @@ int intel_xpcie_ep_dma_read_ll(struct pci_epf *epf, int chan, int descs_num)
 		goto cleanup;
 	}
 
-	rc = intel_xpcie_ep_dma_err_status(&dma_reg->dma_read_err_status_low,
+	rc = intel_xpcie_ep_dma_err_status((void __iomem *)
+					   &dma_reg->dma_read_err_status_low,
 					   chan);
 	if (!rc) {
 		rc =
-		intel_xpcie_ep_dma_rd_err_sts_h(&dma_reg->dma_rd_err_sts_h,
+		intel_xpcie_ep_dma_rd_err_sts_h((void __iomem *)
+						&dma_reg->dma_rd_err_sts_h,
 						chan);
 	}
 cleanup:
 	/* Clear the done/abort interrupt. */
 	iowrite32((DMA_DONE_INTERRUPT_CH_MASK(chan) |
 		   DMA_ABORT_INTERRUPT_CH_MASK(chan)),
-		  &dma_reg->dma_read_int_clear);
+		  (void __iomem *)&dma_reg->dma_read_int_clear);
 
 	if (rc) {
 		intel_xpcie_ep_dma_disable(dma_base, READ_ENGINE);
@@ -515,15 +520,15 @@ static int intel_xpcie_ep_dma_alloc_ll_descs_mem(struct xpcie_epf *xpcie_epf)
 	return 0;
 }
 
-bool intel_xpcie_ep_dma_enabled(struct pci_epf *epf)
+static bool intel_xpcie_ep_dma_enabled(struct pci_epf *epf)
 {
 	struct xpcie_epf *xpcie_epf = epf_get_drvdata(epf);
 	void __iomem *w_engine_en, *r_engine_en;
-	struct pcie_dma_reg *dma_reg;
+	struct __iomem pcie_dma_reg * dma_reg =
+			(struct __iomem pcie_dma_reg *)(xpcie_epf->dma_base);
 
-	dma_reg = (struct pcie_dma_reg *)xpcie_epf->dma_base;
-	r_engine_en = &dma_reg->dma_read_engine_en;
-	w_engine_en = &dma_reg->dma_write_engine_en;
+	r_engine_en = (void __iomem *)&dma_reg->dma_read_engine_en;
+	w_engine_en = (void __iomem *)&dma_reg->dma_write_engine_en;
 
 	return (ioread32(w_engine_en) & DMA_ENGINE_EN_MASK) &&
 		(ioread32(r_engine_en) & DMA_ENGINE_EN_MASK);
@@ -560,7 +565,7 @@ int intel_xpcie_ep_dma_uninit(struct pci_epf *epf)
 int intel_xpcie_ep_dma_init(struct pci_epf *epf)
 {
 	struct xpcie_epf *xpcie_epf = epf_get_drvdata(epf);
-	int rc = 0;
+	int rc;
 
 	xpcie_epf->dma_base = intel_xpcie_ep_get_dma_base(epf);
 

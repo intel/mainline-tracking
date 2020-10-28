@@ -1,6 +1,6 @@
 config XLINK_PCIE_RH_DRIVER
 	tristate "XLink PCIe Remote Host driver"
-	depends on PCI && XLINK_PCIE_LH_DRIVER=n
+	depends on PCI && X86_64
 	help
 	  This option enables XLink PCIe Remote Host driver.
 
@@ -11,7 +11,7 @@ config XLINK_PCIE_RH_DRIVER
 
 config XLINK_PCIE_LH_DRIVER
 	tristate "XLink PCIe Local Host driver"
-	depends on PCI_ENDPOINT
+	depends on PCI_ENDPOINT && ARCH_KEEMBAY
 	help
 	  This option enables XLink PCIe Local Host driver.
 

@@ -7,11 +7,10 @@
  *
  ****************************************************************************/
 
-#include <linux/errno.h>
-#include <linux/module.h>
 #include <linux/xlink_drv_inf.h>
 
 #include "core.h"
+#include "xpcie.h"
 
 /* Define xpcie driver interface API */
 int xlink_pcie_get_device_list(u32 *sw_device_id_list, u32 *num_devices)
@@ -32,8 +31,8 @@ EXPORT_SYMBOL(xlink_pcie_get_device_name);
 
 int xlink_pcie_get_device_status(u32 sw_device_id, u32 *device_status)
 {
-	int rc;
 	u32 status;
+	int rc;
 
 	rc = intel_xpcie_get_device_status_by_id(sw_device_id, &status);
 	if (rc)

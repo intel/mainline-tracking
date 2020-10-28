@@ -66,9 +66,5 @@ void intel_xpcie_interfaces_cleanup(struct xpcie *xpcie);
 int intel_xpcie_interfaces_init(struct xpcie *xpcie);
 void intel_xpcie_add_bd_to_interface(struct xpcie *xpcie,
 				     struct xpcie_buf_desc *bd);
-
-void intel_xpcie_init_debug(struct xpcie *xpcie, struct device *dev);
-void intel_xpcie_uninit_debug(struct xpcie *xpcie, struct device *dev);
-void intel_xpcie_debug_incr(struct xpcie *xpcie, size_t *attr, size_t v);
-struct xpcie *intel_xpcie_dev_to_xpcie(struct device *dev);
+void *intel_xpcie_cap_find(struct xpcie *xpcie, u32 start, u16 id);
 #endif /* XPCIE_UTIL_HEADER_ */

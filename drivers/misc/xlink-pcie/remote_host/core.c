@@ -7,13 +7,10 @@
  *
  ****************************************************************************/
 
-#include <linux/uaccess.h>
-#include <linux/delay.h>
-
 #include "pci.h"
+
 #include "../common/core.h"
 #include "../common/util.h"
-#include "../common/capabilities.h"
 
 static int rx_pool_size = SZ_32M;
 module_param(rx_pool_size, int, 0664);
@@ -27,13 +24,15 @@ static int intel_xpcie_version_check(struct xpcie *xpcie)
 {
 	struct xpcie_version version;
 
-	memcpy_fromio(&version, &xpcie->mmio->version, sizeof(version));
+	memcpy_fromio(&version,
+		      (void __iomem *)(xpcie->mmio + XPCIE_MMIO_VERSION),
+		      sizeof(version));
 
 	dev_dbg(xpcie_to_dev(xpcie), "ver: device %u.%u.%u, host %u.%u.%u\n",
 		version.major, version.minor, version.build,
 		XPCIE_VERSION_MAJOR, XPCIE_VERSION_MINOR, XPCIE_VERSION_BUILD);
 
-	if (ioread8(&xpcie->mmio->legacy_a0))
+	if (intel_xpcie_ioread8(xpcie->mmio + XPCIE_MMIO_LEGACY_A0))
 		xpcie->legacy_a0 = true;
 
 	return 0;
@@ -123,14 +122,15 @@ static int intel_xpcie_txrx_init(struct xpcie *xpcie,
 	int rc, index, ndesc;
 
 	xpcie->txrx = cap;
-	xpcie->fragment_size = ioread32(&cap->fragment_size);
+	xpcie->fragment_size = intel_xpcie_ioread32(&cap->fragment_size);
 	xpcie->stop_flag = false;
 
-	tx->pipe.ndesc = ioread32(&cap->tx.ndesc);
+	tx->pipe.ndesc = intel_xpcie_ioread32(&cap->tx.ndesc);
 	tx->pipe.head = &cap->tx.head;
 	tx->pipe.tail = &cap->tx.tail;
-	tx->pipe.old = ioread32(&cap->tx.tail);
-	tx->pipe.tdr = (void __iomem *)xpcie->mmio + ioread32(&cap->tx.ring);
+	tx->pipe.old = intel_xpcie_ioread32(&cap->tx.tail);
+	tx->pipe.tdr = (struct xpcie_transfer_desc *)(xpcie->mmio +
+				intel_xpcie_ioread32(&cap->tx.ring));
 
 	tx->ddr = kcalloc(tx->pipe.ndesc, sizeof(struct xpcie_buf_desc *),
 			  GFP_KERNEL);
@@ -139,11 +139,12 @@ static int intel_xpcie_txrx_init(struct xpcie *xpcie,
 		goto error;
 	}
 
-	rx->pipe.ndesc = ioread32(&cap->rx.ndesc);
+	rx->pipe.ndesc = intel_xpcie_ioread32(&cap->rx.ndesc);
 	rx->pipe.head = &cap->rx.head;
 	rx->pipe.tail = &cap->rx.tail;
-	rx->pipe.old = ioread32(&cap->rx.head);
-	rx->pipe.tdr = (void __iomem *)xpcie->mmio + ioread32(&cap->rx.ring);
+	rx->pipe.old = intel_xpcie_ioread32(&cap->rx.head);
+	rx->pipe.tdr = (struct xpcie_transfer_desc *)(xpcie->mmio +
+				intel_xpcie_ioread32(&cap->rx.ring));
 
 	rx->ddr = kcalloc(rx->pipe.ndesc, sizeof(struct xpcie_buf_desc *),
 			  GFP_KERNEL);
@@ -244,8 +245,6 @@ static void intel_xpcie_rx_event_handler(struct work_struct *work)
 	u16 status, interface;
 	int rc;
 
-	intel_xpcie_debug_incr(xpcie, &xpcie->stats.rx_event_runs, 1);
-
 	if (intel_xpcie_get_device_status(xpcie) != XPCIE_STATUS_RUN)
 		return;
 
@@ -287,12 +286,6 @@ static void intel_xpcie_rx_event_handler(struct work_struct *work)
 			bd->length = length;
 			bd->next = NULL;
 
-			intel_xpcie_debug_incr(xpcie,
-					       &xpcie->stats.rx_krn.cnts, 1);
-			intel_xpcie_debug_incr(xpcie,
-					       &xpcie->stats.rx_krn.bytes,
-					       bd->length);
-
 			intel_xpcie_add_bd_to_interface(xpcie, bd);
 		}
 
@@ -321,8 +314,6 @@ static void intel_xpcie_tx_event_handler(struct work_struct *work)
 	struct xpcie_buf_desc *bd;
 	size_t bytes, buffers;
 	u16 status;
-
-	intel_xpcie_debug_incr(xpcie, &xpcie->stats.tx_event_runs, 1);
 
 	if (intel_xpcie_get_device_status(xpcie) != XPCIE_STATUS_RUN)
 		return;
@@ -369,17 +360,12 @@ static void intel_xpcie_tx_event_handler(struct work_struct *work)
 		intel_xpcie_set_td_interface(td, bd->interface);
 		intel_xpcie_set_td_status(td, XPCIE_DESC_STATUS_ERROR);
 
-		intel_xpcie_debug_incr(xpcie, &xpcie->stats.tx_krn.cnts, 1);
-		intel_xpcie_debug_incr(xpcie, &xpcie->stats.tx_krn.bytes,
-				       bd->length);
-
 		tail = XPCIE_CIRCULAR_INC(tail, ndesc);
 	}
 
 	if (intel_xpcie_get_tdr_tail(&tx->pipe) != tail) {
 		intel_xpcie_set_tdr_tail(&tx->pipe, tail);
 		intel_xpcie_pci_raise_irq(xdev, DATA_SENT, 1);
-		intel_xpcie_debug_incr(xpcie, &xpcie->stats.send_ints, 1);
 	}
 
 	intel_xpcie_list_info(&xpcie->write, &bytes, &buffers);
@@ -399,8 +385,6 @@ static irqreturn_t intel_xpcie_interrupt(int irq, void *args)
 	if (intel_xpcie_get_doorbell(xpcie, FROM_DEVICE, DATA_SENT)) {
 		intel_xpcie_set_doorbell(xpcie, FROM_DEVICE, DATA_SENT, 0);
 		intel_xpcie_start_rx(xpcie, 0);
-
-		intel_xpcie_debug_incr(xpcie, &xdev->xpcie.stats.interrupts, 1);
 	}
 	if (intel_xpcie_get_doorbell(xpcie, FROM_DEVICE, DATA_RECEIVED)) {
 		intel_xpcie_set_doorbell(xpcie, FROM_DEVICE, DATA_RECEIVED, 0);
@@ -502,7 +486,7 @@ int intel_xpcie_core_read(struct xpcie *xpcie, void *buffer, size_t *length,
 	struct xpcie_buf_desc *bd;
 	size_t remaining, len;
 	long jiffies_passed = 0;
-	int ret = 0;
+	int ret;
 
 	len = *length;
 	remaining = len;
@@ -512,8 +496,6 @@ int intel_xpcie_core_read(struct xpcie *xpcie, void *buffer, size_t *length,
 
 	if (xpcie->status != XPCIE_STATUS_RUN)
 		return -ENODEV;
-
-	intel_xpcie_debug_incr(xpcie, &xpcie->stats.rx_usr.cnts, 1);
 
 	ret = mutex_lock_interruptible(&inf->rlock);
 	if (ret < 0)
@@ -554,10 +536,6 @@ int intel_xpcie_core_read(struct xpcie *xpcie, void *buffer, size_t *length,
 			remaining -= bcopy;
 			bd->data += bcopy;
 			bd->length -= bcopy;
-
-			intel_xpcie_debug_incr(xpcie,
-					       &xpcie->stats.rx_usr.bytes,
-					       bcopy);
 
 			if (bd->length == 0) {
 				intel_xpcie_free_rx_bd(xpcie, bd);
@@ -602,8 +580,6 @@ int intel_xpcie_core_write(struct xpcie *xpcie, void *buffer, size_t *length,
 	if (xpcie->status != XPCIE_STATUS_RUN)
 		return -ENODEV;
 
-	intel_xpcie_debug_incr(xpcie, &xpcie->stats.tx_usr.cnts, 1);
-
 	ret = mutex_lock_interruptible(&xpcie->wlock);
 	if (ret < 0)
 		return -EINTR;
@@ -647,10 +623,6 @@ int intel_xpcie_core_write(struct xpcie *xpcie, void *buffer, size_t *length,
 			remaining -= bcopy;
 			bd->length = bcopy;
 			bd->interface = inf->id;
-
-			intel_xpcie_debug_incr(xpcie,
-					       &xpcie->stats.tx_usr.bytes,
-					       bcopy);
 
 			if (remaining) {
 				bd->next = intel_xpcie_alloc_tx_bd(xpcie);
