@@ -211,7 +211,7 @@ enum intel_qep_synapse_action {
 static enum counter_synapse_action intel_qep_synapse_actions[] = {
 	[INTEL_QEP_SYNAPSE_ACTION_RISING_EDGE] =
 	COUNTER_SYNAPSE_ACTION_RISING_EDGE,
-	
+
 	[INTEL_QEP_SYNAPSE_ACTION_FALLING_EDGE] =
 	COUNTER_SYNAPSE_ACTION_FALLING_EDGE,
 };
