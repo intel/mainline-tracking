@@ -1991,11 +1991,11 @@ S:	Supported
 F:	drivers/misc/hddl_device/
 F:	drivers/misc/intel_tsens/
 
-ARM/INTEL TSENS SUPPORT
-M:	Udhayakumar C <udhayakumar.c@intel.com>
-S:	Supported
-F:	drivers/misc/hddl_device/
-F:	drivers/misc/intel_tsens/
+ARM/INTEL XLINK CORE SUPPORT
+M:     Seamus Kelly <seamus.kelly@intel.com>
+M:     Mark Gross <mgross@linux.intel.com>
+S:     Supported
+F:     drivers/misc/xlink-core/
 
 ARM/INTEL RESEARCH IMOTE/STARGATE 2 MACHINE SUPPORT
 M:	Jonathan Cameron <jic23@cam.ac.uk>

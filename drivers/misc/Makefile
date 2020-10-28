@@ -66,3 +66,4 @@ obj-$(CONFIG_HOST_KMB_EMC)	+= emc2103/
 obj-$(CONFIG_VPU)		+= vpu/
 obj-$(CONFIG_VPUMGR)		+= vpumgr/
 obj-y				+= xlink-pcie/
+obj-$(CONFIG_XLINK_CORE)        += xlink-core/
