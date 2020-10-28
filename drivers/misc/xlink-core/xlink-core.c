@@ -21,6 +21,7 @@
 
 #include "xlink-core.h"
 #include "xlink-defs.h"
+#include "xlink-dispatcher.h"
 #include "xlink-ioctl.h"
 #include "xlink-multiplexer.h"
 #include "xlink-platform.h"
@@ -151,6 +152,12 @@ static int kmb_xlink_probe(struct platform_device *pdev)
 		goto r_multiplexer;
 	}
 
+	// initialize dispatcher
+	rc = xlink_dispatcher_init(xlink_dev->pdev);
+	if (rc != X_LINK_SUCCESS) {
+		pr_err("Dispatcher initialization failed\n");
+		goto r_dispatcher;
+	}
 	// initialize xlink data structure
 	xlink_dev->nmb_connected_links = 0;
 	mutex_init(&xlink_dev->lock);
@@ -168,7 +175,7 @@ static int kmb_xlink_probe(struct platform_device *pdev)
 	/*Allocating Major number*/
 	if ((alloc_chrdev_region(&xdev, 0, 1, "xlinkdev")) < 0) {
 		dev_info(&pdev->dev, "Cannot allocate major number\n");
-		goto r_multiplexer;
+		goto r_dispatcher;
 	}
 	dev_info(&pdev->dev, "Major = %d Minor = %d\n", MAJOR(xdev),
 		 MINOR(xdev));
@@ -205,6 +212,8 @@ r_device:
 	class_destroy(dev_class);
 r_class:
 	unregister_chrdev_region(xdev, 1);
+r_dispatcher:
+	xlink_dispatcher_destroy();
 r_multiplexer:
 	xlink_multiplexer_destroy();
 	return -1;
@@ -220,6 +229,10 @@ static int kmb_xlink_remove(struct platform_device *pdev)
 	rc = xlink_multiplexer_destroy();
 	if (rc != X_LINK_SUCCESS)
 		pr_err("Multiplexer destroy failed\n");
+	// stop dispatchers and destroy
+	rc = xlink_dispatcher_destroy();
+	if (rc != X_LINK_SUCCESS)
+		pr_err("Dispatcher destroy failed\n");
 
 	mutex_unlock(&xlink->lock);
 	mutex_destroy(&xlink->lock);
@@ -314,6 +327,14 @@ enum xlink_error xlink_connect(struct xlink_handle *handle)
 		link->handle = *handle;
 		xlink->nmb_connected_links++;
 		kref_init(&link->refcount);
+		if (interface != IPC_INTERFACE) {
+			// start dispatcher
+			rc = xlink_dispatcher_start(link->id, &link->handle);
+			if (rc) {
+				pr_err("dispatcher start failed\n");
+				goto r_cleanup;
+			}
+		}
 		// initialize multiplexer connection
 		rc = xlink_multiplexer_connect(link->id);
 		if (rc) {
@@ -649,6 +670,7 @@ EXPORT_SYMBOL_GPL(xlink_release_data);
 enum xlink_error xlink_disconnect(struct xlink_handle *handle)
 {
 	struct xlink_link *link;
+	int interface = NULL_INTERFACE;
 	enum xlink_error rc = X_LINK_ERROR;
 
 	if (!xlink || !handle)
@@ -661,6 +683,17 @@ enum xlink_error xlink_disconnect(struct xlink_handle *handle)
 	// decrement refcount, if count is 0 lock mutex and disconnect
 	if (kref_put_mutex(&link->refcount, release_after_kref_put,
 			   &xlink->lock)) {
+		// stop dispatcher
+		interface = get_interface_from_sw_device_id(link->handle.sw_device_id);
+		if (interface != IPC_INTERFACE) {
+			// stop dispatcher
+			rc = xlink_dispatcher_stop(link->id);
+			if (rc != X_LINK_SUCCESS) {
+				pr_err("dispatcher stop failed\n");
+				mutex_unlock(&xlink->lock);
+				return X_LINK_ERROR;
+			}
+		}
 		// deinitialize multiplexer connection
 		rc = xlink_multiplexer_disconnect(link->id);
 		if (rc) {
