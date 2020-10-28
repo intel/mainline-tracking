@@ -12,97 +12,86 @@
 
 #include <linux/kernel.h>
 #include <linux/module.h>
-#include <linux/workqueue.h>
-#include <linux/stddef.h>
-#include <linux/init.h>
-#include <linux/pci.h>
-#include <linux/slab.h>
-#include <linux/mutex.h>
-#include <linux/version.h>
-#include <linux/mempool.h>
-#include <linux/dma-mapping.h>
-#include <linux/cache.h>
-#include <linux/wait.h>
+#include <linux/pci_ids.h>
 
-#include "common.h"
+#include "core.h"
 
-#ifdef XLINK_PCIE_REMOTE
-#define XPCIE_DRIVER_NAME "mxlk"
-#define XPCIE_DRIVER_DESC "Intel(R) Keem Bay XLink PCIe driver"
-#else
-#define XPCIE_DRIVER_NAME "mxlk_pcie_epf"
-#define XPCIE_DRIVER_DESC "Intel(R) xLink PCIe endpoint function driver"
+#ifndef PCI_DEVICE_ID_INTEL_KEEMBAY
+#define PCI_DEVICE_ID_INTEL_KEEMBAY 0x6240
 #endif
 
-struct xpcie_pipe {
-	u32 old;
-	u32 ndesc;
-	u32 *head;
-	u32 *tail;
-	struct xpcie_transfer_desc *tdr;
-};
+#define XPCIE_IO_COMM_SIZE SZ_16K
+#define XPCIE_MMIO_OFFSET SZ_4K
 
-struct xpcie_buf_desc {
-	struct xpcie_buf_desc *next;
-	void *head;
-	dma_addr_t phys;
-	size_t true_len;
-	void *data;
-	size_t length;
-	int interface;
-	bool own_mem;
-};
+#define XPCIE_VERSION_MAJOR 0
+#define XPCIE_VERSION_MINOR 5
+#define XPCIE_VERSION_BUILD 0
+#define _TOSTR(X) #X
+#define _VERSION(A, B, C) _TOSTR(A) "." _TOSTR(B) "." _TOSTR(C)
+#define XPCIE_DRIVER_VERSION \
+	_VERSION(XPCIE_VERSION_MAJOR, XPCIE_VERSION_MINOR, XPCIE_VERSION_BUILD)
 
-struct xpcie_stream {
-	size_t frag;
-	struct xpcie_pipe pipe;
-#ifdef XLINK_PCIE_REMOTE
-	struct xpcie_buf_desc **ddr;
-#endif
-};
+struct xpcie_version {
+	u8 major;
+	u8 minor;
+	u16 build;
+} __packed;
 
-struct xpcie_list {
-	/* list lock */
-	spinlock_t lock;
-	size_t bytes;
-	size_t buffers;
-	struct xpcie_buf_desc *head;
-	struct xpcie_buf_desc *tail;
-};
+/* Status encoding of both device and host */
+#define XPCIE_STATUS_ERROR	(0xFFFFFFFF)
+#define XPCIE_STATUS_UNINIT	(0)
+#define XPCIE_STATUS_READY	(1)
+#define XPCIE_STATUS_RECOVERY	(2)
+#define XPCIE_STATUS_OFF	(3)
+#define XPCIE_STATUS_RUN	(4)
 
-struct xpcie_interface {
-	int id;
-	struct xpcie *xpcie;
-	struct mutex rlock; /* Read lock */
-	struct xpcie_list read;
-	struct xpcie_buf_desc *partial_read;
-	bool data_avail;
-	wait_queue_head_t rx_waitq;
-};
+#define XPCIE_MAGIC_STRLEN	(16)
+#define XPCIE_MAGIC_YOCTO	"VPUYOCTO"
 
-struct xpcie_debug_stats {
-	struct {
-		size_t cnts;
-		size_t bytes;
-	} tx_krn, rx_krn, tx_usr, rx_usr;
-	size_t send_ints;
-	size_t interrupts;
-	size_t rx_event_runs;
-	size_t tx_event_runs;
-};
+/* MMIO layout and offsets shared between device and host */
+struct xpcie_mmio {
+	struct xpcie_version version;
+	u32 device_status;
+	u32 host_status;
+	u8 legacy_a0;
+	u8 htod_tx_doorbell;
+	u8 htod_rx_doorbell;
+	u8 htod_event_doorbell;
+	u8 dtoh_tx_doorbell;
+	u8 dtoh_rx_doorbell;
+	u8 dtoh_event_doorbell;
+	u8 reserved;
+	u32 cap_offset;
+	u8 magic[XPCIE_MAGIC_STRLEN];
+} __packed;
+
+#define XPCIE_MMIO_VERSION	(offsetof(struct xpcie_mmio, version))
+#define XPCIE_MMIO_LEGACY_A0	(offsetof(struct xpcie_mmio, legacy_a0))
+#define XPCIE_MMIO_DEV_STATUS	(offsetof(struct xpcie_mmio, device_status))
+#define XPCIE_MMIO_LEGACY_A0	(offsetof(struct xpcie_mmio, legacy_a0))
+#define XPCIE_MMIO_HOST_STATUS	(offsetof(struct xpcie_mmio, host_status))
+#define XPCIE_MMIO_LEGACY_A0	(offsetof(struct xpcie_mmio, legacy_a0))
+#define XPCIE_MMIO_HTOD_TX_DOORBELL \
+	(offsetof(struct xpcie_mmio, htod_tx_doorbell))
+#define XPCIE_MMIO_HTOD_RX_DOORBELL \
+	(offsetof(struct xpcie_mmio, htod_rx_doorbell))
+#define XPCIE_MMIO_HTOD_EVENT_DOORBELL \
+	(offsetof(struct xpcie_mmio, htod_event_doorbell))
+#define XPCIE_MMIO_DTOH_TX_DOORBELL \
+	(offsetof(struct xpcie_mmio, dtoh_tx_doorbell))
+#define XPCIE_MMIO_DTOH_RX_DOORBELL \
+	(offsetof(struct xpcie_mmio, dtoh_rx_doorbell))
+#define XPCIE_MMIO_DTOH_EVENT_DOORBELL \
+	(offsetof(struct xpcie_mmio, dtoh_event_doorbell))
+#define XPCIE_MMIO_CAP_OFF	(offsetof(struct xpcie_mmio, cap_offset))
+#define XPCIE_MMIO_MAGIC_OFF	(offsetof(struct xpcie_mmio, magic))
 
 struct xpcie {
 	u32 status;
 	bool legacy_a0;
-
-#ifdef XLINK_PCIE_REMOTE
-	void __iomem *bar0;
-	struct xpcie_mmio __iomem *mmio; /* XLink memory space */
-	void __iomem *bar4;
-#else
-	struct xpcie_mmio *mmio; /* XLink memory space */
+	void *bar0;
+	void *mmio;
 	void *bar4;
-#endif
 
 	struct workqueue_struct *rx_wq;
 	struct workqueue_struct *tx_wq;
@@ -114,8 +103,7 @@ struct xpcie {
 	struct xpcie_stream tx;
 	struct xpcie_stream rx;
 
-	/* Write Lock */
-	struct mutex wlock;
+	struct mutex wlock; /* write lock */
 	struct xpcie_list write;
 	bool no_tx_buffer;
 	wait_queue_head_t tx_waitq;
@@ -127,10 +115,6 @@ struct xpcie {
 
 	struct delayed_work rx_event;
 	struct delayed_work tx_event;
-
-	struct device_attribute debug;
-	bool debug_enable;
-	struct xpcie_debug_stats stats;
 };
 
 #endif /* XPCIE_HEADER_ */

@@ -10,11 +10,15 @@
 #ifndef XPCIE_PCI_HEADER_
 #define XPCIE_PCI_HEADER_
 
-#include <linux/list.h>
 #include <linux/interrupt.h>
+#include <linux/list.h>
+#include <linux/pci.h>
 #include <linux/xlink_drv_inf.h>
 #include "../common/xpcie.h"
 #include "../common/util.h"
+
+#define XPCIE_DRIVER_NAME "mxlk"
+#define XPCIE_DRIVER_DESC "Intel(R) Keem Bay XLink PCIe driver"
 
 #define XPCIE_MAX_NAME_LEN	(32)
 

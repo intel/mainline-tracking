@@ -7,15 +7,14 @@
  *
  ****************************************************************************/
 
-#include <linux/delay.h>
-#include <linux/pci.h>
-#include <linux/delay.h>
-#include <linux/sched.h>
-#include <linux/workqueue.h>
-#include <linux/wait.h>
-#include <linux/types.h>
 #include <linux/mutex.h>
+#include <linux/pci.h>
+#include <linux/sched.h>
+#include <linux/wait.h>
+#include <linux/workqueue.h>
+
 #include "pci.h"
+
 #include "../common/core.h"
 #include "../common/util.h"
 
@@ -92,14 +91,6 @@ void intel_xpcie_list_del_device(struct xpcie_dev *xdev)
 	mutex_unlock(&dev_list_mutex);
 }
 
-struct xpcie *intel_xpcie_dev_to_xpcie(struct device *dev)
-{
-	struct pci_dev *pdev = container_of(dev, struct pci_dev, dev);
-	struct xpcie_dev *xdev = pci_get_drvdata(pdev);
-
-	return &xdev->xpcie;
-}
-
 static void intel_xpcie_pci_set_aspm(struct xpcie_dev *xdev, int aspm)
 {
 	u16 link_control;
@@ -122,17 +113,17 @@ static void intel_xpcie_pci_set_aspm(struct xpcie_dev *xdev, int aspm)
 static void intel_xpcie_pci_unmap_bar(struct xpcie_dev *xdev)
 {
 	if (xdev->xpcie.bar0) {
-		iounmap(xdev->xpcie.bar0);
+		iounmap((void __iomem *)xdev->xpcie.bar0);
 		xdev->xpcie.bar0 = NULL;
 	}
 
 	if (xdev->xpcie.mmio) {
-		iounmap(xdev->xpcie.mmio - XPCIE_MMIO_OFFSET);
+		iounmap((void __iomem *)(xdev->xpcie.mmio - XPCIE_MMIO_OFFSET));
 		xdev->xpcie.mmio = NULL;
 	}
 
 	if (xdev->xpcie.bar4) {
-		iounmap(xdev->xpcie.bar4);
+		iounmap((void __iomem *)xdev->xpcie.bar4);
 		xdev->xpcie.bar4 = NULL;
 	}
 }
@@ -144,19 +135,20 @@ static int intel_xpcie_pci_map_bar(struct xpcie_dev *xdev)
 		return -EIO;
 	}
 
-	xdev->xpcie.bar0 = pci_ioremap_bar(xdev->pci, 0);
+	xdev->xpcie.bar0 = (void __force *)pci_ioremap_bar(xdev->pci, 0);
 	if (!xdev->xpcie.bar0) {
 		dev_err(&xdev->pci->dev, "failed to ioremap BAR0\n");
 		goto bar_error;
 	}
 
-	xdev->xpcie.mmio = pci_ioremap_bar(xdev->pci, 2) + XPCIE_MMIO_OFFSET;
+	xdev->xpcie.mmio = (void __force *)
+			   (pci_ioremap_bar(xdev->pci, 2) + XPCIE_MMIO_OFFSET);
 	if (!xdev->xpcie.mmio) {
 		dev_err(&xdev->pci->dev, "failed to ioremap BAR2\n");
 		goto bar_error;
 	}
 
-	xdev->xpcie.bar4 = pci_ioremap_wc_bar(xdev->pci, 4);
+	xdev->xpcie.bar4 = (void __force *)pci_ioremap_wc_bar(xdev->pci, 4);
 	if (!xdev->xpcie.bar4) {
 		dev_err(&xdev->pci->dev, "failed to ioremap BAR4\n");
 		goto bar_error;
@@ -241,8 +233,6 @@ static int intel_xpcie_pci_prepare_dev_reset(struct xpcie_dev *xdev,
 
 	mutex_unlock(&xdev->lock);
 
-	intel_xpcie_pci_notify_event(xdev, NOTIFY_DEVICE_DISCONNECTED);
-
 	return 0;
 }
 
@@ -256,8 +246,6 @@ static void xpcie_device_shutdown(struct work_struct *work)
 
 static int xpcie_device_init(struct xpcie_dev *xdev)
 {
-	int rc = 0;
-
 	INIT_DELAYED_WORK(&xdev->wait_event, xpcie_device_poll);
 	INIT_DELAYED_WORK(&xdev->shutdown_event, xpcie_device_shutdown);
 
@@ -268,7 +256,7 @@ static int xpcie_device_init(struct xpcie_dev *xdev)
 	init_waitqueue_head(&xdev->waitqueue);
 	schedule_delayed_work(&xdev->wait_event, 0);
 
-	return rc;
+	return 0;
 }
 
 int intel_xpcie_pci_init(struct xpcie_dev *xdev, struct pci_dev *pdev)
@@ -305,8 +293,6 @@ int intel_xpcie_pci_init(struct xpcie_dev *xdev, struct pci_dev *pdev)
 
 	intel_xpcie_pci_set_aspm(xdev, aspm_enable);
 
-	intel_xpcie_init_debug(&xdev->xpcie, &xdev->pci->dev);
-
 	rc = xpcie_device_init(xdev);
 	if (!rc)
 		goto init_exit;
@@ -334,8 +320,6 @@ int intel_xpcie_pci_cleanup(struct xpcie_dev *xdev)
 {
 	if (mutex_lock_interruptible(&xdev->lock))
 		return -EINTR;
-
-	intel_xpcie_uninit_debug(&xdev->xpcie, &xdev->pci->dev);
 
 	cancel_delayed_work(&xdev->wait_event);
 	cancel_delayed_work(&xdev->shutdown_event);
@@ -370,9 +354,9 @@ int intel_xpcie_pci_register_irq(struct xpcie_dev *xdev,
 
 	rc = intel_xpcie_pci_irq_init(xdev, irq_handler);
 	if (rc)
-		return rc;
+		dev_warn(&xdev->pci->dev, "failed to initialize pci irq\n");
 
-	return 0;
+	return rc;
 }
 
 int intel_xpcie_pci_raise_irq(struct xpcie_dev *xdev,
@@ -422,7 +406,7 @@ int intel_xpcie_get_device_name_by_id(u32 id,
 
 	size = (name_size > XPCIE_MAX_NAME_LEN) ?
 		XPCIE_MAX_NAME_LEN : name_size;
-	strncpy(device_name, xdev->name, size);
+	memcpy(device_name, xdev->name, size);
 
 	mutex_unlock(&xdev->lock);
 
@@ -445,8 +429,8 @@ int intel_xpcie_get_device_status_by_id(u32 id, u32 *status)
 
 int intel_xpcie_pci_connect_device(u32 id)
 {
-	int rc = 0;
 	struct xpcie_dev *xdev;
+	int rc = 0;
 
 	xdev = intel_xpcie_get_device_by_id(id);
 	if (!xdev)

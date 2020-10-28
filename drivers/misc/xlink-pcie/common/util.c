@@ -12,59 +12,61 @@
 void intel_xpcie_set_device_status(struct xpcie *xpcie, u32 status)
 {
 	xpcie->status = status;
-	intel_xpcie_iowrite32(status, &xpcie->mmio->device_status);
+	intel_xpcie_iowrite32(status, xpcie->mmio + XPCIE_MMIO_DEV_STATUS);
 }
 
 u32 intel_xpcie_get_device_status(struct xpcie *xpcie)
 {
-	return intel_xpcie_ioread32(&xpcie->mmio->device_status);
+	return intel_xpcie_ioread32(xpcie->mmio + XPCIE_MMIO_DEV_STATUS);
 }
 
-static u8 *intel_xpcie_doorbell_offset(struct xpcie *xpcie,
-				       enum xpcie_doorbell_direction dirt,
-				       enum xpcie_doorbell_type type)
+static size_t intel_xpcie_doorbell_offset(struct xpcie *xpcie,
+					  enum xpcie_doorbell_direction dirt,
+					  enum xpcie_doorbell_type type)
 {
 	if (dirt == TO_DEVICE && type == DATA_SENT)
-		return &xpcie->mmio->htod_tx_doorbell;
+		return XPCIE_MMIO_HTOD_TX_DOORBELL;
 	if (dirt == TO_DEVICE && type == DATA_RECEIVED)
-		return &xpcie->mmio->htod_rx_doorbell;
+		return XPCIE_MMIO_HTOD_RX_DOORBELL;
 	if (dirt == TO_DEVICE && type == DEV_EVENT)
-		return &xpcie->mmio->htod_event_doorbell;
+		return XPCIE_MMIO_HTOD_EVENT_DOORBELL;
 	if (dirt == FROM_DEVICE && type == DATA_SENT)
-		return &xpcie->mmio->dtoh_tx_doorbell;
+		return XPCIE_MMIO_DTOH_TX_DOORBELL;
 	if (dirt == FROM_DEVICE && type == DATA_RECEIVED)
-		return &xpcie->mmio->dtoh_rx_doorbell;
+		return XPCIE_MMIO_DTOH_RX_DOORBELL;
 	if (dirt == FROM_DEVICE && type == DEV_EVENT)
-		return &xpcie->mmio->dtoh_event_doorbell;
+		return XPCIE_MMIO_DTOH_EVENT_DOORBELL;
 
-	return NULL;
+	return 0;
 }
 
 void intel_xpcie_set_doorbell(struct xpcie *xpcie,
 			      enum xpcie_doorbell_direction dirt,
 			      enum xpcie_doorbell_type type, u8 value)
 {
-	intel_xpcie_iowrite8(value,
-			     intel_xpcie_doorbell_offset(xpcie, dirt, type));
+	size_t offset = intel_xpcie_doorbell_offset(xpcie, dirt, type);
+
+	intel_xpcie_iowrite8(value, xpcie->mmio + offset);
 }
 
 u8 intel_xpcie_get_doorbell(struct xpcie *xpcie,
 			    enum xpcie_doorbell_direction dirt,
 			    enum xpcie_doorbell_type type)
 {
-	return intel_xpcie_ioread8(intel_xpcie_doorbell_offset(xpcie,
-							       dirt, type));
+	size_t offset = intel_xpcie_doorbell_offset(xpcie, dirt, type);
+
+	return intel_xpcie_ioread8(xpcie->mmio + offset);
 }
 
 u32 intel_xpcie_get_host_status(struct xpcie *xpcie)
 {
-	return intel_xpcie_ioread32(&xpcie->mmio->host_status);
+	return intel_xpcie_ioread32(xpcie->mmio + XPCIE_MMIO_HOST_STATUS);
 }
 
 void intel_xpcie_set_host_status(struct xpcie *xpcie, u32 status)
 {
 	xpcie->status = status;
-	intel_xpcie_iowrite32(status, &xpcie->mmio->host_status);
+	intel_xpcie_iowrite32(status, xpcie->mmio + XPCIE_MMIO_HOST_STATUS);
 }
 
 struct xpcie_buf_desc *intel_xpcie_alloc_bd(size_t length)
@@ -156,6 +158,7 @@ int intel_xpcie_list_put(struct xpcie_list *list, struct xpcie_buf_desc *bd)
 		list->tail->next = bd;
 	else
 		list->head = bd;
+
 	while (bd) {
 		list->tail = bd;
 		list->bytes += bd->length;
@@ -338,90 +341,35 @@ void intel_xpcie_add_bd_to_interface(struct xpcie *xpcie,
 	wake_up_interruptible(&inf->rx_waitq);
 }
 
-#ifdef XLINK_PCIE_REMOTE
-#include "../remote_host/pci.h"
-#else
-#include "../local_host/struct.h"
-#endif
-
-static ssize_t debug_show(struct device *dev, struct device_attribute *attr,
-			  char *buf)
+void *intel_xpcie_cap_find(struct xpcie *xpcie, u32 start, u16 id)
 {
-	size_t bytes, tx_list_num, rx_list_num, tx_pool_num, rx_pool_num;
-	struct xpcie *xpcie;
+	int ttl = XPCIE_CAP_TTL;
+	void *hdr;
+	u16 id_out, next;
 
-	xpcie = intel_xpcie_dev_to_xpcie(dev);
-	if (!xpcie)
-		return -EINVAL;
+	/* If user didn't specify start, assume start of mmio */
+	if (!start)
+		start = intel_xpcie_ioread32(xpcie->mmio + XPCIE_MMIO_CAP_OFF);
 
-	if (!xpcie->debug_enable)
-		return 0;
+	/* Read header info */
+	hdr = xpcie->mmio + start;
 
-	intel_xpcie_list_info(&xpcie->write, &bytes, &tx_list_num);
-	intel_xpcie_list_info(&xpcie->interfaces[0].read, &bytes, &rx_list_num);
-	intel_xpcie_list_info(&xpcie->tx_pool, &bytes, &tx_pool_num);
-	intel_xpcie_list_info(&xpcie->rx_pool, &bytes, &rx_pool_num);
+	/* Check if we still have time to live */
+	while (ttl--) {
+		id_out = intel_xpcie_ioread16(hdr + XPCIE_CAP_HDR_ID);
+		next = intel_xpcie_ioread16(hdr + XPCIE_CAP_HDR_NEXT);
 
-	snprintf(buf, 4096,
-		 "tx_krn, cnts %zu bytes %zu\n"
-		 "tx_usr, cnts %zu bytes %zu\n"
-		 "rx_krn, cnts %zu bytes %zu\n"
-		 "rx_usr, cnts %zu bytes %zu\n"
-		 "tx_list %zu tx_pool %zu\n"
-		 "rx_list %zu rx_pool %zu\n"
-		 "interrupts %zu, send_ints %zu\n"
-		 "rx runs %zu tx runs %zu\n",
-		 xpcie->stats.tx_krn.cnts, xpcie->stats.tx_krn.bytes,
-		 xpcie->stats.tx_usr.cnts, xpcie->stats.tx_usr.bytes,
-		 xpcie->stats.rx_krn.cnts, xpcie->stats.rx_krn.bytes,
-		 xpcie->stats.rx_usr.cnts, xpcie->stats.rx_usr.bytes,
-		 tx_list_num, tx_pool_num, rx_list_num, rx_pool_num,
-		 xpcie->stats.interrupts, xpcie->stats.send_ints,
-		 xpcie->stats.rx_event_runs, xpcie->stats.tx_event_runs
-	 );
+		/* If cap matches, return header */
+		if (id_out == id)
+			return hdr;
+		/* If cap is NULL, we are at the end of the list */
+		else if (id_out == XPCIE_CAP_NULL)
+			return NULL;
+		/* If no match and no end of list, traverse the linked list */
+		else
+			hdr = xpcie->mmio + next;
+	}
 
-	return strlen(buf);
-}
-
-static ssize_t debug_store(struct device *dev, struct device_attribute *attr,
-			   const char *buf, size_t count)
-{
-	struct xpcie *xpcie;
-	long value;
-	int rc;
-
-	xpcie = intel_xpcie_dev_to_xpcie(dev);
-	if (!xpcie)
-		return -EINVAL;
-
-	rc = kstrtol(buf, 10, &value);
-	if (rc)
-		return rc;
-
-	xpcie->debug_enable = value ? true : false;
-
-	if (!xpcie->debug_enable)
-		memset(&xpcie->stats, 0, sizeof(struct xpcie_debug_stats));
-
-	return count;
-}
-
-void intel_xpcie_init_debug(struct xpcie *xpcie, struct device *dev)
-{
-	DEVICE_ATTR_RW(debug);
-	memset(&xpcie->stats, 0, sizeof(struct xpcie_debug_stats));
-	xpcie->debug = dev_attr_debug;
-	device_create_file(dev, &xpcie->debug);
-}
-
-void intel_xpcie_uninit_debug(struct xpcie *xpcie, struct device *dev)
-{
-	device_remove_file(dev, &xpcie->debug);
-	memset(&xpcie->stats, 0, sizeof(struct xpcie_debug_stats));
-}
-
-void intel_xpcie_debug_incr(struct xpcie *xpcie, size_t *attr, size_t v)
-{
-	if (unlikely(xpcie->debug_enable))
-		*attr += v;
+	/* If we reached here, the capability list is corrupted */
+	return NULL;
 }
