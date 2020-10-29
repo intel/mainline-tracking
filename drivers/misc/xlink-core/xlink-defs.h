@@ -35,7 +35,7 @@
 #define CONTROL_CHANNEL_TIMEOUT_MS	0U	// wait indefinitely
 #define SIGXLNK				44	// signal XLink uses for callback signalling
 
-#define UNUSED(x) (void)(x)
+#define UNUSED(x) ((void)(x))
 
 // the end of the IPC channel range (starting at zero)
 #define XLINK_IPC_MAX_CHANNELS	1024
@@ -102,6 +102,8 @@ enum xlink_event_type {
 	XLINK_CLOSE_CHANNEL_REQ,
 	XLINK_PING_REQ,
 	XLINK_WRITE_CONTROL_REQ,
+	XLINK_DATA_READY_CALLBACK_REQ,
+	XLINK_DATA_CONSUMED_CALLBACK_REQ,
 	XLINK_REQ_LAST,
 	// response events
 	XLINK_WRITE_RESP = 0x10,
@@ -113,6 +115,8 @@ enum xlink_event_type {
 	XLINK_CLOSE_CHANNEL_RESP,
 	XLINK_PING_RESP,
 	XLINK_WRITE_CONTROL_RESP,
+	XLINK_DATA_READY_CALLBACK_RESP,
+	XLINK_DATA_CONSUMED_CALLBACK_RESP,
 	XLINK_RESP_LAST,
 };
 
