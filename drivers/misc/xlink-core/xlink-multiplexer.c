@@ -115,6 +115,38 @@ static struct xlink_multiplexer *xmux;
  *
  */
 
+static enum xlink_error run_callback(struct open_channel *opchan,
+				     void *callback, struct task_struct *pid)
+{
+	enum xlink_error rc = X_LINK_SUCCESS;
+	struct kernel_siginfo info;
+	void (*func)(int chan);
+	int ret;
+
+	if (opchan->callback_origin == 'U') { // user-space origin
+		if (pid) {
+			memset(&info, 0, sizeof(struct kernel_siginfo));
+			info.si_signo = SIGXLNK;
+			info.si_code = SI_QUEUE;
+			info.si_errno = opchan->id;
+			info.si_ptr = (void __user *)callback;
+			ret = send_sig_info(SIGXLNK, &info, pid);
+			if (ret < 0) {
+				pr_err("Unable to send signal %d\n", ret);
+				rc = X_LINK_ERROR;
+			}
+		} else {
+			pr_err("CHAN 0x%x -- calling_pid == NULL\n",
+			       opchan->id);
+			rc = X_LINK_ERROR;
+		}
+	} else { // kernel origin
+		func = callback;
+		func(opchan->id);
+	}
+	return rc;
+}
+
 static inline int chan_is_non_blocking_read(struct open_channel *opchan)
 {
 	if (opchan->chan->mode == RXN_TXN || opchan->chan->mode == RXN_TXB)
@@ -151,7 +183,7 @@ static int is_channel_for_device(u16 chan, u32 sw_device_id,
 				 enum xlink_dev_type dev_type)
 {
 	struct xlink_channel_type const *chan_type = get_channel_type(chan);
-	int interface = NULL_INTERFACE;
+	int interface;
 
 	if (chan_type) {
 		interface = get_interface_from_sw_device_id(sw_device_id);
@@ -181,13 +213,9 @@ static int is_enough_space_in_channel(struct open_channel *opchan,
 		}
 	}
 	if (opchan->tx_up_limit == 1) {
-		if ((opchan->tx_fill_level + size)
-				< ((opchan->chan->size / 100) * THR_LWR)) {
-			opchan->tx_up_limit = 0;
-			return 1;
-		} else {
+		if ((opchan->tx_fill_level + size) >=
+		   ((opchan->chan->size / 100) * THR_LWR))
 			return 0;
-		}
 	}
 	return 1;
 }
@@ -231,6 +259,8 @@ static int add_packet_to_channel(struct open_channel *opchan,
 		list_add_tail(&pkt->list, &queue->head);
 		queue->count++;
 		opchan->rx_fill_level += pkt->length;
+	} else {
+		return X_LINK_ERROR;
 	}
 	return X_LINK_SUCCESS;
 }
@@ -262,9 +292,11 @@ static int release_packet_from_channel(struct open_channel *opchan,
 	} else {
 		// find packet in channel rx queue
 		list_for_each_entry(pkt, &queue->head, list) {
-			if (pkt->data == addr) {
-				packet_found = 1;
-				break;
+			if (pkt) {
+				if (pkt->data == addr) {
+					packet_found = 1;
+					break;
+				}
 			}
 		}
 	}
@@ -629,14 +661,44 @@ enum xlink_error xlink_multiplexer_tx(struct xlink_event *event,
 			}
 		} else if (xmux->channels[link_id][chan].status == CHAN_OPEN_PEER) {
 			/* channel already open */
-			xmux->channels[link_id][chan].status = CHAN_OPEN; // opened locally
-			xmux->channels[link_id][chan].size = event->header.size;
-			xmux->channels[link_id][chan].timeout = event->header.timeout;
-			xmux->channels[link_id][chan].mode = (uintptr_t)event->data;
 			rc = multiplexer_open_channel(link_id, chan);
+			if (rc == X_LINK_SUCCESS) {
+				struct channel *xchan = &xmux->channels[link_id][chan];
+
+				xchan->status	= CHAN_OPEN; // opened locally
+				xchan->size	= event->header.size;
+				xchan->timeout	= event->header.timeout;
+				xchan->mode	= (uintptr_t)event->data;
+			}
 		} else {
 			/* channel already open */
 			rc = X_LINK_ALREADY_OPEN;
+		}
+		break;
+	case XLINK_DATA_READY_CALLBACK_REQ:
+		opchan = get_channel(link_id, chan);
+		if (!opchan) {
+			rc = X_LINK_COMMUNICATION_FAIL;
+		} else {
+			opchan->ready_callback = event->data;
+			opchan->ready_calling_pid = event->calling_pid;
+			opchan->callback_origin = event->callback_origin;
+			pr_info("xlink ready callback process registered - %lx chan %d\n",
+				(uintptr_t)event->calling_pid, chan);
+			release_channel(opchan);
+		}
+		break;
+	case XLINK_DATA_CONSUMED_CALLBACK_REQ:
+		opchan = get_channel(link_id, chan);
+		if (!opchan) {
+			rc = X_LINK_COMMUNICATION_FAIL;
+		} else {
+			opchan->consumed_callback = event->data;
+			opchan->consumed_calling_pid = event->calling_pid;
+			opchan->callback_origin = event->callback_origin;
+			pr_info("xlink consumed callback process registered - %lx chan %d\n",
+				(uintptr_t)event->calling_pid, chan);
+			release_channel(opchan);
 		}
 		break;
 	case XLINK_CLOSE_CHANNEL_REQ:
@@ -709,7 +771,8 @@ enum xlink_error xlink_multiplexer_rx(struct xlink_event *event)
 							  XLINK_PACKET_ALIGNMENT,
 							  XLINK_NORMAL_MEMORY);
 			} else {
-				pr_err("Fatal error: can't allocate memory in line:%d func:%s\n", __LINE__, __func__);
+				pr_err("Fatal error: can't allocate memory in line:%d func:%s\n",
+				       __LINE__, __func__);
 			}
 			rc = X_LINK_COMMUNICATION_FAIL;
 		} else {
@@ -754,6 +817,14 @@ enum xlink_error xlink_multiplexer_rx(struct xlink_event *event)
 				xlink_dispatcher_event_add(EVENT_RX, event);
 				//complete regardless of mode/timeout
 				complete(&opchan->pkt_available);
+				// run callback
+				if (xmux->channels[link_id][chan].status == CHAN_OPEN &&
+				    chan_is_non_blocking_read(opchan) &&
+				    opchan->ready_callback) {
+					rc = run_callback(opchan, opchan->ready_callback,
+							  opchan->ready_calling_pid);
+					break;
+				}
 			} else {
 				// failed to allocate buffer
 				rc = X_LINK_ERROR;
@@ -813,6 +884,13 @@ enum xlink_error xlink_multiplexer_rx(struct xlink_event *event)
 		xlink_dispatcher_event_add(EVENT_RX, event);
 		//complete regardless of mode/timeout
 		complete(&opchan->pkt_consumed);
+		// run callback
+		if (xmux->channels[link_id][chan].status == CHAN_OPEN &&
+		    chan_is_non_blocking_write(opchan) &&
+		    opchan->consumed_callback) {
+			rc = run_callback(opchan, opchan->consumed_callback,
+					  opchan->consumed_calling_pid);
+		}
 		release_channel(opchan);
 		break;
 	case XLINK_RELEASE_REQ:
@@ -838,47 +916,47 @@ enum xlink_error xlink_multiplexer_rx(struct xlink_event *event)
 			rc = multiplexer_open_channel(link_id, chan);
 			if (rc) {
 				rc = X_LINK_ERROR;
-			} else {
-				opchan = get_channel(link_id, chan);
-				if (!opchan) {
-					rc = X_LINK_COMMUNICATION_FAIL;
-				} else {
-					xmux->channels[link_id][chan].status = CHAN_OPEN_PEER;
-					complete(&opchan->opened);
-					passthru_event = xlink_create_event(link_id,
-									    XLINK_OPEN_CHANNEL_RESP,
-									    event->handle,
-									    chan,
-									    0,
-									    opchan->chan->timeout);
-					if (!passthru_event) {
-						rc = X_LINK_ERROR;
-						release_channel(opchan);
-						break;
-					}
-					xlink_dispatcher_event_add(EVENT_RX,
-								   passthru_event);
-				}
-				release_channel(opchan);
+				break;
 			}
+			opchan = get_channel(link_id, chan);
+			if (!opchan) {
+				rc = X_LINK_COMMUNICATION_FAIL;
+				break;
+			}
+			xmux->channels[link_id][chan].status = CHAN_OPEN_PEER;
+			complete(&opchan->opened);
+			passthru_event = xlink_create_event(link_id,
+							    XLINK_OPEN_CHANNEL_RESP,
+							    event->handle,
+							    chan,
+							    0,
+							    opchan->chan->timeout);
+			if (!passthru_event) {
+				rc = X_LINK_ERROR;
+				release_channel(opchan);
+				break;
+			}
+			xlink_dispatcher_event_add(EVENT_RX,
+						   passthru_event);
+			release_channel(opchan);
 		} else {
 			/* channel already open */
 			opchan = get_channel(link_id, chan);
 			if (!opchan) {
 				rc = X_LINK_COMMUNICATION_FAIL;
-			} else {
-				passthru_event = xlink_create_event(link_id,
-								    XLINK_OPEN_CHANNEL_RESP,
-								    event->handle,
-								    chan, 0, 0);
-				if (!passthru_event) {
-					release_channel(opchan);
-					rc = X_LINK_ERROR;
-					break;
-				}
-				xlink_dispatcher_event_add(EVENT_RX,
-							   passthru_event);
+				break;
 			}
+			passthru_event = xlink_create_event(link_id,
+							    XLINK_OPEN_CHANNEL_RESP,
+							    event->handle,
+							    chan, 0, 0);
+			if (!passthru_event) {
+				release_channel(opchan);
+				rc = X_LINK_ERROR;
+				break;
+			}
+			xlink_dispatcher_event_add(EVENT_RX,
+						   passthru_event);
 			release_channel(opchan);
 		}
 		rc = xlink_passthrough(event);
@@ -930,7 +1008,7 @@ enum xlink_error xlink_passthrough(struct xlink_event *event)
 #ifdef CONFIG_XLINK_LOCAL_HOST
 	struct xlink_ipc_context ipc = {0};
 	phys_addr_t physaddr = 0;
-	dma_addr_t vpuaddr = 0;
+	static dma_addr_t vpuaddr;
 	u32 timeout = 0;
 	u32 link_id;
 	u16 chan;
