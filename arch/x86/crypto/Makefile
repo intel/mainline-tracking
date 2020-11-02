@@ -80,6 +80,9 @@ crc32-pclmul-y := crc32-pclmul_asm.o crc32-pclmul_glue.o
 
 obj-$(CONFIG_CRYPTO_CRCT10DIF_PCLMUL) += crct10dif-pclmul.o
 crct10dif-pclmul-y := crct10dif-pcl-asm_64.o crct10dif-pclmul_glue.o
+ifdef CONFIG_64BIT
+crct10dif-pclmul-$(CONFIG_AS_VPCLMULQDQ) += crct10dif-avx512-asm_64.o
+endif
 
 obj-$(CONFIG_CRYPTO_POLY1305_X86_64) += poly1305-x86_64.o
 poly1305-x86_64-y := poly1305-x86_64-cryptogams.o poly1305_glue.o
