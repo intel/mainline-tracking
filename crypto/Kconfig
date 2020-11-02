@@ -613,6 +613,12 @@ config CRYPTO_CRC32C_VPMSUM
 	  (vpmsum) instructions, introduced in POWER8. Enable on POWER8
 	  and newer processors for improved performance.
 
+config CRYPTO_AVX512
+	bool "Use AVX512 hardware acceleration"
+	depends on X86
+	help
+	  This option will use AVX512 hardware acceleration for crypto
+	  algorithms to improve performance.
 
 config CRYPTO_CRC32C_SPARC64
 	tristate "CRC32c CRC algorithm (SPARC64)"
