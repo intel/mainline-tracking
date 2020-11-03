@@ -191,6 +191,20 @@ asmlinkage void aes_ctr_enc_192_avx_by8(const u8 *in, u8 *iv,
 		void *keys, u8 *out, unsigned int num_bytes);
 asmlinkage void aes_ctr_enc_256_avx_by8(const u8 *in, u8 *iv,
 		void *keys, u8 *out, unsigned int num_bytes);
+
+asmlinkage void aes_ctr_enc_128_avx512_by16(void *keys, u8 *out,
+					    const u8 *in,
+					    unsigned int num_bytes,
+					    u8 *iv);
+asmlinkage void aes_ctr_enc_192_avx512_by16(void *keys, u8 *out,
+					    const u8 *in,
+					    unsigned int num_bytes,
+					    u8 *iv);
+asmlinkage void aes_ctr_enc_256_avx512_by16(void *keys, u8 *out,
+					    const u8 *in,
+					    unsigned int num_bytes,
+					    u8 *iv);
+
 /*
  * asmlinkage void aesni_gcm_init_avx_gen2()
  * gcm_data *my_ctx_data, context data
@@ -485,6 +499,23 @@ static void aesni_ctr_enc_avx_tfm(struct crypto_aes_ctx *ctx, u8 *out,
 		aes_ctr_enc_192_avx_by8(in, iv, (void *)ctx, out, len);
 	else
 		aes_ctr_enc_256_avx_by8(in, iv, (void *)ctx, out, len);
+}
+
+static void aesni_ctr_enc_avx512_tfm(struct crypto_aes_ctx *ctx, u8 *out,
+				     const u8 *in, unsigned int len, u8 *iv)
+{
+	/*
+	 * based on key length, override with the by16 version
+	 * of ctr mode encryption/decryption for improved performance.
+	 * aes_set_key_common() ensures that key length is one of
+	 * {128,192,256}
+	 */
+	if (ctx->key_length == AES_KEYSIZE_128)
+		aes_ctr_enc_128_avx512_by16((void *)ctx, out, in, len, iv);
+	else if (ctx->key_length == AES_KEYSIZE_192)
+		aes_ctr_enc_192_avx512_by16((void *)ctx, out, in, len, iv);
+	else
+		aes_ctr_enc_256_avx512_by16((void *)ctx, out, in, len, iv);
 }
 
 static int ctr_crypt(struct skcipher_request *req)
@@ -1057,6 +1088,10 @@ static const struct x86_cpu_id aesni_cpu_id[] = {
 };
 MODULE_DEVICE_TABLE(x86cpu, aesni_cpu_id);
 
+static bool use_avx512 = 1;
+module_param(use_avx512, bool, 0);
+MODULE_PARM_DESC(use_avx512, "Use AVX512 optimized algorithm, if available");
+
 static int __init aesni_init(void)
 {
 	int err;
@@ -1076,7 +1111,11 @@ static int __init aesni_init(void)
 		aesni_gcm_tfm = &aesni_gcm_tfm_sse;
 	}
 	aesni_ctr_enc_tfm = aesni_ctr_enc;
-	if (boot_cpu_has(X86_FEATURE_AVX)) {
+	if (use_avx512 && cpu_feature_enabled(X86_FEATURE_VAES)) {
+		/* Ctr mode performance optimization using AVX512 */
+		aesni_ctr_enc_tfm = aesni_ctr_enc_avx512_tfm;
+		pr_info("AES CTR mode by16 optimization enabled\n");
+	} else if (boot_cpu_has(X86_FEATURE_AVX)) {
 		/* optimize performance of ctr mode encryption transform */
 		aesni_ctr_enc_tfm = aesni_ctr_enc_avx_tfm;
 		pr_info("AES CTR mode by8 optimization enabled\n");
