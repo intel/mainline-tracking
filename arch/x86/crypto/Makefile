@@ -55,6 +55,7 @@ aesni-intel-y := aesni-intel_asm.o aesni-intel_glue.o
 aesni-intel-$(CONFIG_64BIT) += aesni-intel_avx-x86_64.o aes_ctrby8_avx-x86_64.o
 ifdef CONFIG_64BIT
 aesni-intel-$(CONFIG_AS_VAES_AVX512) += aes_ctrby16_avx512-x86_64.o
+aesni-intel-$(CONFIG_AS_VPCLMULQDQ) += aesni-intel_avx512-x86_64.o
 endif
 
 obj-$(CONFIG_CRYPTO_SHA1_SSSE3) += sha1-ssse3.o
