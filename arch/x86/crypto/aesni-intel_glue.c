@@ -51,13 +51,13 @@
  * This needs to be 16 byte aligned.
  */
 struct aesni_rfc4106_gcm_ctx {
-	u8 hash_subkey[16] AESNI_ALIGN_ATTR;
+	u8 hash_subkey[16 * 48] AESNI_ALIGN_ATTR;
 	struct crypto_aes_ctx aes_key_expanded AESNI_ALIGN_ATTR;
 	u8 nonce[4];
 };
 
 struct generic_gcmaes_ctx {
-	u8 hash_subkey[16] AESNI_ALIGN_ATTR;
+	u8 hash_subkey[16 * 48] AESNI_ALIGN_ATTR;
 	struct crypto_aes_ctx aes_key_expanded AESNI_ALIGN_ATTR;
 };
 
@@ -78,7 +78,7 @@ struct gcm_context_data {
 	u8 current_counter[GCM_BLOCK_LEN];
 	u64 partial_block_len;
 	u64 unused;
-	u8 hash_keys[GCM_BLOCK_LEN * 16];
+	u8 hash_keys[48 * 16];
 };
 
 asmlinkage int aesni_set_key(struct crypto_aes_ctx *ctx, const u8 *in_key,
@@ -93,6 +93,7 @@ asmlinkage void aesni_cbc_enc(struct crypto_aes_ctx *ctx, u8 *out,
 			      const u8 *in, unsigned int len, u8 *iv);
 asmlinkage void aesni_cbc_dec(struct crypto_aes_ctx *ctx, u8 *out,
 			      const u8 *in, unsigned int len, u8 *iv);
+asmlinkage void aes_gcm_precomp_avx_512(struct crypto_aes_ctx *ctx, u8 *hash_subkey);
 
 #define AVX_GEN2_OPTSIZE 640
 #define AVX_GEN4_OPTSIZE 4096
@@ -246,6 +247,42 @@ static const struct aesni_gcm_tfm_s aesni_gcm_tfm_avx_gen2 = {
 	.dec_update = &aesni_gcm_dec_update_avx_gen2,
 	.finalize = &aesni_gcm_finalize_avx_gen2,
 };
+
+#ifdef CONFIG_AS_AVX512
+/*
+ * asmlinkage void aesni_gcm_init_avx_512()
+ * gcm_data *my_ctx_data, context data
+ * u8 *hash_subkey,  the Hash sub key input. Data starts on a 16-byte boundary.
+ */
+asmlinkage void aesni_gcm_init_avx_512(void *my_ctx_data,
+				       struct gcm_context_data *gdata,
+				       u8 *iv,
+				       u8 *hash_subkey,
+				       const u8 *aad,
+				       unsigned long aad_len);
+asmlinkage void aesni_gcm_enc_update_avx_512(void *ctx,
+					     struct gcm_context_data *gdata,
+					     u8 *out,
+					     const u8 *in,
+					     unsigned long plaintext_len);
+asmlinkage void aesni_gcm_dec_update_avx_512(void *ctx,
+					     struct gcm_context_data *gdata,
+					     u8 *out,
+					     const u8 *in,
+					     unsigned long ciphertext_len);
+asmlinkage void aesni_gcm_finalize_avx_512(void *ctx,
+					   struct gcm_context_data *gdata,
+					   u8 *auth_tag,
+					   unsigned long auth_tag_len);
+
+static const struct aesni_gcm_tfm_s aesni_gcm_tfm_avx_512 = {
+	.init = &aesni_gcm_init_avx_512,
+	.enc_update = &aesni_gcm_enc_update_avx_512,
+	.dec_update = &aesni_gcm_dec_update_avx_512,
+	.finalize = &aesni_gcm_finalize_avx_512,
+};
+
+#endif
 
 /*
  * asmlinkage void aesni_gcm_init_avx_gen4()
@@ -650,7 +687,10 @@ rfc4106_set_hash_subkey(u8 *hash_subkey, const u8 *key, unsigned int key_len)
 	/* We want to cipher all zeros to create the hash sub key. */
 	memset(hash_subkey, 0, RFC4106_HASH_SUBKEY_SIZE);
 
-	aes_encrypt(&ctx, hash_subkey, hash_subkey);
+	if (aesni_gcm_tfm == &aesni_gcm_tfm_avx_512)
+		aes_gcm_precomp_avx_512(&ctx, hash_subkey);
+	else
+		aes_encrypt(&ctx, hash_subkey, hash_subkey);
 
 	memzero_explicit(&ctx, sizeof(ctx));
 	return 0;
@@ -766,6 +806,10 @@ static int gcmaes_crypt_by_sg(bool enc, struct aead_request *req,
 	}
 
 	kernel_fpu_begin();
+
+	if (gcm_tfm == &aesni_gcm_tfm_avx_512)
+		memcpy(data.hash_keys, hash_subkey, 16 * 48);
+
 	gcm_tfm->init(aes_ctx, &data, iv,
 		hash_subkey, assoc, assoclen);
 	if (req->src != req->dst) {
@@ -810,7 +854,9 @@ static int gcmaes_crypt_by_sg(bool enc, struct aead_request *req,
 			scatterwalk_done(&src_sg_walk, 1, left);
 		}
 	}
+
 	gcm_tfm->finalize(aes_ctx, &data, authTag, auth_tag_len);
+
 	kernel_fpu_end();
 
 	if (!assocmem)
@@ -1099,6 +1145,10 @@ static int __init aesni_init(void)
 	if (!x86_match_cpu(aesni_cpu_id))
 		return -ENODEV;
 #ifdef CONFIG_X86_64
+	if (use_avx512 && cpu_feature_enabled(X86_FEATURE_VPCLMULQDQ)) {
+		pr_info("AVX512 version of gcm_enc/dec engaged.\n");
+		aesni_gcm_tfm = &aesni_gcm_tfm_avx_512;
+	} else
 	if (boot_cpu_has(X86_FEATURE_AVX2)) {
 		pr_info("AVX2 version of gcm_enc/dec engaged.\n");
 		aesni_gcm_tfm = &aesni_gcm_tfm_avx_gen4;
