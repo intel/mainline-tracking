@@ -10,28 +10,32 @@
 #include "pci.h"
 #include "../common/core.h"
 
+#define HW_ID_LO_MASK	GENMASK(7, 0)
+#define HW_ID_HI_MASK	GENMASK(15, 8)
+
 static const struct pci_device_id xpcie_pci_table[] = {
 	{ PCI_DEVICE(PCI_VENDOR_ID_INTEL, PCI_DEVICE_ID_INTEL_KEEMBAY), 0 },
 	{ 0 }
 };
-
-static bool driver_unload;
 
 static int intel_xpcie_probe(struct pci_dev *pdev,
 			     const struct pci_device_id *ent)
 {
 	bool new_device = false;
 	struct xpcie_dev *xdev;
-	u32 hw_id, sw_devid;
+	u32 sw_devid;
+	u16 hw_id;
 	int ret;
 
-	hw_id = ((u16)pdev->bus->number << 8) | PCI_SLOT(pdev->devfn);
+	hw_id = FIELD_PREP(HW_ID_HI_MASK, pdev->bus->number) |
+		FIELD_PREP(HW_ID_LO_MASK, PCI_SLOT(pdev->devfn));
 
-	sw_devid = (XLINK_DEV_INF_PCIE << XLINK_DEV_INF_TYPE_SHIFT) |
-		   (hw_id << XLINK_DEV_PHYS_ID_SHIFT) |
-		   (XLINK_DEV_TYPE_KMB << XLINK_DEV_TYPE_SHIFT) |
-		   (XLINK_DEV_SLICE_0 << XLINK_DEV_SLICE_ID_SHIFT) |
-		   (XLINK_DEV_FUNC_VPU << XLINK_DEV_FUNC_SHIFT);
+	sw_devid = FIELD_PREP(XLINK_DEV_INF_TYPE_MASK,
+			      XLINK_DEV_INF_PCIE) |
+		   FIELD_PREP(XLINK_DEV_PHYS_ID_MASK, hw_id) |
+		   FIELD_PREP(XLINK_DEV_TYPE_MASK, XLINK_DEV_TYPE_KMB) |
+		   FIELD_PREP(XLINK_DEV_PCIE_ID_MASK, XLINK_DEV_PCIE_0) |
+		   FIELD_PREP(XLINK_DEV_FUNC_MASK, XLINK_DEV_FUNC_VPU);
 
 	xdev = intel_xpcie_get_device_by_id(sw_devid);
 	if (!xdev) {
@@ -62,11 +66,8 @@ static void intel_xpcie_remove(struct pci_dev *pdev)
 
 	if (xdev) {
 		intel_xpcie_pci_cleanup(xdev);
-
 		intel_xpcie_pci_notify_event(xdev, NOTIFY_DEVICE_DISCONNECTED);
-
-		if (driver_unload)
-			intel_xpcie_remove_device(xdev);
+		intel_xpcie_remove_device(xdev);
 	}
 }
 
@@ -84,13 +85,12 @@ static int __init intel_xpcie_init_module(void)
 
 static void __exit intel_xpcie_exit_module(void)
 {
-	driver_unload = true;
 	pci_unregister_driver(&xpcie_driver);
 }
 
 module_init(intel_xpcie_init_module);
 module_exit(intel_xpcie_exit_module);
 MODULE_LICENSE("GPL");
-MODULE_AUTHOR("Intel");
+MODULE_AUTHOR("Intel Corporation");
 MODULE_DESCRIPTION(XPCIE_DRIVER_DESC);
 MODULE_VERSION(XPCIE_DRIVER_VERSION);

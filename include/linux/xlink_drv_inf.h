@@ -10,18 +10,16 @@
 #ifndef _XLINK_DRV_INF_H_
 #define _XLINK_DRV_INF_H_
 
+#include <linux/bitfield.h>
+#include <linux/bits.h>
 #include <linux/types.h>
 
-#define XLINK_DEV_INF_TYPE_SHIFT (24)
-#define XLINK_DEV_INT_TYPE_MASK (0x7)
-#define XLINK_DEV_PHYS_ID_SHIFT (8)
-#define XLINK_DEV_PHYS_ID_MASK (0xFFFF)
-#define XLINK_DEV_TYPE_SHIFT (4)
-#define XLINK_DEV_TYPE_MASK (0xF)
-#define XLINK_DEV_SLICE_ID_SHIFT (1)
-#define XLINK_DEV_SLICE_ID_MASK (0x7)
-#define XLINK_DEV_FUNC_SHIFT (0)
-#define XLINK_DEV_FUNC_MASK (0x1)
+#define XLINK_DEV_INF_TYPE_MASK		GENMASK(27, 24)
+#define XLINK_DEV_PHYS_ID_MASK		GENMASK(23, 8)
+#define XLINK_DEV_TYPE_MASK		GENMASK(6, 4)
+#define XLINK_DEV_PCIE_ID_MASK		GENMASK(3, 1)
+#define XLINK_DEV_FUNC_MASK		GENMASK(0, 0)
+
 
 enum xlink_device_inf_type {
 	XLINK_DEV_INF_PCIE = 1,
@@ -31,8 +29,8 @@ enum xlink_device_type {
 	XLINK_DEV_TYPE_KMB = 0,
 };
 
-enum xlink_device_slice {
-	XLINK_DEV_SLICE_0 = 0,
+enum xlink_device_pcie {
+	XLINK_DEV_PCIE_0 = 0,
 };
 
 enum xlink_device_func {

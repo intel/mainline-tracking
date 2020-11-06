@@ -10,15 +10,11 @@
 #ifndef XPCIE_CORE_HEADER_
 #define XPCIE_CORE_HEADER_
 
-#include <linux/io.h>
-#include <linux/types.h>
-#include <linux/workqueue.h>
-#include <linux/slab.h>
-#include <linux/mutex.h>
-#include <linux/mempool.h>
 #include <linux/dma-mapping.h>
-#include <linux/cache.h>
+#include <linux/mutex.h>
+#include <linux/slab.h>
 #include <linux/wait.h>
+#include <linux/workqueue.h>
 
 #include <linux/xlink_drv_inf.h>
 

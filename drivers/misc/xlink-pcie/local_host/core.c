@@ -7,10 +7,7 @@
  *
  ****************************************************************************/
 
-#include <linux/uaccess.h>
-#include <linux/delay.h>
 #include <linux/of_reserved_mem.h>
-#include <linux/interrupt.h>
 
 #include "epf.h"
 #include "../common/core.h"
