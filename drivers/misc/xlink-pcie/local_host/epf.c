@@ -7,8 +7,8 @@
  *
  ****************************************************************************/
 
-#include <linux/platform_device.h>
 #include <linux/of.h>
+#include <linux/platform_device.h>
 #include <linux/reboot.h>
 
 #include "epf.h"
@@ -128,31 +128,6 @@ static irqreturn_t intel_xpcie_host_interrupt(int irq, void *args)
 	return IRQ_HANDLED;
 }
 
-static void __iomem *intel_xpcie_epc_alloc_addr(struct pci_epc *epc,
-						phys_addr_t *phys_addr,
-						size_t size)
-{
-	void __iomem *virt_addr;
-	unsigned long flags;
-
-	spin_lock_irqsave(&epc->lock, flags);
-	virt_addr = pci_epc_mem_alloc_addr(epc, phys_addr, size);
-	spin_unlock_irqrestore(&epc->lock, flags);
-
-	return virt_addr;
-}
-
-static void intel_xpcie_epc_free_addr(struct pci_epc *epc,
-				      phys_addr_t phys_addr,
-				      void __iomem *virt_addr, size_t size)
-{
-	unsigned long flags;
-
-	spin_lock_irqsave(&epc->lock, flags);
-	pci_epc_mem_free_addr(epc, phys_addr, virt_addr, size);
-	spin_unlock_irqrestore(&epc->lock, flags);
-}
-
 static int intel_xpcie_check_bar(struct pci_epf *epf,
 				 struct pci_epf_bar *epf_bar,
 				 enum pci_barno barno,
@@ -216,9 +191,8 @@ static void intel_xpcie_cleanup_bar(struct pci_epf *epf, enum pci_barno barno)
 	if (xpcie_epf->vaddr[barno]) {
 		pci_epc_clear_bar(epc, epf->func_no, &epf->bar[barno]);
 		pci_epf_free_space(epf, xpcie_epf->vaddr[barno], barno);
+		xpcie_epf->vaddr[barno] = NULL;
 	}
-
-	xpcie_epf->vaddr[barno] = NULL;
 }
 
 static void intel_xpcie_cleanup_bars(struct pci_epf *epf)
@@ -248,14 +222,12 @@ static int intel_xpcie_setup_bar(struct pci_epf *epf, enum pci_barno barno,
 		bar->flags |= PCI_BASE_ADDRESS_MEM_PREFETCH;
 
 	vaddr = pci_epf_alloc_space(epf, bar->size, barno, align);
-
 	if (!vaddr) {
 		dev_err(&epf->dev, "Failed to map BAR%d\n", barno);
 		return -ENOMEM;
 	}
 
 	ret = pci_epc_set_bar(epc, epf->func_no, bar);
-
 	if (ret) {
 		pci_epf_free_space(epf, vaddr, barno);
 		dev_err(&epf->dev, "Failed to set BAR%d\n", barno);
@@ -335,7 +307,7 @@ static int intel_xpcie_epf_get_platform_data(struct device *dev,
 	if (IS_ERR(xpcie_epf->dbi_base))
 		return PTR_ERR(xpcie_epf->dbi_base);
 
-	memcpy(xpcie_epf->stepping, "B0", strlen("B0"));
+	memcpy(xpcie_epf->stepping, "B0", 2);
 	soc_node = of_get_parent(pdev->dev.of_node);
 	if (soc_node) {
 		version_node = of_get_child_by_name(soc_node, "version-info");
@@ -357,9 +329,9 @@ static int intel_xpcie_epf_bind(struct pci_epf *epf)
 	struct xpcie_epf *xpcie_epf = epf_get_drvdata(epf);
 	const struct pci_epc_features *features;
 	struct pci_epc *epc = epf->epc;
-	struct device *dev;
-	size_t align;
 	u32 bus_num, dev_num;
+	struct device *dev;
+	size_t align = SZ_16K;
 	int ret;
 
 	if (WARN_ON_ONCE(!epc))
@@ -425,11 +397,13 @@ static int intel_xpcie_epf_bind(struct pci_epf *epf)
 	dev_num = (ret >> PCIE_CFG_PBUS_DEV_NUM_OFFSET) &
 			PCIE_CFG_PBUS_DEV_NUM_MASK;
 
-	xlink_sw_id = (XLINK_DEV_INF_PCIE << XLINK_DEV_INF_TYPE_SHIFT) |
-		   ((bus_num << 8 | dev_num) << XLINK_DEV_PHYS_ID_SHIFT) |
-		   (XLINK_DEV_TYPE_KMB << XLINK_DEV_TYPE_SHIFT) |
-		   (XLINK_DEV_SLICE_0 << XLINK_DEV_SLICE_ID_SHIFT) |
-		   (XLINK_DEV_FUNC_VPU << XLINK_DEV_FUNC_SHIFT);
+	xlink_sw_id = FIELD_PREP(XLINK_DEV_INF_TYPE_MASK,
+			      XLINK_DEV_INF_PCIE) |
+		      FIELD_PREP(XLINK_DEV_PHYS_ID_MASK,
+				 bus_num << 8 | dev_num) |
+		      FIELD_PREP(XLINK_DEV_TYPE_MASK, XLINK_DEV_TYPE_KMB) |
+		      FIELD_PREP(XLINK_DEV_PCIE_ID_MASK, XLINK_DEV_PCIE_0) |
+		      FIELD_PREP(XLINK_DEV_FUNC_MASK, XLINK_DEV_FUNC_VPU);
 
 	ret = intel_xpcie_core_init(&xpcie_epf->xpcie);
 	if (ret) {
@@ -536,7 +510,7 @@ static struct pci_epf_driver xpcie_epf_driver = {
 
 static int __init intel_xpcie_epf_init(void)
 {
-	int ret = -EBUSY;
+	int ret;
 
 	ret = pci_epf_register_driver(&xpcie_epf_driver);
 	if (ret) {
@@ -555,6 +529,6 @@ static void __exit intel_xpcie_epf_exit(void)
 module_exit(intel_xpcie_epf_exit);
 
 MODULE_LICENSE("GPL");
-MODULE_AUTHOR("Intel");
+MODULE_AUTHOR("Intel Corporation");
 MODULE_DESCRIPTION(XPCIE_DRIVER_DESC);
 MODULE_VERSION(XPCIE_DRIVER_VERSION);
