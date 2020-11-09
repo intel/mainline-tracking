@@ -114,6 +114,12 @@ config INTEL_MEI_VIRTIO
 	  Enable this if your virtual machine supports virtual mei
 	  device over virtio.
 
+config INTEL_MEI_BUS_DMA_TEST
+	tristate "Mei bus DMA test"
+	depends on INTEL_MEI
+	help
+	  Help me out
+
 source "drivers/misc/mei/hdcp/Kconfig"
 source "drivers/misc/mei/pxp/Kconfig"
 source "drivers/misc/mei/gsc_proxy/Kconfig"

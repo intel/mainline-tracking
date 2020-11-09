@@ -46,3 +46,6 @@ mei-vsc-hw-y += vsc-fw-loader.o
 
 obj-$(CONFIG_INTEL_MEI_VSC) += mei-vsc.o
 mei-vsc-y := platform-vsc.o
+
+obj-$(CONFIG_INTEL_MEI_BUS_DMA_TEST) += mei_bus_dma_test.o
+mei_mkhi-objs += mei_bus_dma_test.o
