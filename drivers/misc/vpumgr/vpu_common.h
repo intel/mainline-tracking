@@ -28,4 +28,9 @@ struct vpumgr_device {
 
 #define XLINK_INVALID_SW_DEVID  0xDEADBEEF
 
+#include <linux/version.h>
+#if KERNEL_VERSION(5, 6, 0) > LINUX_VERSION_CODE
+	#define mmap_read_lock(mm) down_read(&(mm)->mmap_sem)
+	#define mmap_read_unlock(mm) up_read(&(mm)->mmap_sem)
+#endif
 #endif
