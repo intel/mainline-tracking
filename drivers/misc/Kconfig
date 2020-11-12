@@ -481,4 +481,5 @@ source "drivers/misc/xlink-smbus/Kconfig"
 source "drivers/misc/hddl_device/Kconfig"
 source "drivers/misc/emc2103/Kconfig"
 source "drivers/misc/vpu/Kconfig"
+source "drivers/misc/vpumgr/Kconfig"
 endmenu
