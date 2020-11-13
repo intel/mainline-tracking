@@ -488,14 +488,15 @@ int intel_xpcie_core_read(struct xpcie *xpcie, void *buffer, size_t *length,
 	long jiffies_passed = 0;
 	int ret;
 
-	len = *length;
-	remaining = len;
-	*length = 0;
-	if (len == 0)
+	if (*length == 0)
 		return -EINVAL;
 
 	if (xpcie->status != XPCIE_STATUS_RUN)
 		return -ENODEV;
+
+	len = *length;
+	remaining = len;
+	*length = 0;
 
 	ret = mutex_lock_interruptible(&inf->rlock);
 	if (ret < 0)
@@ -571,14 +572,15 @@ int intel_xpcie_core_write(struct xpcie *xpcie, void *buffer, size_t *length,
 	size_t remaining, len;
 	int ret;
 
-	len = *length;
-	remaining = len;
-	*length = 0;
-	if (len == 0)
+	if (*length == 0)
 		return -EINVAL;
 
 	if (xpcie->status != XPCIE_STATUS_RUN)
 		return -ENODEV;
+
+	len = *length;
+	remaining = len;
+	*length = 0;
 
 	ret = mutex_lock_interruptible(&xpcie->wlock);
 	if (ret < 0)

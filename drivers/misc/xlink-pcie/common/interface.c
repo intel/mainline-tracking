@@ -15,6 +15,9 @@
 /* Define xpcie driver interface API */
 int xlink_pcie_get_device_list(u32 *sw_device_id_list, u32 *num_devices)
 {
+	if (!sw_device_id_list || !num_devices)
+		return -EINVAL;
+
 	*num_devices = intel_xpcie_get_device_num(sw_device_id_list);
 
 	return 0;
@@ -24,6 +27,9 @@ EXPORT_SYMBOL(xlink_pcie_get_device_list);
 int xlink_pcie_get_device_name(u32 sw_device_id, char *device_name,
 			       size_t name_size)
 {
+	if (!device_name)
+		return -EINVAL;
+
 	return intel_xpcie_get_device_name_by_id(sw_device_id,
 						 device_name, name_size);
 }
@@ -33,6 +39,9 @@ int xlink_pcie_get_device_status(u32 sw_device_id, u32 *device_status)
 {
 	u32 status;
 	int rc;
+
+	if (!device_status)
+		return -EINVAL;
 
 	rc = intel_xpcie_get_device_status_by_id(sw_device_id, &status);
 	if (rc)
@@ -76,6 +85,9 @@ EXPORT_SYMBOL(xlink_pcie_connect);
 int xlink_pcie_read(u32 sw_device_id, void *data, size_t *const size,
 		    u32 timeout)
 {
+	if (!data || !size)
+		return -EINVAL;
+
 	return intel_xpcie_pci_read(sw_device_id, data, size, timeout);
 }
 EXPORT_SYMBOL(xlink_pcie_read);
@@ -83,6 +95,9 @@ EXPORT_SYMBOL(xlink_pcie_read);
 int xlink_pcie_write(u32 sw_device_id, void *data, size_t *const size,
 		     u32 timeout)
 {
+	if (!data || !size)
+		return -EINVAL;
+
 	return intel_xpcie_pci_write(sw_device_id, data, size, timeout);
 }
 EXPORT_SYMBOL(xlink_pcie_write);
@@ -96,6 +111,9 @@ EXPORT_SYMBOL(xlink_pcie_reset_device);
 int xlink_pcie_register_device_event(u32 sw_device_id,
 				     xlink_device_event event_notif_fn)
 {
+	if (!event_notif_fn)
+		return -EINVAL;
+
 	return intel_xpcie_pci_register_device_event(sw_device_id,
 						     event_notif_fn);
 }
