@@ -194,7 +194,7 @@ static int intel_xpcie_pci_irq_init(struct xpcie_dev *xdev,
 	rc = request_irq(irq, irq_handler, 0,
 			 XPCIE_DRIVER_NAME, xdev);
 	if (rc) {
-		dev_err(&xdev->pci->dev, "failed to request irqs\n");
+		dev_err(&xdev->pci->dev, "failed to request irq\n");
 		goto error_irq;
 	}
 
@@ -325,10 +325,6 @@ int intel_xpcie_pci_cleanup(struct xpcie_dev *xdev)
 	cancel_delayed_work(&xdev->shutdown_event);
 	xdev->core_irq_callback = NULL;
 	intel_xpcie_pci_irq_cleanup(xdev);
-
-	kfree(xdev->dma_buf);
-	xdev->dma_buf = NULL;
-	xdev->dma_buf_offset = 0;
 
 	intel_xpcie_core_cleanup(&xdev->xpcie);
 

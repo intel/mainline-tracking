@@ -291,6 +291,12 @@ static int intel_xpcie_discover_txrx(struct xpcie *xpcie)
 
 static void intel_xpcie_start_tx(struct xpcie *xpcie, unsigned long delay)
 {
+	/*
+	 * Use only one WQ for both Rx and Tx
+	 *
+	 * Synchronous Read and Writes to DDR is found to result in memory
+	 * mismatch errors in stability tests due to silicon bug in A0 SoC.
+	 */
 	if (xpcie->legacy_a0)
 		queue_delayed_work(xpcie->rx_wq, &xpcie->tx_event, delay);
 	else
@@ -311,14 +317,12 @@ static void intel_xpcie_rx_event_handler(struct work_struct *work)
 	u32 head, tail, ndesc, length, initial_head;
 	unsigned long delay = msecs_to_jiffies(1);
 	struct xpcie_stream *rx = &xpcie->rx;
+	int descs_num = 0, chan = 0, rc;
 	struct xpcie_dma_ll_desc *desc;
 	struct xpcie_transfer_desc *td;
 	bool reset_work = false;
-	int descs_num = 0;
 	u16 interface;
-	int chan = 0;
 	u64 address;
-	int rc;
 
 	if (intel_xpcie_get_host_status(xpcie) != XPCIE_STATUS_RUN)
 		return;
@@ -436,12 +440,9 @@ static void intel_xpcie_tx_event_handler(struct work_struct *work)
 	u32 head, tail, ndesc, initial_tail;
 	struct xpcie_dma_ll_desc *desc;
 	struct xpcie_transfer_desc *td;
-	size_t buffers = 0;
-	int descs_num = 0;
-	size_t bytes = 0;
-	int chan = 0;
+	int descs_num = 0, chan = 0, rc;
+	size_t buffers = 0, bytes = 0;
 	u64 address;
-	int rc;
 
 	if (intel_xpcie_get_host_status(xpcie) != XPCIE_STATUS_RUN)
 		return;
@@ -647,14 +648,15 @@ int intel_xpcie_core_read(struct xpcie *xpcie, void *buffer,
 	size_t len, remaining;
 	int ret;
 
-	len = *length;
-	remaining = len;
-	*length = 0;
-	if (len == 0)
+	if (*length == 0)
 		return -EINVAL;
 
 	if (xpcie->status != XPCIE_STATUS_RUN)
 		return -ENODEV;
+
+	len = *length;
+	remaining = len;
+	*length = 0;
 
 	ret = mutex_lock_interruptible(&inf->rlock);
 	if (ret < 0)
@@ -732,10 +734,7 @@ int intel_xpcie_core_write(struct xpcie *xpcie, void *buffer,
 	size_t remaining, len;
 	int ret;
 
-	len = *length;
-	remaining = len;
-	*length = 0;
-	if (len == 0)
+	if (*length == 0)
 		return -EINVAL;
 
 	if (xpcie->status != XPCIE_STATUS_RUN)
@@ -743,6 +742,10 @@ int intel_xpcie_core_write(struct xpcie *xpcie, void *buffer,
 
 	if (intel_xpcie_get_host_status(xpcie) != XPCIE_STATUS_RUN)
 		return -ENODEV;
+
+	len = *length;
+	remaining = len;
+	*length = 0;
 
 	ret = mutex_lock_interruptible(&xpcie->wlock);
 	if (ret < 0)

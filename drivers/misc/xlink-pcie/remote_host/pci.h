@@ -37,9 +37,6 @@ struct xpcie_dev {
 	bool irq_enabled;
 	irq_handler_t core_irq_callback;
 
-	void *dma_buf;
-	size_t dma_buf_offset;
-
 	struct xpcie xpcie;
 	xlink_device_event event_fn;
 };

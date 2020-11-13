@@ -86,6 +86,7 @@
 
 #define DMA_POLLING_TIMEOUT		1000000
 #define DMA_ENABLE_TIMEOUT		1000
+#define DMA_PCIE_PM_L1_TIMEOUT		20
 
 struct __packed pcie_dma_reg {
 	u32 dma_ctrl_data_arb_prior;
@@ -166,11 +167,11 @@ static void __iomem *intel_xpcie_ep_get_dma_base(struct pci_epf *epf)
 static int intel_xpcie_ep_dma_disable(void __iomem *dma_base,
 				      enum xpcie_ep_engine_type rw)
 {
-	int i;
 	struct __iomem pcie_dma_reg * dma_reg =
 				(struct __iomem pcie_dma_reg *)dma_base;
-	void __iomem *engine_en, *ll_err;
 	void __iomem *int_mask, *int_clear;
+	void __iomem *engine_en, *ll_err;
+	int i;
 
 	if (rw == WRITE_ENGINE) {
 		engine_en = (void __iomem *)&dma_reg->dma_write_engine_en;
@@ -211,8 +212,8 @@ static void intel_xpcie_ep_dma_enable(void __iomem *dma_base,
 	struct __iomem pcie_dma_reg * dma_reg =
 				(struct __iomem pcie_dma_reg *)(dma_base);
 	void __iomem *engine_en, *ll_err, *arb_weight;
-	void __iomem *int_mask, *int_clear;
 	struct __iomem pcie_dma_chan * dma_chan;
+	void __iomem *int_mask, *int_clear;
 	u32 offset, weight;
 	int i;
 
@@ -265,9 +266,8 @@ static void intel_xpcie_ep_dma_enable(void __iomem *dma_base,
 static int intel_xpcie_ep_dma_doorbell(struct xpcie_epf *xpcie_epf, int chan,
 				       void __iomem *doorbell)
 {
+	int i = DMA_PCIE_PM_L1_TIMEOUT, rc = 0;
 	u32 val, pm_val;
-	int rc = 0;
-	int i = 20;
 
 	val = ioread32(xpcie_epf->apb_base + PCIE_REGS_PCIE_APP_CNTRL);
 	iowrite32(val | APP_XFER_PENDING,
@@ -342,8 +342,8 @@ int intel_xpcie_ep_dma_write_ll(struct pci_epf *epf, int chan, int descs_num)
 {
 	struct xpcie_epf *xpcie_epf = epf_get_drvdata(epf);
 	void __iomem *dma_base = xpcie_epf->dma_base;
-	struct xpcie_dma_ll_desc_buf *desc_buf;
 	struct __iomem pcie_dma_chan * dma_chan;
+	struct xpcie_dma_ll_desc_buf *desc_buf;
 	struct __iomem pcie_dma_reg * dma_reg =
 				(struct __iomem pcie_dma_reg *)(dma_base);
 	int i, rc;
@@ -409,9 +409,9 @@ int intel_xpcie_ep_dma_read_ll(struct pci_epf *epf, int chan, int descs_num)
 	struct xpcie_epf *xpcie_epf = epf_get_drvdata(epf);
 	void __iomem *dma_base = xpcie_epf->dma_base;
 	struct xpcie_dma_ll_desc_buf *desc_buf;
-	struct __iomem pcie_dma_chan * dma_chan;
 	struct __iomem pcie_dma_reg * dma_reg =
 				(struct __iomem pcie_dma_reg *)(dma_base);
+	struct __iomem pcie_dma_chan * dma_chan;
 	int i, rc;
 
 	if (descs_num <= 0 || descs_num > XPCIE_NUM_RX_DESCS)

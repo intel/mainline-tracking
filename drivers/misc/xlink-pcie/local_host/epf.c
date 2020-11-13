@@ -152,8 +152,7 @@ static int intel_xpcie_configure_bar(struct pci_epf *epf,
 {
 	struct pci_epf_bar *epf_bar;
 	bool bar_fixed_64bit;
-	int ret;
-	int i;
+	int ret, i;
 
 	for (i = BAR_0; i <= BAR_5; i++) {
 		epf_bar = &epf->bar[i];
@@ -354,8 +353,10 @@ static int intel_xpcie_epf_bind(struct pci_epf *epf)
 	}
 
 	ret = intel_xpcie_epf_get_platform_data(dev, xpcie_epf);
-	if (ret != 0)
+	if (ret) {
+		dev_err(&epf->dev, "Unable to get platform data\n");
 		return -EINVAL;
+	}
 
 	if (!strcmp(xpcie_epf->stepping, "A0")) {
 		xpcie_epf->xpcie.legacy_a0 = true;
@@ -370,24 +371,26 @@ static int intel_xpcie_epf_bind(struct pci_epf *epf)
 	/* Enable interrupt */
 	writel(LBC_CII_EVENT_FLAG,
 	       xpcie_epf->apb_base + PCIE_REGS_PCIE_INTR_ENABLE);
-	ret = request_irq(xpcie_epf->irq, &intel_xpcie_host_interrupt,
-			  0, XPCIE_DRIVER_NAME, &xpcie_epf->xpcie);
+	ret = devm_request_irq(&epf->dev, xpcie_epf->irq,
+			       &intel_xpcie_host_interrupt, 0,
+			       XPCIE_DRIVER_NAME, &xpcie_epf->xpcie);
 	if (ret) {
 		dev_err(&epf->dev, "failed to request irq\n");
 		goto err_cleanup_bars;
 	}
 
-	ret = request_irq(xpcie_epf->irq_err, &intel_xpcie_err_interrupt, 0,
-			  XPCIE_DRIVER_NAME, &xpcie_epf->xpcie);
+	ret = devm_request_irq(&epf->dev, xpcie_epf->irq_err,
+			       &intel_xpcie_err_interrupt, 0,
+			       XPCIE_DRIVER_NAME, &xpcie_epf->xpcie);
 	if (ret) {
 		dev_err(&epf->dev, "failed to request error irq\n");
-		goto err_free_irq;
+		goto err_cleanup_bars;
 	}
 
 	ret = intel_xpcie_ep_dma_init(epf);
 	if (ret) {
 		dev_err(&epf->dev, "DMA initialization failed\n");
-		goto err_free_err_irq;
+		goto err_cleanup_bars;
 	}
 
 	intel_xpcie_set_device_status(&xpcie_epf->xpcie, XPCIE_STATUS_READY);
@@ -398,7 +401,7 @@ static int intel_xpcie_epf_bind(struct pci_epf *epf)
 			PCIE_CFG_PBUS_DEV_NUM_MASK;
 
 	xlink_sw_id = FIELD_PREP(XLINK_DEV_INF_TYPE_MASK,
-			      XLINK_DEV_INF_PCIE) |
+				 XLINK_DEV_INF_PCIE) |
 		      FIELD_PREP(XLINK_DEV_PHYS_ID_MASK,
 				 bus_num << 8 | dev_num) |
 		      FIELD_PREP(XLINK_DEV_TYPE_MASK, XLINK_DEV_TYPE_KMB) |
@@ -428,12 +431,6 @@ err_uninit_dma:
 
 	intel_xpcie_ep_dma_uninit(epf);
 
-err_free_err_irq:
-	free_irq(xpcie_epf->irq_err, &xpcie_epf->xpcie);
-
-err_free_irq:
-	free_irq(xpcie_epf->irq, &xpcie_epf->xpcie);
-
 err_cleanup_bars:
 	intel_xpcie_cleanup_bars(epf);
 
@@ -444,9 +441,6 @@ static void intel_xpcie_epf_unbind(struct pci_epf *epf)
 {
 	struct xpcie_epf *xpcie_epf = epf_get_drvdata(epf);
 	struct pci_epc *epc = epf->epc;
-
-	free_irq(xpcie_epf->irq, &xpcie_epf->xpcie);
-	free_irq(xpcie_epf->irq_err, &xpcie_epf->xpcie);
 
 	intel_xpcie_core_cleanup(&xpcie_epf->xpcie);
 	intel_xpcie_set_device_status(&xpcie_epf->xpcie, XPCIE_STATUS_READY);
