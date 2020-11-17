@@ -360,6 +360,7 @@ struct mii_bus {
 		MDIOBUS_C22,
 		MDIOBUS_C45,
 		MDIOBUS_C22_C45,
+		MDIOBUS_C45_C22,
 	} probe_capabilities;
 
 	/** @shared_lock: protect access to the shared element */
@@ -873,6 +874,9 @@ struct phy_driver {
 	int (*get_sqi)(struct phy_device *dev);
 	/** @get_sqi_max: Get the maximum signal quality indication */
 	int (*get_sqi_max)(struct phy_device *dev);
+
+	/* Set EEE properties */
+	int (*set_eee)(struct phy_device *phydev, struct ethtool_eee *data);
 };
 #define to_phy_driver(d) container_of(to_mdio_common_driver(d),		\
 				      struct phy_driver, mdiodrv)
@@ -1687,9 +1691,16 @@ struct mdio_board_info {
 #if IS_ENABLED(CONFIG_MDIO_DEVICE)
 int mdiobus_register_board_info(const struct mdio_board_info *info,
 				unsigned int n);
+int mdiobus_create_device(struct mii_bus *bus, struct mdio_board_info *bi);
 #else
 static inline int mdiobus_register_board_info(const struct mdio_board_info *i,
 					      unsigned int n)
+{
+	return 0;
+}
+
+static inline int mdiobus_create_device(struct mii_bus *bus,
+					struct mdio_board_info *bi)
 {
 	return 0;
 }

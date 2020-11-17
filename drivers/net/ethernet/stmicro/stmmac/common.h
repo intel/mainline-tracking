@@ -103,7 +103,23 @@ struct stmmac_extra_stats {
 	unsigned long rx_early_irq;
 	unsigned long threshold;
 	unsigned long tx_pkt_n;
+	unsigned long q0_tx_pkt_n;
+	unsigned long q1_tx_pkt_n;
+	unsigned long q2_tx_pkt_n;
+	unsigned long q3_tx_pkt_n;
+	unsigned long q4_tx_pkt_n;
+	unsigned long q5_tx_pkt_n;
+	unsigned long q6_tx_pkt_n;
+	unsigned long q7_tx_pkt_n;
 	unsigned long rx_pkt_n;
+	unsigned long q0_rx_pkt_n;
+	unsigned long q1_rx_pkt_n;
+	unsigned long q2_rx_pkt_n;
+	unsigned long q3_rx_pkt_n;
+	unsigned long q4_rx_pkt_n;
+	unsigned long q5_rx_pkt_n;
+	unsigned long q6_rx_pkt_n;
+	unsigned long q7_rx_pkt_n;
 	unsigned long normal_irq_n;
 	unsigned long rx_normal_irq_n;
 	unsigned long napi_poll;
@@ -111,6 +127,22 @@ struct stmmac_extra_stats {
 	unsigned long tx_clean;
 	unsigned long tx_set_ic_bit;
 	unsigned long irq_receive_pmt_irq_n;
+	unsigned long q0_rx_irq_n;
+	unsigned long q1_rx_irq_n;
+	unsigned long q2_rx_irq_n;
+	unsigned long q3_rx_irq_n;
+	unsigned long q4_rx_irq_n;
+	unsigned long q5_rx_irq_n;
+	unsigned long q6_rx_irq_n;
+	unsigned long q7_rx_irq_n;
+	unsigned long q0_tx_irq_n;
+	unsigned long q1_tx_irq_n;
+	unsigned long q2_tx_irq_n;
+	unsigned long q3_tx_irq_n;
+	unsigned long q4_tx_irq_n;
+	unsigned long q5_tx_irq_n;
+	unsigned long q6_tx_irq_n;
+	unsigned long q7_tx_irq_n;
 	/* MMC info */
 	unsigned long mmc_tx_irq_n;
 	unsigned long mmc_rx_irq_n;
@@ -253,6 +285,9 @@ struct stmmac_safety_stats {
 #define DMA_HW_FEAT_ACTPHYIF	0x70000000	/* Active/selected PHY iface */
 #define DEFAULT_DMA_PBL		8
 
+/* MSI defines */
+#define STMMAC_MSI_VEC_MAX	32
+
 /* PCS status and mask defines */
 #define	PCS_ANE_IRQ		BIT(2)	/* PCS Auto-Negotiation */
 #define	PCS_LINK_IRQ		BIT(1)	/* PCS Link */
@@ -301,6 +336,24 @@ enum dma_irq_status {
 	tx_hard_error_bump_tc = 0x2,
 	handle_rx = 0x4,
 	handle_tx = 0x8,
+};
+
+enum dma_irq_dir {
+	DMA_DIR_RX = 0x1,
+	DMA_DIR_TX = 0x2,
+	DMA_DIR_RXTX = 0x3,
+};
+
+enum request_irq_err {
+	REQ_IRQ_ERR_ALL,
+	REQ_IRQ_ERR_TX,
+	REQ_IRQ_ERR_RX,
+	REQ_IRQ_ERR_SFTY_UE,
+	REQ_IRQ_ERR_SFTY_CE,
+	REQ_IRQ_ERR_LPI,
+	REQ_IRQ_ERR_WOL,
+	REQ_IRQ_ERR_MAC,
+	REQ_IRQ_ERR_NO,
 };
 
 /* EEE and LPI defines */
@@ -382,6 +435,8 @@ struct dma_features {
 	unsigned int estsel;
 	unsigned int fpesel;
 	unsigned int tbssel;
+	/* Number of Auxiliary Snapshot Inputs */
+	unsigned int aux_snapshot_n;
 };
 
 /* RX Buffer size must be multiple of 4/8/16 bytes */
@@ -483,6 +538,8 @@ struct mac_device_info {
 	unsigned int promisc;
 	bool vlan_fail_q_en;
 	u8 vlan_fail_q;
+	bool mdio_intr_en;
+	wait_queue_head_t mdio_busy_wait;
 };
 
 struct stmmac_rx_routing {
