@@ -158,6 +158,10 @@ static int byt_serial_setup(struct lpss8250 *lpss, struct uart_port *port)
 
 static int ehl_serial_setup(struct lpss8250 *lpss, struct uart_port *port)
 {
+	struct uart_8250_dma *dma = &lpss->data.dma;
+	struct uart_8250_port *up = up_to_u8250p(port);
+
+	up->dma = dma;
 	return 0;
 }
 
