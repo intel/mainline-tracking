@@ -22,18 +22,34 @@
 
 #define GHASH_BLOCK_SIZE	16
 #define GHASH_DIGEST_SIZE	16
+#define GHASH_KEY_LEN		16
+
+static bool use_avx512 = 1;
+module_param(use_avx512, bool, 0);
+MODULE_PARM_DESC(use_avx512, "Use AVX512 optimized algorithm, if available");
 
 void clmul_ghash_mul(char *dst, const u128 *shash);
 
 void clmul_ghash_update(char *dst, const char *src, unsigned int srclen,
 			const u128 *shash);
 
+extern void ghash_precomp_avx512(u8 *key_data);
+
+extern void clmul_ghash_update_avx512(char *dst, const char *src, unsigned int srclen,
+				      u8 *shash);
+
 struct ghash_async_ctx {
 	struct cryptd_ahash *cryptd_tfm;
 };
 
+/*
+ * This is needed for schoolbook multiply purposes.
+ * (HashKey << 1 mod poly), (HashKey^2 << 1 mod poly), ...,
+ * (Hashkey^48 << 1 mod poly)
+ */
 struct ghash_ctx {
 	u128 shash;
+	u8 hkey[GHASH_KEY_LEN * 48];
 };
 
 struct ghash_desc_ctx {
@@ -56,6 +72,16 @@ static int ghash_setkey(struct crypto_shash *tfm,
 	struct ghash_ctx *ctx = crypto_shash_ctx(tfm);
 	be128 *x = (be128 *)key;
 	u64 a, b;
+	int i;
+
+	if (use_avx512 && cpu_feature_enabled(X86_FEATURE_VPCLMULQDQ)) {
+		/* generate extra 47 ghash keys from the initial key */
+		memset(ctx->hkey, 0, GHASH_KEY_LEN * 48);
+		for (i = 0; i < 16; i++)
+			ctx->hkey[(16 * 47) + i] = key[i];
+
+		ghash_precomp_avx512(ctx->hkey);
+	}
 
 	if (keylen != GHASH_BLOCK_SIZE)
 		return -EINVAL;
@@ -94,8 +120,10 @@ static int ghash_update(struct shash_desc *desc,
 		if (!dctx->bytes)
 			clmul_ghash_mul(dst, &ctx->shash);
 	}
-
-	clmul_ghash_update(dst, src, srclen, &ctx->shash);
+	if (use_avx512 && cpu_feature_enabled(X86_FEATURE_VPCLMULQDQ))
+		clmul_ghash_update_avx512(dst, src, srclen & (~0xf), ctx->hkey);
+	else
+		clmul_ghash_update(dst, src, srclen, &ctx->shash);
 	kernel_fpu_end();
 
 	if (srclen & 0xf) {

@@ -2588,6 +2588,11 @@ static int do_test(const char *alg, u32 type, u32 mask, int m, u32 num_mb)
 				    generic_hash_speed_template, num_mb);
 		if (mode > 400 && mode < 500) break;
 		fallthrough;
+	case 428:
+		klen = 16;
+		test_ahash_speed("ghash", sec, generic_hash_speed_template);
+		if (mode > 400 && mode < 500) break;
+		fallthrough;
 	case 499:
 		break;
 
