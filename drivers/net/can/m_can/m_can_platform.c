@@ -111,7 +111,10 @@ static int m_can_plat_probe(struct platform_device *pdev)
 
 	m_can_init_ram(mcan_class);
 
+	pm_runtime_enable(mcan_class->dev);
 	ret = m_can_class_register(mcan_class);
+	if (ret)
+		pm_runtime_disable(mcan_class->dev);
 
 failed_ret:
 	return ret;
