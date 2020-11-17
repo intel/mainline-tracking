@@ -45,6 +45,8 @@ enum tb_cfg_pkg_type {
  * @TB_SECURITY_USBONLY: Only tunnel USB controller of the connected
  *			 Thunderbolt dock (and Display Port). All PCIe
  *			 links downstream of the dock are removed.
+ * @TB_SECURITY_NOPCIE: For USB4 systems this level is used when the
+ *			PCIe tunneling is disabled from the BIOS.
  */
 enum tb_security_level {
 	TB_SECURITY_NONE,
@@ -52,6 +54,7 @@ enum tb_security_level {
 	TB_SECURITY_SECURE,
 	TB_SECURITY_DPONLY,
 	TB_SECURITY_USBONLY,
+	TB_SECURITY_NOPCIE,
 };
 
 /**
@@ -82,17 +85,6 @@ struct tb {
 	size_t nboot_acl;
 	unsigned long privdata[];
 };
-
-extern struct bus_type tb_bus_type;
-extern struct device_type tb_service_type;
-extern struct device_type tb_xdomain_type;
-
-#define TB_LINKS_PER_PHY_PORT	2
-
-static inline unsigned int tb_phy_port_from_link(unsigned int link)
-{
-	return (link - 1) / TB_LINKS_PER_PHY_PORT;
-}
 
 /**
  * struct tb_property_dir - XDomain property directory
@@ -139,34 +131,6 @@ struct tb_property {
 	} value;
 };
 
-struct tb_property_dir *tb_property_parse_dir(const u32 *block,
-					      size_t block_len);
-ssize_t tb_property_format_dir(const struct tb_property_dir *dir, u32 *block,
-			       size_t block_len);
-struct tb_property_dir *tb_property_create_dir(const uuid_t *uuid);
-void tb_property_free_dir(struct tb_property_dir *dir);
-int tb_property_add_immediate(struct tb_property_dir *parent, const char *key,
-			      u32 value);
-int tb_property_add_data(struct tb_property_dir *parent, const char *key,
-			 const void *buf, size_t buflen);
-int tb_property_add_text(struct tb_property_dir *parent, const char *key,
-			 const char *text);
-int tb_property_add_dir(struct tb_property_dir *parent, const char *key,
-			struct tb_property_dir *dir);
-void tb_property_remove(struct tb_property *tb_property);
-struct tb_property *tb_property_find(struct tb_property_dir *dir,
-			const char *key, enum tb_property_type type);
-struct tb_property *tb_property_get_next(struct tb_property_dir *dir,
-					 struct tb_property *prev);
-
-#define tb_property_for_each(dir, property)			\
-	for (property = tb_property_get_next(dir, NULL);	\
-	     property;						\
-	     property = tb_property_get_next(dir, property))
-
-int tb_register_property_dir(const char *key, struct tb_property_dir *dir);
-void tb_unregister_property_dir(const char *key, struct tb_property_dir *dir);
-
 /**
  * struct tb_xdomain - Cross-domain (XDomain) connection
  * @dev: XDomain device
@@ -179,6 +143,8 @@ void tb_unregister_property_dir(const char *key, struct tb_property_dir *dir);
  * @lock: Lock to serialize access to the following fields of this structure
  * @vendor_name: Name of the vendor (or %NULL if not known)
  * @device_name: Name of the device (or %NULL if not known)
+ * @link_speed: Speed of the link in Gb/s
+ * @link_width: Width of the link (1 or 2)
  * @is_unplugged: The XDomain is unplugged
  * @resume: The XDomain is being resumed
  * @needs_uuid: If the XDomain does not have @remote_uuid it will be
@@ -223,6 +189,8 @@ struct tb_xdomain {
 	struct mutex lock;
 	const char *vendor_name;
 	const char *device_name;
+	unsigned int link_speed;
+	unsigned int link_width;
 	bool is_unplugged;
 	bool resume;
 	bool needs_uuid;
@@ -243,49 +211,90 @@ struct tb_xdomain {
 	u8 depth;
 };
 
+/**
+ * struct tb_service - Thunderbolt service
+ * @dev: XDomain device
+ * @id: ID of the service (shown in sysfs)
+ * @key: Protocol key from the properties directory
+ * @prtcid: Protocol ID from the properties directory
+ * @prtcvers: Protocol version from the properties directory
+ * @prtcrevs: Protocol software revision from the properties directory
+ * @prtcstns: Protocol settings mask from the properties directory
+ * @debugfs_dir: Pointer to the service debugfs directory. Always created
+ *		 when debugfs is enabled. Can be used by service drivers to
+ *		 add their own entries under the service.
+ *
+ * Each domain exposes set of services it supports as collection of
+ * properties. For each service there will be one corresponding
+ * &struct tb_service. Service drivers are bound to these.
+ */
+struct tb_service {
+	struct device dev;
+	int id;
+	const char *key;
+	u32 prtcid;
+	u32 prtcvers;
+	u32 prtcrevs;
+	u32 prtcstns;
+	struct dentry *debugfs_dir;
+};
+
+/**
+ * tb_service_driver - Thunderbolt service driver
+ * @driver: Driver structure
+ * @probe: Called when the driver is probed
+ * @remove: Called when the driver is removed (optional)
+ * @shutdown: Called at shutdown time to stop the service (optional)
+ * @id_table: Table of service identifiers the driver supports
+ */
+struct tb_service_driver {
+	struct device_driver driver;
+	int (*probe)(struct tb_service *svc, const struct tb_service_id *id);
+	void (*remove)(struct tb_service *svc);
+	void (*shutdown)(struct tb_service *svc);
+	const struct tb_service_id *id_table;
+};
+
+extern struct bus_type tb_bus_type;
+
+#ifdef CONFIG_USB4_XDOMAIN
+extern struct device_type tb_service_type;
+extern struct device_type tb_xdomain_type;
+
+struct tb_property_dir *tb_property_parse_dir(const u32 *block,
+					      size_t block_len);
+ssize_t tb_property_format_dir(const struct tb_property_dir *dir, u32 *block,
+			       size_t block_len);
+struct tb_property_dir *tb_property_create_dir(const uuid_t *uuid);
+void tb_property_free_dir(struct tb_property_dir *dir);
+int tb_property_add_immediate(struct tb_property_dir *parent, const char *key,
+			      u32 value);
+int tb_property_add_data(struct tb_property_dir *parent, const char *key,
+			 const void *buf, size_t buflen);
+int tb_property_add_text(struct tb_property_dir *parent, const char *key,
+			 const char *text);
+int tb_property_add_dir(struct tb_property_dir *parent, const char *key,
+			struct tb_property_dir *dir);
+void tb_property_remove(struct tb_property *tb_property);
+struct tb_property *tb_property_find(struct tb_property_dir *dir,
+			const char *key, enum tb_property_type type);
+struct tb_property *tb_property_get_next(struct tb_property_dir *dir,
+					 struct tb_property *prev);
+
+#define tb_property_for_each(dir, property)			\
+	for (property = tb_property_get_next(dir, NULL);	\
+	     property;						\
+	     property = tb_property_get_next(dir, property))
+
+int tb_register_property_dir(const char *key, struct tb_property_dir *dir);
+void tb_unregister_property_dir(const char *key, struct tb_property_dir *dir);
+
+int tb_xdomain_lane_bonding_enable(struct tb_xdomain *xd);
+void tb_xdomain_lane_bonding_disable(struct tb_xdomain *xd);
 int tb_xdomain_enable_paths(struct tb_xdomain *xd, u16 transmit_path,
 			    u16 transmit_ring, u16 receive_path,
 			    u16 receive_ring);
 int tb_xdomain_disable_paths(struct tb_xdomain *xd);
-struct tb_xdomain *tb_xdomain_find_by_uuid(struct tb *tb, const uuid_t *uuid);
-struct tb_xdomain *tb_xdomain_find_by_route(struct tb *tb, u64 route);
-
-static inline struct tb_xdomain *
-tb_xdomain_find_by_uuid_locked(struct tb *tb, const uuid_t *uuid)
-{
-	struct tb_xdomain *xd;
-
-	mutex_lock(&tb->lock);
-	xd = tb_xdomain_find_by_uuid(tb, uuid);
-	mutex_unlock(&tb->lock);
-
-	return xd;
-}
-
-static inline struct tb_xdomain *
-tb_xdomain_find_by_route_locked(struct tb *tb, u64 route)
-{
-	struct tb_xdomain *xd;
-
-	mutex_lock(&tb->lock);
-	xd = tb_xdomain_find_by_route(tb, route);
-	mutex_unlock(&tb->lock);
-
-	return xd;
-}
-
-static inline struct tb_xdomain *tb_xdomain_get(struct tb_xdomain *xd)
-{
-	if (xd)
-		get_device(&xd->dev);
-	return xd;
-}
-
-static inline void tb_xdomain_put(struct tb_xdomain *xd)
-{
-	if (xd)
-		put_device(&xd->dev);
-}
 
 static inline bool tb_is_xdomain(const struct device *dev)
 {
@@ -335,30 +344,6 @@ struct tb_protocol_handler {
 int tb_register_protocol_handler(struct tb_protocol_handler *handler);
 void tb_unregister_protocol_handler(struct tb_protocol_handler *handler);
 
-/**
- * struct tb_service - Thunderbolt service
- * @dev: XDomain device
- * @id: ID of the service (shown in sysfs)
- * @key: Protocol key from the properties directory
- * @prtcid: Protocol ID from the properties directory
- * @prtcvers: Protocol version from the properties directory
- * @prtcrevs: Protocol software revision from the properties directory
- * @prtcstns: Protocol settings mask from the properties directory
- *
- * Each domain exposes set of services it supports as collection of
- * properties. For each service there will be one corresponding
- * &struct tb_service. Service drivers are bound to these.
- */
-struct tb_service {
-	struct device dev;
-	int id;
-	const char *key;
-	u32 prtcid;
-	u32 prtcvers;
-	u32 prtcrevs;
-	u32 prtcstns;
-};
-
 static inline struct tb_service *tb_service_get(struct tb_service *svc)
 {
 	if (svc)
@@ -384,22 +369,6 @@ static inline struct tb_service *tb_to_service(struct device *dev)
 	return NULL;
 }
 
-/**
- * tb_service_driver - Thunderbolt service driver
- * @driver: Driver structure
- * @probe: Called when the driver is probed
- * @remove: Called when the driver is removed (optional)
- * @shutdown: Called at shutdown time to stop the service (optional)
- * @id_table: Table of service identifiers the driver supports
- */
-struct tb_service_driver {
-	struct device_driver driver;
-	int (*probe)(struct tb_service *svc, const struct tb_service_id *id);
-	void (*remove)(struct tb_service *svc);
-	void (*shutdown)(struct tb_service *svc);
-	const struct tb_service_id *id_table;
-};
-
 #define TB_SERVICE(key, id)				\
 	.match_flags = TBSVC_MATCH_PROTOCOL_KEY |	\
 		       TBSVC_MATCH_PROTOCOL_ID,		\
@@ -422,6 +391,39 @@ static inline void tb_service_set_drvdata(struct tb_service *svc, void *data)
 static inline struct tb_xdomain *tb_service_parent(struct tb_service *svc)
 {
 	return tb_to_xdomain(svc->dev.parent);
+}
+#else
+static inline int tb_xdomain_disable_paths(struct tb_xdomain *xd)
+{
+	return 0;
+}
+
+static inline bool tb_is_xdomain(const struct device *dev)
+{
+	return false;
+}
+
+static inline struct tb_xdomain *tb_to_xdomain(struct device *dev)
+{
+	return NULL;
+}
+
+static inline bool tb_is_service(const struct device *dev)
+{
+	return false;
+}
+
+static inline struct tb_service *tb_to_service(struct device *dev)
+{
+	return NULL;
+}
+#endif
+
+#define TB_LINKS_PER_PHY_PORT	2
+
+static inline unsigned int tb_phy_port_from_link(unsigned int link)
+{
+	return (link - 1) / TB_LINKS_PER_PHY_PORT;
 }
 
 /**
@@ -471,6 +473,8 @@ struct tb_nhi {
  * @irq: MSI-X irq number if the ring uses MSI-X. %0 otherwise.
  * @vector: MSI-X vector number the ring uses (only set if @irq is > 0)
  * @flags: Ring specific flags
+ * @e2e_tx_hop: Transmit HopID when E2E is enabled. Only applicable to
+ *		RX ring. For TX ring this should be set to %0.
  * @sof_mask: Bit mask used to detect start of frame PDF
  * @eof_mask: Bit mask used to detect end of frame PDF
  * @start_poll: Called when ring interrupt is triggered to start
@@ -494,6 +498,7 @@ struct tb_ring {
 	int irq;
 	u8 vector;
 	unsigned int flags;
+	int e2e_tx_hop;
 	u16 sof_mask;
 	u16 eof_mask;
 	void (*start_poll)(void *data);
@@ -504,6 +509,8 @@ struct tb_ring {
 #define RING_FLAG_NO_SUSPEND	BIT(0)
 /* Configure the ring to be in frame mode */
 #define RING_FLAG_FRAME		BIT(1)
+/* Enable end-to-end flow control */
+#define RING_FLAG_E2E		BIT(2)
 
 struct ring_frame;
 typedef void (*ring_cb)(struct tb_ring *, struct ring_frame *, bool canceled);
@@ -552,7 +559,8 @@ struct ring_frame {
 struct tb_ring *tb_ring_alloc_tx(struct tb_nhi *nhi, int hop, int size,
 				 unsigned int flags);
 struct tb_ring *tb_ring_alloc_rx(struct tb_nhi *nhi, int hop, int size,
-				 unsigned int flags, u16 sof_mask, u16 eof_mask,
+				 unsigned int flags, int e2e_tx_hop,
+				 u16 sof_mask, u16 eof_mask,
 				 void (*start_poll)(void *), void *poll_data);
 void tb_ring_start(struct tb_ring *ring);
 void tb_ring_stop(struct tb_ring *ring);

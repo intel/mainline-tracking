@@ -602,8 +602,6 @@ extern struct device_type tb_switch_type;
 
 int tb_domain_init(void);
 void tb_domain_exit(void);
-int tb_xdomain_init(void);
-void tb_xdomain_exit(void);
 
 struct tb *tb_domain_alloc(struct tb_nhi *nhi, size_t privsize);
 int tb_domain_add(struct tb *tb);
@@ -792,6 +790,13 @@ static inline bool tb_switch_is_tiger_lake(const struct tb_switch *sw)
 	return false;
 }
 
+/* This is hack for TGL A step and should be removed */
+static bool tb_switch_is_tiger_lake_astep(const struct tb_switch *sw)
+{
+	return sw->config.thunderbolt_version != USB4_VERSION_1_0 &&
+		tb_switch_is_tiger_lake(sw);
+}
+
 /**
  * tb_switch_is_usb4() - Is the switch USB4 compliant
  * @sw: Switch to check
@@ -800,7 +805,8 @@ static inline bool tb_switch_is_tiger_lake(const struct tb_switch *sw)
  */
 static inline bool tb_switch_is_usb4(const struct tb_switch *sw)
 {
-	return sw->config.thunderbolt_version == USB4_VERSION_1_0;
+	return sw->config.thunderbolt_version == USB4_VERSION_1_0 ||
+	       tb_switch_is_tiger_lake_astep(sw);
 }
 
 /**
@@ -864,6 +870,10 @@ struct tb_port *tb_next_port_on_path(struct tb_port *start, struct tb_port *end,
 	     (p) = tb_next_port_on_path((src), (dst), (p)))
 
 int tb_port_get_link_speed(struct tb_port *port);
+int tb_port_get_link_width(struct tb_port *port);
+int tb_port_state(struct tb_port *port);
+int tb_port_lane_bonding_enable(struct tb_port *port);
+void tb_port_lane_bonding_disable(struct tb_port *port);
 
 int tb_switch_find_vse_cap(struct tb_switch *sw, enum tb_switch_vse_cap vsec);
 int tb_switch_find_cap(struct tb_switch *sw, enum tb_switch_cap cap);
@@ -932,6 +942,12 @@ static inline u64 tb_downstream_route(struct tb_port *port)
 	       | ((u64) port->port << (port->sw->config.depth * 8));
 }
 
+#ifdef CONFIG_USB4_XDOMAIN
+extern bool tb_xdomain_enabled;
+
+int tb_xdomain_init(void);
+void tb_xdomain_exit(void);
+
 bool tb_xdomain_handle_request(struct tb *tb, enum tb_cfg_pkg_type type,
 			       const void *buf, size_t size);
 struct tb_xdomain *tb_xdomain_alloc(struct tb *tb, struct device *parent,
@@ -939,8 +955,77 @@ struct tb_xdomain *tb_xdomain_alloc(struct tb *tb, struct device *parent,
 				    const uuid_t *remote_uuid);
 void tb_xdomain_add(struct tb_xdomain *xd);
 void tb_xdomain_remove(struct tb_xdomain *xd);
+
 struct tb_xdomain *tb_xdomain_find_by_link_depth(struct tb *tb, u8 link,
 						 u8 depth);
+struct tb_xdomain *tb_xdomain_find_by_uuid(struct tb *tb, const uuid_t *uuid);
+struct tb_xdomain *tb_xdomain_find_by_route(struct tb *tb, u64 route);
+
+static inline struct tb_xdomain *
+tb_xdomain_find_by_route_locked(struct tb *tb, u64 route)
+{
+	struct tb_xdomain *xd;
+
+	mutex_lock(&tb->lock);
+	xd = tb_xdomain_find_by_route(tb, route);
+	mutex_unlock(&tb->lock);
+
+	return xd;
+}
+#else
+#define tb_xdomain_enabled	false
+
+static inline int tb_xdomain_init(void) { return 0; }
+static inline void tb_xdomain_exit(void) { }
+
+static inline bool tb_xdomain_handle_request(struct tb *tb,
+					     enum tb_cfg_pkg_type type,
+					     const void *buf, size_t size)
+{
+	return true;
+}
+
+static inline struct tb_xdomain *
+tb_xdomain_alloc(struct tb *tb, struct device *parent, u64 route,
+		 const uuid_t *local_uuid, const uuid_t *remote_uuid)
+{
+	return NULL;
+}
+
+static inline void tb_xdomain_add(struct tb_xdomain *xd) { }
+static inline void tb_xdomain_remove(struct tb_xdomain *xd) { }
+
+static inline struct tb_xdomain *
+tb_xdomain_find_by_link_depth(struct tb *tb, u8 link, u8 depth)
+{
+	return NULL;
+}
+
+static inline struct tb_xdomain *tb_xdomain_find_by_uuid(struct tb *tb,
+							 const uuid_t *uuid)
+{
+	return NULL;
+}
+
+static inline struct tb_xdomain *tb_xdomain_find_by_route(struct tb *tb,
+							  u64 route)
+{
+	return NULL;
+}
+#endif
+
+static inline struct tb_xdomain *tb_xdomain_get(struct tb_xdomain *xd)
+{
+	if (xd)
+		get_device(&xd->dev);
+	return xd;
+}
+
+static inline void tb_xdomain_put(struct tb_xdomain *xd)
+{
+	if (xd)
+		put_device(&xd->dev);
+}
 
 int tb_retimer_scan(struct tb_port *port);
 void tb_retimer_remove_all(struct tb_port *port);
@@ -1016,8 +1101,18 @@ void tb_check_quirks(struct tb_switch *sw);
 
 #ifdef CONFIG_ACPI
 void tb_acpi_add_links(struct tb_nhi *nhi);
+
+bool tb_acpi_is_native(void);
+bool tb_acpi_may_tunnel_usb3(void);
+bool tb_acpi_may_tunnel_dp(void);
+bool tb_acpi_may_tunnel_pcie(void);
 #else
 static inline void tb_acpi_add_links(struct tb_nhi *nhi) { }
+
+static inline bool tb_acpi_is_native(void) { return true; }
+static inline bool tb_acpi_may_tunnel_usb3(void) { return true; }
+static inline bool tb_acpi_may_tunnel_dp(void) { return true; }
+static inline bool tb_acpi_may_tunnel_pcie(void) { return true; }
 #endif
 
 #ifdef CONFIG_DEBUG_FS
@@ -1025,11 +1120,15 @@ void tb_debugfs_init(void);
 void tb_debugfs_exit(void);
 void tb_switch_debugfs_init(struct tb_switch *sw);
 void tb_switch_debugfs_remove(struct tb_switch *sw);
+void tb_service_debugfs_init(struct tb_service *svc);
+void tb_service_debugfs_remove(struct tb_service *svc);
 #else
 static inline void tb_debugfs_init(void) { }
 static inline void tb_debugfs_exit(void) { }
 static inline void tb_switch_debugfs_init(struct tb_switch *sw) { }
 static inline void tb_switch_debugfs_remove(struct tb_switch *sw) { }
+static inline void tb_service_debugfs_init(struct tb_service *svc) { }
+static inline void tb_service_debugfs_remove(struct tb_service *svc) { }
 #endif
 
 #ifdef CONFIG_USB4_KUNIT_TEST
