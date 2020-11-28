@@ -18,6 +18,7 @@ struct intel_tsens_plat_data {
 	void __iomem *base_addr;
 	int (*get_temp)(struct platform_device *pdev, int type, int *temp);
 	void *pdata;
+	struct device_node *s_node;
 };
 
 struct intel_tsens_plat_info {
@@ -25,6 +26,7 @@ struct intel_tsens_plat_info {
 	int id;
 	struct platform_device *pdev;
 	void __iomem *base_addr;
+	struct device_node *s_node;
 };
 
 struct intel_tsens_i2c_plat_data {
