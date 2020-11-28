@@ -52,6 +52,7 @@ struct intel_tsens_priv {
 	struct device *dev;
 	struct platform_device *pdev;
 	struct intel_tsens_plat_info plat_info;
+	struct device_node *pid_node;
 };
 
 struct intel_iccmax {
@@ -91,6 +92,7 @@ char reg_data[len];
 
 static int g_nsens;
 static struct intel_tsens **g_intel_tsens;
+
 static int intel_tsens_register_pdev(struct intel_tsens_plat_info *plat_info)
 {
 	struct intel_tsens_plat_data plat_data;
@@ -103,6 +105,7 @@ static int intel_tsens_register_pdev(struct intel_tsens_plat_info *plat_info)
 	plat_data.base_addr = plat_info->base_addr;
 	plat_data.name = plat_info->plat_name;
 	plat_data.get_temp = NULL;
+	plat_data.s_node = plat_info->s_node;
 	pdevinfo.data = &plat_data;
 	pdevinfo.size_data = sizeof(plat_data);
 	dd = platform_device_register_full(&pdevinfo);
@@ -133,6 +136,7 @@ static int intel_tsens_add_pdev(struct intel_tsens_priv *priv)
 	 */
 	if (priv->plat_info.plat_name) {
 		priv->plat_info.base_addr = priv->base_addr;
+		priv->plat_info.s_node = priv->pid_node;
 		ret = intel_tsens_register_pdev(&priv->plat_info);
 		if (ret) {
 			dev_err(&priv->pdev->dev,
@@ -147,6 +151,7 @@ static int intel_tsens_add_pdev(struct intel_tsens_priv *priv)
 		if (!tsens->plat_info.plat_name)
 			continue;
 		tsens->plat_info.base_addr = tsens->base_addr;
+		tsens->plat_info.s_node = priv->pid_node;
 		ret = intel_tsens_register_pdev(&tsens->plat_info);
 		if (ret) {
 			dev_err(&priv->pdev->dev,
@@ -387,7 +392,6 @@ static int intel_tsens_config_sensors(struct device_node *s_node,
 			trip_info->trip_type = THERMAL_TRIP_ACTIVE;
 		tsens->trip_info[i] = trip_info;
 	}
-
 	return 0;
 }
 
@@ -647,6 +651,7 @@ static int intel_tsens_config_dt(struct intel_tsens_priv *priv)
 	struct resource *res;
 	int i = 0, ret;
 
+	priv->pid_node = pdev->dev.of_node;
 	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
 	//priv->base_addr = devm_ioremap_resource(&pdev->dev, res);
 	priv->base_addr = ioremap(res->start, (res->end - res->start));

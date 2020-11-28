@@ -55,7 +55,7 @@ config INTEL_TSENS_IA_HOST
 	  Keem Bay.  If unsure, say N.
 
 config THUNDERBAY_THERMAL
-	tristate "Temperature sensor driver for intel keembay"
+	tristate "Temperature sensor driver for intel thunderbay"
 	depends on INTEL_TSENS_LOCAL_HOST
 	help
 	  Enable this option if you want to have support for thunderbay

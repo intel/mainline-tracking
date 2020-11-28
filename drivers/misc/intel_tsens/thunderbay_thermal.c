@@ -20,14 +20,57 @@
 #include "intel_tsens_thermal.h"
 #include "thunderbay_tsens.h"
 
+struct intel_tsens_pid {
+u32 hw_throt_mode_ccu0;
+u32 hw_throt_mode_ccu1;
+u32 thres_throt_cnt_cfg;
+u32 therm_scaling_cnt;
+u32 div_throt_cfg_ccu0;
+u32 div_throt_cfg_ccu1;
+u32 div_throt_cfg_ccu2;
+u32 div_throt_cfg_ccu3;
+u32 cg_throt_cfg1_ccu0;
+u32 cg_throt_cfg1_ccu1;
+u32 cg_throt_cfg1_ccu2;
+u32 cg_throt_cfg1_ccu3;
+u32 dts_thd_sar_pid_en_abort;
+u32 dts_sar_mode_cfg;
+u32 dts_pid_throt_cfg;
+u32 dts_pid_ctrl_dts0;
+u32 dts_pid_ctrl_dts1;
+u32 dts_pid_ctrl_dts2;
+u32 dts_pid_kp_dts0;
+u32 dts_pid_kp_dts1;
+u32 dts_pid_kp_dts2;
+u32 dts_pid_kd_dts0;
+u32 dts_pid_kd_dts1;
+u32 dts_pid_kd_dts2;
+u32 dts_pid_ki_dts0;
+u32 dts_pid_ki_dts1;
+u32 dts_pid_ki_dts2;
+u32 dts_pid_rise_thres_dts0;
+u32 dts_pid_rise_thres_dts1;
+u32 dts_pid_rise_thres_dts2;
+u32 dts_pid_fall_thres_dts0;
+u32 dts_pid_fall_thres_dts1;
+u32 dts_pid_fall_thres_dts2;
+u32 dts_pid_max_integ_limit;
+u32 dts_pid_min_integ_limit;
+u32 dts_pid_max_accum_limit;
+u32 dts_pid_min_accum_limit;
+};
+
 struct thunderbay_thermal_priv {
 	const char *name;
 	void __iomem *base_addr;
 	spinlock_t lock;		/* Spinlock */
 	u32 current_temp[THUNDERBAY_SENSOR_MAX];
 	struct intel_tsens_plat_data *plat_data;
+	struct device_node *s_node;
+	struct intel_tsens_pid *pid_info;
 };
 
+static int thb_dt_parse;
 static int thb_sensor_read_temp(void __iomem *regs_val,
 				int offset,
 				int *temp)
@@ -132,6 +175,367 @@ static int thunderbay_get_temp(struct platform_device *pdev, int type, int *temp
 	return 0;
 }
 
+static int intel_tsens_pid_config_reg(struct thunderbay_thermal_priv *priv)
+{
+		if (priv->pid_info->hw_throt_mode_ccu0 != 0)
+			iowrite32(priv->pid_info->hw_throt_mode_ccu0,
+				  priv->base_addr + HW_THROT_MODE_CCU0);
+
+		if (priv->pid_info->hw_throt_mode_ccu1 != 0)
+			iowrite32(priv->pid_info->hw_throt_mode_ccu1,
+				  priv->base_addr + HW_THROT_MODE_CCU1);
+
+		if (priv->pid_info->thres_throt_cnt_cfg != 0)
+			iowrite32(priv->pid_info->thres_throt_cnt_cfg,
+				  priv->base_addr + THRES_THROT_CNT_CFG);
+
+		if (priv->pid_info->therm_scaling_cnt != 0)
+			iowrite32(priv->pid_info->therm_scaling_cnt,
+				  priv->base_addr + THERM_SCALING_CNT);
+
+		if (priv->pid_info->div_throt_cfg_ccu0 != 0)
+			iowrite32(priv->pid_info->div_throt_cfg_ccu0,
+				  priv->base_addr + DIV_THROT_CFG_CCU0);
+
+		if (priv->pid_info->div_throt_cfg_ccu1 != 0)
+			iowrite32(priv->pid_info->div_throt_cfg_ccu1,
+				  priv->base_addr + DIV_THROT_CFG_CCU1);
+
+		if (priv->pid_info->div_throt_cfg_ccu2 != 0)
+			iowrite32(priv->pid_info->div_throt_cfg_ccu2,
+				  priv->base_addr + DIV_THROT_CFG_CCU2);
+
+		if (priv->pid_info->div_throt_cfg_ccu3 != 0)
+			iowrite32(priv->pid_info->div_throt_cfg_ccu3,
+				  priv->base_addr + DIV_THROT_CFG_CCU3);
+
+		if (priv->pid_info->cg_throt_cfg1_ccu0 != 0)
+			iowrite32(priv->pid_info->cg_throt_cfg1_ccu0,
+				  priv->base_addr + CG_THROT_CFG1_CCU0);
+
+		if (priv->pid_info->cg_throt_cfg1_ccu1 != 0)
+			iowrite32(priv->pid_info->cg_throt_cfg1_ccu1,
+				  priv->base_addr + CG_THROT_CFG1_CCU1);
+
+		if (priv->pid_info->cg_throt_cfg1_ccu2 != 0)
+			iowrite32(priv->pid_info->cg_throt_cfg1_ccu2,
+				  priv->base_addr + CG_THROT_CFG1_CCU2);
+
+		if (priv->pid_info->cg_throt_cfg1_ccu3 != 0)
+			iowrite32(priv->pid_info->cg_throt_cfg1_ccu3,
+				  priv->base_addr + CG_THROT_CFG1_CCU3);
+
+		if (priv->pid_info->dts_thd_sar_pid_en_abort != 0)
+			iowrite32(priv->pid_info->dts_thd_sar_pid_en_abort,
+				  priv->base_addr + DTS_THD_SAR_PID_EN_ABORT);
+
+		if (priv->pid_info->dts_sar_mode_cfg != 0)
+			iowrite32(priv->pid_info->dts_sar_mode_cfg,
+				  priv->base_addr + DTS_SAR_MODE_CFG);
+
+		if (priv->pid_info->dts_pid_throt_cfg != 0)
+			iowrite32(priv->pid_info->dts_pid_throt_cfg,
+				  priv->base_addr + DTS_PID_THROT_CFG);
+
+		if (priv->pid_info->dts_pid_ctrl_dts0 != 0)
+			iowrite32(priv->pid_info->dts_pid_ctrl_dts0,
+				  priv->base_addr + DTS_PID_CTRL_DTS0);
+
+		if (priv->pid_info->dts_pid_ctrl_dts1 != 0)
+			iowrite32(priv->pid_info->dts_pid_ctrl_dts1,
+				  priv->base_addr + DTS_PID_CTRL_DTS1);
+
+		if (priv->pid_info->dts_pid_ctrl_dts2 != 0)
+			iowrite32(priv->pid_info->dts_pid_ctrl_dts2,
+				  priv->base_addr + DTS_PID_CTRL_DTS2);
+
+		if (priv->pid_info->dts_pid_kp_dts0 != 0)
+			iowrite32(priv->pid_info->dts_pid_kp_dts0,
+				  priv->base_addr + DTS_PID_KP_DTS0);
+
+		if (priv->pid_info->dts_pid_kp_dts1 != 0)
+			iowrite32(priv->pid_info->dts_pid_kp_dts1,
+				  priv->base_addr + DTS_PID_KP_DTS1);
+
+		if (priv->pid_info->dts_pid_kp_dts2 != 0)
+			iowrite32(priv->pid_info->dts_pid_kp_dts2,
+				  priv->base_addr + DTS_PID_KP_DTS2);
+
+		if (priv->pid_info->dts_pid_kd_dts0 != 0)
+			iowrite32(priv->pid_info->dts_pid_kd_dts0,
+				  priv->base_addr + DTS_PID_KD_DTS0);
+
+		if (priv->pid_info->dts_pid_kd_dts1 != 0)
+			iowrite32(priv->pid_info->dts_pid_kd_dts1,
+				  priv->base_addr + DTS_PID_KD_DTS1);
+
+		if (priv->pid_info->dts_pid_kd_dts2 != 0)
+			iowrite32(priv->pid_info->dts_pid_kd_dts2,
+				  priv->base_addr + DTS_PID_KD_DTS2);
+
+		if (priv->pid_info->dts_pid_ki_dts0 != 0)
+			iowrite32(priv->pid_info->dts_pid_ki_dts0,
+				  priv->base_addr + DTS_PID_KI_DTS0);
+
+		if (priv->pid_info->dts_pid_ki_dts1 != 0)
+			iowrite32(priv->pid_info->dts_pid_ki_dts1,
+				  priv->base_addr + DTS_PID_KI_DTS1);
+
+		if (priv->pid_info->dts_pid_ki_dts2 != 0)
+			iowrite32(priv->pid_info->dts_pid_ki_dts2,
+				  priv->base_addr + DTS_PID_KI_DTS2);
+
+		if (priv->pid_info->dts_pid_rise_thres_dts0 != 0)
+			iowrite32(priv->pid_info->dts_pid_rise_thres_dts0,
+				  priv->base_addr + DTS_PID_RISE_THRES_DTS0);
+
+		if (priv->pid_info->dts_pid_rise_thres_dts1 != 0)
+			iowrite32(priv->pid_info->dts_pid_rise_thres_dts1,
+				  priv->base_addr + DTS_PID_RISE_THRES_DTS1);
+
+		if (priv->pid_info->dts_pid_rise_thres_dts2 != 0)
+			iowrite32(priv->pid_info->dts_pid_rise_thres_dts2,
+				  priv->base_addr + DTS_PID_RISE_THRES_DTS2);
+
+		if (priv->pid_info->dts_pid_fall_thres_dts0 != 0)
+			iowrite32(priv->pid_info->dts_pid_fall_thres_dts0,
+				  priv->base_addr + DTS_PID_FALL_THRES_DTS0);
+
+		if (priv->pid_info->dts_pid_fall_thres_dts1 != 0)
+			iowrite32(priv->pid_info->dts_pid_fall_thres_dts1,
+				  priv->base_addr + DTS_PID_FALL_THRES_DTS1);
+
+		if (priv->pid_info->dts_pid_fall_thres_dts2 != 0)
+			iowrite32(priv->pid_info->dts_pid_fall_thres_dts2,
+				  priv->base_addr + DTS_PID_FALL_THRES_DTS2);
+
+		if (priv->pid_info->dts_pid_max_integ_limit != 0)
+			iowrite32(priv->pid_info->dts_pid_max_integ_limit,
+				  priv->base_addr + DTS_PID_MAX_INTEG_LIMIT);
+
+		if (priv->pid_info->dts_pid_min_integ_limit != 0)
+			iowrite32(priv->pid_info->dts_pid_min_integ_limit,
+				  priv->base_addr + DTS_PID_MIN_INTEG_LIMIT);
+
+		if (priv->pid_info->dts_pid_max_accum_limit != 0)
+			iowrite32(priv->pid_info->dts_pid_max_accum_limit,
+				  priv->base_addr + DTS_PID_MAX_ACCUM_LIMIT);
+
+		if (priv->pid_info->dts_pid_min_accum_limit != 0)
+			iowrite32(priv->pid_info->dts_pid_min_accum_limit,
+				  priv->base_addr + DTS_PID_MIN_ACCUM_LIMIT);
+return 0;
+}
+
+int intel_tsens_pid_config_dt(struct thunderbay_thermal_priv *priv)
+{
+	struct device_node *t_node = priv->s_node;
+	struct device_node *np, *s_node;
+
+	for_each_child_of_node(t_node, s_node) {
+		int ret;
+		struct intel_tsens_pid pid = {0};
+
+		priv->pid_info = &pid;
+		np = of_parse_phandle(s_node, "pid_cfg", 0);
+		if (!np)
+			return NULL;
+
+		ret = of_property_read_u32(np, "hw_throt_mode_ccu0",
+					   &priv->pid_info->hw_throt_mode_ccu0);
+		if (ret && ret != -EINVAL)
+			goto invalid;
+
+		ret = of_property_read_u32(np, "hw_throt_mode_ccu1",
+					   &priv->pid_info->hw_throt_mode_ccu1);
+		if (ret && ret != -EINVAL)
+			goto invalid;
+
+		ret = of_property_read_u32(np, "thres_throt_cnt_cfg",
+					   &priv->pid_info->thres_throt_cnt_cfg);
+		if (ret && ret != -EINVAL)
+			goto invalid;
+
+		ret = of_property_read_u32(np, "therm_scaling_cnt",
+					   &priv->pid_info->therm_scaling_cnt);
+		if (ret && ret != -EINVAL)
+			goto invalid;
+
+		ret = of_property_read_u32(np, "div_throt_cfg_ccu0",
+					   &priv->pid_info->div_throt_cfg_ccu0);
+		if (ret && ret != -EINVAL)
+			goto invalid;
+
+		ret = of_property_read_u32(np, "div_throt_cfg_ccu1",
+					   &priv->pid_info->div_throt_cfg_ccu1);
+		if (ret && ret != -EINVAL)
+			goto invalid;
+
+		ret = of_property_read_u32(np, "div_throt_cfg_ccu2",
+					   &priv->pid_info->div_throt_cfg_ccu2);
+		if (ret && ret != -EINVAL)
+			goto invalid;
+
+		ret = of_property_read_u32(np, "div_throt_cfg_ccu3",
+					   &priv->pid_info->div_throt_cfg_ccu3);
+		if (ret && ret != -EINVAL)
+			goto invalid;
+
+		ret = of_property_read_u32(np, "cg_throt_cfg1_ccu0",
+					   &priv->pid_info->cg_throt_cfg1_ccu0);
+		if (ret && ret != -EINVAL)
+			goto invalid;
+
+		ret = of_property_read_u32(np, "cg_throt_cfg1_ccu1",
+					   &priv->pid_info->cg_throt_cfg1_ccu1);
+		if (ret && ret != -EINVAL)
+			goto invalid;
+
+		ret = of_property_read_u32(np, "cg_throt_cfg1_ccu2",
+					   &priv->pid_info->cg_throt_cfg1_ccu2);
+		if (ret && ret != -EINVAL)
+			goto invalid;
+
+		ret = of_property_read_u32(np, "cg_throt_cfg1_ccu3",
+					   &priv->pid_info->cg_throt_cfg1_ccu3);
+		if (ret && ret != -EINVAL)
+			goto invalid;
+
+		ret = of_property_read_u32(np, "dts_thd_sar_pid_en_abort",
+					   &priv->pid_info->dts_thd_sar_pid_en_abort);
+		if (ret && ret != -EINVAL)
+			goto invalid;
+
+		ret = of_property_read_u32(np, "dts_sar_mode_cfg",
+					   &priv->pid_info->dts_sar_mode_cfg);
+		if (ret && ret != -EINVAL)
+			goto invalid;
+
+		ret = of_property_read_u32(np, "dts_pid_throt_cfg",
+					   &priv->pid_info->dts_pid_throt_cfg);
+		if (ret && ret != -EINVAL)
+			goto invalid;
+
+		ret = of_property_read_u32(np, "dts_pid_ctrl_dts0",
+					   &priv->pid_info->dts_pid_ctrl_dts0);
+		if (ret && ret != -EINVAL)
+			goto invalid;
+
+		ret = of_property_read_u32(np, "dts_pid_ctrl_dts1",
+					   &priv->pid_info->dts_pid_ctrl_dts1);
+		if (ret && ret != -EINVAL)
+			goto invalid;
+
+		ret = of_property_read_u32(np, "dts_pid_ctrl_dts2",
+					   &priv->pid_info->dts_pid_ctrl_dts2);
+		if (ret && ret != -EINVAL)
+			goto invalid;
+
+		ret = of_property_read_u32(np, "dts_pid_kp_dts0",
+					   &priv->pid_info->dts_pid_kp_dts0);
+		if (ret && ret != -EINVAL)
+			goto invalid;
+
+		ret = of_property_read_u32(np, "dts_pid_kp_dts1",
+					   &priv->pid_info->dts_pid_kp_dts1);
+		if (ret && ret != -EINVAL)
+			goto invalid;
+
+		ret = of_property_read_u32(np, "dts_pid_kp_dts2",
+					   &priv->pid_info->dts_pid_kp_dts2);
+		if (ret && ret != -EINVAL)
+			goto invalid;
+
+		ret = of_property_read_u32(np, "dts_pid_kd_dts0",
+					   &priv->pid_info->dts_pid_kd_dts0);
+		if (ret && ret != -EINVAL)
+			goto invalid;
+
+		ret = of_property_read_u32(np, "dts_pid_kd_dts1",
+					   &priv->pid_info->dts_pid_kd_dts1);
+		if (ret && ret != -EINVAL)
+			goto invalid;
+
+		ret = of_property_read_u32(np, "dts_pid_kd_dts2",
+					   &priv->pid_info->dts_pid_kd_dts2);
+		if (ret && ret != -EINVAL)
+			goto invalid;
+
+		ret = of_property_read_u32(np, "dts_pid_ki_dts0",
+					   &priv->pid_info->dts_pid_ki_dts0);
+		if (ret && ret != -EINVAL)
+			goto invalid;
+
+		ret = of_property_read_u32(np, "dts_pid_ki_dts1",
+					   &priv->pid_info->dts_pid_ki_dts1);
+		if (ret && ret != -EINVAL)
+			goto invalid;
+
+		ret = of_property_read_u32(np, "dts_pid_ki_dts2",
+					   &priv->pid_info->dts_pid_ki_dts2);
+		if (ret && ret != -EINVAL)
+			goto invalid;
+
+		ret = of_property_read_u32(np, "dts_pid_rise_thres_dts0",
+					   &priv->pid_info->dts_pid_rise_thres_dts0);
+		if (ret && ret != -EINVAL)
+			goto invalid;
+
+		ret = of_property_read_u32(np, "dts_pid_rise_thres_dts1",
+					   &priv->pid_info->dts_pid_rise_thres_dts1);
+		if (ret && ret != -EINVAL)
+			goto invalid;
+
+		ret = of_property_read_u32(np, "dts_pid_rise_thres_dts2",
+					   &priv->pid_info->dts_pid_rise_thres_dts2);
+		if (ret && ret != -EINVAL)
+			goto invalid;
+
+		ret = of_property_read_u32(np, "dts_pid_fall_thres_dts0",
+					   &priv->pid_info->dts_pid_fall_thres_dts0);
+		if (ret && ret != -EINVAL)
+			goto invalid;
+
+		ret = of_property_read_u32(np, "dts_pid_fall_thres_dts1",
+					   &priv->pid_info->dts_pid_fall_thres_dts1);
+		if (ret && ret != -EINVAL)
+			goto invalid;
+
+		ret = of_property_read_u32(np, "dts_pid_fall_thres_dts2",
+					   &priv->pid_info->dts_pid_fall_thres_dts2);
+		if (ret && ret != -EINVAL)
+			goto invalid;
+
+		ret = of_property_read_u32(np, "dts_pid_max_integ_limit",
+					   &priv->pid_info->dts_pid_max_integ_limit);
+		if (ret && ret != -EINVAL)
+			goto invalid;
+
+		ret = of_property_read_u32(np, "dts_pid_min_integ_limit",
+					   &priv->pid_info->dts_pid_min_integ_limit);
+		if (ret && ret != -EINVAL)
+			goto invalid;
+
+		ret = of_property_read_u32(np, "dts_pid_max_accum_limit",
+					   &priv->pid_info->dts_pid_max_accum_limit);
+		if (ret && ret != -EINVAL)
+			goto invalid;
+
+		ret = of_property_read_u32(np, "dts_pid_min_accum_limit",
+					   &priv->pid_info->dts_pid_min_accum_limit);
+		if (ret && ret != -EINVAL)
+			goto invalid;
+
+		ret = intel_tsens_pid_config_reg(priv);
+		if (ret)
+			goto invalid;
+
+invalid:
+	return ret;
+	}
+return 0;
+}
+
 static int thunderbay_thermal_probe(struct platform_device *pdev)
 {
 	struct intel_tsens_plat_data *plat_data = NULL;
@@ -149,10 +553,16 @@ static int thunderbay_thermal_probe(struct platform_device *pdev)
 		dev_err(&pdev->dev, "No memory");
 		return -ENOMEM;
 	}
-	iowrite32(0x1c0, plat_data->base_addr + DTS_THD_SAR_PID_EN_ABORT);
+	//iowrite32(0x1c0, plat_data->base_addr+DTS_THD_SAR_PID_EN_ABORT);
 	priv->name = plat_data->name;
 	priv->base_addr = plat_data->base_addr;
 	priv->plat_data = plat_data;
+	priv->s_node = plat_data->s_node;
+	if (priv->s_node != 0 && thb_dt_parse < 1) {
+		if (intel_tsens_pid_config_dt(priv))
+			dev_info(&pdev->dev, "PID dt_parsing failed");
+		thb_dt_parse++;
+	}
 	plat_data->get_temp = thunderbay_get_temp;
 	spin_lock_init(&priv->lock);
 	platform_set_drvdata(pdev, priv);
