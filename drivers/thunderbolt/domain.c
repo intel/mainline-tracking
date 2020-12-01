@@ -118,6 +118,7 @@ static const char * const tb_security_names[] = {
 	[TB_SECURITY_SECURE] = "secure",
 	[TB_SECURITY_DPONLY] = "dponly",
 	[TB_SECURITY_USBONLY] = "usbonly",
+	[TB_SECURITY_NOPCIE] = "nopcie",
 };
 
 static ssize_t boot_acl_show(struct device *dev, struct device_attribute *attr,
@@ -394,7 +395,9 @@ static bool tb_domain_event_cb(void *data, enum tb_cfg_pkg_type type,
 	switch (type) {
 	case TB_CFG_PKG_XDOMAIN_REQ:
 	case TB_CFG_PKG_XDOMAIN_RESP:
-		return tb_xdomain_handle_request(tb, type, buf, size);
+		if (tb_xdomain_enabled)
+			return tb_xdomain_handle_request(tb, type, buf, size);
+		break;
 
 	default:
 		tb->cm_ops->handle_event(tb, type, buf, size);

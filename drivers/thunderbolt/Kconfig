@@ -18,6 +18,15 @@ menuconfig USB4
 
 if USB4
 
+config USB4_XDOMAIN
+	bool "Enable XDomain (peer-to-peer) support"
+	default y
+	help
+	  Enables peer-to-peer communication between domains. This is
+	  needed for running services such as networking over Thunderbolt
+	  cable. Even if enabled here, it is still possible to disable
+	  XDomain protocol by passing 'xdomain=0' as module parameter.
+
 config USB4_DEBUGFS_WRITE
 	bool "Enable write by debugfs to configuration spaces (DANGEROUS)"
 	help
@@ -30,5 +39,19 @@ config USB4_DEBUGFS_WRITE
 config USB4_KUNIT_TEST
 	bool "KUnit tests"
 	depends on KUNIT=y
+
+config USB4_DMA_TEST
+	tristate "DMA traffic test driver"
+	depends on USB4_XDOMAIN
+	depends on DEBUG_FS
+	help
+	  This allows sending and receiving DMA traffic through loopback
+	  connection. Loopback connection can be done by either special
+	  dongle that has TX/RX lines crossed, or by simply connecting a
+	  cable back to the host. Only enable this if you know what you
+	  are doing. Normal users and distro kernels should say N here.
+
+	  To compile this driver a module, choose M here. The module will be
+	  called thunderbolt_dma_test.
 
 endif # USB4
