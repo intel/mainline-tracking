@@ -535,6 +535,7 @@ invalid:
 	}
 return 0;
 }
+EXPORT_SYMBOL_GPL(intel_tsens_pid_config_dt);
 
 static int thunderbay_thermal_probe(struct platform_device *pdev)
 {
