@@ -53,6 +53,10 @@ chacha-x86_64-$(CONFIG_AS_AVX512) += chacha-avx512vl-x86_64.o
 obj-$(CONFIG_CRYPTO_AES_NI_INTEL) += aesni-intel.o
 aesni-intel-y := aesni-intel_asm.o aesni-intel_glue.o
 aesni-intel-$(CONFIG_64BIT) += aesni-intel_avx-x86_64.o aes_ctrby8_avx-x86_64.o
+ifdef CONFIG_64BIT
+aesni-intel-$(CONFIG_AS_VAES_AVX512) += aes_ctrby16_avx512-x86_64.o
+aesni-intel-$(CONFIG_AS_VPCLMULQDQ) += aesni-intel_avx512-x86_64.o
+endif
 
 obj-$(CONFIG_CRYPTO_SHA1_SSSE3) += sha1-ssse3.o
 sha1-ssse3-y := sha1_avx2_x86_64_asm.o sha1_ssse3_asm.o sha1_ssse3_glue.o
@@ -70,6 +74,7 @@ blake2s-x86_64-y := blake2s-core.o blake2s-glue.o
 
 obj-$(CONFIG_CRYPTO_GHASH_CLMUL_NI_INTEL) += ghash-clmulni-intel.o
 ghash-clmulni-intel-y := ghash-clmulni-intel_asm.o ghash-clmulni-intel_glue.o
+ghash-clmulni-intel-$(CONFIG_AS_VPCLMULQDQ) += ghash-clmulni-intel_avx512.o
 
 obj-$(CONFIG_CRYPTO_CRC32C_INTEL) += crc32c-intel.o
 crc32c-intel-y := crc32c-intel_glue.o
@@ -80,6 +85,9 @@ crc32-pclmul-y := crc32-pclmul_asm.o crc32-pclmul_glue.o
 
 obj-$(CONFIG_CRYPTO_CRCT10DIF_PCLMUL) += crct10dif-pclmul.o
 crct10dif-pclmul-y := crct10dif-pcl-asm_64.o crct10dif-pclmul_glue.o
+ifdef CONFIG_64BIT
+crct10dif-pclmul-$(CONFIG_AS_VPCLMULQDQ) += crct10dif-avx512-asm_64.o
+endif
 
 obj-$(CONFIG_CRYPTO_POLY1305_X86_64) += poly1305-x86_64.o
 poly1305-x86_64-y := poly1305-x86_64-cryptogams.o poly1305_glue.o
