@@ -7273,9 +7273,11 @@ bool intel_phy_is_combo(struct drm_i915_private *dev_priv, enum phy phy)
 {
 	if (phy == PHY_NONE)
 		return false;
+	else if (IS_ALDERLAKE_S(dev_priv))
+		return phy <= PHY_E;
 	else if (IS_ROCKETLAKE(dev_priv))
 		return phy <= PHY_D;
-	else if (IS_ELKHARTLAKE(dev_priv))
+	else if (IS_JSL_EHL(dev_priv))
 		return phy <= PHY_C;
 	else if (INTEL_GEN(dev_priv) >= 11)
 		return phy <= PHY_B;
@@ -7285,11 +7287,11 @@ bool intel_phy_is_combo(struct drm_i915_private *dev_priv, enum phy phy)
 
 bool intel_phy_is_tc(struct drm_i915_private *dev_priv, enum phy phy)
 {
-	if (IS_ROCKETLAKE(dev_priv))
+	if (IS_ROCKETLAKE(dev_priv) || IS_ALDERLAKE_S(dev_priv))
 		return false;
 	else if (INTEL_GEN(dev_priv) >= 12)
 		return phy >= PHY_D && phy <= PHY_I;
-	else if (INTEL_GEN(dev_priv) >= 11 && !IS_ELKHARTLAKE(dev_priv))
+	else if (INTEL_GEN(dev_priv) >= 11 && !IS_JSL_EHL(dev_priv))
 		return phy >= PHY_C && phy <= PHY_F;
 	else
 		return false;
@@ -7297,9 +7299,11 @@ bool intel_phy_is_tc(struct drm_i915_private *dev_priv, enum phy phy)
 
 enum phy intel_port_to_phy(struct drm_i915_private *i915, enum port port)
 {
-	if (IS_ROCKETLAKE(i915) && port >= PORT_D)
+	if (IS_ALDERLAKE_S(i915) && port >= PORT_D)
+		return (enum phy)port - 2;
+	else if (IS_ROCKETLAKE(i915) && port >= PORT_D)
 		return (enum phy)port - 1;
-	else if (IS_ELKHARTLAKE(i915) && port == PORT_D)
+	else if (IS_JSL_EHL(i915) && port == PORT_D)
 		return PHY_A;
 
 	return (enum phy)port;
@@ -10898,6 +10902,20 @@ static void icl_get_ddi_pll(struct drm_i915_private *dev_priv, enum port port,
 	icl_set_active_port_dpll(pipe_config, port_dpll_id);
 }
 
+static void adls_get_ddi_pll(struct drm_i915_private *dev_priv, enum port port,
+			     struct intel_crtc_state *pipe_config)
+{
+	enum phy phy = intel_port_to_phy(dev_priv, port);
+	enum intel_dpll_id id;
+	u32 val;
+
+	val = I915_READ(ADLS_DPCLKA_CFGCR(phy));
+	val &= ADLS_DPCLKA_CFGCR_DDI_CLK_SEL_MASK(phy);
+	id = val >> ADLS_DPCLKA_CFGCR_DDI_SHIFT(phy);
+
+	pipe_config->shared_dpll = intel_get_shared_dpll_by_id(dev_priv, id);
+}
+
 static void bxt_get_ddi_pll(struct drm_i915_private *dev_priv,
 				enum port port,
 				struct intel_crtc_state *pipe_config)
@@ -11145,7 +11163,9 @@ static void hsw_get_ddi_port_state(struct intel_crtc *crtc,
 			port = TRANS_DDI_FUNC_CTL_VAL_TO_PORT(tmp);
 	}
 
-	if (INTEL_GEN(dev_priv) >= 11)
+	if (IS_ALDERLAKE_S(dev_priv))
+		adls_get_ddi_pll(dev_priv, port, pipe_config);
+	else if (INTEL_GEN(dev_priv) >= 11)
 		icl_get_ddi_pll(dev_priv, port, pipe_config);
 	else if (IS_CANNONLAKE(dev_priv))
 		cnl_get_ddi_pll(dev_priv, port, pipe_config);
@@ -16892,7 +16912,13 @@ static void intel_setup_outputs(struct drm_i915_private *dev_priv)
 	if (!HAS_DISPLAY(dev_priv))
 		return;
 
-	if (IS_ROCKETLAKE(dev_priv)) {
+	if (IS_ALDERLAKE_S(dev_priv)) {
+		intel_ddi_init(dev_priv, PORT_A);
+		intel_ddi_init(dev_priv, PORT_D);	/* DDI TC1 */
+		intel_ddi_init(dev_priv, PORT_E);	/* DDI TC2 */
+		intel_ddi_init(dev_priv, PORT_F);	/* DDI TC3 */
+		intel_ddi_init(dev_priv, PORT_G);	/* DDI TC4 */
+	} else if (IS_ROCKETLAKE(dev_priv)) {
 		intel_ddi_init(dev_priv, PORT_A);
 		intel_ddi_init(dev_priv, PORT_B);
 		intel_ddi_init(dev_priv, PORT_D);	/* DDI TC1 */
@@ -16907,7 +16933,7 @@ static void intel_setup_outputs(struct drm_i915_private *dev_priv)
 		intel_ddi_init(dev_priv, PORT_H);
 		intel_ddi_init(dev_priv, PORT_I);
 		icl_dsi_init(dev_priv);
-	} else if (IS_ELKHARTLAKE(dev_priv)) {
+	} else if (IS_JSL_EHL(dev_priv)) {
 		intel_ddi_init(dev_priv, PORT_A);
 		intel_ddi_init(dev_priv, PORT_B);
 		intel_ddi_init(dev_priv, PORT_C);

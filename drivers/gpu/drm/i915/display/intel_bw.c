@@ -205,6 +205,12 @@ static const struct intel_sa_info rkl_sa_info = {
 	.displayrtids = 128,
 };
 
+static const struct intel_sa_info adls_sa_info = {
+	.deburst = 16,
+	.deprogbwlimit = 38, /* GB/s */
+	.displayrtids = 256,
+};
+
 static int icl_get_bw_info(struct drm_i915_private *dev_priv, const struct intel_sa_info *sa)
 {
 	struct intel_qgv_info qi = {};
@@ -317,6 +323,8 @@ void intel_bw_init_hw(struct drm_i915_private *dev_priv)
 
 	if (IS_ROCKETLAKE(dev_priv))
 		icl_get_bw_info(dev_priv, &rkl_sa_info);
+	else if (IS_ALDERLAKE_S(dev_priv))
+		icl_get_bw_info(dev_priv, &adls_sa_info);
 	else if (IS_GEN(dev_priv, 12))
 		icl_get_bw_info(dev_priv, &tgl_sa_info);
 	else if (IS_GEN(dev_priv, 11))
