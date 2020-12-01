@@ -200,7 +200,7 @@ struct stmmac_dma_ops {
 	void (*start_rx)(void __iomem *ioaddr, u32 chan);
 	void (*stop_rx)(void __iomem *ioaddr, u32 chan);
 	int (*dma_interrupt) (void __iomem *ioaddr,
-			      struct stmmac_extra_stats *x, u32 chan);
+			      struct stmmac_extra_stats *x, u32 chan, u32 dir);
 	/* If supported then get the optional core features */
 	void (*get_hw_feature)(void __iomem *ioaddr,
 			       struct dma_features *dma_cap);
@@ -490,6 +490,9 @@ struct stmmac_ops {
 #define stmmac_fpe_configure(__priv, __args...) \
 	stmmac_do_void_callback(__priv, mac, fpe_configure, __args)
 
+struct mii_bus;
+struct stmmac_priv;
+
 /* PTP and HW Timer helpers */
 struct stmmac_hwtimestamp {
 	void (*config_hw_tstamping) (void __iomem *ioaddr, u32 data);
@@ -500,6 +503,10 @@ struct stmmac_hwtimestamp {
 	int (*adjust_systime) (void __iomem *ioaddr, u32 sec, u32 nsec,
 			       int add_sub, int gmac4);
 	void (*get_systime) (void __iomem *ioaddr, u64 *systime);
+	void (*get_arttime)(struct mii_bus *mii, int intel_adhoc_addr,
+			    u64 *art_time);
+	void (*get_ptptime)(void __iomem *ioaddr, u64 *ptp_time);
+	void (*tstamp_interrupt)(struct stmmac_priv *priv);
 };
 
 #define stmmac_config_hw_tstamping(__priv, __args...) \
@@ -514,6 +521,12 @@ struct stmmac_hwtimestamp {
 	stmmac_do_callback(__priv, ptp, adjust_systime, __args)
 #define stmmac_get_systime(__priv, __args...) \
 	stmmac_do_void_callback(__priv, ptp, get_systime, __args)
+#define stmmac_get_arttime(__priv, __args...) \
+	stmmac_do_void_callback(__priv, ptp, get_arttime, __args)
+#define stmmac_get_ptptime(__priv, __args...) \
+	stmmac_do_void_callback(__priv, ptp, get_ptptime, __args)
+#define stmmac_tstamp_interrupt(__priv, __args...) \
+	stmmac_do_void_callback(__priv, ptp, tstamp_interrupt, __args)
 
 /* Helpers to manage the descriptors for chain and ring modes */
 struct stmmac_mode_ops {
@@ -542,7 +555,7 @@ struct stmmac_mode_ops {
 #define stmmac_clean_desc3(__priv, __args...) \
 	stmmac_do_void_callback(__priv, mode, clean_desc3, __args)
 
-struct stmmac_priv;
+//struct stmmac_priv;
 struct tc_cls_u32_offload;
 struct tc_cbs_qopt_offload;
 struct flow_cls_offload;
