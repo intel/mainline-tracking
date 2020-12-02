@@ -1962,6 +1962,7 @@ config X86_CET_USER
 	def_bool n
 	depends on CPU_SUP_INTEL && X86_64
 	depends on AS_WRUSS
+	depends on $(cc-option,-fcf-protection)
 	select ARCH_USES_HIGH_VMA_FLAGS
 	select ARCH_HAS_SHADOW_STACK
 	select ARCH_MAYBE_MKWRITE
