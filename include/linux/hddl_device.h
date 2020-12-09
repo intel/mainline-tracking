@@ -134,6 +134,7 @@ struct intel_hddl_clients {
 #if IS_ENABLED(CONFIG_XLINK_CORE)
 	struct xlink_handle xlink_dev;
 #endif /* XLINK_CORE */
+	struct list_head list;
 	struct task_struct *hddl_dev_connect_task;
 	void *task;
 	u32 chan_num;

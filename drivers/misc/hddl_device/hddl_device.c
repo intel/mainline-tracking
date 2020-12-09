@@ -40,6 +40,11 @@
 #define HDDL_XLINK_OPEN_TIMEOUT		1000
 #define HDDL_I2C_CLIENT_INIT_TIME		1000
 
+#define GET_INTERFACE_NO_SW_DEVICE_ID(id) \
+			(((id) >> 16) & 0xFF)
+
+static LIST_HEAD(hddl_dev_list);
+
 enum hddl_device_event_type {
 	HDDL_NOTIFY_DEVICE_DISCONNECTED,
 	HDDL_NOTIFY_DEVICE_CONNECTED,
@@ -216,25 +221,42 @@ struct intel_hddl_clients **
 		dev_info(dev, "HDDL:Device name: %x %s\n",
 			 c->xlink_dev.sw_device_id, device_name);
 		mutex_lock(lock);
-		if ((GET_INTERFACE_FROM_SW_DEVICE_ID(c->xlink_dev.sw_device_id) ==
-		    SW_DEVICE_ID_PCIE_INTERFACE) && !initialized) {
-			/*
-			 * Start kernel thread to initialize
-			 * xlink communication.
-			 */
-			c->hddl_dev_connect_task = kthread_run(task,
-							       (void *)c,
-							       device_name);
-			if (!c->hddl_dev_connect_task) {
-				dev_err(dev, "failed to create thread\n");
-				mutex_unlock(lock);
-				return hddl_clients;
+		if (GET_INTERFACE_FROM_SW_DEVICE_ID(c->xlink_dev.sw_device_id) ==
+						    SW_DEVICE_ID_PCIE_INTERFACE) {
+			struct intel_hddl_clients *client_dev;
+
+			list_for_each_entry(client_dev, &hddl_dev_list, list) {
+				int intf_id =
+				GET_INTERFACE_NO_SW_DEVICE_ID(client_dev->xlink_dev.sw_device_id);
+				int new_intf_id =
+				GET_INTERFACE_NO_SW_DEVICE_ID(c->xlink_dev.sw_device_id);
+
+				initialized = 0;
+				if (intf_id == new_intf_id) {
+					initialized = 1;
+					break;
+				}
 			}
-			c->task = (void *)task;
-			initialized = 1;
+
+			if (!initialized) {
+				/*
+				 * Start kernel thread to initialize
+				 * xlink communication.
+				 */
+				c->hddl_dev_connect_task = kthread_run(task,
+								       (void *)c,
+								       device_name);
+				if (!c->hddl_dev_connect_task) {
+					dev_err(dev, "failed to create thread\n");
+					mutex_unlock(lock);
+					return hddl_clients;
+				}
+				c->task = (void *)task;
+				initialized = 1;
+			}
+			hddl_clients[i] = c;
+			mutex_unlock(lock);
 		}
-		hddl_clients[i] = c;
-		mutex_unlock(lock);
 	}
 
 	return hddl_clients;
