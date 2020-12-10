@@ -73,9 +73,6 @@ struct xpcie_epf {
 	dma_addr_t			tx_phys;
 	void				*tx_virt;
 	size_t				tx_size;
-	dma_addr_t			rx_phys;
-	void				*rx_virt;
-	size_t				rx_size;
 
 	struct xpcie_dma_ll_desc_buf	tx_desc_buf[DMA_CHAN_NUM];
 	struct xpcie_dma_ll_desc_buf	rx_desc_buf[DMA_CHAN_NUM];
