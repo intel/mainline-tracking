@@ -12,32 +12,6 @@
 #include "../common/core.h"
 #include "../common/util.h"
 
-static int rx_pool_size = SZ_32M;
-module_param(rx_pool_size, int, 0664);
-MODULE_PARM_DESC(rx_pool_size, "receive pool size (default 32 MiB)");
-
-static int tx_pool_size = SZ_32M;
-module_param(tx_pool_size, int, 0664);
-MODULE_PARM_DESC(tx_pool_size, "transmit pool size (default 32 MiB)");
-
-static int intel_xpcie_version_check(struct xpcie *xpcie)
-{
-	struct xpcie_version version;
-
-	memcpy_fromio(&version,
-		      (void __iomem *)(xpcie->mmio + XPCIE_MMIO_VERSION),
-		      sizeof(version));
-
-	dev_dbg(xpcie_to_dev(xpcie), "ver: device %u.%u.%u, host %u.%u.%u\n",
-		version.major, version.minor, version.build,
-		XPCIE_VERSION_MAJOR, XPCIE_VERSION_MINOR, XPCIE_VERSION_BUILD);
-
-	if (intel_xpcie_ioread8(xpcie->mmio + XPCIE_MMIO_LEGACY_A0))
-		xpcie->legacy_a0 = true;
-
-	return 0;
-}
-
 static int intel_xpcie_map_dma(struct xpcie *xpcie, struct xpcie_buf_desc *bd,
 			       int direction)
 {
@@ -118,6 +92,7 @@ static int intel_xpcie_txrx_init(struct xpcie *xpcie,
 {
 	struct xpcie_stream *tx = &xpcie->tx;
 	struct xpcie_stream *rx = &xpcie->rx;
+	int tx_pool_size, rx_pool_size;
 	struct xpcie_buf_desc *bd;
 	int rc, index, ndesc;
 
@@ -154,7 +129,7 @@ static int intel_xpcie_txrx_init(struct xpcie *xpcie,
 	}
 
 	intel_xpcie_list_init(&xpcie->rx_pool);
-	rx_pool_size = roundup(rx_pool_size, xpcie->fragment_size);
+	rx_pool_size = roundup(SZ_32M, xpcie->fragment_size);
 	ndesc = rx_pool_size / xpcie->fragment_size;
 
 	for (index = 0; index < ndesc; index++) {
@@ -168,7 +143,7 @@ static int intel_xpcie_txrx_init(struct xpcie *xpcie,
 	}
 
 	intel_xpcie_list_init(&xpcie->tx_pool);
-	tx_pool_size = roundup(tx_pool_size, xpcie->fragment_size);
+	tx_pool_size = roundup(SZ_32M, xpcie->fragment_size);
 	ndesc = tx_pool_size / xpcie->fragment_size;
 
 	for (index = 0; index < ndesc; index++) {
@@ -440,7 +415,8 @@ int intel_xpcie_core_init(struct xpcie *xpcie)
 		return rc;
 	}
 
-	intel_xpcie_version_check(xpcie);
+	if (intel_xpcie_ioread8(xpcie->mmio + XPCIE_MMIO_LEGACY_A0))
+		xpcie->legacy_a0 = true;
 
 	rc = intel_xpcie_events_init(xpcie);
 	if (rc)
