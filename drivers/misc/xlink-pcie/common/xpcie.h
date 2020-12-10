@@ -23,20 +23,6 @@
 #define XPCIE_IO_COMM_SIZE SZ_16K
 #define XPCIE_MMIO_OFFSET SZ_4K
 
-#define XPCIE_VERSION_MAJOR 0
-#define XPCIE_VERSION_MINOR 5
-#define XPCIE_VERSION_BUILD 0
-#define _TOSTR(X) #X
-#define _VERSION(A, B, C) _TOSTR(A) "." _TOSTR(B) "." _TOSTR(C)
-#define XPCIE_DRIVER_VERSION \
-	_VERSION(XPCIE_VERSION_MAJOR, XPCIE_VERSION_MINOR, XPCIE_VERSION_BUILD)
-
-struct xpcie_version {
-	u8 major;
-	u8 minor;
-	u16 build;
-} __packed;
-
 /* Status encoding of both device and host */
 #define XPCIE_STATUS_ERROR	(0xFFFFFFFF)
 #define XPCIE_STATUS_UNINIT	(0)
@@ -50,7 +36,6 @@ struct xpcie_version {
 
 /* MMIO layout and offsets shared between device and host */
 struct xpcie_mmio {
-	struct xpcie_version version;
 	u32 device_status;
 	u32 host_status;
 	u8 legacy_a0;
@@ -65,7 +50,6 @@ struct xpcie_mmio {
 	u8 magic[XPCIE_MAGIC_STRLEN];
 } __packed;
 
-#define XPCIE_MMIO_VERSION	(offsetof(struct xpcie_mmio, version))
 #define XPCIE_MMIO_LEGACY_A0	(offsetof(struct xpcie_mmio, legacy_a0))
 #define XPCIE_MMIO_DEV_STATUS	(offsetof(struct xpcie_mmio, device_status))
 #define XPCIE_MMIO_LEGACY_A0	(offsetof(struct xpcie_mmio, legacy_a0))
