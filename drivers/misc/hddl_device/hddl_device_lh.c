@@ -59,6 +59,7 @@ struct intel_hddl_client_priv {
 	struct intel_hddl_i2c_devs **i2c_devs;
 	struct intel_tsens **tsens;
 	struct intel_hddl_board_info board_info;
+	struct mutex lock;			/* Mutex Lock */
 };
 
 static struct intel_hddl_client_priv *g_priv;
@@ -399,7 +400,8 @@ static int intel_hddl_check_for_new_device(struct intel_hddl_client_priv *priv)
 		intel_hddl_setup_device(&priv->pdev->dev,
 					intel_hddl_device_connect_task,
 					&priv->n_hddl_devs, priv->hddl_client,
-					priv);
+					priv,
+					&priv->lock);
 	if (!hddl_clients) {
 		dev_err(&priv->pdev->dev,
 			"intel_hddl_setup_device returned NULL\n");

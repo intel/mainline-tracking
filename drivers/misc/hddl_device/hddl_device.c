@@ -213,8 +213,9 @@ struct intel_hddl_clients **
 		}
 		dev_info(dev, "HDDL:Device name: %x %s\n",
 			 c->xlink_dev.sw_device_id, device_name);
-		if (GET_INTERFACE_FROM_SW_DEVICE_ID(sw_device_id_list[i]) ==
-		    SW_DEVICE_ID_PCIE_INTERFACE) {
+		mutex_lock(lock);
+		if ((GET_INTERFACE_FROM_SW_DEVICE_ID(c->xlink_dev.sw_device_id) ==
+		    SW_DEVICE_ID_PCIE_INTERFACE) && !initialized) {
 			/*
 			 * Start kernel thread to initialize
 			 * xlink communication.
@@ -224,11 +225,14 @@ struct intel_hddl_clients **
 							       device_name);
 			if (!c->hddl_dev_connect_task) {
 				dev_err(dev, "failed to create thread\n");
+				mutex_unlock(lock);
 				return hddl_clients;
 			}
 			c->task = (void *)task;
+			initialized = 1;
 		}
 		hddl_clients[i] = c;
+		mutex_unlock(lock);
 	}
 
 	return hddl_clients;

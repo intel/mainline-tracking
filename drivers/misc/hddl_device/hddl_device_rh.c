@@ -691,7 +691,8 @@ static int intel_hddl_check_for_new_device(struct intel_hddl_device_priv *priv)
 		intel_hddl_setup_device(&priv->pdev->dev,
 					intel_hddl_device_connect_task,
 					&priv->ndevs, priv->hddl_client,
-					priv);
+					priv,
+					&priv->lock);
 
 	if (!hddl_clients) {
 		dev_err(&priv->pdev->dev,
