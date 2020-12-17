@@ -21,6 +21,7 @@ enum x86_pf_error_code {
 	X86_PF_INSTR	=		1 << 4,
 	X86_PF_PK	=		1 << 5,
 	X86_PF_SHSTK	=		1 << 6,
+	X86_PF_SGX	=		1 << 15,
 };
 
 #endif /* _ASM_X86_TRAP_PF_H */
