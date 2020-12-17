@@ -62,6 +62,7 @@
 #define ADDR				GENMASK(15, 0)
 #define MTL_RXP_IACC_DATA		0x00000cb4
 #define MTL_ECC_CONTROL			0x00000cc0
+#define MEEAO				BIT(8)
 #define TSOEE				BIT(4)
 #define MRXPEE				BIT(3)
 #define MESTEE				BIT(2)
@@ -97,6 +98,9 @@
 #define GMAC_RXQCTRL_VFFQ_MASK		GENMASK(19, 17)
 #define GMAC_RXQCTRL_VFFQ_SHIFT		17
 #define GMAC_RXQCTRL_VFFQE		BIT(16)
+
+/* MDIO interrupt enable in MAC_Interrupt_Enable register */
+#define GMAC_INT_MDIO_EN		BIT(18)
 
 int dwmac5_safety_feat_config(void __iomem *ioaddr, unsigned int asp);
 int dwmac5_safety_feat_irq_status(struct net_device *ndev,

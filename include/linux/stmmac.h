@@ -148,6 +148,7 @@ struct plat_stmmacenet_data {
 	int phy_addr;
 	int interface;
 	phy_interface_t phy_interface;
+	struct pci_dev *pdev;
 	struct stmmac_mdio_bus_data *mdio_bus_data;
 	struct device_node *phy_node;
 	struct device_node *phylink_node;
@@ -155,6 +156,7 @@ struct plat_stmmacenet_data {
 	struct stmmac_dma_cfg *dma_cfg;
 	struct stmmac_est *est;
 	int clk_csr;
+	int clk_trail_n;
 	int has_gmac;
 	int enh_desc;
 	int tx_coe;
@@ -180,9 +182,13 @@ struct plat_stmmacenet_data {
 	void (*fix_mac_speed)(void *priv, unsigned int speed);
 	int (*serdes_powerup)(struct net_device *ndev, void *priv);
 	void (*serdes_powerdown)(struct net_device *ndev, void *priv);
+	int (*check_speed_2500)(struct net_device *ndev);
 	int (*init)(struct platform_device *pdev, void *priv);
 	void (*exit)(struct platform_device *pdev, void *priv);
 	struct mac_device_info *(*setup)(void *priv);
+	int (*setup_phy_conv)(struct mii_bus *bus, int irq,
+	     int phy_addr, bool speed_2500_en);
+	int (*remove_phy_conv)(struct mii_bus *bus);
 	void *bsp_priv;
 	struct clk *stmmac_clk;
 	struct clk *pclk;
@@ -202,5 +208,22 @@ struct plat_stmmacenet_data {
 	bool vlan_fail_q_en;
 	u8 vlan_fail_q;
 	unsigned int eee_usecs_rate;
+	bool multi_msi_en;
+	int msi_mac_vec;
+	int msi_wol_vec;
+	int msi_lpi_vec;
+	int msi_phy_conv_vec;
+	int msi_sfty_ce_vec;
+	int msi_sfty_ue_vec;
+	int msi_rx_base_vec;
+	int msi_tx_base_vec;
+	bool ehl_ao_wa;
+	bool has_art;
+	bool speed_2500_en;
+	int int_snapshot_num;
+	int intel_adhoc_addr;
+	int ext_snapshot_num;
+	int ext_snapshot_en;
+	bool has_safety_feat;
 };
 #endif
