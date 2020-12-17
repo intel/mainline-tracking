@@ -57,6 +57,7 @@
 #include <asm/microcode_intel.h>
 #include <asm/intel-family.h>
 #include <asm/cpu_device_id.h>
+#include <asm/cet.h>
 #include <asm/uv/uv.h>
 
 #include "cpu.h"
@@ -509,6 +510,49 @@ static __init int setup_disable_pku(char *arg)
 }
 __setup("nopku", setup_disable_pku);
 #endif /* CONFIG_X86_64 */
+
+static __always_inline void setup_cet(struct cpuinfo_x86 *c)
+{
+	if (!cpu_feature_enabled(X86_FEATURE_SHSTK) &&
+	    !cpu_feature_enabled(X86_FEATURE_IBT))
+		return;
+
+	cr4_set_bits(X86_CR4_CET);
+}
+
+#ifdef CONFIG_X86_SHADOW_STACK_USER
+static __init int setup_disable_shstk(char *s)
+{
+	/* require an exact match without trailing characters */
+	if (s[0] != '\0')
+		return 0;
+
+	if (!boot_cpu_has(X86_FEATURE_SHSTK))
+		return 1;
+
+	setup_clear_cpu_cap(X86_FEATURE_SHSTK);
+	pr_info("x86: 'no_user_shstk' specified, disabling user Shadow Stack\n");
+	return 1;
+}
+__setup("no_user_shstk", setup_disable_shstk);
+#endif
+
+#ifdef CONFIG_X86_BRANCH_TRACKING_USER
+static __init int setup_disable_ibt(char *s)
+{
+	/* require an exact match without trailing characters */
+	if (s[0] != '\0')
+		return 0;
+
+	if (!boot_cpu_has(X86_FEATURE_IBT))
+		return 1;
+
+	setup_clear_cpu_cap(X86_FEATURE_IBT);
+	pr_info("x86: 'no_user_ibt' specified, disabling user Branch Tracking\n");
+	return 1;
+}
+__setup("no_user_ibt", setup_disable_ibt);
+#endif
 
 /*
  * Some CPU features depend on higher CPUID levels, which may not always
@@ -1591,6 +1635,7 @@ static void identify_cpu(struct cpuinfo_x86 *c)
 
 	x86_init_rdrand(c);
 	setup_pku(c);
+	setup_cet(c);
 
 	/*
 	 * Clear/Set all flags overridden by options, need do it
