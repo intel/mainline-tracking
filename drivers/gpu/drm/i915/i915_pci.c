@@ -847,6 +847,14 @@ static const struct intel_device_info ehl_info = {
 	.ppgtt_size = 36,
 };
 
+static const struct intel_device_info jsl_info = {
+	GEN11_FEATURES,
+	PLATFORM(INTEL_JASPERLAKE),
+	.require_force_probe = 1,
+	.platform_engine_mask = BIT(RCS0) | BIT(BCS0) | BIT(VCS0) | BIT(VECS0),
+	.ppgtt_size = 36,
+};
+
 #define GEN12_FEATURES \
 	GEN11_FEATURES, \
 	GEN(12), \
@@ -911,6 +919,20 @@ static const struct intel_device_info dg1_info __maybe_unused = {
 	.platform_engine_mask =
 		BIT(RCS0) | BIT(BCS0) | BIT(VECS0) |
 		BIT(VCS0) | BIT(VCS2),
+	/* Wa_16011227922 */
+	.ppgtt_size = 47,
+};
+
+static const struct intel_device_info adl_s_info = {
+	GEN12_FEATURES,
+	PLATFORM(INTEL_ALDERLAKE_S),
+	.pipe_mask = BIT(PIPE_A) | BIT(PIPE_B) | BIT(PIPE_C) | BIT(PIPE_D),
+	.require_force_probe = 1,
+	.display.has_hti = 1,
+	.display.has_psr_hw_tracking = 0,
+	.platform_engine_mask =
+		BIT(RCS0) | BIT(BCS0) | BIT(VECS0) | BIT(VCS0) | BIT(VCS2),
+	.dma_mask_size = 46,
 };
 
 #undef GEN
@@ -986,8 +1008,10 @@ static const struct pci_device_id pciidlist[] = {
 	INTEL_CNL_IDS(&cnl_info),
 	INTEL_ICL_11_IDS(&icl_info),
 	INTEL_EHL_IDS(&ehl_info),
+	INTEL_JSL_IDS(&jsl_info),
 	INTEL_TGL_12_IDS(&tgl_info),
 	INTEL_RKL_IDS(&rkl_info),
+	INTEL_ADLS_IDS(&adl_s_info),
 	{0, 0, 0}
 };
 MODULE_DEVICE_TABLE(pci, pciidlist);

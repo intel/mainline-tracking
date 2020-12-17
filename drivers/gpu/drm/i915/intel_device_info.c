@@ -62,9 +62,11 @@ static const char * const platform_names[] = {
 	PLATFORM_NAME(CANNONLAKE),
 	PLATFORM_NAME(ICELAKE),
 	PLATFORM_NAME(ELKHARTLAKE),
+	PLATFORM_NAME(JASPERLAKE),
 	PLATFORM_NAME(TIGERLAKE),
 	PLATFORM_NAME(ROCKETLAKE),
 	PLATFORM_NAME(DG1),
+	PLATFORM_NAME(ALDERLAKE_S),
 };
 #undef PLATFORM_NAME
 
@@ -392,7 +394,11 @@ void intel_device_info_runtime_init(struct drm_i915_private *dev_priv)
 	struct intel_runtime_info *runtime = RUNTIME_INFO(dev_priv);
 	enum pipe pipe;
 
-	if (INTEL_GEN(dev_priv) >= 10) {
+	/* Wa_14011765242: adl-s A0 */
+	if (IS_ADLS_REVID(dev_priv, ADLS_REVID_A0, ADLS_REVID_A0))
+		for_each_pipe(dev_priv, pipe)
+			runtime->num_scalers[pipe] = 0;
+	else if (INTEL_GEN(dev_priv) >= 10) {
 		for_each_pipe(dev_priv, pipe)
 			runtime->num_scalers[pipe] = 2;
 	} else if (IS_GEN(dev_priv, 9)) {
@@ -403,7 +409,7 @@ void intel_device_info_runtime_init(struct drm_i915_private *dev_priv)
 
 	BUILD_BUG_ON(BITS_PER_TYPE(intel_engine_mask_t) < I915_NUM_ENGINES);
 
-	if (IS_ROCKETLAKE(dev_priv))
+	if (HAS_D12_PLANE_MINIMIZATION(dev_priv))
 		for_each_pipe(dev_priv, pipe)
 			runtime->num_sprites[pipe] = 4;
 	else if (INTEL_GEN(dev_priv) >= 11)
