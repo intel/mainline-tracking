@@ -1,0 +1,66 @@
+What:		/sys/class/intel_pmt_crashlog/
+Date:		April 2020
+KernelVersion:	5.8
+Contact:	Alexander Duyck <alexander.h.duyck@linux.intel.com>
+Description:
+		The intel_intel_pmt_crashlog/ class directory contains information
+		for devices that expose crashlog capabilities using the Intel
+		Platform Monitoring Technology (PTM).
+
+What:		/sys/class/intel_pmt_crashlog/crashlogX
+Date:		April 2020
+KernelVersion:	5.8
+Contact:	Alexander Duyck <alexander.h.duyck@linux.intel.com>
+Description:
+		The crashlogX directory contains files for configuring an
+		instance of a PMT crashlog device that can perform crash data
+		recoring. Each crashlogX device has an associated
+		/dev/crashlogX device node. This node can be opened and mapped
+		to access the resulting crashlog data. The register layout for
+		the log can be determined from an XML file of specified guid
+		for the parent device.
+
+What:		/sys/class/intel_pmt_crashlog/crashlogX/guid
+Date:		April 2020
+KernelVersion:	5.8
+Contact:	Alexander Duyck <alexander.h.duyck@linux.intel.com>
+Description:
+		(RO) The guid for this crashlog device. The guid identifies the
+		version of the XML file for the parent device that should be
+		used to determine the register layout.
+
+What:		/sys/class/intel_pmt_crashlog/crashlogX/size
+Date:		April 2020
+KernelVersion:	5.8
+Contact:	Alexander Duyck <alexander.h.duyck@linux.intel.com>
+Description:
+		(RO) The length of the result buffer in bytes that corresponds
+		to the mapping size for the /dev/crashlogX device node.
+
+What:		/sys/class/intel_pmt_crashlog/crashlogX/offset
+Date:		April 2020
+KernelVersion:	5.8
+Contact:	Alexander Duyck <alexander.h.duyck@linux.intel.com>
+Description:
+		(RO) The offset of the buffer in bytes that corresponds
+		to the mapping for the /dev/crashlogX device node.
+
+What:		/sys/class/intel_pmt_crashlog/crashlogX/enable
+Date:		April 2020
+KernelVersion:	5.8
+Contact:	Alexander Duyck <alexander.h.duyck@linux.intel.com>
+Description:
+		(RW) Boolean value controlling if the crashlog functionality
+		is enabled for the /dev/crashlogX device node.
+
+What:		/sys/class/intel_pmt_crashlog/crashlogX/trigger
+Date:		April 2020
+KernelVersion:	5.8
+Contact:	Alexander Duyck <alexander.h.duyck@linux.intel.com>
+Description:
+		(RW) Boolean value controlling  the triggering of the
+		/dev/crashlogX device node. When read it provides data on if
+		the crashlog has been triggered. When written to it can be
+		used to either clear the current trigger by writing false, or
+		to trigger a new event if the trigger is not currently set.
+
