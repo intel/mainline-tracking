@@ -21,7 +21,7 @@ struct intel_hddl_clients **
 	intel_hddl_setup_device(struct device *dev,
 				intel_hddl_connect_task task, u32 *n_devs,
 				struct intel_hddl_clients **hddl_clients,
-				void *pdata);
+				void *pdata, struct mutex *lock);
 
 int intel_hddl_xlink_remove_i2c_adap(struct device *dev,
 				     struct intel_hddl_clients *c);

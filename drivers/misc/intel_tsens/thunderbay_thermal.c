@@ -17,6 +17,7 @@
 #include <linux/delay.h>
 #include <linux/slab.h>
 #include <linux/hddl_device.h>
+#include "intel_tsens_thermal.h"
 #include "thunderbay_tsens.h"
 
 struct thunderbay_thermal_priv {

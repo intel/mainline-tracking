@@ -774,6 +774,7 @@ static int intel_hddl_client_probe(struct platform_device *pdev)
 		devm_kfree(&pdev->dev, priv);
 		return -EINVAL;
 	}
+	mutex_init(&priv->lock);
 	ret = intel_hddl_device_init(priv);
 	if (ret) {
 		dev_err(&pdev->dev, "HDDL device init failed\n");

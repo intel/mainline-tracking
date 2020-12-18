@@ -361,7 +361,8 @@ static int intel_tsens_config_dt(struct intel_tsens_priv *priv)
 	int i = 0, ret;
 
 	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
-	priv->base_addr = devm_ioremap_resource(&pdev->dev, res);
+	//priv->base_addr = devm_ioremap_resource(&pdev->dev, res);
+	priv->base_addr = ioremap(res->start, (res->end - res->start));
 	node = of_parse_phandle(np, "soc-sensors", 0);
 	if (!node)
 		return -EINVAL;
