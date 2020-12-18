@@ -56,7 +56,7 @@ config INTEL_TSENS_IA_HOST
 
 config THUNDERBAY_THERMAL
 	tristate "Temperature sensor driver for intel keembay"
-	depends on INTEL_TSENS_LOCAL_HOST && ARCH_THUNDERBAY
+	depends on INTEL_TSENS_LOCAL_HOST
 	help
 	  Enable this option if you want to have support for thunderbay
 	  thermal management sensors.

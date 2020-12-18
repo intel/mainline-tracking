@@ -148,11 +148,13 @@ struct intel_hddl_clients **
 	intel_hddl_setup_device(struct device *dev,
 				intel_hddl_connect_task task, u32 *n_devs,
 				struct intel_hddl_clients **hddl_clients,
-				void *pdata)
+				void *pdata,
+				struct mutex *lock)
 {
 	u32 sw_device_id_list[XLINK_MAX_DEVICE_LIST_SIZE];
 	char device_name[XLINK_MAX_DEVICE_NAME_SIZE];
 	struct intel_hddl_clients **cls;
+	int initialized = 0;
 	u32 num_devices = 0;
 	u32 i = 0;
 
@@ -466,6 +468,7 @@ void intel_hddl_device_remove(struct intel_hddl_clients *d)
 	mutex_unlock(&d->lock);
 }
 
+#ifdef XLINK_ASYNC_ENABLED
 static int intel_hddl_device_event_notify(u32 sw_device_id,
 					  uint32_t event_type)
 {
@@ -503,7 +506,7 @@ static int intel_hddl_device_event_notify(u32 sw_device_id,
 	}
 	return ret;
 }
-
+#endif
 void intel_hddl_close_xlink_device(struct device *dev,
 				   struct intel_hddl_clients *d)
 {
@@ -543,11 +546,13 @@ int intel_hddl_open_xlink_device(struct device *dev,
 		return -ENODEV;
 	}
 	mutex_init(&d->lock);
+
+#ifdef XLINK_ASYNC_ENABLED
 	xlink_register_device_event(&d->xlink_dev,
 				    hddl_device_events,
 				    HDDL_NUM_EVENT_TYPE,
 				    intel_hddl_device_event_notify);
-
+#endif
 	d->status = HDDL_DEV_STATUS_CONNECTED;
 	/*
 	 * Try opening xlink channel, open channel will fail till host/client
