@@ -789,8 +789,7 @@ static bool tb_cfg_copy(struct tb_cfg_request *req, const struct ctl_pkg *pkg)
  * reply (even though the switch will reset). The caller should check for
  * -ETIMEDOUT and attempt to reconfigure the switch.
  */
-struct tb_cfg_result tb_cfg_reset(struct tb_ctl *ctl, u64 route,
-				  int timeout_msec)
+struct tb_cfg_result tb_cfg_reset(struct tb_ctl *ctl, u64 route)
 {
 	struct cfg_reset_pkg request = { .header = tb_cfg_make_header(route) };
 	struct tb_cfg_result res = { 0 };
@@ -812,7 +811,7 @@ struct tb_cfg_result tb_cfg_reset(struct tb_ctl *ctl, u64 route,
 	req->response_size = sizeof(reply);
 	req->response_type = TB_CFG_PKG_RESET;
 
-	res = tb_cfg_request_sync(ctl, req, timeout_msec);
+	res = tb_cfg_request_sync(ctl, req, TB_CFG_DEFAULT_TIMEOUT);
 
 	tb_cfg_request_put(req);
 
