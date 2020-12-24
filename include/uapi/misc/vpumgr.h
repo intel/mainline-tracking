@@ -17,7 +17,8 @@
 #define VPUMGR_IOCTL_DMABUF_PTR2VPU	_IOWR(VPUMGR_MAGIC, 5, __u64)
 #define VPUMGR_IOCTL_VCM_SUBMIT		_IOWR(VPUMGR_MAGIC, 6, struct vpumgr_vcm_submit)
 #define VPUMGR_IOCTL_VCM_WAIT		_IOWR(VPUMGR_MAGIC, 7, struct vpumgr_vcm_wait)
-#define VPUMGR_IOCTL_END		_IO(VPUMGR_MAGIC, 8)
+#define VPUMGR_IOCTL_FETCH_META	_IOWR(VPUMGR_MAGIC, 8, struct vpumgr_args_fetch_meta)
+#define VPUMGR_IOCTL_END		_IO(VPUMGR_MAGIC, 9)
 
 struct vpumgr_args_alloc {
 	__s32 fd;           /* out: DMABuf fd */
@@ -61,4 +62,35 @@ struct vpumgr_vcm_wait {
 	__u32 timeout_ms;   /*  in: timeout in milliseconds */
 };
 
+struct _VIV_VIDMEM_METADATA {
+	__u32 magic;                /* __FOURCC('v', 'i', 'v', 'm') */
+	__u32 dmabuf_size;          /* DMABUF buffer size in byte (Maximum 4GB) */
+	__u32 time_stamp;           /* time stamp for the DMABUF buffer */
+	__u32 image_format;         /* ImageFormat */
+	__u32 compressed;           /* if DMABUF buffer is compressed by DEC400 */
+
+	struct {
+		__u32 offset;            /* plane buffer address offset from DMABUF address */
+		__u32 stride;            /* pitch in byte */
+		__u32 width;             /* width in pixels */
+		__u32 height;            /* height in pixels */
+		__u32 tile_format;       /* uncompressed tile format */
+		__u32 compress_format;   /* tile mode for DEC400 */
+		__u32 ts_offset;         /* tile status buffer offset within this plane buffer */
+		__s32 ts_fd;             /* fd of separate tile status buffer of the plane buffer */
+		__s32 ts_fd2;            /* valid fd of the ts buffer in consumer side */
+		__s32 ts_vaddr;          /* the vpu virtual address for this ts data buffer */
+		__u32 fc_enabled;        /* gpu fastclear enabled for the plane buffer */
+		__u32 fc_value_lower;    /* gpu fastclear color value (lower 32 bits)
+								for the plane buffer */
+		__u32 fc_value_upper;    /* gpu fastclear color value (upper 32 bits)
+								for the plane buffer */
+	} plane[3];
+};
+
+struct vpumgr_args_fetch_meta {
+	__s32 fd;           /*  in: input DMABuf fd */
+	__u64 size;         /*  in: the size of struct _VIV_VIDMEM_METADATA */
+	void *meta_buffer; /*out: buffer pointer to get VSI Meta Data */
+};
 #endif /* __VPUMGR_UAPI_H */

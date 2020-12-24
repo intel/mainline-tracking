@@ -57,6 +57,13 @@ struct vpusmm_impbuf {
 	int refcount;
 };
 
+static inline u32 __fourcc(char a, char b, char c, char d)
+{
+	return ((u32)(a) <<  0) |
+			((u32)(b) << 8) |
+			((u32)(c) << 16) |
+			((u32)(d) << 24);
+}
 /*
  * VPU imported dmabuf management
  */
@@ -488,6 +495,36 @@ failed:
 		mmput(mm);
 	}
 	return -EFAULT;
+}
+
+int smm_fetch_meta(struct vpumgr_smm *sess, struct vpumgr_args_fetch_meta *arg,
+		struct _VIV_VIDMEM_METADATA **meta_info)
+{
+	struct device *dev = sess->vdev->sdev;
+	struct dma_buf *dmabuf;
+
+	dmabuf = dma_buf_get(arg->fd);
+	if (IS_ERR(dmabuf))
+		return -EINVAL;
+
+	if (arg->size != sizeof(struct _VIV_VIDMEM_METADATA)) {
+		dev_err(dev, "_VIV_VIDMEM_METADATA size mismatched, failed to fetch meta_info\n");
+		return -EINVAL;
+	}
+
+	if (!dmabuf->priv) {
+		dev_err(dev, "dmabuf->priv is NULL, failed to fetch meta_info\n");
+		return -EINVAL;
+	}
+
+	*meta_info = (struct _VIV_VIDMEM_METADATA *)(dmabuf->priv);
+	dev_dbg(dev, "meta_info->magic = 0x%x\n", (*meta_info)->magic);
+	if ((*meta_info)->magic != __fourcc('V', 'I', 'V', 'M')) {
+		dev_err(dev, "invalid meta_info\n");
+		return -EFAULT;
+	}
+
+	return 0;
 }
 
 int smm_debugfs_stats_show(struct seq_file *file, struct vpumgr_smm *sess)
