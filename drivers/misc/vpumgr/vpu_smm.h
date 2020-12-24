@@ -24,7 +24,8 @@ int smm_alloc(struct vpumgr_smm *sess, struct vpumgr_args_alloc *arg);
 int smm_import(struct vpumgr_smm *sess, struct vpumgr_args_import *arg);
 int smm_unimport(struct vpumgr_smm *sess, int *p_dmabuf_fd);
 int smm_ptr2vpu(struct vpumgr_smm *sess, unsigned long *arg);
-
+int smm_fetch_meta(struct vpumgr_smm *sess, struct vpumgr_args_fetch_meta *arg,
+	struct _VIV_VIDMEM_METADATA **meta_info);
 int smm_debugfs_stats_show(struct seq_file *file, struct vpumgr_smm *sess);
 
 #endif

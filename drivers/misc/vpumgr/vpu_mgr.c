@@ -137,6 +137,8 @@ static long vpumgr_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 	const unsigned int io_size = _IOC_SIZE(cmd);
 	struct vpumgr_vcm_submit *vs;
 	struct vpumgr_vcm_wait *vw;
+	struct _VIV_VIDMEM_METADATA *meta_info = NULL;
+	struct vpumgr_args_fetch_meta *pa;
 	char tmp[128];
 	int rc = 0;
 
@@ -182,6 +184,15 @@ static long vpumgr_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 		vw = (struct vpumgr_vcm_wait *)tmp;
 		rc = vcm_wait(&vpriv->ctx, vw->submit_id, &vw->vpu_rc,
 			      (void *)vw->out, &vw->out_len, vw->timeout_ms);
+		break;
+	case VPUMGR_IOCTL_FETCH_META:
+		rc = smm_fetch_meta(&vpriv->smm, (void *)tmp, &meta_info);
+		pa = (struct vpumgr_args_fetch_meta *)tmp;
+		if (!rc) {
+			if (copy_to_user(pa->meta_buffer, meta_info,
+				sizeof(struct _VIV_VIDMEM_METADATA)) != 0)
+				return -EFAULT;
+		}
 		break;
 	}
 
