@@ -9283,6 +9283,7 @@ M:	Daniele Alessandrelli <daniele.alessandrelli@intel.com>
 M:	Mark Gross <mgross@linux.intel.com>
 S:	Supported
 F:	Documentation/devicetree/bindings/mailbox/intel,keembay-ipc-mailbox.yaml
+F:	drivers/mailbox/vpu-ipc-mailbox.c
 
 INTEL KEEM BAY OCS AES/SM4 CRYPTO DRIVER
 M:	Daniele Alessandrelli <daniele.alessandrelli@intel.com>

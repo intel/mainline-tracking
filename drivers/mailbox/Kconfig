@@ -38,6 +38,19 @@ config IMX_MBOX
 	help
 	  Mailbox implementation for i.MX Messaging Unit (MU).
 
+config INTEL_KEEMBAY_IPC_MBOX
+	tristate "Intel Keem Bay IPC Mailbox"
+	depends on HAS_IOMEM
+	depends on OF || COMPILE_TEST
+	depends on ARCH_KEEMBAY || COMPILE_TEST
+	help
+	  Mailbox implementation for enabling inter-processor communication
+	  between the application processor and the VPU on the Intel Keem Bay
+	  SoC.
+
+	  Say Y or M here if you are building for the Intel Keem Bay SoC.
+	  If M is selected, the module will be called keembay-ipc-mailbox.
+
 config PLATFORM_MHU
 	tristate "Platform MHU Mailbox"
 	depends on OF
