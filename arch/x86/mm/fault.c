@@ -20,6 +20,7 @@
 #include <linux/efi.h>			/* efi_crash_gracefully_on_page_fault()*/
 #include <linux/mm_types.h>
 
+#include <asm/processor.h>		/* extended_pt_regs, ...	*/
 #include <asm/cpufeature.h>		/* boot_cpu_has, ...		*/
 #include <asm/traps.h>			/* dotraplinkage, ...		*/
 #include <asm/fixmap.h>			/* VSYSCALL_ADDR		*/
@@ -502,6 +503,22 @@ static void show_ldttss(const struct desc_ptr *gdt, const char *name, u16 index)
 		 name, index, addr, (desc.limit0 | (desc.limit1 << 16)));
 }
 
+#ifdef CONFIG_ARCH_HAS_SUPERVISOR_PKEYS
+static void
+show_extended_regs_oops(struct pt_regs *regs, unsigned error_code)
+{
+	struct extended_pt_regs *ept_regs = extended_pt_regs(regs);
+
+	if (cpu_feature_enabled(X86_FEATURE_PKS) && (error_code & X86_PF_PK))
+		pr_alert("PKRS: 0x%x\n", ept_regs->thread_pkrs);
+}
+#else
+static __always_inline void show_extended_regs_oops(struct pt_regs *regs,
+						    unsigned error_code)
+{
+}
+#endif
+
 static void
 show_fault_oops(struct pt_regs *regs, unsigned long error_code, unsigned long address)
 {
@@ -546,6 +563,8 @@ show_fault_oops(struct pt_regs *regs, unsigned long error_code, unsigned long ad
 		 (error_code & X86_PF_RSVD)  ? "reserved bit violation" :
 		 (error_code & X86_PF_PK)    ? "protection keys violation" :
 					       "permissions violation");
+
+	show_extended_regs_oops(regs, error_code);
 
 	if (!(error_code & X86_PF_USER) && user_mode(regs)) {
 		struct desc_ptr idt, gdt;

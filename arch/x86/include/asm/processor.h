@@ -879,4 +879,17 @@ enum mds_mitigations {
 	MDS_MITIGATION_VMWERV,
 };
 
+#ifdef CONFIG_ARCH_HAS_SUPERVISOR_PKEYS
+struct extended_pt_regs {
+	u32 thread_pkrs;
+	u32 pad;
+	struct pt_regs pt_regs;
+};
+
+static inline struct extended_pt_regs *extended_pt_regs(struct pt_regs *regs)
+{
+	return container_of(regs, struct extended_pt_regs, pt_regs);
+}
+#endif
+
 #endif /* _ASM_X86_PROCESSOR_H */
