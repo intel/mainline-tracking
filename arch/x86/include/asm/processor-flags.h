@@ -53,4 +53,6 @@
 # define X86_CR3_PTI_PCID_USER_BIT	11
 #endif
 
+#define EXTENDED_PT_REGS_SIZE 8
+
 #endif /* _ASM_X86_PROCESSOR_FLAGS_H */

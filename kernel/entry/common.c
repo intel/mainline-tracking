@@ -5,6 +5,7 @@
 #include <linux/highmem.h>
 #include <linux/livepatch.h>
 #include <linux/audit.h>
+#include <linux/pkeys.h>
 
 #include "common.h"
 
@@ -363,7 +364,7 @@ noinstr irqentry_state_t irqentry_enter(struct pt_regs *regs)
 		instrumentation_end();
 
 		ret.exit_rcu = true;
-		return ret;
+		goto done;
 	}
 
 	/*
@@ -378,6 +379,8 @@ noinstr irqentry_state_t irqentry_enter(struct pt_regs *regs)
 	trace_hardirqs_off_finish();
 	instrumentation_end();
 
+done:
+	pkrs_save_set_irq(regs, INIT_PKRS_VALUE);
 	return ret;
 }
 
@@ -403,7 +406,12 @@ noinstr void irqentry_exit(struct pt_regs *regs, irqentry_state_t state)
 	/* Check whether this returns to user mode */
 	if (user_mode(regs)) {
 		irqentry_exit_to_user_mode(regs);
-	} else if (!regs_irqs_disabled(regs)) {
+		return;
+	}
+
+	pkrs_restore_irq(regs);
+
+	if (!regs_irqs_disabled(regs)) {
 		/*
 		 * If RCU was not watching on entry this needs to be done
 		 * carefully and needs the same ordering of lockdep/tracing
@@ -457,11 +465,13 @@ irqentry_state_t noinstr irqentry_nmi_enter(struct pt_regs *regs)
 	ftrace_nmi_enter();
 	instrumentation_end();
 
+	pkrs_save_set_irq(regs, INIT_PKRS_VALUE);
 	return irq_state;
 }
 
 void noinstr irqentry_nmi_exit(struct pt_regs *regs, irqentry_state_t irq_state)
 {
+	pkrs_restore_irq(regs);
 	instrumentation_begin();
 	ftrace_nmi_exit();
 	if (irq_state.lockdep) {
