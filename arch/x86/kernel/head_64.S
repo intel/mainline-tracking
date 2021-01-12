@@ -319,8 +319,7 @@ SYM_CODE_START_NOALIGN(vc_boot_ghcb)
 	movq    %rsp, %rdi
 	movq	ORIG_RAX(%rsp), %rsi
 	movq	initial_vc_handler(%rip), %rax
-	ANNOTATE_RETPOLINE_SAFE
-	call	*%rax
+	__call_ext_ptregs *%rax, annotate_retpoline_safe=1
 
 	/* Unwind pt_regs */
 	POP_REGS
@@ -397,7 +396,7 @@ SYM_CODE_START_LOCAL(early_idt_handler_common)
 	UNWIND_HINT_REGS
 
 	movq %rsp,%rdi		/* RDI = pt_regs; RSI is already trapnr */
-	call do_early_exception
+	call_ext_ptregs do_early_exception
 
 	decl early_recursion_flag(%rip)
 	jmp restore_regs_and_return_to_kernel
@@ -421,7 +420,7 @@ SYM_CODE_START_NOALIGN(vc_no_ghcb)
 	/* Call C handler */
 	movq    %rsp, %rdi
 	movq	ORIG_RAX(%rsp), %rsi
-	call    do_vc_no_ghcb
+	call_ext_ptregs do_vc_no_ghcb
 
 	/* Unwind pt_regs */
 	POP_REGS
