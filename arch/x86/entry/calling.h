@@ -97,6 +97,32 @@ For 32-bit we have the following conventions - kernel is built with
 
 #define SIZEOF_PTREGS	21*8
 
+/*
+ * __call_ext_ptregs - Helper macro to call into C with extended pt_regs
+ * @cfunc:		C function to be called
+ *
+ * This will ensure that extended_ptregs is added and removed as needed during
+ * a call into C code.
+ */
+.macro __call_ext_ptregs cfunc annotate_retpoline_safe:req
+#ifdef CONFIG_ARCH_ENABLE_SUPERVISOR_PKEYS
+	/* add space for extended_pt_regs */
+	subq    $EXTENDED_PT_REGS_SIZE, %rsp
+#endif
+	.if \annotate_retpoline_safe == 1
+		ANNOTATE_RETPOLINE_SAFE
+	.endif
+	call	\cfunc
+#ifdef CONFIG_ARCH_ENABLE_SUPERVISOR_PKEYS
+	/* remove space for extended_pt_regs */
+	addq    $EXTENDED_PT_REGS_SIZE, %rsp
+#endif
+.endm
+
+.macro call_ext_ptregs cfunc
+	__call_ext_ptregs \cfunc, annotate_retpoline_safe=0
+.endm
+
 .macro PUSH_AND_CLEAR_REGS rdx=%rdx rax=%rax save_ret=0
 	.if \save_ret
 	pushq	%rsi		/* pt_regs->si */

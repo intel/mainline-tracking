@@ -34,6 +34,7 @@
 #include <asm/io_bitmap.h>
 #include <asm/syscall.h>
 #include <asm/irq_stack.h>
+#include <asm/pks.h>
 
 #ifdef CONFIG_X86_64
 __visible noinstr void do_syscall_64(unsigned long nr, struct pt_regs *regs)
@@ -214,6 +215,60 @@ SYSCALL_DEFINE0(ni_syscall)
 	return -ENOSYS;
 }
 
+#ifdef CONFIG_ARCH_ENABLE_SUPERVISOR_PKEYS
+
+void show_extended_regs_oops(struct pt_regs *regs, unsigned error_code)
+{
+	struct extended_pt_regs *ept_regs = extended_pt_regs(regs);
+
+	if (cpu_feature_enabled(X86_FEATURE_PKS) && (error_code & X86_PF_PK))
+		pr_alert("PKRS: 0x%x\n", ept_regs->thread_pkrs);
+}
+
+/*
+ * PKRS is a per-logical-processor MSR which overlays additional protection for
+ * pages which have been mapped with a protection key.
+ *
+ * The register is not maintained with XSAVE so we have to maintain the MSR
+ * value in software during context switch and exception handling.
+ *
+ * Context switches save the MSR in the task struct thus taking that value to
+ * other processors if necessary.
+ *
+ * To protect against exceptions having access to this memory we save the
+ * current running value and sets the PKRS value to be used during the
+ * exception.
+ */
+void pkrs_save_set_irq(struct pt_regs *regs, u32 val)
+{
+	struct extended_pt_regs *ept_regs;
+
+	BUILD_BUG_ON(sizeof(struct extended_pt_regs)
+			!= EXTENDED_PT_REGS_SIZE
+				+ sizeof(struct pt_regs));
+
+	if (!cpu_feature_enabled(X86_FEATURE_PKS))
+		return;
+
+	ept_regs = extended_pt_regs(regs);
+	ept_regs->thread_pkrs = current->thread.saved_pkrs;
+	write_pkrs(val);
+}
+
+void pkrs_restore_irq(struct pt_regs *regs)
+{
+	struct extended_pt_regs *ept_regs;
+
+	if (!cpu_feature_enabled(X86_FEATURE_PKS))
+		return;
+
+	ept_regs = extended_pt_regs(regs);
+	write_pkrs(ept_regs->thread_pkrs);
+	current->thread.saved_pkrs = ept_regs->thread_pkrs;
+}
+
+#endif /* CONFIG_ARCH_ENABLE_SUPERVISOR_PKEYS */
+
 #ifdef CONFIG_XEN_PV
 #ifndef CONFIG_PREEMPTION
 /*
@@ -270,6 +325,8 @@ __visible noinstr void xen_pv_evtchn_do_upcall(struct pt_regs *regs)
 
 	inhcall = get_and_clear_inhcall();
 	if (inhcall && !WARN_ON_ONCE(state.exit_rcu)) {
+		/* Normally called by irqentry_exit, we must restore pkrs here */
+		pkrs_restore_irq(regs);
 		instrumentation_begin();
 		irqentry_exit_cond_resched();
 		instrumentation_end();

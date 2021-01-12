@@ -50,4 +50,21 @@ static inline void copy_init_pkru_to_fpregs(void)
 
 #endif /* ! CONFIG_ARCH_HAS_PKEYS */
 
+
+#ifdef CONFIG_ARCH_ENABLE_SUPERVISOR_PKEYS
+
+void pkrs_save_set_irq(struct pt_regs *regs, u32 val);
+void pkrs_restore_irq(struct pt_regs *regs);
+
+#else /* !CONFIG_ARCH_ENABLE_SUPERVISOR_PKEYS */
+
+#ifndef INIT_PKRS_VALUE
+#define INIT_PKRS_VALUE 0
+#endif
+
+static inline void pkrs_save_set_irq(struct pt_regs *regs, u32 val) { }
+static inline void pkrs_restore_irq(struct pt_regs *regs) { }
+
+#endif /* CONFIG_ARCH_ENABLE_SUPERVISOR_PKEYS */
+
 #endif /* _LINUX_PKEYS_H */
