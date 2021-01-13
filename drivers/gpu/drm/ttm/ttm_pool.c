@@ -87,9 +87,6 @@ static struct page *ttm_pool_alloc_page(struct ttm_pool *pool, gfp_t gfp_flags,
 	if (order)
 		gfp_flags |= __GFP_NOMEMALLOC | __GFP_NORETRY | __GFP_NOWARN |
 			__GFP_KSWAPD_RECLAIM;
-		gfp_flags &= ~__GFP_MOVABLE;
-		gfp_flags &= ~__GFP_COMP;
-	}
 
 	if (!pool->use_dma_alloc) {
 		p = alloc_pages(gfp_flags, order);
