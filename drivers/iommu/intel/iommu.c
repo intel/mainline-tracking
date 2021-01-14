@@ -365,6 +365,7 @@ static int intel_iommu_strict;
 static int intel_iommu_superpage = 1;
 static int iommu_identity_mapping;
 static int iommu_skip_te_disable;
+int boot_debug;
 
 #define IDENTMAP_GFX		2
 #define IDENTMAP_AZALIA		4
@@ -465,6 +466,9 @@ static int __init intel_iommu_setup(char *str)
 		} else if (!strncmp(str, "tboot_noforce", 13)) {
 			pr_info("Intel-IOMMU: not forcing on after tboot. This could expose security risk for tboot\n");
 			intel_iommu_tboot_noforce = 1;
+		} else if (!strncmp(str, "boot_debug", 10)) {
+			pr_info("Intel-IOMMU: dmar translation walk\n");
+			boot_debug = 1;
 		}
 
 		str += strcspn(str, ",");
@@ -2465,6 +2469,18 @@ struct dmar_domain *find_domain(struct device *dev)
 		return info->domain;
 
 	return NULL;
+}
+
+struct dmar_domain *get_domain_from_bus_devfn(struct intel_iommu *iommu, u8 bus, u16 devfn)
+{
+	struct device_domain_info *info;
+	struct dmar_domain *domain = NULL;
+
+	list_for_each_entry(info, &device_domain_list, global)
+		if (info->iommu == iommu && info->bus == bus &&
+		    info->devfn == devfn)
+			domain = info->domain;
+	return domain;
 }
 
 static inline struct device_domain_info *
