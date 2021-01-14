@@ -153,15 +153,16 @@ out:
 }
 DEFINE_SHOW_ATTRIBUTE(iommu_regset);
 
-static inline void print_tbl_walk(struct seq_file *m)
+static void dmar_dump_seq_print(struct seq_file *m, struct tbl_walk *tbl_wlk, bool to_dmesg)
 {
-	struct tbl_walk *tbl_wlk = m->private;
+	char bdf_buf[256], pasid_buf[256];
 
-	seq_printf(m, "%02x:%02x.%x\t0x%016llx:0x%016llx\t0x%016llx:0x%016llx\t",
-		   tbl_wlk->bus, PCI_SLOT(tbl_wlk->devfn),
-		   PCI_FUNC(tbl_wlk->devfn), tbl_wlk->rt_entry->hi,
-		   tbl_wlk->rt_entry->lo, tbl_wlk->ctx_entry->hi,
-		   tbl_wlk->ctx_entry->lo);
+	snprintf(bdf_buf, sizeof(bdf_buf),
+		 "%02x:%02x.%x\t0x%016llx:0x%016llx\t0x%016llx:0x%016llx\t",
+		 tbl_wlk->bus, PCI_SLOT(tbl_wlk->devfn),
+		 PCI_FUNC(tbl_wlk->devfn), tbl_wlk->rt_entry->hi,
+		 tbl_wlk->rt_entry->lo, tbl_wlk->ctx_entry->hi,
+		 tbl_wlk->ctx_entry->lo);
 
 	/*
 	 * A legacy mode DMAR doesn't support PASID, hence default it to -1
@@ -169,13 +170,30 @@ static inline void print_tbl_walk(struct seq_file *m)
 	 * to 0.
 	 */
 	if (!tbl_wlk->pasid_tbl_entry)
-		seq_printf(m, "%-6d\t0x%016llx:0x%016llx:0x%016llx\n", -1,
-			   (u64)0, (u64)0, (u64)0);
+		snprintf(pasid_buf, sizeof(pasid_buf), "%-6d\t0x%016llx:0x%016llx:0x%016llx\n", -1,
+			 (u64)0, (u64)0, (u64)0);
 	else
-		seq_printf(m, "%-6d\t0x%016llx:0x%016llx:0x%016llx\n",
-			   tbl_wlk->pasid, tbl_wlk->pasid_tbl_entry->val[2],
-			   tbl_wlk->pasid_tbl_entry->val[1],
-			   tbl_wlk->pasid_tbl_entry->val[0]);
+		snprintf(pasid_buf, sizeof(pasid_buf), "%-6d\t0x%016llx:0x%016llx:0x%016llx\n",
+			 tbl_wlk->pasid, tbl_wlk->pasid_tbl_entry->val[2],
+			 tbl_wlk->pasid_tbl_entry->val[1],
+			 tbl_wlk->pasid_tbl_entry->val[0]);
+
+	if (!to_dmesg) {
+		seq_printf(m, "%s", bdf_buf);
+		seq_printf(m, "%s", pasid_buf);
+	} else {
+		pr_info("%s", bdf_buf);
+		pr_info("%s", pasid_buf);
+	}
+}
+
+static inline void print_tbl_walk(struct seq_file *m, struct tbl_walk *boot_tbl_wlk, bool to_dmesg)
+{
+	if (!to_dmesg)
+		dmar_dump_seq_print(m, m->private, to_dmesg);
+
+	else
+		dmar_dump_seq_print(NULL, boot_tbl_wlk, to_dmesg);
 }
 
 static void pasid_tbl_walk(struct seq_file *m, struct pasid_entry *tbl_entry,
@@ -188,7 +206,7 @@ static void pasid_tbl_walk(struct seq_file *m, struct pasid_entry *tbl_entry,
 		if (pasid_pte_is_present(tbl_entry)) {
 			tbl_wlk->pasid_tbl_entry = tbl_entry;
 			tbl_wlk->pasid = (dir_idx << PASID_PDE_SHIFT) + tbl_idx;
-			print_tbl_walk(m);
+			print_tbl_walk(m, NULL, false);
 		}
 
 		tbl_entry++;
@@ -253,7 +271,7 @@ static void ctx_tbl_walk(struct seq_file *m, struct intel_iommu *iommu, u16 bus)
 			continue;
 		}
 
-		print_tbl_walk(m);
+		print_tbl_walk(m, NULL, false);
 	}
 }
 
@@ -336,6 +354,38 @@ static void pgtable_walk_level(struct seq_file *m, struct dma_pte *pde,
 					   level - 1, start, path);
 		path[level] = 0;
 	}
+}
+
+void dmar_translation_walk(struct intel_iommu *iommu, u8 bus, u16 devfn)
+{
+	struct pasid_dir_entry *dir_entry;
+	struct pasid_entry *pasid_tbl;
+	struct context_entry *context;
+	struct tbl_walk tbl_wlk = {0};
+	struct dmar_domain *domain;
+	unsigned long flags;
+	u64 path[6] = { 0 };
+
+	spin_lock_irqsave(&iommu->lock, flags);
+	context = iommu_context_addr(iommu, bus, devfn, 0);
+	dir_entry = phys_to_virt(context->lo & VTD_PAGE_MASK);
+	pasid_tbl = get_pasid_table_from_pde(dir_entry);
+
+	tbl_wlk.bus = bus;
+	tbl_wlk.devfn = devfn;
+	tbl_wlk.rt_entry = &iommu->root_entry[bus];
+	tbl_wlk.ctx_entry = context;
+	tbl_wlk.pasid_tbl_entry = pasid_tbl;
+
+	pr_info("IOMMU %s: Root Table Address: 0x%llx\n", iommu->name,
+		(u64)virt_to_phys(iommu->root_entry));
+	print_tbl_walk(NULL, &tbl_wlk, true);
+
+	domain = get_domain_from_bus_devfn(iommu, bus, devfn);
+	if (domain)
+		pgtable_walk_level(NULL, domain->pgd, domain->agaw + 2, 0, path);
+
+	spin_unlock_irqrestore(&iommu->lock, flags);
 }
 
 static int show_device_domain_translation(struct device *dev, void *data)

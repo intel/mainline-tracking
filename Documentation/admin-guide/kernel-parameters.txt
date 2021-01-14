@@ -1898,6 +1898,10 @@
 			Note that using this option lowers the security
 			provided by tboot because it makes the system
 			vulnerable to DMA attacks.
+		boot_debug [Default off]
+			Prints additional DMA remapping table information in dmesg
+			to help debug during boot when debugfs is not available.
+			This option is dependent on the IOMMU debugfs being enabled.
 
 	intel_idle.max_cstate=	[KNL,HW,ACPI,X86]
 			0	disables intel_idle and fall back on acpi_idle.
