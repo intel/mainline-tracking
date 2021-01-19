@@ -15,6 +15,8 @@
 #include "tb_regs.h"
 #include "tunnel.h"
 
+#define TB_TIMEOUT	100 /* ms */
+
 /**
  * struct tb_cm - Simple Thunderbolt connection manager
  * @tunnel_list: List of active tunnels
@@ -138,6 +140,10 @@ static void tb_discover_tunnels(struct tb_switch *sw)
 				parent->boot = true;
 				parent = tb_switch_parent(parent);
 			}
+		} else if (tb_tunnel_is_dp(tunnel)) {
+			/* Keep the domain from powering down */
+			pm_runtime_get_sync(&tunnel->src_port->sw->dev);
+			pm_runtime_get_sync(&tunnel->dst_port->sw->dev);
 		}
 
 		list_add_tail(&tunnel->list, &tcm->tunnel_list);
@@ -178,6 +184,9 @@ static void tb_scan_xdomain(struct tb_port *port)
 	struct tb *tb = sw->tb;
 	struct tb_xdomain *xd;
 	u64 route;
+
+	if (!tb_xdomain_enabled)
+		return;
 
 	route = tb_downstream_route(port);
 	xd = tb_xdomain_find_by_route(tb, route);
@@ -434,6 +443,11 @@ static int tb_tunnel_usb3(struct tb *tb, struct tb_switch *sw)
 	struct tb_cm *tcm = tb_priv(tb);
 	struct tb_tunnel *tunnel;
 
+	if (!tb_acpi_may_tunnel_usb3()) {
+		tb_dbg(tb, "USB3 tunneling disabled, not creating tunnel\n");
+		return 0;
+	}
+
 	up = tb_switch_find_port(sw, TB_TYPE_USB3_UP);
 	if (!up)
 		return 0;
@@ -508,6 +522,9 @@ static int tb_create_usb3_tunnels(struct tb_switch *sw)
 {
 	struct tb_port *port;
 	int ret;
+
+	if (!tb_acpi_may_tunnel_usb3())
+		return 0;
 
 	if (tb_route(sw)) {
 		ret = tb_tunnel_usb3(sw->tb, sw);
@@ -838,6 +855,11 @@ static void tb_tunnel_dp(struct tb *tb)
 	struct tb_port *port, *in, *out;
 	struct tb_tunnel *tunnel;
 
+	if (!tb_acpi_may_tunnel_dp()) {
+		tb_dbg(tb, "DP tunneling disabled, not creating tunnel\n");
+		return;
+	}
+
 	/*
 	 * Find pair of inactive DP IN and DP OUT adapters and then
 	 * establish a DP tunnel between them.
@@ -1002,6 +1024,25 @@ static void tb_disconnect_and_release_dp(struct tb *tb)
 	}
 }
 
+static int tb_disconnect_pci(struct tb *tb, struct tb_switch *sw)
+{
+	struct tb_tunnel *tunnel;
+	struct tb_port *up;
+
+	up = tb_switch_find_port(sw, TB_TYPE_PCIE_UP);
+	if (WARN_ON(!up))
+		return -ENODEV;
+
+	tunnel = tb_find_tunnel(tb, TB_TUNNEL_PCI, NULL, up);
+	if (WARN_ON(!tunnel))
+		return -ENODEV;
+
+	tb_tunnel_deactivate(tunnel);
+	list_del(&tunnel->list);
+	tb_tunnel_free(tunnel);
+	return 0;
+}
+
 static int tb_tunnel_pci(struct tb *tb, struct tb_switch *sw)
 {
 	struct tb_port *up, *down, *port;
@@ -1038,7 +1079,9 @@ static int tb_tunnel_pci(struct tb *tb, struct tb_switch *sw)
 	return 0;
 }
 
-static int tb_approve_xdomain_paths(struct tb *tb, struct tb_xdomain *xd)
+static int tb_approve_xdomain_paths(struct tb *tb, struct tb_xdomain *xd,
+				    int transmit_path, int transmit_ring,
+				    int receive_path, int receive_ring)
 {
 	struct tb_cm *tcm = tb_priv(tb);
 	struct tb_port *nhi_port, *dst_port;
@@ -1050,9 +1093,8 @@ static int tb_approve_xdomain_paths(struct tb *tb, struct tb_xdomain *xd)
 	nhi_port = tb_switch_find_port(tb->root_switch, TB_TYPE_NHI);
 
 	mutex_lock(&tb->lock);
-	tunnel = tb_tunnel_alloc_dma(tb, nhi_port, dst_port, xd->transmit_ring,
-				     xd->transmit_path, xd->receive_ring,
-				     xd->receive_path);
+	tunnel = tb_tunnel_alloc_dma(tb, nhi_port, dst_port, transmit_path,
+				     transmit_ring, receive_path, receive_ring);
 	if (!tunnel) {
 		mutex_unlock(&tb->lock);
 		return -ENOMEM;
@@ -1071,29 +1113,40 @@ static int tb_approve_xdomain_paths(struct tb *tb, struct tb_xdomain *xd)
 	return 0;
 }
 
-static void __tb_disconnect_xdomain_paths(struct tb *tb, struct tb_xdomain *xd)
+static void __tb_disconnect_xdomain_paths(struct tb *tb, struct tb_xdomain *xd,
+					  int transmit_path, int transmit_ring,
+					  int receive_path, int receive_ring)
 {
-	struct tb_port *dst_port;
-	struct tb_tunnel *tunnel;
+	struct tb_cm *tcm = tb_priv(tb);
+	struct tb_port *nhi_port, *dst_port;
+	struct tb_tunnel *tunnel, *n;
 	struct tb_switch *sw;
 
 	sw = tb_to_switch(xd->dev.parent);
 	dst_port = tb_port_at(xd->route, sw);
+	nhi_port = tb_switch_find_port(tb->root_switch, TB_TYPE_NHI);
 
-	/*
-	 * It is possible that the tunnel was already teared down (in
-	 * case of cable disconnect) so it is fine if we cannot find it
-	 * here anymore.
-	 */
-	tunnel = tb_find_tunnel(tb, TB_TUNNEL_DMA, NULL, dst_port);
-	tb_deactivate_and_free_tunnel(tunnel);
+	list_for_each_entry_safe(tunnel, n, &tcm->tunnel_list, list) {
+		if (!tb_tunnel_is_dma(tunnel))
+			continue;
+		if (tunnel->src_port != nhi_port || tunnel->dst_port != dst_port)
+			continue;
+
+		if (tb_tunnel_match_dma(tunnel, transmit_path, transmit_ring,
+					receive_path, receive_ring))
+			tb_deactivate_and_free_tunnel(tunnel);
+	}
 }
 
-static int tb_disconnect_xdomain_paths(struct tb *tb, struct tb_xdomain *xd)
+static int tb_disconnect_xdomain_paths(struct tb *tb, struct tb_xdomain *xd,
+				       int transmit_path, int transmit_ring,
+				       int receive_path, int receive_ring)
 {
 	if (!xd->is_unplugged) {
 		mutex_lock(&tb->lock);
-		__tb_disconnect_xdomain_paths(tb, xd);
+		__tb_disconnect_xdomain_paths(tb, xd, transmit_path,
+					      transmit_ring, receive_path,
+					      receive_ring);
 		mutex_unlock(&tb->lock);
 	}
 	return 0;
@@ -1169,12 +1222,12 @@ static void tb_handle_hotplug(struct work_struct *work)
 			 * tb_xdomain_remove() so setting XDomain as
 			 * unplugged here prevents deadlock if they call
 			 * tb_xdomain_disable_paths(). We will tear down
-			 * the path below.
+			 * all the tunnels below.
 			 */
 			xd->is_unplugged = true;
 			tb_xdomain_remove(xd);
 			port->xdomain = NULL;
-			__tb_disconnect_xdomain_paths(tb, xd);
+			__tb_disconnect_xdomain_paths(tb, xd, -1, -1, -1, -1);
 			tb_xdomain_put(xd);
 			tb_port_unconfigure_xdomain(port);
 		} else if (tb_port_is_dpout(port) || tb_port_is_dpin(port)) {
@@ -1512,6 +1565,7 @@ static const struct tb_cm_ops tb_cm_ops = {
 	.runtime_suspend = tb_runtime_suspend,
 	.runtime_resume = tb_runtime_resume,
 	.handle_event = tb_handle_event,
+	.disapprove_switch = tb_disconnect_pci,
 	.approve_switch = tb_tunnel_pci,
 	.approve_xdomain_paths = tb_approve_xdomain_paths,
 	.disconnect_xdomain_paths = tb_disconnect_xdomain_paths,
@@ -1522,11 +1576,15 @@ struct tb *tb_probe(struct tb_nhi *nhi)
 	struct tb_cm *tcm;
 	struct tb *tb;
 
-	tb = tb_domain_alloc(nhi, sizeof(*tcm));
+	tb = tb_domain_alloc(nhi, TB_TIMEOUT, sizeof(*tcm));
 	if (!tb)
 		return NULL;
 
-	tb->security_level = TB_SECURITY_USER;
+	if (tb_acpi_may_tunnel_pcie())
+		tb->security_level = TB_SECURITY_USER;
+	else
+		tb->security_level = TB_SECURITY_NOPCIE;
+
 	tb->cm_ops = &tb_cm_ops;
 
 	tcm = tb_priv(tb);

@@ -825,28 +825,28 @@ static void tb_dma_init_path(struct tb_path *path, unsigned int isb,
  * @tb: Pointer to the domain structure
  * @nhi: Host controller port
  * @dst: Destination null port which the other domain is connected to
- * @transmit_ring: NHI ring number used to send packets towards the
- *		   other domain. Set to %0 if TX path is not needed.
  * @transmit_path: HopID used for transmitting packets
- * @receive_ring: NHI ring number used to receive packets from the
- *		  other domain. Set to %0 if RX path is not needed.
+ * @transmit_ring: NHI ring number used to send packets towards the
+ *		   other domain. Set to %-1 if TX path is not needed.
  * @reveive_path: HopID used for receiving packets
+ * @receive_ring: NHI ring number used to receive packets from the
+ *		  other domain. Set to %-1 if RX path is not needed.
  *
  * Return: Returns a tb_tunnel on success or NULL on failure.
  */
 struct tb_tunnel *tb_tunnel_alloc_dma(struct tb *tb, struct tb_port *nhi,
-				      struct tb_port *dst, int transmit_ring,
-				      int transmit_path, int receive_ring,
-				      int receive_path)
+				      struct tb_port *dst, int transmit_path,
+				      int transmit_ring, int receive_path,
+				      int receive_ring)
 {
 	struct tb_tunnel *tunnel;
 	size_t npaths = 0, i = 0;
 	struct tb_path *path;
 	u32 credits;
 
-	if (receive_ring)
+	if (receive_ring > 0)
 		npaths++;
-	if (transmit_ring)
+	if (transmit_ring > 0)
 		npaths++;
 
 	if (WARN_ON(!npaths))
@@ -862,7 +862,7 @@ struct tb_tunnel *tb_tunnel_alloc_dma(struct tb *tb, struct tb_port *nhi,
 
 	credits = tb_dma_credits(nhi);
 
-	if (receive_ring) {
+	if (receive_ring > 0) {
 		path = tb_path_alloc(tb, dst, receive_path, nhi, receive_ring, 0,
 				     "DMA RX");
 		if (!path) {
@@ -874,7 +874,7 @@ struct tb_tunnel *tb_tunnel_alloc_dma(struct tb *tb, struct tb_port *nhi,
 		tunnel->paths[i++] = path;
 	}
 
-	if (transmit_ring) {
+	if (transmit_ring > 0) {
 		path = tb_path_alloc(tb, nhi, transmit_ring, dst, transmit_path, 0,
 				     "DMA TX");
 		if (!path) {
@@ -886,6 +886,63 @@ struct tb_tunnel *tb_tunnel_alloc_dma(struct tb *tb, struct tb_port *nhi,
 	}
 
 	return tunnel;
+}
+
+/**
+ * tb_tunnel_match_dma() - Match DMA tunnel
+ * @tunnel: Tunnel to match
+ * @transmit_path: HopID used for transmitting packets. Pass %-1 to ignore.
+ * @transmit_ring: NHI ring number used to send packets towards the
+ *		   other domain. Pass %-1 to ignore.
+ * @reveive_path: HopID used for receiving packets. Pass %-1 to ignore.
+ * @receive_ring: NHI ring number used to receive packets from the
+ *		  other domain. Pass %-1 to ignore.
+ *
+ * This function can be used to match specific DMA tunnel, if there are
+ * multiple DMA tunnels going through the same XDomain connection.
+ * Returns true if there is match and false otherwise.
+ */
+bool tb_tunnel_match_dma(const struct tb_tunnel *tunnel, int transmit_path,
+			 int transmit_ring, int receive_path, int receive_ring)
+{
+	const struct tb_path *tx_path = NULL, *rx_path = NULL;
+	int i;
+
+	for (i = 0; i < tunnel->npaths; i++) {
+		const struct tb_path *path = tunnel->paths[i];
+
+		if (!path)
+			continue;
+
+		if (tb_port_is_nhi(path->hops[0].in_port))
+			tx_path = path;
+		else if (tb_port_is_nhi(path->hops[path->path_length - 1].out_port))
+			rx_path = path;
+	}
+
+	if (transmit_ring > 0 || transmit_path > 0) {
+		if (!tx_path)
+			return false;
+		if (transmit_ring > 0 &&
+		    (tx_path->hops[0].in_hop_index != transmit_ring))
+			return false;
+		if (transmit_path > 0 &&
+		    (tx_path->hops[tx_path->path_length - 1].next_hop_index != transmit_path))
+			return false;
+	}
+
+	if (receive_ring > 0 || receive_path > 0) {
+		if (!rx_path)
+			return false;
+		if (receive_path > 0 &&
+		    (rx_path->hops[0].in_hop_index != receive_path))
+			return false;
+		if (receive_ring > 0 &&
+		    (rx_path->hops[rx_path->path_length - 1].next_hop_index != receive_ring))
+			return false;
+	}
+
+	return true;
 }
 
 static int tb_usb3_max_link_rate(struct tb_port *up, struct tb_port *down)
@@ -932,12 +989,14 @@ static int tb_usb3_activate(struct tb_tunnel *tunnel, bool activate)
 static int tb_usb3_consumed_bandwidth(struct tb_tunnel *tunnel,
 		int *consumed_up, int *consumed_down)
 {
+	int pcie_enabled = tb_acpi_may_tunnel_pcie();
+
 	/*
-	 * PCIe tunneling affects the USB3 bandwidth so take that it
-	 * into account here.
+	 * PCIe tunneling, if enabled, affects the USB3 bandwidth so
+	 * take that it into account here.
 	 */
-	*consumed_up = tunnel->allocated_up * (3 + 1) / 3;
-	*consumed_down = tunnel->allocated_down * (3 + 1) / 3;
+	*consumed_up = tunnel->allocated_up * (3 + pcie_enabled) / 3;
+	*consumed_down = tunnel->allocated_down * (3 + pcie_enabled) / 3;
 	return 0;
 }
 
