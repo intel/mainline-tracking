@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*****************************************************************************
  *
- * Intel Keem Bay XLink PCIe Driver
+ * Intel XPCIe XLink PCIe Driver
  *
  * Copyright (C) 2020 Intel Corporation
  *
@@ -15,6 +15,10 @@
 
 static const struct pci_device_id xpcie_pci_table[] = {
 	{ PCI_DEVICE(PCI_VENDOR_ID_INTEL, PCI_DEVICE_ID_INTEL_KEEMBAY), 0 },
+#if (IS_ENABLED(CONFIG_PCIE_TBH_EP))
+	{ PCI_DEVICE(PCI_VENDOR_ID_INTEL, PCI_DEVICE_ID_INTEL_TBH_FULL), 0 },
+	{ PCI_DEVICE(PCI_VENDOR_ID_INTEL, PCI_DEVICE_ID_INTEL_TBH_PRIME), 0 },
+#endif
 	{ 0 }
 };
 
@@ -27,15 +31,23 @@ static int intel_xpcie_probe(struct pci_dev *pdev,
 	u16 hw_id;
 	int ret;
 
+#if (IS_ENABLED(CONFIG_PCIE_TBH_EP))
+	if (PCI_FUNC(pdev->devfn) & 0x1)
+		return 0;
+#endif
+
 	hw_id = FIELD_PREP(HW_ID_HI_MASK, pdev->bus->number) |
 		FIELD_PREP(HW_ID_LO_MASK, PCI_SLOT(pdev->devfn));
 
-	sw_devid = FIELD_PREP(XLINK_DEV_INF_TYPE_MASK,
-			      XLINK_DEV_INF_PCIE) |
-		   FIELD_PREP(XLINK_DEV_PHYS_ID_MASK, hw_id) |
-		   FIELD_PREP(XLINK_DEV_TYPE_MASK, XLINK_DEV_TYPE_KMB) |
-		   FIELD_PREP(XLINK_DEV_PCIE_ID_MASK, XLINK_DEV_PCIE_0) |
-		   FIELD_PREP(XLINK_DEV_FUNC_MASK, XLINK_DEV_FUNC_VPU);
+#if (IS_ENABLED(CONFIG_PCIE_TBH_EP))
+	sw_devid = FIELD_PREP(XLINK_DEV_INF_TYPE_MASK, XLINK_DEV_INF_PCIE) |
+		FIELD_PREP(XLINK_DEV_PHYS_ID_MASK, hw_id) |
+		FIELD_PREP(XLINK_DEV_TYPE_MASK, XLINK_DEV_TYPE_KMB) |
+		FIELD_PREP(XLINK_DEV_PCIE_ID_MASK, XLINK_DEV_PCIE_0) |
+		FIELD_PREP(XLINK_DEV_FUNC_MASK, XLINK_DEV_FUNC_VPU);
+#else
+	sw_devid = hw_id;
+#endif
 
 	xdev = intel_xpcie_get_device_by_id(sw_devid);
 	if (!xdev) {

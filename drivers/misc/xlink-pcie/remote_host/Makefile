@@ -1,3 +1,5 @@
+ccflags-y += -DCONFIG_PCIE_TBH_EP=1
+
 obj-$(CONFIG_XLINK_PCIE_RH_DRIVER) += mxlk.o
 mxlk-objs := main.o
 mxlk-objs += pci.o

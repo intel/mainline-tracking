@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*****************************************************************************
  *
- * Intel Keem Bay XLink PCIe Driver
+ * Intel XPCIe XLink PCIe Driver
  *
  * Copyright (C) 2020 Intel Corporation
  *

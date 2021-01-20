@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*****************************************************************************
  *
- * Intel Keem Bay XLink PCIe Driver
+ * Intel XPCIe XLink PCIe Driver
  *
  * Copyright (C) 2020 Intel Corporation
  *
@@ -12,6 +12,7 @@
 
 #include <linux/pci-epc.h>
 #include <linux/pci-epf.h>
+#include <pcie-keembay.h>
 
 #include "../common/xpcie.h"
 #include "../common/util.h"
@@ -21,7 +22,11 @@
 
 #define KEEMBAY_XPCIE_STEPPING_MAXLEN 8
 
+#if (IS_ENABLED(CONFIG_PCIE_TBH_EP))
+#define DMA_CHAN_NUM		(8)
+#else
 #define DMA_CHAN_NUM		(4)
+#endif
 
 #define XPCIE_NUM_TX_DESCS	(64)
 #define XPCIE_NUM_RX_DESCS	(64)
@@ -57,13 +62,22 @@ struct xpcie_dma_ll_desc_buf {
 struct xpcie_epf {
 	struct pci_epf *epf;
 	void *vaddr[BAR_5 + 1];
+#if (IS_ENABLED(CONFIG_PCIE_TBH_EP))
+	enum pci_barno                  doorbell_bar;
+#endif
 	enum pci_barno comm_bar;
 	enum pci_barno bar4;
 	const struct pci_epc_features *epc_features;
 	struct xpcie xpcie;
 	int irq;
+#if (IS_ENABLED(CONFIG_PCIE_TBH_EP))
+	int                             irq_doorbell;
+	int                             irq_rdma;
+	int                             irq_wdma;
+#else
 	int irq_dma;
 	int irq_err;
+#endif
 	void __iomem *apb_base;
 	void __iomem *dma_base;
 	void __iomem *dbi_base;
@@ -74,8 +88,16 @@ struct xpcie_epf {
 	void				*tx_virt;
 	size_t				tx_size;
 
-	struct xpcie_dma_ll_desc_buf	tx_desc_buf[DMA_CHAN_NUM];
-	struct xpcie_dma_ll_desc_buf	rx_desc_buf[DMA_CHAN_NUM];
+	struct xpcie_dma_ll_desc_buf     tx_desc_buf;
+	struct xpcie_dma_ll_desc_buf     rx_desc_buf;
+
+#if (IS_ENABLED(CONFIG_PCIE_TBH_EP))
+#define MXLK_MAX_NAME_LEN (32)
+	char                            name[MXLK_MAX_NAME_LEN];
+	u32                             sw_devid;
+	bool                            sw_dev_id_updated;
+	struct list_head                list;
+#endif
 };
 
 static inline struct device *xpcie_to_dev(struct xpcie *xpcie)
@@ -86,6 +108,9 @@ static inline struct device *xpcie_to_dev(struct xpcie *xpcie)
 	return &xpcie_epf->epf->dev;
 }
 
+#if (IS_ENABLED(CONFIG_PCIE_TBH_EP))
+struct xpcie_epf *intel_xpcie_get_device_by_name(const char *name);
+#endif
 int intel_xpcie_ep_dma_init(struct pci_epf *epf);
 int intel_xpcie_ep_dma_uninit(struct pci_epf *epf);
 int intel_xpcie_ep_dma_reset(struct pci_epf *epf);
