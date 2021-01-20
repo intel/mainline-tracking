@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*****************************************************************************
  *
- * Intel Keem Bay XLink PCIe Driver
+ * Intel XPCIe XLink PCIe Driver
  *
  * Copyright (C) 2020 Intel Corporation
  *
@@ -14,11 +14,12 @@
 #include <linux/list.h>
 #include <linux/pci.h>
 #include <linux/xlink_drv_inf.h>
+
 #include "../common/xpcie.h"
 #include "../common/util.h"
 
 #define XPCIE_DRIVER_NAME "mxlk"
-#define XPCIE_DRIVER_DESC "Intel(R) Keem Bay XLink PCIe driver"
+#define XPCIE_DRIVER_DESC "Intel(R) XPCIe XLink PCIe driver"
 
 #define XPCIE_MAX_NAME_LEN	(32)
 
@@ -29,6 +30,9 @@ struct xpcie_dev {
 	struct pci_dev *pci;
 	char name[XPCIE_MAX_NAME_LEN];
 	u32 devid;
+#if (IS_ENABLED(CONFIG_PCIE_TBH_EP))
+	u32 sw_devid;
+#endif
 	char fw_name[XPCIE_MAX_NAME_LEN];
 
 	struct delayed_work wait_event;

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*****************************************************************************
  *
- * Intel Keem Bay XLink PCIe Driver
+ * Intel XPCIe XLink PCIe Driver
  *
  * Copyright (C) 2020 Intel Corporation
  *
@@ -15,10 +15,12 @@
 
 static struct xpcie *global_xpcie;
 
+#if (!IS_ENABLED(CONFIG_PCIE_TBH_EP))
 static struct xpcie *intel_xpcie_core_get_by_id(u32 sw_device_id)
 {
 	return (sw_device_id == xlink_sw_id) ? global_xpcie : NULL;
 }
+#endif
 
 static int intel_xpcie_map_dma(struct xpcie *xpcie, struct xpcie_buf_desc *bd,
 			       int direction)
@@ -58,7 +60,7 @@ static void intel_xpcie_set_cap_txrx(struct xpcie *xpcie)
 
 	next = (u16)(start + hdr_len + tx_len + rx_len);
 	intel_xpcie_iowrite32(start, xpcie->mmio + XPCIE_MMIO_CAP_OFF);
-	cap = (void *)xpcie->mmio + start;
+	cap = (struct xpcie_cap_txrx *)((void *)xpcie->mmio + start);
 	memset(cap, 0, sizeof(struct xpcie_cap_txrx));
 	cap->hdr.id = XPCIE_CAP_TXRX;
 	cap->hdr.next = next;
@@ -123,13 +125,17 @@ static int intel_xpcie_txrx_init(struct xpcie *xpcie,
 {
 	struct xpcie_epf *xpcie_epf = container_of(xpcie,
 						   struct xpcie_epf, xpcie);
-	struct device *dma_dev = xpcie_epf->epf->epc->dev.parent;
 	struct xpcie_stream *tx = &xpcie->tx;
 	struct xpcie_stream *rx = &xpcie->rx;
 	int tx_pool_size, rx_pool_size;
 	struct xpcie_buf_desc *bd;
-	int index, ndesc, rc;
-
+	int index, ndesc;
+#if (IS_ENABLED(CONFIG_PCIE_TBH_EP))
+	struct device *dma_dev = &xpcie_epf->epf->dev;
+#else
+	int rc;
+	struct device *dma_dev = xpcie_epf->epf->epc->dev.parent;
+#endif
 	xpcie->txrx = cap;
 	xpcie->fragment_size = cap->fragment_size;
 	xpcie->stop_flag = false;
@@ -147,13 +153,14 @@ static int intel_xpcie_txrx_init(struct xpcie *xpcie,
 	intel_xpcie_list_init(&xpcie->rx_pool);
 	rx_pool_size = roundup(SZ_32M, xpcie->fragment_size);
 	ndesc = rx_pool_size / xpcie->fragment_size;
-
+#if (!IS_ENABLED(CONFIG_PCIE_TBH_EP))
 	/* Initialize reserved memory resources */
 	rc = of_reserved_mem_device_init(dma_dev);
 	if (rc) {
 		dev_err(dma_dev, "Could not get reserved memory\n");
 		goto error;
 	}
+#endif
 
 	for (index = 0; index < ndesc; index++) {
 		bd = intel_xpcie_alloc_bd(xpcie->fragment_size);
@@ -291,7 +298,7 @@ static void intel_xpcie_rx_event_handler(struct work_struct *work)
 			break;
 		}
 
-		desc = &xpcie_epf->rx_desc_buf[chan].virt[descs_num++];
+		desc = &xpcie_epf->rx_desc_buf.virt[descs_num++];
 		desc->dma_transfer_size = length;
 		desc->dst_addr = bd->phys;
 		desc->src_addr = address;
@@ -391,7 +398,7 @@ static void intel_xpcie_tx_event_handler(struct work_struct *work)
 		td = tx->pipe.tdr + tail;
 		address = intel_xpcie_get_td_address(td);
 
-		desc = &xpcie_epf->tx_desc_buf[chan].virt[descs_num++];
+		desc = &xpcie_epf->tx_desc_buf.virt[descs_num++];
 		desc->dma_transfer_size = bd->length;
 		desc->src_addr = bd->phys;
 		desc->dst_addr = address;
@@ -456,7 +463,14 @@ task_exit:
 static irqreturn_t intel_xpcie_core_irq_cb(int irq, void *args)
 {
 	struct xpcie *xpcie = args;
-
+#if (IS_ENABLED(CONFIG_PCIE_TBH_EP))
+	u16 phy_id = 0;
+	u8 max_functions = 0, func_no = 0;
+	struct xpcie_epf *xpcie_epf =
+				container_of(xpcie, struct xpcie_epf, xpcie);
+	/*clear the interrupt*/
+	writel(0x1, xpcie->doorbell_clear);
+#endif
 	if (intel_xpcie_get_doorbell(xpcie, TO_DEVICE, DATA_SENT)) {
 		intel_xpcie_set_doorbell(xpcie, TO_DEVICE, DATA_SENT, 0);
 		intel_xpcie_start_rx(xpcie, 0);
@@ -466,7 +480,22 @@ static irqreturn_t intel_xpcie_core_irq_cb(int irq, void *args)
 		if (xpcie->tx_pending)
 			intel_xpcie_start_tx(xpcie, 0);
 	}
-
+#if (IS_ENABLED(CONFIG_PCIE_TBH_EP))
+	if (intel_xpcie_get_doorbell(xpcie, TO_DEVICE, PHY_ID_UPDATED)) {
+		intel_xpcie_set_doorbell(xpcie, TO_DEVICE, PHY_ID_UPDATED, 0);
+		if (!xpcie_epf->sw_dev_id_updated) {
+			phy_id = intel_xpcie_get_physical_device_id(xpcie);
+			max_functions = intel_xpcie_get_max_functions(xpcie);
+			func_no = xpcie_epf->epf->func_no;
+		xpcie_epf->sw_devid =
+		intel_xpcie_create_sw_device_id(func_no, phy_id, max_functions);
+			xpcie_epf->sw_dev_id_updated = true;
+			dev_info(xpcie_to_dev(xpcie),
+				 "pcie: func_no=%x swid updated=%x phy_id=%x\n",
+				 func_no, xpcie_epf->sw_devid, phy_id);
+		}
+	}
+#endif
 	return IRQ_HANDLED;
 }
 
@@ -531,7 +560,9 @@ int intel_xpcie_core_init(struct xpcie *xpcie)
 	intel_xpcie_set_doorbell(xpcie, FROM_DEVICE, DATA_SENT, 0);
 	intel_xpcie_set_doorbell(xpcie, FROM_DEVICE, DATA_RECEIVED, 0);
 	intel_xpcie_set_doorbell(xpcie, FROM_DEVICE, DEV_EVENT, NO_OP);
-
+#if (IS_ENABLED(CONFIG_PCIE_TBH_EP))
+	intel_xpcie_set_doorbell(xpcie, TO_DEVICE, PHY_ID_UPDATED, 0);
+#endif
 	intel_xpcie_register_host_irq(xpcie, intel_xpcie_core_irq_cb);
 
 	return 0;
@@ -727,8 +758,16 @@ int intel_xpcie_core_write(struct xpcie *xpcie, void *buffer,
 
 int intel_xpcie_get_device_status_by_id(u32 id, u32 *status)
 {
-	struct xpcie *xpcie = intel_xpcie_core_get_by_id(id);
+	struct xpcie *xpcie;
+#if (!IS_ENABLED(CONFIG_PCIE_TBH_EP))
+	xpcie = intel_xpcie_core_get_by_id(id);
+#else
+	struct xpcie_epf *xpcie_epf = intel_xpcie_get_device_by_id(id);
 
+	if (!xpcie_epf)
+		return -ENODEV;
+	xpcie = &xpcie_epf->xpcie;
+#endif
 	if (!xpcie)
 		return -ENODEV;
 
@@ -737,6 +776,7 @@ int intel_xpcie_get_device_status_by_id(u32 id, u32 *status)
 	return 0;
 }
 
+#if (!IS_ENABLED(CONFIG_PCIE_TBH_EP))
 u32 intel_xpcie_get_device_num(u32 *id_list)
 {
 	u32 num_devices = 0;
@@ -748,13 +788,21 @@ u32 intel_xpcie_get_device_num(u32 *id_list)
 
 	return num_devices;
 }
+#endif
 
 int intel_xpcie_get_device_name_by_id(u32 id,
 				      char *device_name, size_t name_size)
 {
 	struct xpcie *xpcie;
-
+#if (!IS_ENABLED(CONFIG_PCIE_TBH_EP))
 	xpcie = intel_xpcie_core_get_by_id(id);
+#else
+	struct xpcie_epf *xpcie_epf = intel_xpcie_get_device_by_id(id);
+
+	if (!xpcie_epf)
+		return -ENODEV;
+	xpcie = &xpcie_epf->xpcie;
+#endif
 	if (!xpcie)
 		return -ENODEV;
 
@@ -770,7 +818,15 @@ int intel_xpcie_pci_connect_device(u32 id)
 {
 	struct xpcie *xpcie;
 
+#if (!IS_ENABLED(CONFIG_PCIE_TBH_EP))
 	xpcie = intel_xpcie_core_get_by_id(id);
+#else
+	struct xpcie_epf *xpcie_epf = intel_xpcie_get_device_by_id(id);
+
+	if (!xpcie_epf)
+		return -ENODEV;
+	xpcie = &xpcie_epf->xpcie;
+#endif
 	if (!xpcie)
 		return -ENODEV;
 
@@ -784,7 +840,15 @@ int intel_xpcie_pci_read(u32 id, void *data, size_t *size, u32 timeout)
 {
 	struct xpcie *xpcie;
 
+#if (!IS_ENABLED(CONFIG_PCIE_TBH_EP))
 	xpcie = intel_xpcie_core_get_by_id(id);
+#else
+	struct xpcie_epf *xpcie_epf = intel_xpcie_get_device_by_id(id);
+
+	if (!xpcie_epf)
+		return -ENODEV;
+	xpcie = &xpcie_epf->xpcie;
+#endif
 	if (!xpcie)
 		return -ENODEV;
 
@@ -795,7 +859,15 @@ int intel_xpcie_pci_write(u32 id, void *data, size_t *size, u32 timeout)
 {
 	struct xpcie *xpcie;
 
+#if (!IS_ENABLED(CONFIG_PCIE_TBH_EP))
 	xpcie = intel_xpcie_core_get_by_id(id);
+#else
+	struct xpcie_epf *xpcie_epf = intel_xpcie_get_device_by_id(id);
+
+	if (!xpcie_epf)
+		return -ENODEV;
+	xpcie = &xpcie_epf->xpcie;
+#endif
 	if (!xpcie)
 		return -ENODEV;
 

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*****************************************************************************
  *
- * Intel Keem Bay XLink PCIe Driver
+ * Intel XPCIe XLink PCIe Driver
  *
  * Copyright (C) 2020 Intel Corporation
  *
@@ -152,8 +152,13 @@ enum xpcie_ep_engine_type {
 };
 
 static u32 dma_chan_offset[2][DMA_CHAN_NUM] = {
+#if (IS_ENABLED(CONFIG_PCIE_TBH_EP))
+	{ 0x200, 0x400, 0x600, 0x800, 0xA00, 0xC00, 0xE00, 0x1000 },
+	{ 0x300, 0x500, 0x700, 0x900, 0xB00, 0xD00, 0xF00, 0x1100 }
+#else
 	{ 0x200, 0x400, 0x600, 0x800 },
 	{ 0x300, 0x500, 0x700, 0x900 }
+#endif
 };
 
 static void __iomem *intel_xpcie_ep_get_dma_base(struct pci_epf *epf)
@@ -357,7 +362,7 @@ int intel_xpcie_ep_dma_write_ll(struct pci_epf *epf, int chan, int descs_num)
 	dma_chan = (struct __iomem pcie_dma_chan *)
 		(dma_base + dma_chan_offset[WRITE_ENGINE][chan]);
 
-	desc_buf = &xpcie_epf->tx_desc_buf[chan];
+	desc_buf = &xpcie_epf->tx_desc_buf;
 
 	intel_xpcie_ep_dma_setup_ll_descs(dma_chan, desc_buf, descs_num);
 
@@ -423,7 +428,7 @@ int intel_xpcie_ep_dma_read_ll(struct pci_epf *epf, int chan, int descs_num)
 	dma_chan = (struct __iomem pcie_dma_chan *)
 		(dma_base + dma_chan_offset[READ_ENGINE][chan]);
 
-	desc_buf = &xpcie_epf->rx_desc_buf[chan];
+	desc_buf = &xpcie_epf->rx_desc_buf;
 
 	intel_xpcie_ep_dma_setup_ll_descs(dma_chan, desc_buf, descs_num);
 
@@ -477,60 +482,64 @@ cleanup:
 
 static void intel_xpcie_ep_dma_free_ll_descs_mem(struct xpcie_epf *xpcie_epf)
 {
+#if (IS_ENABLED(CONFIG_PCIE_TBH_EP))
+	struct device *dma_dev = &xpcie_epf->epf->dev;
+#else
 	struct device *dma_dev = xpcie_epf->epf->epc->dev.parent;
+#endif
 	int i;
 
 	for (i = 0; i < DMA_CHAN_NUM; i++) {
-		if (xpcie_epf->tx_desc_buf[i].virt) {
+		if (xpcie_epf->tx_desc_buf.virt) {
 			dma_free_coherent(dma_dev,
-					  xpcie_epf->tx_desc_buf[i].size,
-					  xpcie_epf->tx_desc_buf[i].virt,
-					  xpcie_epf->tx_desc_buf[i].phys);
+					  xpcie_epf->tx_desc_buf.size,
+					  xpcie_epf->tx_desc_buf.virt,
+					  xpcie_epf->tx_desc_buf.phys);
 		}
-		if (xpcie_epf->rx_desc_buf[i].virt) {
+		if (xpcie_epf->rx_desc_buf.virt) {
 			dma_free_coherent(dma_dev,
-					  xpcie_epf->rx_desc_buf[i].size,
-					  xpcie_epf->rx_desc_buf[i].virt,
-					  xpcie_epf->rx_desc_buf[i].phys);
+					  xpcie_epf->rx_desc_buf.size,
+					  xpcie_epf->rx_desc_buf.virt,
+					  xpcie_epf->rx_desc_buf.phys);
 		}
 
-		memset(&xpcie_epf->tx_desc_buf[i], 0,
+		memset(&xpcie_epf->tx_desc_buf, 0,
 		       sizeof(struct xpcie_dma_ll_desc_buf));
-		memset(&xpcie_epf->rx_desc_buf[i], 0,
+		memset(&xpcie_epf->rx_desc_buf, 0,
 		       sizeof(struct xpcie_dma_ll_desc_buf));
 	}
 }
 
 static int intel_xpcie_ep_dma_alloc_ll_descs_mem(struct xpcie_epf *xpcie_epf)
 {
-	struct device *dma_dev = xpcie_epf->epf->epc->dev.parent;
 	int tx_num = XPCIE_NUM_TX_DESCS + 1;
 	int rx_num = XPCIE_NUM_RX_DESCS + 1;
 	size_t tx_size, rx_size;
-	int i;
-
+#if (IS_ENABLED(CONFIG_PCIE_TBH_EP))
+	struct device *dma_dev = &xpcie_epf->epf->dev;
+#else
+	struct device *dma_dev = xpcie_epf->epf->epc->dev.parent;
+#endif
 	tx_size = tx_num * sizeof(struct xpcie_dma_ll_desc);
 	rx_size = rx_num * sizeof(struct xpcie_dma_ll_desc);
 
-	for (i = 0; i < DMA_CHAN_NUM; i++) {
-		xpcie_epf->tx_desc_buf[i].virt =
+	xpcie_epf->tx_desc_buf.virt =
 			dma_alloc_coherent(dma_dev, tx_size,
-					   &xpcie_epf->tx_desc_buf[i].phys,
+					   &xpcie_epf->tx_desc_buf.phys,
 					   GFP_KERNEL);
-		xpcie_epf->rx_desc_buf[i].virt =
+	xpcie_epf->rx_desc_buf.virt =
 			dma_alloc_coherent(dma_dev, rx_size,
-					   &xpcie_epf->rx_desc_buf[i].phys,
+					   &xpcie_epf->rx_desc_buf.phys,
 					   GFP_KERNEL);
-
-		if (!xpcie_epf->tx_desc_buf[i].virt ||
-		    !xpcie_epf->rx_desc_buf[i].virt) {
-			intel_xpcie_ep_dma_free_ll_descs_mem(xpcie_epf);
-			return -ENOMEM;
-		}
-
-		xpcie_epf->tx_desc_buf[i].size = tx_size;
-		xpcie_epf->rx_desc_buf[i].size = rx_size;
+	if (!xpcie_epf->tx_desc_buf.virt ||
+	    !xpcie_epf->rx_desc_buf.virt) {
+		intel_xpcie_ep_dma_free_ll_descs_mem(xpcie_epf);
+		return -ENOMEM;
 	}
+
+	xpcie_epf->tx_desc_buf.size = tx_size;
+	xpcie_epf->rx_desc_buf.size = rx_size;
+
 	return 0;
 }
 

@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*****************************************************************************
  *
- * Intel Keem Bay XLink PCIe Driver
+ * Intel XPCIe XLink PCIe Driver
  *
  * Copyright (C) 2020 Intel Corporation
  *
@@ -233,7 +233,11 @@ int intel_xpcie_core_read(struct xpcie *xpcie, void *buffer, size_t *length,
 int intel_xpcie_core_write(struct xpcie *xpcie, void *buffer, size_t *length,
 			   u32 timeout_ms);
 u32 intel_xpcie_get_device_num(u32 *id_list);
+#if (IS_ENABLED(CONFIG_XLINK_PCIE_LH_DRIVER))
+struct xpcie_epf *intel_xpcie_get_device_by_id(u32 id);
+#else
 struct xpcie_dev *intel_xpcie_get_device_by_id(u32 id);
+#endif
 int intel_xpcie_get_device_name_by_id(u32 id, char *device_name,
 				      size_t name_size);
 int intel_xpcie_get_device_status_by_id(u32 id, u32 *status);

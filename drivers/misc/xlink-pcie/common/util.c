@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: GPL-2.0-only
-/*****************************************************************************
- *
- * Intel Keem Bay XLink PCIe Driver
+/*********************************************************************/
+/*
+ * Intel XPCIe XLink PCIe Driver
  *
  * Copyright (C) 2020 Intel Corporation
- *
- ****************************************************************************/
+ */
+/*********************************************************************/
 
 #include "util.h"
 
@@ -36,7 +36,10 @@ static size_t intel_xpcie_doorbell_offset(struct xpcie *xpcie,
 		return XPCIE_MMIO_DTOH_RX_DOORBELL;
 	if (dirt == FROM_DEVICE && type == DEV_EVENT)
 		return XPCIE_MMIO_DTOH_EVENT_DOORBELL;
-
+#if (IS_ENABLED(CONFIG_PCIE_TBH_EP))
+	if (dirt == TO_DEVICE && type == PHY_ID_UPDATED)
+		return XPCIE_MMIO_HTOD_PHY_ID_DOORBELL_STATUS;
+#endif
 	return 0;
 }
 
@@ -92,7 +95,79 @@ struct xpcie_buf_desc *intel_xpcie_alloc_bd(size_t length)
 	return bd;
 }
 
-struct xpcie_buf_desc *intel_xpcie_alloc_bd_reuse(size_t length, void *virt,
+#if (IS_ENABLED(CONFIG_PCIE_TBH_EP))
+u32 intel_xpcie_create_sw_device_id(u8 func_no, u16 phy_id,
+				    u8 max_functions)
+{
+	int sw_id = 0;
+
+	switch (func_no) {
+	case 0:
+		sw_id = sw_id |
+			(XLINK_DEV_SLICE_0 << XLINK_DEV_SLICE_ID_SHIFT);
+		break;
+	case 1:
+	case 2:
+		sw_id = sw_id |
+			(XLINK_DEV_SLICE_1 << XLINK_DEV_SLICE_ID_SHIFT);
+		break;
+	case 3:
+	case 4:
+		sw_id = sw_id |
+			(XLINK_DEV_SLICE_2 << XLINK_DEV_SLICE_ID_SHIFT);
+		break;
+	case 5:
+	case 6:
+		sw_id = sw_id |
+			(XLINK_DEV_SLICE_3 << XLINK_DEV_SLICE_ID_SHIFT);
+		break;
+	case 7:
+	default:
+		break;
+	}
+	/* all odd functions are media function */
+	if (func_no & 1)
+		sw_id = sw_id | (XLINK_DEV_FUNC_MEDIA << XLINK_DEV_FUNC_SHIFT);
+
+	/* physical id */
+	sw_id |= (phy_id << XLINK_DEV_PHYS_ID_SHIFT);
+
+	if (max_functions == 8)
+		sw_id = sw_id |
+			(XLINK_DEV_TYPE_THB_STANDARD << XLINK_DEV_TYPE_SHIFT);
+	else if (max_functions == 4)
+		sw_id = sw_id |
+			(XLINK_DEV_TYPE_THB_PRIME << XLINK_DEV_TYPE_SHIFT);
+
+	sw_id = sw_id | (XLINK_DEV_INF_PCIE << XLINK_DEV_INF_TYPE_SHIFT);
+
+	return sw_id;
+}
+
+void intel_xpcie_set_max_functions(struct xpcie *xpcie, u8 max_functions)
+{
+	intel_xpcie_iowrite8(max_functions,
+			     xpcie->mmio + XPCIE_MMIO_MAX_FUNCTIONS);
+}
+
+u8 intel_xpcie_get_max_functions(struct xpcie *xpcie)
+{
+	return intel_xpcie_ioread8(xpcie->mmio + XPCIE_MMIO_MAX_FUNCTIONS);
+}
+
+void intel_xpcie_set_physical_device_id(struct xpcie *xpcie, u16 phys_id)
+{
+	intel_xpcie_iowrite16(phys_id, xpcie->mmio + XPCIE_MMIO_PHY_DEV_ID);
+}
+
+u16 intel_xpcie_get_physical_device_id(struct xpcie *xpcie)
+{
+	return intel_xpcie_ioread8(xpcie->mmio + XPCIE_MMIO_PHY_DEV_ID);
+}
+#endif
+
+struct xpcie_buf_desc *intel_xpcie_alloc_bd_reuse(size_t length,
+						  void *virt,
 						  dma_addr_t phys)
 {
 	struct xpcie_buf_desc *bd;
@@ -148,7 +223,8 @@ void intel_xpcie_list_cleanup(struct xpcie_list *list)
 	spin_unlock(&list->lock);
 }
 
-int intel_xpcie_list_put(struct xpcie_list *list, struct xpcie_buf_desc *bd)
+int intel_xpcie_list_put(struct xpcie_list *list,
+			 struct xpcie_buf_desc *bd)
 {
 	if (!bd)
 		return -EINVAL;

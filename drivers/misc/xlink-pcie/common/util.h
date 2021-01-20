@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*****************************************************************************
  *
- * Intel Keem Bay XLink PCIe Driver
+ * Intel XPCIe XLink PCIe Driver
  *
  * Copyright (C) 2020 Intel Corporation
  *
@@ -20,6 +20,7 @@ enum xpcie_doorbell_direction {
 enum xpcie_doorbell_type {
 	DATA_SENT,
 	DATA_RECEIVED,
+	PHY_ID_UPDATED,
 	DEV_EVENT
 };
 
@@ -40,6 +41,15 @@ void intel_xpcie_set_device_status(struct xpcie *xpcie, u32 status);
 u32 intel_xpcie_get_device_status(struct xpcie *xpcie);
 u32 intel_xpcie_get_host_status(struct xpcie *xpcie);
 void intel_xpcie_set_host_status(struct xpcie *xpcie, u32 status);
+
+#if (IS_ENABLED(CONFIG_PCIE_TBH_EP))
+
+void intel_xpcie_set_max_functions(struct xpcie *xpcie, u8 max_functions);
+u8 intel_xpcie_get_max_functions(struct xpcie *xpcie);
+u32 intel_xpcie_create_sw_device_id(u8 func_no, u16 phy_id, u8 max_functions);
+void intel_xpcie_set_physical_device_id(struct xpcie *xpcie, u16 phys_id);
+u16 intel_xpcie_get_physical_device_id(struct xpcie *xpcie);
+#endif
 
 struct xpcie_buf_desc *intel_xpcie_alloc_bd(size_t length);
 struct xpcie_buf_desc *intel_xpcie_alloc_bd_reuse(size_t length, void *virt,

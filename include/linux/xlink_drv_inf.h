@@ -20,6 +20,18 @@
 #define XLINK_DEV_PCIE_ID_MASK		GENMASK(3, 1)
 #define XLINK_DEV_FUNC_MASK		GENMASK(0, 0)
 
+#define XLINK_DEV_FUNC_SHIFT		(0)
+#define XLINK_DEV_SLICE_ID_SHIFT	(1)
+#define XLINK_DEV_TYPE_SHIFT		(4)
+#define XLINK_DEV_PHYS_ID_SHIFT		(8)
+#define XLINK_DEV_INF_TYPE_SHIFT	(24)
+
+enum xlink_device_slice {
+	XLINK_DEV_SLICE_0 = 0,
+	XLINK_DEV_SLICE_1 = 1,
+	XLINK_DEV_SLICE_2 = 2,
+	XLINK_DEV_SLICE_3 = 3
+};
 
 enum xlink_device_inf_type {
 	XLINK_DEV_INF_PCIE = 1,
@@ -27,6 +39,8 @@ enum xlink_device_inf_type {
 
 enum xlink_device_type {
 	XLINK_DEV_TYPE_KMB = 0,
+	XLINK_DEV_TYPE_THB_PRIME = 1,
+	XLINK_DEV_TYPE_THB_STANDARD = 2
 };
 
 enum xlink_device_pcie {
@@ -35,6 +49,7 @@ enum xlink_device_pcie {
 
 enum xlink_device_func {
 	XLINK_DEV_FUNC_VPU = 0,
+	XLINK_DEV_FUNC_MEDIA = 1
 };
 
 enum _xlink_device_status {

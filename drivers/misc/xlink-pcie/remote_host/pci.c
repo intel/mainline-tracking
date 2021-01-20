@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*****************************************************************************
  *
- * Intel Keem Bay XLink PCIe Driver
+ * Intel XPCIe XLink PCIe Driver
  *
  * Copyright (C) 2020 Intel Corporation
  *
@@ -37,14 +37,16 @@ struct xpcie_dev *intel_xpcie_get_device_by_id(u32 id)
 	}
 
 	list_for_each_entry(xdev, &dev_list, list) {
+#if (IS_ENABLED(CONFIG_PCIE_TBH_EP))
+		if (xdev->sw_devid == id) {
+#else
 		if (xdev->devid == id) {
+#endif
 			mutex_unlock(&dev_list_mutex);
-			return xdev;
+				return xdev;
 		}
+		mutex_unlock(&dev_list_mutex);
 	}
-
-	mutex_unlock(&dev_list_mutex);
-
 	return NULL;
 }
 
@@ -115,6 +117,9 @@ static void intel_xpcie_pci_unmap_bar(struct xpcie_dev *xdev)
 	if (xdev->xpcie.bar0) {
 		iounmap((void __iomem *)xdev->xpcie.bar0);
 		xdev->xpcie.bar0 = NULL;
+#if (IS_ENABLED(CONFIG_PCIE_TBH_EP))
+		xdev->xpcie.doorbell_base = xdev->xpcie.bar0;
+#endif
 	}
 
 	if (xdev->xpcie.mmio) {
@@ -140,7 +145,9 @@ static int intel_xpcie_pci_map_bar(struct xpcie_dev *xdev)
 		dev_err(&xdev->pci->dev, "failed to ioremap BAR0\n");
 		goto bar_error;
 	}
-
+#if (IS_ENABLED(CONFIG_PCIE_TBH_EP))
+	xdev->xpcie.doorbell_base = xdev->xpcie.bar0;
+#endif
 	xdev->xpcie.mmio = (void __force *)
 			   (pci_ioremap_bar(xdev->pci, 2) + XPCIE_MMIO_OFFSET);
 	if (!xdev->xpcie.mmio) {
@@ -209,12 +216,31 @@ static void xpcie_device_poll(struct work_struct *work)
 {
 	struct xpcie_dev *xdev = container_of(work, struct xpcie_dev,
 					      wait_event.work);
-
-	if (intel_xpcie_get_device_status(&xdev->xpcie) < XPCIE_STATUS_RUN)
+#if (IS_ENABLED(CONFIG_PCIE_TBH_EP))
+	u8 max_functions;
+#endif
+	if (intel_xpcie_get_device_status(&xdev->xpcie) < XPCIE_STATUS_RUN) {
 		schedule_delayed_work(&xdev->wait_event,
 				      msecs_to_jiffies(100));
-	else
+	} else {
 		xdev->xpcie.status = XPCIE_STATUS_READY;
+#if (IS_ENABLED(CONFIG_PCIE_TBH_EP))
+		intel_xpcie_set_physical_device_id(&xdev->xpcie, xdev->devid);
+		max_functions = intel_xpcie_get_max_functions(&xdev->xpcie);
+		xdev->sw_devid =
+			intel_xpcie_create_sw_device_id
+			(PCI_FUNC(xdev->pci->devfn),
+			 xdev->devid, max_functions);
+		dev_info(&xdev->pci->dev,
+			 "sw_devid=%x, function idx=%d, max_functions=%d\n",
+			 xdev->sw_devid,
+			 PCI_FUNC(xdev->pci->devfn), max_functions);
+
+		intel_xpcie_set_doorbell(&xdev->xpcie, TO_DEVICE,
+					 PHY_ID_UPDATED, 1);
+		iowrite32(1, xdev->xpcie.doorbell_base);
+#endif
+	}
 }
 
 static int intel_xpcie_pci_prepare_dev_reset(struct xpcie_dev *xdev,
@@ -363,7 +389,9 @@ int intel_xpcie_pci_raise_irq(struct xpcie_dev *xdev,
 
 	intel_xpcie_set_doorbell(&xdev->xpcie, TO_DEVICE, type, value);
 	pci_read_config_word(xdev->pci, PCI_STATUS, &pci_status);
-
+#if (IS_ENABLED(CONFIG_PCIE_TBH_EP))
+	iowrite32(1, xdev->xpcie.doorbell_base);
+#endif
 	return 0;
 }
 
@@ -380,7 +408,11 @@ u32 intel_xpcie_get_device_num(u32 *id_list)
 	}
 
 	list_for_each_entry(p, &dev_list, list) {
+#if (IS_ENABLED(CONFIG_PCIE_TBH_EP))
+		*id_list++ = p->sw_devid;
+#else
 		*id_list++ = p->devid;
+#endif
 		num++;
 	}
 	mutex_unlock(&dev_list_mutex);
