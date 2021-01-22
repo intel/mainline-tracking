@@ -235,6 +235,7 @@ struct tb_port {
  * @port: Pointer to the lane 0 adapter
  * @nvm: Pointer to the NVM if the retimer has one (%NULL otherwise)
  * @auth_status: Status of last NVM authentication
+ * @online: Is the USB4 link up
  */
 struct tb_retimer {
 	struct device dev;
@@ -245,6 +246,7 @@ struct tb_retimer {
 	struct tb_port *port;
 	struct tb_nvm *nvm;
 	u32 auth_status;
+	bool online;
 };
 
 /**
@@ -386,6 +388,7 @@ struct tb_path {
  *					 implementation can be used to
  *					 return status of USB4 NVM_AUTH
  *					 router operation.
+ * @queue_hotplug: Queue hotplug event
  */
 struct tb_cm_ops {
 	int (*driver_ready)(struct tb *tb);
@@ -422,6 +425,7 @@ struct tb_cm_ops {
 			      void *rx_data, size_t rx_data_len);
 	int (*usb4_switch_nvm_authenticate_status)(struct tb_switch *sw,
 						   u32 *status);
+	void (*queue_hotplug)(struct tb *tb, struct tb_port *port, bool unplug);
 };
 
 static inline void *tb_priv(struct tb *tb)
@@ -657,6 +661,7 @@ int tb_domain_disconnect_xdomain_paths(struct tb *tb, struct tb_xdomain *xd,
 				       int transmit_path, int transmit_ring,
 				       int receive_path, int receive_ring);
 int tb_domain_disconnect_all_paths(struct tb *tb);
+int tb_domain_queue_hotplug(struct tb *tb, struct tb_port *port, bool unplug);
 
 static inline struct tb *tb_domain_get(struct tb *tb)
 {
@@ -981,7 +986,7 @@ void tb_xdomain_remove(struct tb_xdomain *xd);
 struct tb_xdomain *tb_xdomain_find_by_link_depth(struct tb *tb, u8 link,
 						 u8 depth);
 
-int tb_retimer_scan(struct tb_port *port);
+int tb_retimer_scan(struct tb_port *port, bool online);
 void tb_retimer_remove_all(struct tb_port *port);
 
 static inline bool tb_is_retimer(const struct device *dev)
@@ -1023,8 +1028,11 @@ int usb4_port_configure(struct tb_port *port);
 void usb4_port_unconfigure(struct tb_port *port);
 int usb4_port_configure_xdomain(struct tb_port *port);
 void usb4_port_unconfigure_xdomain(struct tb_port *port);
+int usb4_port_router_online(struct tb_port *port);
+int usb4_port_router_offline(struct tb_port *port);
 int usb4_port_enumerate_retimers(struct tb_port *port);
 
+int usb4_port_retimer_set_inbound_sbtx(struct tb_port *port, u8 index);
 int usb4_port_retimer_read(struct tb_port *port, u8 index, u8 reg, void *buf,
 			   u8 size);
 int usb4_port_retimer_write(struct tb_port *port, u8 index, u8 reg,
@@ -1062,6 +1070,11 @@ bool tb_acpi_may_tunnel_usb3(void);
 bool tb_acpi_may_tunnel_dp(void);
 bool tb_acpi_may_tunnel_pcie(void);
 bool tb_acpi_is_xdomain_allowed(void);
+
+int tb_acpi_init(void);
+void tb_acpi_exit(void);
+int tb_acpi_power_on_retimers(struct tb_port *port);
+int tb_acpi_power_off_retimers(struct tb_port *port);
 #else
 static inline void tb_acpi_add_links(struct tb_nhi *nhi) { }
 
@@ -1070,6 +1083,11 @@ static inline bool tb_acpi_may_tunnel_usb3(void) { return true; }
 static inline bool tb_acpi_may_tunnel_dp(void) { return true; }
 static inline bool tb_acpi_may_tunnel_pcie(void) { return true; }
 static inline bool tb_acpi_is_xdomain_allowed(void) { return true; }
+
+static inline int tb_acpi_init(void) { return 0; }
+static inline void tb_acpi_exit(void) { }
+static inline int tb_acpi_power_on_retimers(struct tb_port *port) { return -EOPNOTSUPP; }
+static inline int tb_acpi_power_off_retimers(struct tb_port *port) { return -EOPNOTSUPP; }
 #endif
 
 #ifdef CONFIG_DEBUG_FS

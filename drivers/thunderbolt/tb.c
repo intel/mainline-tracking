@@ -50,7 +50,7 @@ struct tb_hotplug_event {
 
 static void tb_handle_hotplug(struct work_struct *work);
 
-static void tb_queue_hotplug(struct tb *tb, u64 route, u8 port, bool unplug)
+static void __tb_queue_hotplug(struct tb *tb, u64 route, u8 port, bool unplug)
 {
 	struct tb_hotplug_event *ev;
 
@@ -604,8 +604,8 @@ static void tb_scan_port(struct tb_port *port)
 	if (tb_port_is_dpout(port) && tb_dp_port_hpd_is_active(port) == 1 &&
 	    !tb_dp_port_is_enabled(port)) {
 		tb_port_dbg(port, "DP adapter HPD set, queuing hotplug\n");
-		tb_queue_hotplug(port->sw->tb, tb_route(port->sw), port->port,
-				 false);
+		__tb_queue_hotplug(port->sw->tb, tb_route(port->sw), port->port,
+				   false);
 		return;
 	}
 
@@ -616,14 +616,23 @@ static void tb_scan_port(struct tb_port *port)
 			 * Downstream switch is reachable through two ports.
 			 * Only scan on the primary port (link_nr == 0).
 			 */
-	if (tb_wait_for_port(port, false) <= 0)
+
+	if (tb_wait_for_port(port, false) <= 0) {
+		/*
+		 * Scan for retimers even if the USB4 link did not come
+		 * up. It is possible that the platform supports
+		 * powering on-board retimers even if there is nothing
+		 * attached to the port.
+		 */
+		tb_retimer_scan(port, false);
 		return;
+	}
 	if (port->remote) {
 		tb_port_dbg(port, "port already has a remote\n");
 		return;
 	}
 
-	tb_retimer_scan(port);
+	tb_retimer_scan(port, true);
 
 	sw = tb_switch_alloc(port->sw->tb, &port->sw->dev,
 			     tb_downstream_route(port));
@@ -690,7 +699,7 @@ static void tb_scan_port(struct tb_port *port)
 		tb_sw_warn(sw, "failed to enable TMU\n");
 
 	/* Scan upstream retimers */
-	tb_retimer_scan(upstream_port);
+	tb_retimer_scan(upstream_port, true);
 
 	/*
 	 * Create USB 3.x tunnels only when the switch is plugged to the
@@ -1312,7 +1321,14 @@ static void tb_handle_event(struct tb *tb, enum tb_cfg_pkg_type type,
 			pkg->port);
 	}
 
-	tb_queue_hotplug(tb, route, pkg->port, pkg->unplug);
+	__tb_queue_hotplug(tb, route, pkg->port, pkg->unplug);
+}
+
+static void tb_queue_hotplug(struct tb *tb, struct tb_port *port, bool unplug)
+{
+	struct tb_switch *sw = port->sw;
+
+	__tb_queue_hotplug(tb, tb_route(sw), port->port, unplug);
 }
 
 static void tb_stop(struct tb *tb)
@@ -1595,6 +1611,7 @@ static const struct tb_cm_ops tb_cm_ops = {
 	.approve_switch = tb_tunnel_pci,
 	.approve_xdomain_paths = tb_approve_xdomain_paths,
 	.disconnect_xdomain_paths = tb_disconnect_xdomain_paths,
+	.queue_hotplug = tb_queue_hotplug,
 };
 
 struct tb *tb_probe(struct tb_nhi *nhi)
