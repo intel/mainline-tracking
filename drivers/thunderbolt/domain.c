@@ -885,16 +885,41 @@ int tb_domain_disconnect_all_paths(struct tb *tb)
 	return bus_for_each_dev(&tb_bus_type, NULL, tb, disconnect_xdomain);
 }
 
+/**
+ * tb_domain_queue_hotplug() - Queue hotplug event for the domain
+ * @tb: Domain pointer
+ * @port: Port subject to the hotplug event
+ * @unplug: Plug or unplug event
+ *
+ * This function can be called to generate a hotplug event for the
+ * domain from software. If the connection manager implementation does
+ * not support this, return %-EOPNOTSUPP.
+ */
+int tb_domain_queue_hotplug(struct tb *tb, struct tb_port *port, bool unplug)
+{
+	struct tb_switch *sw;
+
+	if (!tb->cm_ops->queue_hotplug)
+		return -EOPNOTSUPP;
+
+	sw = tb_switch_get(port->sw);
+	tb->cm_ops->queue_hotplug(tb, port, unplug);
+	tb_switch_put(sw);
+
+	return 0;
+}
+
 int tb_domain_init(void)
 {
 	int ret;
 
 	tb_test_init();
-
 	tb_debugfs_init();
+	tb_acpi_init();
+
 	ret = tb_xdomain_init();
 	if (ret)
-		goto err_debugfs;
+		goto err_acpi;
 	ret = bus_register(&tb_bus_type);
 	if (ret)
 		goto err_xdomain;
@@ -903,7 +928,8 @@ int tb_domain_init(void)
 
 err_xdomain:
 	tb_xdomain_exit();
-err_debugfs:
+err_acpi:
+	tb_acpi_exit();
 	tb_debugfs_exit();
 	tb_test_exit();
 
@@ -916,6 +942,7 @@ void tb_domain_exit(void)
 	ida_destroy(&tb_domain_ida);
 	tb_nvm_exit();
 	tb_xdomain_exit();
+	tb_acpi_exit();
 	tb_debugfs_exit();
 	tb_test_exit();
 }
