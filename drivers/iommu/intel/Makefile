@@ -4,4 +4,4 @@ obj-$(CONFIG_INTEL_IOMMU) += iommu.o pasid.o
 obj-$(CONFIG_INTEL_IOMMU) += trace.o cap_audit.o
 obj-$(CONFIG_INTEL_IOMMU_DEBUGFS) += debugfs.o
 obj-$(CONFIG_INTEL_IOMMU_SVM) += svm.o
-obj-$(CONFIG_IRQ_REMAP) += irq_remapping.o
+obj-$(CONFIG_IRQ_REMAP) += irq_remapping.o cap_audit.o
