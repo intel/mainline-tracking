@@ -1951,6 +1951,35 @@ config X86_SGX
 
 	  If unsure, say N.
 
+config ARCH_HAS_SHADOW_STACK
+	def_bool n
+
+config ARCH_MAYBE_MKWRITE
+	def_bool n
+
+config X86_CET_USER
+	prompt "Intel Control-flow protection for user-mode"
+	def_bool n
+	depends on CPU_SUP_INTEL && X86_64
+	depends on AS_WRUSS
+	depends on $(cc-option,-fcf-protection)
+	select ARCH_USES_HIGH_VMA_FLAGS
+	select ARCH_HAS_SHADOW_STACK
+	select ARCH_MAYBE_MKWRITE
+	select ARCH_USE_GNU_PROPERTY
+	select ARCH_BINFMT_ELF_STATE
+	help
+	  Control-flow protection is a hardware security hardening feature
+	  that detects function-return address or jump target changes by
+	  malicious code.  Applications must be enabled to use it, and old
+	  userspace does not get protection "for free".
+	  Support for this feature is present on processors released in
+	  2020 or later.  Enabling this feature increases kernel text size
+	  by 3.7 KB.
+	  See Documentation/x86/intel_cet.rst for more information.
+
+	  If unsure, say N.
+
 config EFI
 	bool "EFI runtime service support"
 	depends on ACPI
