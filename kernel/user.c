@@ -103,6 +103,7 @@ struct user_struct root_user = {
 	.locked_shm     = 0,
 	.uid		= GLOBAL_ROOT_UID,
 	.ratelimit	= RATELIMIT_STATE_INIT(root_user.ratelimit, 0, 0),
+	.ratelimit_bl	= RATELIMIT_STATE_INIT(root_user.ratelimit_bl, 0, 0),
 };
 
 /*
@@ -172,6 +173,9 @@ void free_uid(struct user_struct *up)
 		free_user(up, flags);
 }
 
+/* Architectures (e.g. X86) may set this for rate-limited bus locks. */
+int ratelimit_bl;
+
 struct user_struct *alloc_uid(kuid_t uid)
 {
 	struct hlist_head *hashent = uidhashentry(uid);
@@ -190,6 +194,9 @@ struct user_struct *alloc_uid(kuid_t uid)
 		refcount_set(&new->__count, 1);
 		ratelimit_state_init(&new->ratelimit, HZ, 100);
 		ratelimit_set_flags(&new->ratelimit, RATELIMIT_MSG_ON_RELEASE);
+		ratelimit_state_init(&new->ratelimit_bl, HZ, ratelimit_bl);
+		ratelimit_set_flags(&new->ratelimit_bl,
+				    RATELIMIT_MSG_ON_RELEASE);
 
 		/*
 		 * Before adding this, check whether we raced
