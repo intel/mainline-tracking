@@ -246,14 +246,21 @@ static bool phy_is_master(struct drm_i915_private *dev_priv, enum phy phy)
 	 * RKL,DG1:
 	 *   A(master) -> B(slave)
 	 *   C(master) -> D(slave)
+	 * ADL-S:
+	 *   A(master) -> B(slave), C(slave)
+	 *   D(master) -> E(slave)
 	 *
 	 * We must set the IREFGEN bit for any PHY acting as a master
 	 * to another PHY.
 	 */
-	if ((IS_DG1(dev_priv) || IS_ROCKETLAKE(dev_priv)) && phy == PHY_C)
+	if (phy == PHY_A)
 		return true;
+	else if (IS_ALDERLAKE_S(dev_priv))
+		return phy == PHY_D;
+	else if (IS_DG1(dev_priv) || IS_ROCKETLAKE(dev_priv))
+		return phy == PHY_C;
 
-	return phy == PHY_A;
+	return false;
 }
 
 static bool icl_combo_phy_verify_state(struct drm_i915_private *dev_priv,
@@ -427,10 +434,22 @@ static void icl_combo_phys_uninit(struct drm_i915_private *dev_priv)
 		u32 val;
 
 		if (phy == PHY_A &&
-		    !icl_combo_phy_verify_state(dev_priv, phy))
-			drm_warn(&dev_priv->drm,
-				 "Combo PHY %c HW state changed unexpectedly\n",
-				 phy_name(phy));
+		    !icl_combo_phy_verify_state(dev_priv, phy)) {
+			if (IS_TIGERLAKE(dev_priv) || IS_DG1(dev_priv)) {
+				/*
+				 * A known problem with old ifwi:
+				 * https://gitlab.freedesktop.org/drm/intel/-/issues/2411
+				 * Suppress the warning for CI. Remove ASAP!
+				 */
+				drm_dbg_kms(&dev_priv->drm,
+					    "Combo PHY %c HW state changed unexpectedly\n",
+					    phy_name(phy));
+			} else {
+				drm_warn(&dev_priv->drm,
+					 "Combo PHY %c HW state changed unexpectedly\n",
+					 phy_name(phy));
+			}
+		}
 
 		if (!has_phy_misc(dev_priv, phy))
 			goto skip_phy_misc;
