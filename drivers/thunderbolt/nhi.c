@@ -1188,6 +1188,29 @@ static void tb_apple_add_links(struct tb_nhi *nhi)
 	}
 }
 
+static struct tb *nhi_select_cm(struct tb_nhi *nhi)
+{
+	struct tb *tb;
+
+	/*
+	 * USB4 case is simple. If we got control of any of the
+	 * capabilities, we use software CM.
+	 */
+	if (tb_acpi_is_native())
+		return tb_probe(nhi);
+
+	/*
+	 * Either firmware based CM is running (we did not get control
+	 * from the firmware) or this is pre-USB4 PC so try first
+	 * firmware CM and then fallback to software CM.
+	 */
+	tb = icm_probe(nhi);
+	if (!tb)
+		tb = tb_probe(nhi);
+
+	return tb;
+}
+
 static int nhi_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 {
 	struct tb_nhi *nhi;
@@ -1256,9 +1279,7 @@ static int nhi_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 	tb_apple_add_links(nhi);
 	tb_acpi_add_links(nhi);
 
-	tb = icm_probe(nhi);
-	if (!tb)
-		tb = tb_probe(nhi);
+	tb = nhi_select_cm(nhi);
 	if (!tb) {
 		dev_err(&nhi->pdev->dev,
 			"failed to determine connection manager, aborting\n");
@@ -1376,6 +1397,10 @@ static struct pci_device_id nhi_ids[] = {
 	{ PCI_VDEVICE(INTEL, PCI_DEVICE_ID_INTEL_TGL_H_NHI0),
 	  .driver_data = (kernel_ulong_t)&icl_nhi_ops },
 	{ PCI_VDEVICE(INTEL, PCI_DEVICE_ID_INTEL_TGL_H_NHI1),
+	  .driver_data = (kernel_ulong_t)&icl_nhi_ops },
+	{ PCI_VDEVICE(INTEL, PCI_DEVICE_ID_INTEL_ADL_P_NHI0),
+	  .driver_data = (kernel_ulong_t)&icl_nhi_ops },
+	{ PCI_VDEVICE(INTEL, PCI_DEVICE_ID_INTEL_ADL_P_NHI1),
 	  .driver_data = (kernel_ulong_t)&icl_nhi_ops },
 
 	/* Any USB4 compliant host */
