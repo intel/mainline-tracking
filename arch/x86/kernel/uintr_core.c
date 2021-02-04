@@ -347,7 +347,7 @@ static int init_uitt(void)
 		struct xregs_state *xsave;
 		struct uintr_state *p;
 
-		xsave = &fpu->state.xsave;
+		xsave = &fpu->state->xsave;
 		xsave->header.xfeatures |= XFEATURE_MASK_UINTR;
 		p = get_xsave_addr(fpu, XFEATURE_UINTR);
 		if (p) {
@@ -670,7 +670,7 @@ int do_uintr_register_handler(u64 handler)
 		struct xregs_state *xsave;
 		struct uintr_state *p;
 
-		xsave = &fpu->state.xsave;
+		xsave = &fpu->state->xsave;
 		xsave->header.xfeatures |= XFEATURE_MASK_UINTR;
 		p = get_xsave_addr(fpu, XFEATURE_UINTR);
 		if (p) {

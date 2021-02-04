@@ -107,19 +107,19 @@ EXPORT_SYMBOL(irq_fpu_usable);
 void save_fpregs_to_fpstate(struct fpu *fpu)
 {
 	if (likely(use_xsave())) {
-		os_xsave(&fpu->state.xsave);
+		os_xsave(&fpu->state->xsave);
 
 		/*
 		 * AVX512 state is tracked here because its use is
 		 * known to slow the max clock speed of the core.
 		 */
-		if (fpu->state.xsave.header.xfeatures & XFEATURE_MASK_AVX512)
+		if (fpu->state->xsave.header.xfeatures & XFEATURE_MASK_AVX512)
 			fpu->avx512_timestamp = jiffies;
 		return;
 	}
 
 	if (likely(use_fxsr())) {
-		fxsave(&fpu->state.fxsave);
+		fxsave(&fpu->state->fxsave);
 		return;
 	}
 
@@ -127,8 +127,8 @@ void save_fpregs_to_fpstate(struct fpu *fpu)
 	 * Legacy FPU register saving, FNSAVE always clears FPU registers,
 	 * so we have to reload them from the memory state.
 	 */
-	asm volatile("fnsave %[fp]; fwait" : [fp] "=m" (fpu->state.fsave));
-	frstor(&fpu->state.fsave);
+	asm volatile("fnsave %[fp]; fwait" : [fp] "=m" (fpu->state->fsave));
+	frstor(&fpu->state->fsave);
 }
 EXPORT_SYMBOL(save_fpregs_to_fpstate);
 
@@ -243,7 +243,7 @@ void fpstate_init(struct fpu *fpu)
 	u64 mask;
 
 	if (likely(fpu)) {
-		state = &fpu->state;
+		state = fpu->state;
 		/* The dynamic user states are not prepared yet. */
 		mask = xfeatures_mask_all & ~xfeatures_mask_user_dynamic;
 		size = fpu_buf_cfg.min_size;
@@ -283,6 +283,8 @@ int fpu_clone(struct task_struct *dst)
 	if (!cpu_feature_enabled(X86_FEATURE_FPU))
 		return 0;
 
+	dst_fpu->state = &dst_fpu->__default_state;
+
 	/*
 	 * Don't let 'init optimized' areas of the XSAVE area
 	 * leak into the child task:
@@ -290,7 +292,7 @@ int fpu_clone(struct task_struct *dst)
 	 * The child does not inherit the dynamic states. So,
 	 * the xstate buffer has the minimum size.
 	 */
-	memset(&dst_fpu->state.xsave, 0, fpu_buf_cfg.min_size);
+	memset(&dst_fpu->state->xsave, 0, fpu_buf_cfg.min_size);
 
 	/*
 	 * If the FPU registers are not owned by current just memcpy() the
@@ -299,7 +301,7 @@ int fpu_clone(struct task_struct *dst)
 	 */
 	fpregs_lock();
 	if (test_thread_flag(TIF_NEED_FPU_LOAD))
-		memcpy(&dst_fpu->state, &src_fpu->state, fpu_buf_cfg.min_size);
+		memcpy(dst_fpu->state, src_fpu->state, fpu_buf_cfg.min_size);
 
 	else
 		save_fpregs_to_fpstate(dst_fpu);
@@ -394,7 +396,7 @@ static void fpu_reset_fpstate(void)
 	 * user space as PKRU is eagerly written in switch_to() and
 	 * flush_thread().
 	 */
-	memcpy(&fpu->state, &init_fpstate, init_fpstate_copy_size());
+	memcpy(fpu->state, &init_fpstate, init_fpstate_copy_size());
 	set_thread_flag(TIF_NEED_FPU_LOAD);
 	fpregs_unlock();
 }
@@ -421,7 +423,7 @@ void fpu__clear_user_states(struct fpu *fpu)
 	 */
 	if (xfeatures_mask_supervisor() &&
 	    !fpregs_state_valid(fpu, smp_processor_id())) {
-		os_xrstor(&fpu->state.xsave, xfeatures_mask_supervisor());
+		os_xrstor(&fpu->state->xsave, xfeatures_mask_supervisor());
 	}
 
 	/* Reset user states in registers. */
@@ -503,11 +505,11 @@ int fpu__exception_code(struct fpu *fpu, int trap_nr)
 		 * fully reproduce the context of the exception.
 		 */
 		if (boot_cpu_has(X86_FEATURE_FXSR)) {
-			cwd = fpu->state.fxsave.cwd;
-			swd = fpu->state.fxsave.swd;
+			cwd = fpu->state->fxsave.cwd;
+			swd = fpu->state->fxsave.swd;
 		} else {
-			cwd = (unsigned short)fpu->state.fsave.cwd;
-			swd = (unsigned short)fpu->state.fsave.swd;
+			cwd = (unsigned short)fpu->state->fsave.cwd;
+			swd = (unsigned short)fpu->state->fsave.swd;
 		}
 
 		err = swd & ~cwd;
@@ -521,7 +523,7 @@ int fpu__exception_code(struct fpu *fpu, int trap_nr)
 		unsigned short mxcsr = MXCSR_DEFAULT;
 
 		if (boot_cpu_has(X86_FEATURE_XMM))
-			mxcsr = fpu->state.fxsave.mxcsr;
+			mxcsr = fpu->state->fxsave.mxcsr;
 
 		err = ~(mxcsr >> 7) & mxcsr;
 	}
