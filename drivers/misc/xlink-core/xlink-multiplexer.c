@@ -35,7 +35,7 @@
 #define THR_LWR 80
 
 // timeout used for open channel
-#define OPEN_CHANNEL_TIMEOUT_MSEC 5000
+#define OPEN_CHANNEL_TIMEOUT_MSEC 50000
 
 /* Channel mapping table. */
 struct xlink_channel_type {
@@ -431,13 +431,20 @@ r_cleanup:
 enum xlink_error xlink_multiplexer_disconnect(u32 link_id)
 {
 	int i;
+	struct open_channel *opchan;
 
 	if (!xmux)
 		return X_LINK_ERROR;
 
 	for (i = 0; i < NMB_CHANNELS; i++) {
-		if (xmux->channels[link_id][i].opchan)
-			multiplexer_close_channel(xmux->channels[link_id][i].opchan);
+		if (xmux->channels[link_id][i].opchan) {
+			opchan = get_channel(link_id, i);
+			if (opchan->chan->status == CHAN_OPEN_PEER) {
+				release_channel(opchan);
+				continue;
+			}
+		multiplexer_close_channel(xmux->channels[link_id][i].opchan);
+		}
 	}
 	return X_LINK_SUCCESS;
 }
@@ -465,15 +472,11 @@ static int compl_wait(struct completion *compl, struct open_channel *opchan)
 	unsigned long tout = msecs_to_jiffies(opchan->chan->timeout);
 
 	if (opchan->chan->timeout == 0) {
-		mutex_unlock(&opchan->lock);
 		rc = wait_for_completion_interruptible(compl);
-		mutex_lock(&opchan->lock);
 		if (rc < 0)	// wait interrupted
 			rc = X_LINK_ERROR;
 	} else {
-		mutex_unlock(&opchan->lock);
 		rc = wait_for_completion_interruptible_timeout(compl, tout);
-		mutex_lock(&opchan->lock);
 		if (rc == 0)
 			rc = X_LINK_TIMEOUT;
 		else if (rc < 0)	// wait interrupted

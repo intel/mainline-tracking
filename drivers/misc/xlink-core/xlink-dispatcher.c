@@ -69,6 +69,18 @@ static struct xlink_dispatcher *xlinkd;
  *
  */
 
+static int wait_tx_queue_empty(struct dispatcher* disp)
+{
+	do{
+		mutex_lock(&disp->queue.lock);
+		if(disp->queue.count == 0)
+			break;
+		mutex_unlock(&disp->queue.lock);
+	}while(1);
+	mutex_unlock(&disp->queue.lock);
+	return 0;
+}
+
 static struct dispatcher *get_dispatcher_by_id(u32 id)
 {
 	if (!xlinkd)
@@ -363,6 +375,7 @@ enum xlink_error xlink_dispatcher_stop(int id)
 		goto r_error;
 
 	if (disp->rxthread) {
+		wait_tx_queue_empty(disp);
 		// stop dispatcher rx thread
 		send_sig(SIGTERM, disp->rxthread, 0);
 		rc = kthread_stop(disp->rxthread);
