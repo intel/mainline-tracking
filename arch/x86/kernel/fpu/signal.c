@@ -67,13 +67,13 @@ setfx:
 static inline int save_fsave_header(struct task_struct *tsk, void __user *buf)
 {
 	if (use_fxsr()) {
-		struct xregs_state *xsave = &tsk->thread.fpu.state.xsave;
+		struct xregs_state *xsave = &tsk->thread.fpu.state->xsave;
 		struct user_i387_ia32_struct env;
 		struct _fpstate_32 __user *fp = buf;
 
 		fpregs_lock();
 		if (!test_thread_flag(TIF_NEED_FPU_LOAD))
-			fxsave(&tsk->thread.fpu.state.fxsave);
+			fxsave(&tsk->thread.fpu.state->fxsave);
 		fpregs_unlock();
 
 		convert_from_fxsr(&env, tsk);
@@ -294,7 +294,7 @@ retry:
 	 * been restored from a user buffer directly.
 	 */
 	if (test_thread_flag(TIF_NEED_FPU_LOAD) && xfeatures_mask_supervisor())
-		os_xrstor(&fpu->state.xsave, xfeatures_mask_supervisor());
+		os_xrstor(&fpu->state->xsave, xfeatures_mask_supervisor());
 
 	fpregs_mark_activate();
 	fpregs_unlock();
@@ -365,7 +365,7 @@ static int __fpu_restore_sig(void __user *buf, void __user *buf_fx,
 		 * the right place in memory. It's ia32 mode. Shrug.
 		 */
 		if (xfeatures_mask_supervisor())
-			os_xsave(&fpu->state.xsave);
+			os_xsave(&fpu->state->xsave);
 		set_thread_flag(TIF_NEED_FPU_LOAD);
 	}
 	__fpu_invalidate_fpregs_state(fpu);
@@ -377,26 +377,26 @@ static int __fpu_restore_sig(void __user *buf, void __user *buf_fx,
 		if (ret)
 			return ret;
 	} else {
-		if (__copy_from_user(&fpu->state.fxsave, buf_fx,
-				     sizeof(fpu->state.fxsave)))
+		if (__copy_from_user(&fpu->state->fxsave, buf_fx,
+				     sizeof(fpu->state->fxsave)))
 			return -EFAULT;
 
 		if (IS_ENABLED(CONFIG_X86_64)) {
 			/* Reject invalid MXCSR values. */
-			if (fpu->state.fxsave.mxcsr & ~mxcsr_feature_mask)
+			if (fpu->state->fxsave.mxcsr & ~mxcsr_feature_mask)
 				return -EINVAL;
 		} else {
 			/* Mask invalid bits out for historical reasons (broken hardware). */
-			fpu->state.fxsave.mxcsr &= mxcsr_feature_mask;
+			fpu->state->fxsave.mxcsr &= mxcsr_feature_mask;
 		}
 
 		/* Enforce XFEATURE_MASK_FPSSE when XSAVE is enabled */
 		if (use_xsave())
-			fpu->state.xsave.header.xfeatures |= XFEATURE_MASK_FPSSE;
+			fpu->state->xsave.header.xfeatures |= XFEATURE_MASK_FPSSE;
 	}
 
 	/* Fold the legacy FP storage */
-	convert_to_fxsr(&fpu->state.fxsave, &env);
+	convert_to_fxsr(&fpu->state->fxsave, &env);
 
 	fpregs_lock();
 	if (use_xsave()) {
@@ -411,10 +411,10 @@ static int __fpu_restore_sig(void __user *buf, void __user *buf_fx,
 		 */
 		u64 mask = user_xfeatures | xfeatures_mask_supervisor();
 
-		fpu->state.xsave.header.xfeatures &= mask;
-		ret = os_xrstor_safe(&fpu->state.xsave, xfeatures_mask_all);
+		fpu->state->xsave.header.xfeatures &= mask;
+		ret = os_xrstor_safe(&fpu->state->xsave, xfeatures_mask_all);
 	} else {
-		ret = fxrstor_safe(&fpu->state.fxsave);
+		ret = fxrstor_safe(&fpu->state->fxsave);
 	}
 
 	if (likely(!ret))

@@ -896,7 +896,7 @@ static void *__raw_xsave_addr(struct fpu *fpu, int xfeature_nr)
 	}
 
 	if (fpu)
-		xsave = &fpu->state.xsave;
+		xsave = &fpu->state->xsave;
 	else
 		xsave = &init_fpstate.xsave;
 
@@ -939,7 +939,7 @@ void *get_xsave_addr(struct fpu *fpu, int xfeature_nr)
 		  "get of unsupported state");
 
 	if (fpu)
-		xsave = &fpu->state.xsave;
+		xsave = &fpu->state->xsave;
 	else
 		xsave = &init_fpstate.xsave;
 
@@ -1031,7 +1031,7 @@ void copy_xstate_to_uabi_buf(struct membuf to, struct task_struct *tsk,
 			     enum xstate_copy_mode copy_mode)
 {
 	const unsigned int off_mxcsr = offsetof(struct fxregs_state, mxcsr);
-	struct xregs_state *xsave = &tsk->thread.fpu.state.xsave;
+	struct xregs_state *xsave = &tsk->thread.fpu.state->xsave;
 	struct xregs_state *xinit = &init_fpstate.xsave;
 	struct xstate_header header;
 	unsigned int zerofrom;
@@ -1148,7 +1148,7 @@ static int copy_from_buffer(void *dst, unsigned int offset, unsigned int size,
 static int copy_uabi_to_xstate(struct fpu *fpu, const void *kbuf,
 			       const void __user *ubuf)
 {
-	struct xregs_state *xsave = &fpu->state.xsave;
+	struct xregs_state *xsave = &fpu->state->xsave;
 	unsigned int offset, size;
 	struct xstate_header hdr;
 	u64 mask;
