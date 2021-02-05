@@ -147,36 +147,6 @@ struct xlink_event {
 	struct list_head list;
 };
 
-static inline struct xlink_event *xlink_create_event(u32 link_id,
-						     enum xlink_event_type type,
-						     struct xlink_handle *handle,
-						     u32 chan, u32 size, u32 timeout)
-{
-	struct xlink_event *new_event = NULL;
-
-	// allocate new event
-	new_event = kzalloc(sizeof(*new_event), GFP_KERNEL);
-	if (!new_event)
-		return NULL;
-
-	// set event context
-	new_event->link_id	= link_id;
-	new_event->handle	= handle;
-	new_event->interface	= get_interface_from_sw_device_id(handle->sw_device_id);
-	new_event->user_data	= 0;
-
-	// set event header
-	new_event->header.magic	= XLINK_EVENT_HEADER_MAGIC;
-	new_event->header.id	= XLINK_INVALID_EVENT_ID;
-	new_event->header.type	= type;
-	new_event->header.chan	= chan;
-	new_event->header.size	= size;
-	new_event->header.timeout = timeout;
-	return new_event;
-}
-
-static inline void xlink_destroy_event(struct xlink_event *event)
-{
-	kfree(event);
-}
+extern struct xlink_event *alloc_event(uint32_t link_id);
+extern void free_event(struct xlink_event *event);
 #endif /* __XLINK_DEFS_H */

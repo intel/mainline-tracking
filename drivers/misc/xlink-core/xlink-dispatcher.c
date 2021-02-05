@@ -42,16 +42,17 @@ struct event_queue {
 
 /* dispatcher servicing a single link to a device */
 struct dispatcher {
-	u32 link_id;			/* id of link being serviced */
-	int interface;			/* underlying interface of link */
-	enum dispatcher_state state;	/* state of the dispatcher */
-	struct xlink_handle *handle;	/* xlink device handle */
-	struct task_struct *rxthread;	/* kthread servicing rx */
-	struct task_struct *txthread;	/* kthread servicing tx */
-	struct event_queue queue;	/* xlink event queue */
-	struct semaphore event_sem;	/* signals tx kthread of events */
-	struct completion rx_done;	/* sync start/stop of rx kthread */
-	struct completion tx_done;	/* sync start/stop of tx thread */
+	u32 link_id;				/* id of link being serviced */
+	int interface;				/* underlying interface of link */
+	enum dispatcher_state state;		/* state of the dispatcher */
+	struct xlink_handle *handle;		/* xlink device handle */
+	struct task_struct *rxthread;		/* kthread servicing rx */
+	struct task_struct *txthread;		/* kthread servicing tx */
+	struct event_queue queue;		/* xlink event queue */
+	struct event_queue event_buffer_queue;	/* xlink buffer event queue */
+	struct semaphore event_sem;		/* signals tx kthread of events */
+	struct completion rx_done;		/* sync start/stop of rx kthread */
+	struct completion tx_done;		/* sync start/stop of tx thread */
 };
 
 /* xlink dispatcher system component */
@@ -69,16 +70,59 @@ static struct xlink_dispatcher *xlinkd;
  *
  */
 
-static int wait_tx_queue_empty(struct dispatcher *disp)
+struct xlink_event *xlink_create_event(uint32_t link_id,
+					enum xlink_event_type type,
+					struct xlink_handle *handle,
+					uint16_t chan, uint32_t size,
+					uint32_t timeout)
 {
-	do {
-		mutex_lock(&disp->queue.lock);
-		if (disp->queue.count == 0)
-			break;
-		mutex_unlock(&disp->queue.lock);
-	} while (1);
-	mutex_unlock(&disp->queue.lock);
-	return 0;
+	struct xlink_event *new_event = NULL;
+
+	new_event = alloc_event(link_id);
+	if (new_event == NULL)
+		return new_event;
+	new_event->link_id = link_id;
+	new_event->handle = handle;
+	new_event->interface = get_interface_from_sw_device_id(handle->sw_device_id);
+	new_event->user_data = 0;
+	new_event->header.magic = XLINK_EVENT_HEADER_MAGIC;
+	new_event->header.id = XLINK_INVALID_EVENT_ID;
+	new_event->header.type = type;
+	new_event->header.chan = chan;
+	new_event->header.size = size;
+	new_event->header.timeout = timeout;
+	return new_event;
+}
+
+inline void xlink_destroy_event(struct xlink_event *event)
+{
+	free_event(event);
+}
+
+struct xlink_event *event_dequeue_buffer(struct event_queue *queue)
+{
+	struct xlink_event *event = NULL;
+
+	mutex_lock(&queue->lock);
+	if (!list_empty(&queue->head)) {
+		event = list_first_entry(&queue->head, struct xlink_event, list);
+		list_del(&event->list);
+		queue->count--;
+	}
+	mutex_unlock(&queue->lock);
+	return event;
+}
+
+int event_enqueue_buffer(struct event_queue *queue, struct xlink_event *event)
+{
+	int rc = -1;
+
+	mutex_lock(&queue->lock);
+	list_add_tail(&event->list, &queue->head);
+	queue->count++;
+	rc = 0;
+	mutex_unlock(&queue->lock);
+	return rc;
 }
 
 static struct dispatcher *get_dispatcher_by_id(u32 id)
@@ -90,6 +134,71 @@ static struct dispatcher *get_dispatcher_by_id(u32 id)
 		return NULL;
 
 	return &xlinkd->dispatchers[id];
+}
+
+struct xlink_event *alloc_event(uint32_t link_id)
+{
+	struct xlink_event *new_event = NULL;
+	struct dispatcher *disp = NULL;
+
+	disp = get_dispatcher_by_id(link_id);
+	if (!disp)
+		return NULL;
+	new_event = event_dequeue_buffer(&disp->event_buffer_queue);
+	if (!new_event)
+		return NULL;
+	return new_event;
+}
+
+void free_event(struct xlink_event *event)
+{
+	struct dispatcher *disp = NULL;
+
+	disp = get_dispatcher_by_id(event->link_id);
+	if (!disp)
+		return;
+	event_enqueue_buffer(&disp->event_buffer_queue, event);
+}
+
+void deinit_buffers(struct event_queue *queue)
+{
+	int j = 0;
+	struct xlink_event *new_event = NULL;
+
+	for (j = 0; j < queue->capacity; j++) {
+		new_event = event_dequeue_buffer(queue);
+		if (new_event)
+			kfree(new_event);
+	}
+}
+
+int init_buffers(struct event_queue *queue)
+{
+	int j = 0;
+	int rc = -1;
+	struct xlink_event *new_event = NULL;
+
+	for (j = 0; j < queue->capacity; j++) {
+		new_event = kzalloc(sizeof(*new_event), GFP_KERNEL);
+		if (!new_event)
+			break;
+		rc = event_enqueue_buffer(queue, new_event);
+		if (rc == -1)
+			break;
+	}
+	return rc;
+}
+
+static int wait_tx_queue_empty(struct dispatcher *disp)
+{
+	do {
+		mutex_lock(&disp->queue.lock);
+		if (disp->queue.count == 0)
+			break;
+		mutex_unlock(&disp->queue.lock);
+	} while (1);
+	mutex_unlock(&disp->queue.lock);
+	return 0;
 }
 
 static u32 event_generate_id(void)
@@ -287,6 +396,11 @@ enum xlink_error xlink_dispatcher_init(void *dev)
 		mutex_init(&dsp->queue.lock);
 		dsp->queue.count = 0;
 		dsp->queue.capacity = XLINK_EVENT_QUEUE_CAPACITY;
+		INIT_LIST_HEAD(&xlinkd->dispatchers[i].event_buffer_queue.head);
+		mutex_init(&xlinkd->dispatchers[i].event_buffer_queue.lock);
+		xlinkd->dispatchers[i].event_buffer_queue.count = 0;
+		xlinkd->dispatchers[i].event_buffer_queue.capacity = 1024;/*XLINK_EVENT_QUEUE_CAPACITY*/;
+		init_buffers(&xlinkd->dispatchers[i].event_buffer_queue);
 		dsp->state = XLINK_DISPATCHER_INIT;
 	}
 	mutex_init(&xlinkd->lock);
