@@ -752,8 +752,13 @@ enum xlink_error xlink_write_control_data(struct xlink_handle *handle,
 	trace_xlink_write_control(handle->sw_device_id, chan, size);
 	if (!xlink || !handle)
 		return X_LINK_ERROR;
-	if (size > XLINK_MAX_CONTROL_DATA_SIZE)
-		return X_LINK_ERROR; // TODO: XLink Parameter Error
+	if (chan < XLINK_IPC_MAX_CHANNELS) {
+		if (size > XLINK_MAX_CONTROL_DATA_SIZE)
+			return X_LINK_ERROR;
+	} else {
+		if (size > XLINK_MAX_CONTROL_DATA_PCIE_SIZE)
+			return X_LINK_ERROR;
+	}
 	link = get_link_by_sw_device_id(handle->sw_device_id);
 	if (!link)
 		return X_LINK_ERROR;

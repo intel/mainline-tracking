@@ -12,29 +12,30 @@
 #include <linux/xlink.h>
 #include "xlink-trace.h"
 
-#define XLINK_MAX_BUF_SIZE		128U
-#define XLINK_MAX_DATA_SIZE		(1024U * 1024U * 1024U)
-#define XLINK_MAX_CONTROL_DATA_SIZE	100U
-#define XLINK_MAX_CONNECTIONS		16
-#define XLINK_PACKET_ALIGNMENT		64
-#define XLINK_INVALID_EVENT_ID		0xDEADBEEF
-#define XLINK_INVALID_CHANNEL_ID	0xDEAD
-#define XLINK_PACKET_QUEUE_CAPACITY	10000
-#define XLINK_EVENT_QUEUE_CAPACITY	10000
-#define XLINK_EVENT_HEADER_MAGIC	0x786C6E6B
-#define XLINK_PING_TIMEOUT_MS		5000U
-#define XLINK_MAX_DEVICE_NAME_SIZE	128
-#define XLINK_MAX_DEVICE_LIST_SIZE	8
-#define XLINK_INVALID_LINK_ID		0xDEADBEEF
-#define XLINK_INVALID_SW_DEVICE_ID	0xDEADBEEF
+#define XLINK_MAX_BUF_SIZE		   128U
+#define XLINK_MAX_DATA_SIZE		   (1024U * 1024U * 1024U)
+#define XLINK_MAX_CONTROL_DATA_SIZE	   100U
+#define XLINK_MAX_CONTROL_DATA_PCIE_SIZE   100U
+#define XLINK_MAX_CONNECTIONS		   16
+#define XLINK_PACKET_ALIGNMENT		   64
+#define XLINK_INVALID_EVENT_ID		   0xDEADBEEF
+#define XLINK_INVALID_CHANNEL_ID	   0xDEAD
+#define XLINK_PACKET_QUEUE_CAPACITY	   10000
+#define XLINK_EVENT_QUEUE_CAPACITY	   10000
+#define XLINK_EVENT_HEADER_MAGIC	   0x786C6E6B
+#define XLINK_PING_TIMEOUT_MS		   5000U
+#define XLINK_MAX_DEVICE_NAME_SIZE	   128
+#define XLINK_MAX_DEVICE_LIST_SIZE	   8
+#define XLINK_INVALID_LINK_ID		   0xDEADBEEF
+#define XLINK_INVALID_SW_DEVICE_ID	   0xDEADBEEF
 
-#define NMB_CHANNELS			4096
-#define IP_CONTROL_CHANNEL		0x0A
-#define VPU_CONTROL_CHANNEL		0x400
-#define CONTROL_CHANNEL_OPMODE		RXB_TXB	// blocking
-#define CONTROL_CHANNEL_DATASIZE	128U	// size of internal rx/tx buffers
-#define CONTROL_CHANNEL_TIMEOUT_MS	0U	// wait indefinitely
-#define SIGXLNK				44	// signal XLink uses for callback signalling
+#define NMB_CHANNELS			   4096
+#define IP_CONTROL_CHANNEL		   0x0A
+#define VPU_CONTROL_CHANNEL		   0x400
+#define CONTROL_CHANNEL_OPMODE		   RXB_TXB	// blocking
+#define CONTROL_CHANNEL_DATASIZE	   128U	// size of internal rx/tx buffers
+#define CONTROL_CHANNEL_TIMEOUT_MS	   0U	// wait indefinitely
+#define SIGXLNK				   44	// signal XLink uses for callback signalling
 
 #define UNUSED(x) ((void)(x))
 
@@ -128,7 +129,7 @@ struct xlink_event_header {
 	u32 chan;
 	size_t size;
 	u32 timeout;
-	u8  control_data[XLINK_MAX_CONTROL_DATA_SIZE];
+	u8  control_data[XLINK_MAX_CONTROL_DATA_PCIE_SIZE];
 };
 
 struct xlink_event {
