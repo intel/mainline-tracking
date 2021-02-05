@@ -153,7 +153,7 @@ int ioctl_write_control_data(unsigned long arg)
 {
 	struct xlink_handle	devh	= {};
 	struct xlinkwritedata	wr	= {};
-	u8 volbuf[XLINK_MAX_BUF_SIZE];
+	u8 volbuf[XLINK_MAX_CONTROL_DATA_PCIE_SIZE];
 	int rc = 0;
 
 	if (copy_from_user(&wr, (void __user *)arg,
@@ -162,7 +162,7 @@ int ioctl_write_control_data(unsigned long arg)
 	if (copy_from_user(&devh, (void __user *)wr.handle,
 			   sizeof(struct xlink_handle)))
 		return -EFAULT;
-	if (wr.size > XLINK_MAX_CONTROL_DATA_SIZE)
+	if (wr.size > XLINK_MAX_CONTROL_DATA_PCIE_SIZE)
 		return -EFAULT;
 	if (copy_from_user(volbuf, (void __user *)wr.pmessage, wr.size))
 		return -EFAULT;
