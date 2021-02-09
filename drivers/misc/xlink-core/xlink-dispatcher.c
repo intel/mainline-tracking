@@ -260,17 +260,23 @@ static int is_valid_event_header(struct xlink_event *event)
 
 static int dispatcher_event_send(struct xlink_event *event)
 {
-	size_t event_header_size = sizeof(event->header);
 	int rc;
+	size_t transfer_size = 0;
+	size_t event_header_size = sizeof(event->header) - XLINK_MAX_CONTROL_DATA_PCIE_SIZE;
 
 	trace_xlink_dispatcher_header(event->handle->sw_device_id,
 				      event->header.chan,
 				      event->header.id,
 				      event_header_size);
+
+	if (event->header.type == XLINK_WRITE_CONTROL_REQ)
+		event_header_size += event->header.size;
+	transfer_size = event_header_size;
+
 	rc = xlink_platform_write(event->interface,
 				  event->handle->sw_device_id, &event->header,
 				  &event_header_size, event->header.timeout, NULL);
-	if (rc || event_header_size != sizeof(event->header)) {
+	if (rc || event_header_size != transfer_size) {
 		pr_err("Write header failed %d\n", rc);
 		return rc;
 	}
@@ -322,12 +328,12 @@ static int xlink_dispatcher_rxthread(void *context)
 	allow_signal(SIGTERM); // allow thread termination while waiting on sem
 	complete(&disp->rx_done);
 	while (!kthread_should_stop()) {
-		size = sizeof(event->header);
+		size = (sizeof(event->header) - XLINK_MAX_CONTROL_DATA_PCIE_SIZE);
 		rc = xlink_platform_read(disp->interface,
 					 disp->handle->sw_device_id,
 					 &event->header, &size,
 					 DISPATCHER_RX_TIMEOUT_MSEC, NULL);
-		if (rc || size != (int)sizeof(event->header))
+		if (rc || size != (int)(sizeof(event->header) - XLINK_MAX_CONTROL_DATA_PCIE_SIZE))
 			continue;
 		if (is_valid_event_header(event)) {
 			event->link_id = disp->link_id;

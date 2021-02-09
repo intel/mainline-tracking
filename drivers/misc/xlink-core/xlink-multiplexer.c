@@ -867,7 +867,20 @@ enum xlink_error xlink_multiplexer_rx(struct xlink_event *event)
 							 XLINK_NORMAL_MEMORY);
 			if (buffer) {
 				size = event->header.size;
-				memcpy(buffer, event->header.control_data, size);
+				rc = xlink_platform_read(event->interface,
+							 event->handle->sw_device_id,
+							 buffer,
+							 &size,
+							 opchan->chan->timeout, NULL);
+				if (rc || event->header.size != size) {
+					xlink_platform_deallocate(xmux->dev, buffer, paddr,
+								  event->header.size, XLINK_PACKET_ALIGNMENT,
+								  XLINK_NORMAL_MEMORY);
+					rc = X_LINK_ERROR;
+					release_channel(opchan);
+					break;
+				}
+
 				event->paddr = paddr;
 				event->data = buffer;
 				if (add_packet_to_channel(opchan,
