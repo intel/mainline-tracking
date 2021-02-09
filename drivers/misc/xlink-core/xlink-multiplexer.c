@@ -547,6 +547,10 @@ enum xlink_error xlink_multiplexer_tx(struct xlink_event *event,
 			if (rc == X_LINK_SUCCESS) {
 				opchan->tx_fill_level += event->header.size;
 				opchan->tx_packet_level++;
+				trace_xlink_write_message(event->handle->sw_device_id,
+							  event->header.chan,
+							  event->header.id,
+							  event->header.size);
 				xlink_dispatcher_event_add(EVENT_TX, event);
 				*event_queued = 1;
 				if (opchan->chan->mode == RXN_TXB ||
@@ -575,10 +579,18 @@ enum xlink_error xlink_multiplexer_tx(struct xlink_event *event,
 				mutex_lock(&opchan->lock);
 			}
 			if (rc == X_LINK_SUCCESS) {
+				trace_xlink_read_pkt_tx_available(event->handle->sw_device_id,
+								  event->header.chan,
+								  event->header.id,
+								  event->header.size);
 				pkt = get_packet_from_channel(&opchan->rx_queue);
 				if (pkt) {
 					*(u32 **)event->pdata = (u32 *)pkt->data;
 					*event->length = pkt->length;
+					trace_xlink_read_pkt_tx_consumed(event->handle->sw_device_id,
+									 event->header.chan,
+									 event->header.id,
+									 event->header.size);
 					xlink_dispatcher_event_add(EVENT_TX, event);
 					*event_queued = 1;
 				} else {
@@ -763,6 +775,10 @@ enum xlink_error xlink_multiplexer_rx(struct xlink_event *event)
 							 event->header.size,
 							 XLINK_PACKET_ALIGNMENT,
 							 XLINK_NORMAL_MEMORY);
+			trace_xlink_rx_read_of_write(event->handle->sw_device_id,
+						     event->header.chan,
+						     event->header.id,
+						     event->header.size);
 			if (buffer) {
 				size = event->header.size;
 				xlink_platform_read(event->interface,
@@ -818,6 +834,10 @@ enum xlink_error xlink_multiplexer_rx(struct xlink_event *event)
 				}
 				//complete regardless of mode/timeout
 				complete(&opchan->pkt_available);
+				trace_xlink_rx_read_pkt_data_arrived(event->handle->sw_device_id,
+								     event->header.chan,
+								     event->header.id,
+								     event->header.size);
 				// run callback
 				if (xmux->channels[link_id][chan].status == CHAN_OPEN &&
 				    chan_is_non_blocking_read(opchan) &&
@@ -866,6 +886,10 @@ enum xlink_error xlink_multiplexer_rx(struct xlink_event *event)
 				}
 				// channel blocking, notify waiting threads of available packet
 				complete(&opchan->pkt_available);
+				trace_xlink_rx_read_pkt_control_arrived(event->handle->sw_device_id,
+									event->header.chan,
+									event->header.id,
+									event->header.size);
 			} else {
 				// failed to allocate buffer
 				rc = X_LINK_ERROR;
@@ -884,6 +908,10 @@ enum xlink_error xlink_multiplexer_rx(struct xlink_event *event)
 		}
 		//complete regardless of mode/timeout
 		complete(&opchan->pkt_consumed);
+		trace_xlink_rx_read_consumed_arrived(event->handle->sw_device_id,
+						     event->header.chan,
+						     event->header.id,
+						     event->header.size);
 		// run callback
 		if (xmux->channels[link_id][chan].status == CHAN_OPEN &&
 		    chan_is_non_blocking_write(opchan) &&

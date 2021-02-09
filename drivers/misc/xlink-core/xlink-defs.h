@@ -10,6 +10,7 @@
 
 #include <linux/slab.h>
 #include <linux/xlink.h>
+#include "xlink-trace.h"
 
 #define XLINK_MAX_BUF_SIZE		128U
 #define XLINK_MAX_DATA_SIZE		(1024U * 1024U * 1024U)

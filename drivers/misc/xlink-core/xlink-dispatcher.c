@@ -69,14 +69,14 @@ static struct xlink_dispatcher *xlinkd;
  *
  */
 
-static int wait_tx_queue_empty(struct dispatcher* disp)
+static int wait_tx_queue_empty(struct dispatcher *disp)
 {
-	do{
+	do {
 		mutex_lock(&disp->queue.lock);
-		if(disp->queue.count == 0)
+		if (disp->queue.count == 0)
 			break;
 		mutex_unlock(&disp->queue.lock);
-	}while(1);
+	} while (1);
 	mutex_unlock(&disp->queue.lock);
 	return 0;
 }
@@ -154,6 +154,10 @@ static int dispatcher_event_send(struct xlink_event *event)
 	size_t event_header_size = sizeof(event->header);
 	int rc;
 
+	trace_xlink_dispatcher_header(event->handle->sw_device_id,
+				      event->header.chan,
+				      event->header.id,
+				      event_header_size);
 	rc = xlink_platform_write(event->interface,
 				  event->handle->sw_device_id, &event->header,
 				  &event_header_size, event->header.timeout, NULL);
@@ -168,6 +172,10 @@ static int dispatcher_event_send(struct xlink_event *event)
 					  event->handle->sw_device_id, event->data,
 					  &event->header.size, event->header.timeout,
 					  NULL);
+		trace_xlink_dispatcher_write(event->handle->sw_device_id,
+					     event->header.chan,
+					     event->header.id,
+					     event->header.size);
 		if (rc) {
 			pr_err("Write data failed %d\n", rc);
 			return rc;
@@ -214,6 +222,10 @@ static int xlink_dispatcher_rxthread(void *context)
 			continue;
 		if (is_valid_event_header(event)) {
 			event->link_id = disp->link_id;
+			trace_xlink_event_receive(event->handle->sw_device_id,
+						  event->header.chan,
+						  event->header.id,
+						  event->header.size);
 			rc = xlink_multiplexer_rx(event);
 			if (!rc) {
 				event = xlink_create_event(disp->link_id, 0,
