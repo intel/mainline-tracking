@@ -2,19 +2,7 @@
 /*
  * Intel xBay RAS: Synopsys CSRAM ECC SW
  *
- * Copyright (C) 2020 Intel Corporation
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2, as published
- * by the Free Software Foundation.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, see <http://www.gnu.org/licenses/>.
+ * Copyright (C) 2021 Intel Corporation
  */
 
 #include "ras_core.h"
@@ -64,11 +52,11 @@ static void csram_edac_print_info(struct platform_device *pdev)
 
 		dev_dbg(&pdev->dev, "CSRAM Bank %d Statistics :\n", bank_num);
 		dev_dbg(&pdev->dev, "SBIT: %d DBIT: %d\n",
-				     e_sts->sbit_cnt, e_sts->dbit_cnt);
+			e_sts->sbit_cnt, e_sts->dbit_cnt);
 		dev_dbg(&pdev->dev, "Error @Acsramess: %llx\n",
-				     e_sts->err_acsramess);
+			e_sts->err_acsramess);
 		dev_dbg(&pdev->dev, "Error status: %08x\n",
-				     e_sts->err_status);
+			e_sts->err_status);
 	}
 }
 #endif
@@ -134,23 +122,23 @@ static ssize_t tst_csram_edac_inj_error_store(struct device *dev,
 	struct platform_device *pdev = to_pdev(dev);
 	u32 inj_error_val = 0;
 
-	if (strncmp(data, "Parity", 6) == 0)
+	if (strncmp(data, "Parity", 6) == 0) {
 		inj_error_val = ERR_INJ_PARITY;
-	else if (strncmp(data, "DecBG", 5) == 0)
+	} else if (strncmp(data, "DecBG", 5) == 0) {
 		inj_error_val = ERR_INJ_DEC_BG;
-	else if (strncmp(data, "DecFG", 5) == 0)
+	} else if (strncmp(data, "DecFG", 5) == 0) {
 		inj_error_val = ERR_INJ_DEC_FG;
-	else if (strncmp(data, "BG", 2) == 0)
+	} else if (strncmp(data, "BG", 2) == 0) {
 		inj_error_val = ERR_INJ_BG;
-	else if (strncmp(data, "FG", 2) == 0)
+	} else if (strncmp(data, "FG", 2) == 0) {
 		inj_error_val = ERR_INJ_FG;
-	else {
+	} else {
 		dev_err(&pdev->dev, "Invalid option chosen\n");
 		return 0;
 	}
 
 	dev_dbg(&pdev->dev, "Injecting %08x error on CSRAM ...\n",
-			     inj_error_val);
+		inj_error_val);
 	writel(inj_error_val, csram_edac_base[0] + ERR_INJ);
 
 	return count;
@@ -240,8 +228,8 @@ int xbay_csram_edac_probe(struct platform_device *pdev, struct device_node *np)
 
 	if (num_banks > THB_CSRAM_BANK_NUM) {
 		dev_err(&pdev->dev, "Expected CSRAM Banks %d, but got %d\n",
-					THB_CSRAM_BANK_NUM,
-					num_banks);
+			THB_CSRAM_BANK_NUM,
+			num_banks);
 		return -EINVAL;
 	}
 
@@ -285,7 +273,6 @@ int xbay_csram_edac_probe(struct platform_device *pdev, struct device_node *np)
 				csram_edac_irq[i]);
 			return err;
 		}
-
 	}
 
 	err = sysfs_create_group(&pdev->dev.kobj, &csram_edac_attributes);

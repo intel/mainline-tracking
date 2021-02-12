@@ -2,22 +2,10 @@
 /*
  * Intel xBay RAS: Synopsys DDR ECC SW
  *
- * Copyright (C) 2020 Intel Corporation
+ * Copyright (C) 2021 Intel Corporation
  *
  * Code referred from:
  * drivers/edac/synopsys_edac.c
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2, as published
- * by the Free Software Foundation.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, see <http://www.gnu.org/licenses/>.
  */
 
 #include "ras_core.h"
@@ -77,7 +65,7 @@ static int ddr_edac_irq[THB_DDR_SLICE_NUM][THB_DDR_MCS_PER_SLICE];
 static u32 num_slices, num_mcs_per_slice;
 
 static int ddr_edac_clear_err(struct platform_device *pdev,
-				   int slice_id, int mc_id)
+			      int slice_id, int mc_id)
 {
 	void __iomem *base;
 
@@ -95,40 +83,40 @@ static int ddr_edac_clear_err(struct platform_device *pdev,
 
 #if defined(DEBUG_RAS_DDR) && defined(DEBUG_DDR_HW_INJ)
 static void ddr_edac_print_info(struct platform_device *pdev,
-				    int slice_id, int mc_id)
+				int slice_id, int mc_id)
 {
 	struct ddr_edac_status_t *e_sts;
 	struct ddr_edac_err_info_t *e_info = NULL;
 
 	if (slice_id >= num_slices || mc_id >= num_mcs_per_slice) {
 		dev_err(&pdev->dev, "Invalid DDR ECC Slice %d MC %d\n",
-				    slice_id, mc_id);
+			slice_id, mc_id);
 		return;
 	}
 
 	e_sts = &ddr_edac_status[slice_id][mc_id];
 
 	dev_info(&pdev->dev, "DDR ECC Slice %d MC %d Statistics :\n",
-			     slice_id, mc_id);
+		 slice_id, mc_id);
 	dev_info(&pdev->dev, "CE: %d UE: %d\n", e_sts->ce_cnt, e_sts->ue_cnt);
 	dev_info(&pdev->dev, "CE Statistics :\n");
 	e_info = &e_sts->ce_info;
 	dev_info(&pdev->dev, "BitPos %d\n", e_info->bit_pos);
 	dev_info(&pdev->dev, "Row %d Bank %d Bank Group %d Block %d\n",
-			     e_info->row, e_info->bank,
-			     e_info->bank_grp_num, e_info->blk_num);
+		 e_info->row, e_info->bank,
+		 e_info->bank_grp_num, e_info->blk_num);
 	dev_info(&pdev->dev, "Data Pattern: %08x\n", e_info->data_pattern);
 	dev_info(&pdev->dev, "UE Statistics :\n");
 	e_info = &e_sts->ue_info;
 	dev_info(&pdev->dev, "Row %d Bank %d Bank Group %d Block %d\n",
-			     e_info->row, e_info->bank,
-			     e_info->bank_grp_num, e_info->blk_num);
+		 e_info->row, e_info->bank,
+		 e_info->bank_grp_num, e_info->blk_num);
 	dev_info(&pdev->dev, "Data Pattern: %08x\n", e_info->data_pattern);
 }
 #endif
 
 static int ddr_edac_get_err_info(struct platform_device *pdev,
-				     int slice_id, int mc_id)
+				 int slice_id, int mc_id)
 {
 	void __iomem *base, *e_base = NULL;
 	struct ddr_edac_status_t *e_sts;
@@ -138,7 +126,7 @@ static int ddr_edac_get_err_info(struct platform_device *pdev,
 
 	if (slice_id >= num_slices || mc_id >= num_mcs_per_slice) {
 		dev_err(&pdev->dev, "Invalid DDR ECC Slice %d MC %d\n",
-				    slice_id, mc_id);
+			slice_id, mc_id);
 		return -EINVAL;
 	}
 
@@ -150,8 +138,9 @@ static int ddr_edac_get_err_info(struct platform_device *pdev,
 	e_sts->ce_cnt = (val & ECC_STAT_CE_CNT_MASK) >> ECC_STAT_CE_CNT_SHIFT;
 	e_sts->ue_cnt = (val & ECC_STAT_UE_CNT_MASK) >> ECC_STAT_UE_CNT_SHIFT;
 	if (!e_sts->ce_cnt && !e_sts->ue_cnt) {
-		dev_err(&pdev->dev, "No DDR ECC CE/UE detected on Slice %d MC %d\n",
-				    slice_id, mc_id);
+		dev_err(&pdev->dev,
+			"No DDR ECC CE/UE detected on Slice %d MC %d\n",
+			slice_id, mc_id);
 		return NO_ERR;
 	}
 
@@ -217,8 +206,8 @@ static irqreturn_t ddr_edac_handle_irq(int irq, void *data)
 
 #if defined(DEBUG_RAS_DDR) && defined(DEBUG_DDR_HW_INJ)
 static ssize_t tst_ddr_edac_poison_addr_show(struct device *dev,
-					 struct device_attribute *mattr,
-					 char *data)
+					     struct device_attribute *mattr,
+					     char *data)
 {
 	struct platform_device *pdev = to_pdev(dev);
 
@@ -351,8 +340,8 @@ int xbay_ddr_edac_probe(struct platform_device *pdev, struct device_node *np)
 
 	if (num_slices > THB_DDR_SLICE_NUM) {
 		dev_err(&pdev->dev, "Expected DDR Slices %d, but got %d\n",
-					THB_DDR_SLICE_NUM,
-					num_slices);
+			THB_DDR_SLICE_NUM,
+			num_slices);
 		return -EINVAL;
 	}
 
@@ -365,8 +354,8 @@ int xbay_ddr_edac_probe(struct platform_device *pdev, struct device_node *np)
 
 	if (num_mcs_per_slice > THB_DDR_MCS_PER_SLICE) {
 		dev_err(&pdev->dev, "Expected MCs per Slice %d, but got %d\n",
-					THB_DDR_MCS_PER_SLICE,
-					num_mcs_per_slice);
+			THB_DDR_MCS_PER_SLICE,
+			num_mcs_per_slice);
 		return -EINVAL;
 	}
 
