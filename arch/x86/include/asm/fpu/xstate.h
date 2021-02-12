@@ -137,6 +137,23 @@ extern u64 xstate_fx_sw_bytes[USER_XSTATE_FX_SW_WORDS];
 extern void __init update_regset_xstate_info(unsigned int size,
 					     u64 xstate_mask);
 
+/**
+ * struct fpu_xstate_buffer_config - xstate buffer configuration
+ * @max_size:			The CPUID-enumerated all-feature "maximum" size
+ *				for xstate per-task buffer.
+ * @min_size:			The size to fit into the statically-allocated
+ *				buffer. With dynamic states, this buffer no longer
+ *				contains all the enabled state components.
+ * @user_size:			The size of user-space buffer for signal and
+ *				ptrace frames, in the non-compacted format.
+ */
+struct fpu_xstate_buffer_config {
+	unsigned int min_size, max_size;
+	unsigned int user_size;
+};
+
+extern struct fpu_xstate_buffer_config fpu_buf_cfg;
+
 void *get_xsave_addr(struct fpu *fpu, int xfeature_nr);
 int xfeature_size(int xfeature_nr);
 int copy_uabi_from_kernel_to_xstate(struct fpu *fpu, const void *kbuf);
