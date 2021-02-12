@@ -85,12 +85,8 @@ static unsigned int xstate_comp_offsets[XFEATURE_MAX] __ro_after_init =
 static unsigned int xstate_supervisor_only_offsets[XFEATURE_MAX] __ro_after_init =
 	{ [ 0 ... XFEATURE_MAX - 1] = -1};
 
-/*
- * The XSAVE area of kernel can be in standard or compacted format;
- * it is always in standard format for user mode. This is the user
- * mode standard format size used for signal and ptrace frames.
- */
-unsigned int fpu_user_xstate_size __ro_after_init;
+struct fpu_xstate_buffer_config fpu_buf_cfg __ro_after_init;
+EXPORT_SYMBOL_GPL(fpu_buf_cfg);
 
 /*
  * Return whether the system supports a given xfeature.
@@ -609,7 +605,11 @@ static void do_extra_xstate_size_checks(void)
 		 */
 		paranoid_xstate_size += xfeature_size(i);
 	}
-	XSTATE_WARN_ON(paranoid_xstate_size != fpu_kernel_xstate_size);
+	/*
+	 * The size accounts for all the possible states reserved in the
+	 * per-task buffer.  Check against the maximum size.
+	 */
+	XSTATE_WARN_ON(paranoid_xstate_size != fpu_buf_cfg.max_size);
 }
 
 
@@ -704,21 +704,29 @@ static int __init init_xstate_size(void)
 	else
 		possible_xstate_size = xsave_size;
 
-	/* Ensure we have the space to store all enabled: */
-	if (!is_supported_xstate_size(possible_xstate_size))
-		return -EINVAL;
+	/*
+	 * The size accounts for all the possible states reserved in the
+	 * per-task buffer.  Set the maximum with this value.
+	 */
+	fpu_buf_cfg.max_size = possible_xstate_size;
+
+	/* Perform an extra check for the maximum size. */
+	do_extra_xstate_size_checks();
 
 	/*
-	 * The size is OK, we are definitely going to use xsave,
-	 * make it known to the world that we need more space.
+	 * Set the minimum to be the same as the maximum. The dynamic
+	 * user states are not supported yet.
 	 */
-	fpu_kernel_xstate_size = possible_xstate_size;
-	do_extra_xstate_size_checks();
+	fpu_buf_cfg.min_size = possible_xstate_size;
+
+	/* Ensure the minimum size fits in the statically-allocated buffer: */
+	if (!is_supported_xstate_size(fpu_buf_cfg.min_size))
+		return -EINVAL;
 
 	/*
 	 * User space is always in standard format.
 	 */
-	fpu_user_xstate_size = xsave_size;
+	fpu_buf_cfg.user_size = xsave_size;
 	return 0;
 }
 
@@ -814,7 +822,7 @@ void __init fpu__init_system_xstate(void)
 	 * Update info used for ptrace frames; use standard-format size and no
 	 * supervisor xstates:
 	 */
-	update_regset_xstate_info(fpu_user_xstate_size, xfeatures_mask_uabi());
+	update_regset_xstate_info(fpu_buf_cfg.user_size, xfeatures_mask_uabi());
 
 	fpu__init_prepare_fx_sw_frame();
 	setup_init_fpu_buf();
@@ -834,7 +842,7 @@ void __init fpu__init_system_xstate(void)
 	print_xstate_offset_size();
 	pr_info("x86/fpu: Enabled xstate features 0x%llx, context size is %d bytes, using '%s' format.\n",
 		xfeatures_mask_all,
-		fpu_kernel_xstate_size,
+		fpu_buf_cfg.max_size,
 		boot_cpu_has(X86_FEATURE_XSAVES) ? "compacted" : "standard");
 	return;
 
