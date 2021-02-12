@@ -2,22 +2,10 @@
 /*
  * Intel xBay RAS: CPU EDAC SW
  *
- * Copyright (C) 2020 Intel Corporation
+ * Copyright (C) 2021 Intel Corporation
  *
  * Code used from:
  *  https://lwn.net/Articles/662208/
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2, as published
- * by the Free Software Foundation.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, see <http://www.gnu.org/licenses/>.
  */
 
 #include <linux/cpu.h>
@@ -56,11 +44,11 @@
 #define EDAC_MOD_STR			DRV_NAME
 
 /* Error injectin macros*/
-#define L1_DCACHE_ERRINJ_ENABLE		(1 << 6)
+#define L1_DCACHE_ERRINJ_ENABLE		BIT(6)
 #define L1_DCACHE_ERRINJ_DISABLE	(~(1 << 6))
-#define L2_DCACHE_ERRINJ_ENABLE		(1 << 29)
+#define L2_DCACHE_ERRINJ_ENABLE		BIT(29)
 #define L2_DCACHE_ERRINJ_DISABLE	(~(1 << 29))
-#define L2_ECC_PROTECTION		(1 << 22)
+#define L2_ECC_PROTECTION		BIT(22)
 
 static struct cpu_edac_info_t
 	cpu_edac_info[NUM_CACHES];
@@ -121,7 +109,6 @@ static inline u64 read_l2ctlr_el1(void)
 
 	asm volatile("mrs %0,  S3_1_C11_C0_2" : "=r" (rval));
 	return rval;
-
 }
 
 static inline u64 read_l1actrl_el1(void)
@@ -336,11 +323,11 @@ static ssize_t tst_cpu_edac_sw_inj_store(struct device *dev,
 	struct cpu_edac_info_t *e_sts = NULL;
 	int cache_id;
 
-	if (strncmp(data, "L1", 2) == 0)
+	if (strncmp(data, "L1", 2) == 0) {
 		cache_id = 0;
-	else if (strncmp(data, "L2", 2) == 0)
+	} else if (strncmp(data, "L2", 2) == 0) {
 		cache_id = 1;
-	else {
+	} else {
 		dev_err(&pdev->dev, "Invalid options chosen\n");
 		dev_err(&pdev->dev, "L1, L2 are available\n");
 		return -EINVAL;
@@ -406,5 +393,4 @@ int xbay_cortex_a53_edac_probe(struct platform_device *pdev,
 		 "ARM Cortex a53 EDAC module probed Successfully\n");
 
 	return 0;
-
 }

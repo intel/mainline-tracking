@@ -2,19 +2,7 @@
 /*
  * Intel xBay RAS: PCIe RAS DES SW
  *
- * Copyright (C) 2020 Intel Corporation
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2, as published
- * by the Free Software Foundation.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, see <http://www.gnu.org/licenses/>.
+ * Copyright (C) 2021 Intel Corporation
  */
 
 #include "ras_core.h"
@@ -251,7 +239,6 @@ struct pcie_rasdes_grp_desc_t {
 };
 
 static pcie_rasdes_grp_desc_t pcie_rasdes_grp_table[PCIE_RASDES_NUM_GROUPS] = {
-
 	{
 		.entry_size = sizeof(pcie_rasdes_grp0_t),
 		.counter_offsets = {0, 1, 2, 3, 4, 5, 6, 0xff}
@@ -353,8 +340,8 @@ void xbay_pcie_rasdes_get_err_counters(void)
 
 #ifdef DEBUG_RAS_PCIE
 static ssize_t tst_pcie_ep_report_error_store(struct device *dev,
-					  struct device_attribute *mattr,
-					  const char *data, size_t count)
+					      struct device_attribute *mattr,
+					      const char *data, size_t count)
 {
 	struct platform_device *pdev = to_pdev(dev);
 
@@ -374,6 +361,7 @@ static const struct attribute *pcie_rasdes_attrs[] = {
 	&dev_attr_tst_pcie_ep_report_error.attr,
 	NULL,
 };
+
 static const struct attribute_group pcie_rasdes_attributes = {
 	.attrs = (struct attribute **)pcie_rasdes_attrs,
 };

@@ -2,19 +2,7 @@
 /*
  * Intel xBay RAS Collector Driver
  *
- * Copyright (C) 2020 Intel Corporation
- *
- * This program is free software; you can redistribute it and/or modify it
- * under the terms of the GNU General Public License version 2, as published
- * by the Free Software Foundation.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, see <http://www.gnu.org/licenses/>.
+ * Copyright (C) 2021 Intel Corporation
  */
 
 #include <linux/wait.h>
@@ -66,17 +54,17 @@ static ssize_t ras_get_edac_info(struct file *filp, struct kobject *kobj,
 					 (record_last_edac_err != 0));
 		memcpy(buf + EDAC_STS_OFF, &record_last_edac_err, EDAC_STS_SZ);
 		return count;
-	} else if (count == DDR_EDAC_INFO_SZ)
+	} else if (count == DDR_EDAC_INFO_SZ) {
 		read_map |= RAS_DDR_EDAC_BMAP;
-	else if (count == CSRAM_EDAC_INFO_SZ)
+	} else if (count == CSRAM_EDAC_INFO_SZ) {
 		read_map |= RAS_CSRAM_EDAC_BMAP;
-	else if (count == CPU_EDAC_INFO_SZ)
+	} else if (count == CPU_EDAC_INFO_SZ) {
 		read_map |= RAS_CPU_EDAC_BMAP;
-	else if (count == WDOG_INFO_SZ)
+	} else if (count == WDOG_INFO_SZ) {
 		read_map |= RAS_WDOG_EDAC_BMAP;
-	else if (count == TOTAL_INFO_SZ)
+	} else if (count == TOTAL_INFO_SZ) {
 		read_map |= RAS_ALL_EDAC_BMAP;
-	else {
+	} else {
 		dev_warn(&pdev->dev, "Invalid length to read\n");
 		return -EINVAL;
 	}
@@ -132,15 +120,15 @@ static ssize_t tst_set_ras_interrupt_store(struct device *dev,
 	u32 val = 0;
 	unsigned long flags;
 
-	if (strncmp(data, "DDR", 3) == 0)
+	if (strncmp(data, "DDR", 3) == 0) {
 		val = RAS_TST_DDR_INTR;
-	else if (strncmp(data, "CSRAM", 5) == 0)
+	} else if (strncmp(data, "CSRAM", 5) == 0) {
 		val = RAS_TST_CSRAM_INTR;
-	else if (strncmp(data, "CPU", 3) == 0)
+	} else if (strncmp(data, "CPU", 3) == 0) {
 		val = RAS_TST_CPU_INTR;
-	else if (strncmp(data, "WDOG", 4) == 0)
+	} else if (strncmp(data, "WDOG", 4) == 0) {
 		val = RAS_RESV_WDOG_INTR;
-	else {
+	} else {
 		dev_err(&pdev->dev, "Invalid options chosen\n");
 		dev_err(&pdev->dev,
 			"DDR, CSRAM, CPU, WDOG available\n");
@@ -164,7 +152,8 @@ static ssize_t tst_clear_edac_info_store(struct device *dev,
 {
 	struct platform_device *pdev = to_pdev(dev);
 
-	record_last_edac_err = ns_wdog_sts = 0;
+	record_last_edac_err = 0;
+	ns_wdog_sts = 0;
 	xbay_ddr_edac_clear_all_info(pdev, DDR_EDAC_INFO_SZ);
 	xbay_csram_edac_clear_all_info(pdev, CSRAM_EDAC_INFO_SZ);
 	xbay_cpu_edac_clear_all_info(pdev, CPU_EDAC_INFO_SZ);
