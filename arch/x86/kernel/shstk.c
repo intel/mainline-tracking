@@ -79,6 +79,10 @@ int shstk_alloc_thread_stack(struct task_struct *tsk, unsigned long clone_flags,
 	struct cet_user_state *state;
 	unsigned long addr;
 
+	if (!stack_size) {
+		stack_size = min_t(unsigned long long, rlimit(RLIMIT_STACK), SZ_4G);
+	}
+
 	if (!stack_size)
 		return -EINVAL;
 
