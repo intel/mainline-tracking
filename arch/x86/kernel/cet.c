@@ -220,7 +220,7 @@ int cet_setup_thread_shstk(struct task_struct *tsk, unsigned long clone_flags,
 		return -EINVAL;
 
 	if (stack_size == 0)
-		return -EINVAL;
+		stack_size = rlimit(RLIMIT_STACK);
 
 	/* Cap shadow stack size to 4 GB */
 	size = min(rlimit(RLIMIT_STACK), 1UL << 32);
