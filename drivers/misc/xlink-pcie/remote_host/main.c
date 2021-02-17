@@ -79,6 +79,9 @@ static void intel_xpcie_remove(struct pci_dev *pdev)
 	if (xdev) {
 		intel_xpcie_pci_cleanup(xdev);
 		intel_xpcie_pci_notify_event(xdev, NOTIFY_DEVICE_DISCONNECTED);
+#if (IS_ENABLED(CONFIG_PCIE_TBH_EP))
+		intel_xpcie_list_del_device(xdev);
+#endif
 		intel_xpcie_remove_device(xdev);
 	}
 }

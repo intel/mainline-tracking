@@ -14,6 +14,7 @@
 #include <linux/of_reserved_mem.h>
 
 #include "epf.h"
+#include "../common/boot.h"
 
 #if (IS_ENABLED(CONFIG_PCIE_TBH_EP))
 #define BAR0_MIN_SIZE			SZ_4K
@@ -271,6 +272,7 @@ static void intel_xpcie_cleanup_bars(struct pci_epf *epf)
 
 	intel_xpcie_cleanup_bar(epf, BAR_2);
 	intel_xpcie_cleanup_bar(epf, BAR_4);
+	xpcie_epf->xpcie.io_comm = NULL;
 	xpcie_epf->xpcie.mmio = NULL;
 	xpcie_epf->xpcie.bar4 = NULL;
 }
@@ -391,7 +393,8 @@ static int intel_xpcie_setup_bars(struct pci_epf *epf, size_t align)
 	}
 
 	xpcie_epf->comm_bar = BAR_2;
-	xpcie_epf->xpcie.mmio = (void *)xpcie_epf->vaddr[BAR_2] +
+	xpcie_epf->xpcie.io_comm = xpcie_epf->vaddr[BAR_2];
+	xpcie_epf->xpcie.mmio = (void *)xpcie_epf->xpcie.io_comm +
 				XPCIE_MMIO_OFFSET;
 
 	xpcie_epf->bar4 = BAR_4;
@@ -723,15 +726,15 @@ static int intel_xpcie_epf_bind(struct pci_epf *epf)
 	intel_xpcie_set_device_status(&xpcie_epf->xpcie, XPCIE_STATUS_RUN);
 	intel_xpcie_set_doorbell(&xpcie_epf->xpcie, FROM_DEVICE,
 				 DEV_EVENT, NO_OP);
-	memcpy(xpcie_epf->xpcie.mmio + XPCIE_MMIO_MAGIC_OFF, XPCIE_MAGIC_YOCTO,
-	       strlen(XPCIE_MAGIC_YOCTO));
+	memcpy(xpcie_epf->xpcie.io_comm + XPCIE_IO_COMM_MAGIC_OFF,
+	       XPCIE_BOOT_MAGIC_YOCTO, strlen(XPCIE_BOOT_MAGIC_YOCTO));
 
 	return 0;
 
 err_uninit_dma:
 	intel_xpcie_set_device_status(&xpcie_epf->xpcie, XPCIE_STATUS_ERROR);
-	memcpy(xpcie_epf->xpcie.mmio + XPCIE_MMIO_MAGIC_OFF, XPCIE_MAGIC_YOCTO,
-	       strlen(XPCIE_MAGIC_YOCTO));
+	memcpy(xpcie_epf->xpcie.io_comm + XPCIE_IO_COMM_MAGIC_OFF,
+	       XPCIE_BOOT_MAGIC_YOCTO, strlen(XPCIE_BOOT_MAGIC_YOCTO));
 
 	intel_xpcie_ep_dma_uninit(epf);
 

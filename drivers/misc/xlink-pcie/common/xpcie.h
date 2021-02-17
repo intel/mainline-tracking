@@ -63,7 +63,6 @@ struct xpcie_mmio {
 #endif
 	u8 reserved;
 	u32 cap_offset;
-	u8 magic[XPCIE_MAGIC_STRLEN];
 } __packed __aligned(8);
 
 #define XPCIE_MMIO_LEGACY_A0	(offsetof(struct xpcie_mmio, legacy_a0))
@@ -101,6 +100,7 @@ struct xpcie {
 	void *bar0;
 	void *mmio;
 	void *bar4;
+	void *io_comm;
 #if (IS_ENABLED(CONFIG_PCIE_TBH_EP))
 	void __iomem *doorbell_base; /*IPC DoorBell address space*/
 	void __iomem *doorbell_clear; /*IPC DoorBell clear address space*/
