@@ -17,6 +17,11 @@
 
 #include "../common/xpcie.h"
 #include "../common/util.h"
+#include "../common/boot.h"
+
+#if (IS_ENABLED(CONFIG_PCIE_TBH_EP))
+#include <linux/mxlk_boot_inf.h>
+#endif
 
 #define XPCIE_DRIVER_NAME "mxlk"
 #define XPCIE_DRIVER_DESC "Intel(R) XPCIe XLink PCIe driver"
@@ -43,6 +48,12 @@ struct xpcie_dev {
 
 	struct xpcie xpcie;
 	xlink_device_event event_fn;
+
+#if (IS_ENABLED(CONFIG_PCIE_TBH_EP))
+	struct work_struct irq_event;
+	bool boot_dev_link;
+	mxlk_pcie_boot_event boot_notif_fn;
+#endif
 };
 
 static inline struct device *xpcie_to_dev(struct xpcie *xpcie)
@@ -68,4 +79,6 @@ void intel_xpcie_list_del_device(struct xpcie_dev *xdev);
 void intel_xpcie_pci_notify_event(struct xpcie_dev *xdev,
 				  enum xlink_device_event_type event_type);
 
+struct xpcie_dev *intel_xpcie_get_device_by_name(const char *name);
+struct xpcie_dev *intel_xpcie_get_device_by_phys_id(u32 phys_id);
 #endif /* XPCIE_PCI_HEADER_ */
