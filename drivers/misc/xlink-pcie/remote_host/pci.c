@@ -65,7 +65,6 @@ struct xpcie_dev *intel_xpcie_create_device(u32 sw_device_id,
 		 PCI_FUNC(pdev->devfn));
 
 	mutex_init(&xdev->lock);
-
 	return xdev;
 }
 
@@ -258,13 +257,14 @@ static void xpcie_device_poll(struct work_struct *work)
 {
 	struct xpcie_dev *xdev = container_of(work, struct xpcie_dev,
 					      wait_event.work);
+	enum xpcie_stage stage = intel_xpcie_check_magic(xdev);
 #if (IS_ENABLED(CONFIG_PCIE_TBH_EP))
 	u8 max_functions;
 #endif
-	if (intel_xpcie_get_device_status(&xdev->xpcie) < XPCIE_STATUS_RUN) {
-		schedule_delayed_work(&xdev->wait_event,
-				      msecs_to_jiffies(100));
-	} else {
+	if (stage == STAGE_RECOV) {
+		if (xdev->xpcie.status != XPCIE_STATUS_RECOVERY)
+			xdev->xpcie.status = XPCIE_STATUS_RECOVERY;
+	} else if (stage == STAGE_OS) {
 		xdev->xpcie.status = XPCIE_STATUS_READY;
 #if (IS_ENABLED(CONFIG_PCIE_TBH_EP))
 		intel_xpcie_set_physical_device_id(&xdev->xpcie, xdev->devid);
@@ -281,8 +281,10 @@ static void xpcie_device_poll(struct work_struct *work)
 		intel_xpcie_set_doorbell(&xdev->xpcie, TO_DEVICE,
 					 PHY_ID_UPDATED, 1);
 		iowrite32(1, xdev->xpcie.doorbell_base);
+		return;
 #endif
 	}
+	schedule_delayed_work(&xdev->wait_event, msecs_to_jiffies(100));
 }
 
 static int intel_xpcie_pci_prepare_dev_reset(struct xpcie_dev *xdev,
@@ -593,7 +595,6 @@ void intel_xpcie_pci_notify_event(struct xpcie_dev *xdev,
 	if (xdev->event_fn)
 		xdev->event_fn(xdev->devid, event_type);
 }
-
 
 #if (IS_ENABLED(CONFIG_PCIE_TBH_EP))
 struct xpcie_dev *intel_xpcie_get_device_by_name(const char *name)

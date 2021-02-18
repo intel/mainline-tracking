@@ -12,41 +12,7 @@
 
 #include "pci.h"
 #include "../common/boot.h"
-#if 0
-static struct intel_xpcie *intel_xpcie_get_device_by_name(const char *name)
-{
-	struct intel_xpcie *p;
-	bool found = false;
 
-	mutex_lock(&dev_list_mutex);
-	list_for_each_entry(p, &dev_list, list) {
-		if (!strncmp(p->name, name, MXLK_MAX_NAME_LEN)) {
-			found = true;
-			break;
-		}
-	}
-	mutex_unlock(&dev_list_mutex);
-
-	if (!found)
-		p = NULL;
-
-	return p;
-}
-
-static struct intel_xpcie *intel_xpcie_get_device_by_phys_id(u32 phys_id)
-{
-	struct intel_xpcie *xdev;
-
-	mutex_lock(&dev_list_mutex);
-	list_for_each_entry(xdev, &dev_list, list) {
-		if (xdev->devid == phys_id)
-			break;
-	}
-	mutex_unlock(&dev_list_mutex);
-
-	return xdev;
-}
-#endif
 #define STR_EQUAL(a, b) !strncmp(a, b, strlen(b))
 
 enum xpcie_stage intel_xpcie_check_magic(struct xpcie_dev *xdev)
@@ -90,8 +56,8 @@ void xpcie_device_irq(struct work_struct *work)
 		xdev->boot_notif_fn(xdev->devid);
 };
 
-int intel_xpcie_connect_boot_device(const char *dev_name, u32 *phys_dev_id,
-				    mxlk_pcie_boot_event notif_fn)
+int mxlk_pcie_connect_boot_device(const char *dev_name, u32 *phys_dev_id,
+				  mxlk_pcie_boot_event notif_fn)
 {
 	struct xpcie_dev *xdev = intel_xpcie_get_device_by_name(dev_name);
 
@@ -122,9 +88,9 @@ int intel_xpcie_connect_boot_device(const char *dev_name, u32 *phys_dev_id,
 		 *phys_dev_id, xdev->boot_dev_link);
 	return 0;
 }
-EXPORT_SYMBOL(intel_xpcie_connect_boot_device);
-int intel_xpcie_boot_mmio_write(u32 phys_dev_id, u32 offset, void *data,
-				size_t size)
+EXPORT_SYMBOL(mxlk_pcie_connect_boot_device);
+int mxlk_pcie_boot_mmio_write(u32 phys_dev_id, u32 offset, void *data,
+			      size_t size)
 {
 	struct xpcie_dev *xdev =
 			intel_xpcie_get_device_by_phys_id(phys_dev_id);
@@ -147,10 +113,10 @@ int intel_xpcie_boot_mmio_write(u32 phys_dev_id, u32 offset, void *data,
 
 	return size;
 }
-EXPORT_SYMBOL(intel_xpcie_boot_mmio_write);
+EXPORT_SYMBOL(mxlk_pcie_boot_mmio_write);
 
-int intel_xpcie_boot_mmio_read(u32 phys_dev_id, u32 offset, void *status,
-			       size_t size)
+int mxlk_pcie_boot_mmio_read(u32 phys_dev_id, u32 offset, void *status,
+			     size_t size)
 {
 	struct xpcie_dev *xdev =
 			intel_xpcie_get_device_by_phys_id(phys_dev_id);
@@ -172,9 +138,9 @@ int intel_xpcie_boot_mmio_read(u32 phys_dev_id, u32 offset, void *status,
 
 	return size;
 }
-EXPORT_SYMBOL(intel_xpcie_boot_mmio_read);
+EXPORT_SYMBOL(mxlk_pcie_boot_mmio_read);
 
-int intel_xpcie_disconnect_boot_device(u32 phys_dev_id)
+int mxlk_pcie_disconnect_boot_device(u32 phys_dev_id)
 {
 	struct xpcie_dev *xdev =
 			intel_xpcie_get_device_by_phys_id(phys_dev_id);
@@ -203,5 +169,5 @@ int intel_xpcie_disconnect_boot_device(u32 phys_dev_id)
 		 xdev->boot_dev_link);
 	return 0;
 }
-EXPORT_SYMBOL(intel_xpcie_disconnect_boot_device);
+EXPORT_SYMBOL(mxlk_pcie_disconnect_boot_device);
 #endif

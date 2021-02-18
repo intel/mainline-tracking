@@ -165,8 +165,15 @@ static void __iomem *intel_xpcie_ep_get_dma_base(struct pci_epf *epf)
 {
 	struct device *dev = &epf->dev;
 	struct xpcie_epf *xpcie_epf = (struct xpcie_epf *)dev->driver_data;
+#if (IS_ENABLED(CONFIG_PCIE_TBH_EP))
+	struct pci_epc *epc = epf->epc;
+	struct dw_pcie_ep *ep = epc_get_drvdata(epc);
+	struct dw_pcie *pci = to_dw_pcie_from_ep(ep);
 
-	return xpcie_epf->dbi_base + DMA_DBI_OFFSET;
+	xpcie_epf->dbi_base = pci->dbi_base;
+#endif
+
+	return pci->dbi_base + DMA_DBI_OFFSET;
 }
 
 static int intel_xpcie_ep_dma_disable(void __iomem *dma_base,

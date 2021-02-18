@@ -173,13 +173,13 @@ static irqreturn_t intel_xpcie_err_interrupt(int irq, void *args)
 
 static irqreturn_t intel_xpcie_host_interrupt(int irq, void *args)
 {
-	struct xpcie_epf *xpcie_epf;
 	struct xpcie *xpcie = args;
+	struct xpcie_epf *xpcie_epf = container_of(xpcie,
+						   struct xpcie_epf, xpcie);
 	u8 event;
 #if (!IS_ENABLED(CONFIG_PCIE_TBH_EP))
 	u32 val;
 
-	xpcie_epf = container_of(xpcie, struct xpcie_epf, xpcie);
 	val = ioread32(xpcie_epf->apb_base + PCIE_REGS_PCIE_INTR_FLAGS);
 	if (val & LBC_CII_EVENT_FLAG) {
 		iowrite32(LBC_CII_EVENT_FLAG,
@@ -550,7 +550,6 @@ static void intel_xpcie_enable_multi_functions(struct pci_epf *epf)
 	list_add_tail(&xpcie_epf->list, &dev_list);
 	snprintf(xpcie_epf->name, MXLK_MAX_NAME_LEN, "%s_func%x", epf->name,
 		 epf->func_no);
-
 	ret = request_irq(xpcie_epf->irq_doorbell,
 			  &intel_xpcie_host_interrupt, 0, XPCIE_DRIVER_NAME,
 			  &xpcie_epf->xpcie);
@@ -624,7 +623,7 @@ static int intel_xpcie_epf_bind(struct pci_epf *epf)
 	const struct pci_epc_features *features;
 	struct pci_epc *epc = epf->epc;
 #if (!IS_ENABLED(CONFIG_PCIE_TBH_EP))
-	u32 bus_num, dev_num;
+	u32 bus_num = 0, dev_num = 0;
 #endif
 	struct device *dev;
 	size_t align = SZ_16K;
