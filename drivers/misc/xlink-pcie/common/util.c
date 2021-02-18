@@ -162,7 +162,7 @@ void intel_xpcie_set_physical_device_id(struct xpcie *xpcie, u16 phys_id)
 
 u16 intel_xpcie_get_physical_device_id(struct xpcie *xpcie)
 {
-	return intel_xpcie_ioread8(xpcie->mmio + XPCIE_MMIO_PHY_DEV_ID);
+	return intel_xpcie_ioread16(xpcie->mmio + XPCIE_MMIO_PHY_DEV_ID);
 }
 #endif
 

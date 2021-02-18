@@ -63,7 +63,7 @@ struct xpcie_mmio {
 #endif
 	u8 reserved;
 	u32 cap_offset;
-} __packed __aligned(8);
+} __packed;
 
 #define XPCIE_MMIO_LEGACY_A0	(offsetof(struct xpcie_mmio, legacy_a0))
 #define XPCIE_MMIO_DEV_STATUS	(offsetof(struct xpcie_mmio, device_status))
