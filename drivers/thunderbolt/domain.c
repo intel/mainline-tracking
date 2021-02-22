@@ -118,6 +118,7 @@ static const char * const tb_security_names[] = {
 	[TB_SECURITY_SECURE] = "secure",
 	[TB_SECURITY_DPONLY] = "dponly",
 	[TB_SECURITY_USBONLY] = "usbonly",
+	[TB_SECURITY_NOPCIE] = "nopcie",
 };
 
 static ssize_t boot_acl_show(struct device *dev, struct device_attribute *attr,
@@ -238,6 +239,16 @@ err_free_str:
 }
 static DEVICE_ATTR_RW(boot_acl);
 
+static ssize_t deauthorization_show(struct device *dev,
+				    struct device_attribute *attr,
+				    char *buf)
+{
+	const struct tb *tb = container_of(dev, struct tb, dev);
+
+	return sprintf(buf, "%d\n", !!tb->cm_ops->disapprove_switch);
+}
+static DEVICE_ATTR_RO(deauthorization);
+
 static ssize_t iommu_dma_protection_show(struct device *dev,
 					 struct device_attribute *attr,
 					 char *buf)
@@ -267,6 +278,7 @@ static DEVICE_ATTR_RO(security);
 
 static struct attribute *domain_attrs[] = {
 	&dev_attr_boot_acl.attr,
+	&dev_attr_deauthorization.attr,
 	&dev_attr_iommu_dma_protection.attr,
 	&dev_attr_security.attr,
 	NULL,
@@ -289,7 +301,7 @@ static umode_t domain_attr_is_visible(struct kobject *kobj,
 	return attr->mode;
 }
 
-static struct attribute_group domain_attr_group = {
+static const struct attribute_group domain_attr_group = {
 	.is_visible = domain_attr_is_visible,
 	.attrs = domain_attrs,
 };
@@ -323,9 +335,34 @@ struct device_type tb_domain_type = {
 	.release = tb_domain_release,
 };
 
+static bool tb_domain_event_cb(void *data, enum tb_cfg_pkg_type type,
+			       const void *buf, size_t size)
+{
+	struct tb *tb = data;
+
+	if (!tb->cm_ops->handle_event) {
+		tb_warn(tb, "domain does not have event handler\n");
+		return true;
+	}
+
+	switch (type) {
+	case TB_CFG_PKG_XDOMAIN_REQ:
+	case TB_CFG_PKG_XDOMAIN_RESP:
+		if (tb_xdomain_enabled)
+			return tb_xdomain_handle_request(tb, type, buf, size);
+		break;
+
+	default:
+		tb->cm_ops->handle_event(tb, type, buf, size);
+	}
+
+	return true;
+}
+
 /**
  * tb_domain_alloc() - Allocate a domain
  * @nhi: Pointer to the host controller
+ * @timeout_msec: Control channel timeout for non-raw messages
  * @privsize: Size of the connection manager private data
  *
  * Allocates and initializes a new Thunderbolt domain. Connection
@@ -337,7 +374,7 @@ struct device_type tb_domain_type = {
  *
  * Return: allocated domain structure on %NULL in case of error
  */
-struct tb *tb_domain_alloc(struct tb_nhi *nhi, size_t privsize)
+struct tb *tb_domain_alloc(struct tb_nhi *nhi, int timeout_msec, size_t privsize)
 {
 	struct tb *tb;
 
@@ -364,6 +401,10 @@ struct tb *tb_domain_alloc(struct tb_nhi *nhi, size_t privsize)
 	if (!tb->wq)
 		goto err_remove_ida;
 
+	tb->ctl = tb_ctl_alloc(nhi, timeout_msec, tb_domain_event_cb, tb);
+	if (!tb->ctl)
+		goto err_destroy_wq;
+
 	tb->dev.parent = &nhi->pdev->dev;
 	tb->dev.bus = &tb_bus_type;
 	tb->dev.type = &tb_domain_type;
@@ -373,34 +414,14 @@ struct tb *tb_domain_alloc(struct tb_nhi *nhi, size_t privsize)
 
 	return tb;
 
+err_destroy_wq:
+	destroy_workqueue(tb->wq);
 err_remove_ida:
 	ida_simple_remove(&tb_domain_ida, tb->index);
 err_free:
 	kfree(tb);
 
 	return NULL;
-}
-
-static bool tb_domain_event_cb(void *data, enum tb_cfg_pkg_type type,
-			       const void *buf, size_t size)
-{
-	struct tb *tb = data;
-
-	if (!tb->cm_ops->handle_event) {
-		tb_warn(tb, "domain does not have event handler\n");
-		return true;
-	}
-
-	switch (type) {
-	case TB_CFG_PKG_XDOMAIN_REQ:
-	case TB_CFG_PKG_XDOMAIN_RESP:
-		return tb_xdomain_handle_request(tb, type, buf, size);
-
-	default:
-		tb->cm_ops->handle_event(tb, type, buf, size);
-	}
-
-	return true;
 }
 
 /**
@@ -422,13 +443,6 @@ int tb_domain_add(struct tb *tb)
 		return -EINVAL;
 
 	mutex_lock(&tb->lock);
-
-	tb->ctl = tb_ctl_alloc(tb->nhi, tb_domain_event_cb, tb);
-	if (!tb->ctl) {
-		ret = -ENOMEM;
-		goto err_unlock;
-	}
-
 	/*
 	 * tb_schedule_hotplug_handler may be called as soon as the config
 	 * channel is started. Thats why we have to hold the lock here.
@@ -470,8 +484,6 @@ err_domain_del:
 	device_del(&tb->dev);
 err_ctl_stop:
 	tb_ctl_stop(tb->ctl);
-err_unlock:
-	mutex_unlock(&tb->lock);
 
 	return ret;
 }
@@ -602,13 +614,30 @@ int tb_domain_runtime_resume(struct tb *tb)
 }
 
 /**
+ * tb_domain_disapprove_switch() - Disapprove switch
+ * @tb: Domain the switch belongs to
+ * @sw: Switch to disapprove
+ *
+ * This will disconnect PCIe tunnel from parent to this @sw.
+ *
+ * Return: %0 on success and negative errno in case of failure.
+ */
+int tb_domain_disapprove_switch(struct tb *tb, struct tb_switch *sw)
+{
+	if (!tb->cm_ops->disapprove_switch)
+		return -EPERM;
+
+	return tb->cm_ops->disapprove_switch(tb, sw);
+}
+
+/**
  * tb_domain_approve_switch() - Approve switch
  * @tb: Domain the switch belongs to
  * @sw: Switch to approve
  *
  * This will approve switch by connection manager specific means. In
- * case of success the connection manager will create tunnels for all
- * supported protocols.
+ * case of success the connection manager will create PCIe tunnel from
+ * parent to @sw.
  */
 int tb_domain_approve_switch(struct tb *tb, struct tb_switch *sw)
 {
@@ -753,6 +782,10 @@ int tb_domain_disconnect_pcie_paths(struct tb *tb)
  * tb_domain_approve_xdomain_paths() - Enable DMA paths for XDomain
  * @tb: Domain enabling the DMA paths
  * @xd: XDomain DMA paths are created to
+ * @transmit_path: HopID we are using to send out packets
+ * @transmit_ring: DMA ring used to send out packets
+ * @receive_path: HopID the other end is using to send packets to us
+ * @receive_ring: DMA ring used to to receive packets from @receive_path
  *
  * Calls connection manager specific method to enable DMA paths to the
  * XDomain in question.
@@ -761,18 +794,25 @@ int tb_domain_disconnect_pcie_paths(struct tb *tb)
  * particular returns %-ENOTSUPP if the connection manager
  * implementation does not support XDomains.
  */
-int tb_domain_approve_xdomain_paths(struct tb *tb, struct tb_xdomain *xd)
+int tb_domain_approve_xdomain_paths(struct tb *tb, struct tb_xdomain *xd,
+				    int transmit_path, int transmit_ring,
+				    int receive_path, int receive_ring)
 {
 	if (!tb->cm_ops->approve_xdomain_paths)
 		return -ENOTSUPP;
 
-	return tb->cm_ops->approve_xdomain_paths(tb, xd);
+	return tb->cm_ops->approve_xdomain_paths(tb, xd, transmit_path,
+			transmit_ring, receive_path, receive_ring);
 }
 
 /**
  * tb_domain_disconnect_xdomain_paths() - Disable DMA paths for XDomain
  * @tb: Domain disabling the DMA paths
  * @xd: XDomain whose DMA paths are disconnected
+ * @transmit_path: HopID we are using to send out packets
+ * @transmit_ring: DMA ring used to send out packets
+ * @receive_path: HopID the other end is using to send packets to us
+ * @receive_ring: DMA ring used to to receive packets from @receive_path
  *
  * Calls connection manager specific method to disconnect DMA paths to
  * the XDomain in question.
@@ -781,12 +821,15 @@ int tb_domain_approve_xdomain_paths(struct tb *tb, struct tb_xdomain *xd)
  * particular returns %-ENOTSUPP if the connection manager
  * implementation does not support XDomains.
  */
-int tb_domain_disconnect_xdomain_paths(struct tb *tb, struct tb_xdomain *xd)
+int tb_domain_disconnect_xdomain_paths(struct tb *tb, struct tb_xdomain *xd,
+				       int transmit_path, int transmit_ring,
+				       int receive_path, int receive_ring)
 {
 	if (!tb->cm_ops->disconnect_xdomain_paths)
 		return -ENOTSUPP;
 
-	return tb->cm_ops->disconnect_xdomain_paths(tb, xd);
+	return tb->cm_ops->disconnect_xdomain_paths(tb, xd, transmit_path,
+			transmit_ring, receive_path, receive_ring);
 }
 
 static int disconnect_xdomain(struct device *dev, void *data)
@@ -797,7 +840,7 @@ static int disconnect_xdomain(struct device *dev, void *data)
 
 	xd = tb_to_xdomain(dev);
 	if (xd && xd->tb == tb)
-		ret = tb_xdomain_disable_paths(xd);
+		ret = tb_xdomain_disable_all_paths(xd);
 
 	return ret;
 }

@@ -1,31 +1,3 @@
-What:		/sys/bus/thunderbolt/devices/<xdomain>/rx_speed
-Date:		Feb 2021
-KernelVersion:	5.11
-Contact:	Isaac Hazan <isaac.hazan@intel.com>
-Description:	This attribute reports the XDomain RX speed per lane.
-		All RX lanes run at the same speed.
-
-What:		/sys/bus/thunderbolt/devices/<xdomain>/rx_lanes
-Date:		Feb 2021
-KernelVersion:	5.11
-Contact:	Isaac Hazan <isaac.hazan@intel.com>
-Description:	This attribute reports the number of RX lanes the XDomain
-		is using simultaneously through its upstream port.
-
-What:		/sys/bus/thunderbolt/devices/<xdomain>/tx_speed
-Date:		Feb 2021
-KernelVersion:	5.11
-Contact:	Isaac Hazan <isaac.hazan@intel.com>
-Description:	This attribute reports the XDomain TX speed per lane.
-		All TX lanes run at the same speed.
-
-What:		/sys/bus/thunderbolt/devices/<xdomain>/tx_lanes
-Date:		Feb 2021
-KernelVersion:	5.11
-Contact:	Isaac Hazan <isaac.hazan@intel.com>
-Description:	This attribute reports number of TX lanes the XDomain
-		is using simultaneously through its upstream port.
-
 What: /sys/bus/thunderbolt/devices/.../domainX/boot_acl
 Date:		Jun 2018
 KernelVersion:	4.17
@@ -48,6 +20,15 @@ Description:	Holds a comma separated list of device unique_ids that
 
 		If a device is authorized automatically during boot its
 		boot attribute is set to 1.
+
+What: /sys/bus/thunderbolt/devices/.../domainX/deauthorization
+Date:		May 2021
+KernelVersion:	5.12
+Contact:	Mika Westerberg <mika.westerberg@linux.intel.com>
+Description:	This attribute tells whether the system supports
+		de-authorization of devices. Value of 1 means user can
+		de-authorize PCIe tunnel by writing 0 to authorized
+		attribute under each device.
 
 What: /sys/bus/thunderbolt/devices/.../domainX/iommu_dma_protection
 Date:		Mar 2019
@@ -76,6 +57,8 @@ Description:	This attribute holds current Thunderbolt security level
 		usbonly  Automatically tunnel USB controller of the
 			 connected Thunderbolt dock (and Display Port). All
 			 PCIe links downstream of the dock are removed.
+		nopcie   USB4 system where PCIe tunneling is disabled from
+			 the BIOS.
 		=======  ==================================================
 
 What: /sys/bus/thunderbolt/devices/.../authorized
@@ -84,17 +67,18 @@ KernelVersion:	4.13
 Contact:	thunderbolt-software@lists.01.org
 Description:	This attribute is used to authorize Thunderbolt devices
 		after they have been connected. If the device is not
-		authorized, no devices such as PCIe and Display port are
-		available to the system.
+		authorized, no PCIe devices are available to the system.
 
 		Contents of this attribute will be 0 when the device is not
 		yet authorized.
 
 		Possible values are supported:
 
-		==  ===========================================
+		==  ===================================================
+		0   The device will be de-authorized (only supported if
+		    deauthorization attribute under domain contains 1)
 		1   The device will be authorized and connected
-		==  ===========================================
+		==  ===================================================
 
 		When key attribute contains 32 byte hex string the possible
 		values are:
@@ -147,6 +131,13 @@ KernelVersion:	4.13
 Contact:	thunderbolt-software@lists.01.org
 Description:	This attribute contains name of this device extracted from
 		the device DROM.
+
+What:		/sys/bus/thunderbolt/devices/.../maxhopid
+Date:		May 2021
+KernelVersion:	5.12
+Contact:	Mika Westerberg <mika.westerberg@linux.intel.com>
+Description:	Only set for XDomains. The maximum HopID the other host
+		supports as its input HopID.
 
 What:		/sys/bus/thunderbolt/devices/.../rx_speed
 Date:		Jan 2020
