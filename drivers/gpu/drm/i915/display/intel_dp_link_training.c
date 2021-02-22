@@ -434,7 +434,7 @@ intel_dp_prepare_link_train(struct intel_dp *intel_dp,
 		drm_dp_dpcd_write(&intel_dp->aux, DP_LINK_RATE_SET,
 				  &rate_select, 1);
 
-	link_config[0] = 0;
+	link_config[0] = crtc_state->vrr.enable ? DP_MSA_TIMING_PAR_IGNORE_EN : 0;
 	link_config[1] = DP_SET_ANSI_8B10B;
 	drm_dp_dpcd_write(&intel_dp->aux, DP_DOWNSPREAD_CTRL, link_config, 2);
 
@@ -697,9 +697,9 @@ static bool intel_dp_disable_dpcd_training_pattern(struct intel_dp *intel_dp,
  * @intel_dp: DP struct
  * @crtc_state: state for CRTC attached to the encoder
  *
- * Stop the link training of the @intel_dp port, disabling the test pattern
- * symbol generation on the port and disabling the training pattern in
- * the sink's DPCD.
+ * Stop the link training of the @intel_dp port, disabling the training
+ * pattern in the sink's DPCD, and disabling the test pattern symbol
+ * generation on the port.
  *
  * What symbols are output on the port after this point is
  * platform specific: On DDI/VLV/CHV platforms it will be the idle pattern
@@ -713,10 +713,9 @@ void intel_dp_stop_link_train(struct intel_dp *intel_dp,
 {
 	intel_dp->link_trained = true;
 
-	intel_dp_program_link_training_pattern(intel_dp,
-					       crtc_state,
-					       DP_TRAINING_PATTERN_DISABLE);
 	intel_dp_disable_dpcd_training_pattern(intel_dp, DP_PHY_DPRX);
+	intel_dp_program_link_training_pattern(intel_dp, crtc_state,
+					       DP_TRAINING_PATTERN_DISABLE);
 }
 
 static bool

@@ -926,8 +926,8 @@ amdgpu_display_user_framebuffer_create(struct drm_device *dev,
 				       struct drm_file *file_priv,
 				       const struct drm_mode_fb_cmd2 *mode_cmd)
 {
-	struct amdgpu_framebuffer *amdgpu_fb;
 	struct drm_gem_object *obj;
+	struct amdgpu_framebuffer *amdgpu_fb;
 	struct amdgpu_bo *bo;
 	uint32_t domains;
 	int ret;
