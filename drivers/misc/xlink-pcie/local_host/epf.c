@@ -295,7 +295,7 @@ static int intel_xpcie_setup_bar(struct pci_epf *epf, enum pci_barno barno,
 
 	if (barno == 0) {
 		bar->phys_addr =
-			thunderbay->doorbell->start + (epf->func_no * 0x1000);
+			thunderbay->doorbell_base->start + (epf->func_no * 0x1000);
 		vaddr = ioremap(bar->phys_addr, size);
 	}
 
@@ -418,7 +418,7 @@ static void intel_xpcie_enable_multi_functions(struct pci_epf *epf)
 	xpcie_epf->irq_doorbell = thunderbay->irq_doorbell[epf->func_no];
 	xpcie_epf->irq_rdma = thunderbay->irq_rdma[epf->func_no];
 	xpcie_epf->irq_wdma = thunderbay->irq_wdma[epf->func_no];
-	xpcie_epf->apb_base = thunderbay->slv_apb_base;
+	xpcie_epf->apb_base = thunderbay->base;
 
 	switch (epf->func_no) {
 	case 0:
