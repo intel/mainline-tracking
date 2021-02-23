@@ -1193,6 +1193,12 @@ static inline bool page_is_access_protected(struct page *page)
 	return false;
 }
 
+static inline bool page_is_globally_kmapped(struct page *page)
+{
+	return page_is_access_protected(page) &&
+		(page->pgmap->flags & PGMAP_KMAP_GLOBAL);
+}
+
 void __dev_mk_readwrite(void);
 void __dev_mk_noaccess(void);
 static __always_inline void dev_mk_readwrite(void)
@@ -1205,13 +1211,26 @@ static __always_inline void dev_mk_noaccess(void)
 	if (static_branch_unlikely(&dev_protection_static_key))
 		__dev_mk_noaccess();
 }
+
+int dev_get_dev_pkey(void);
 #else
 static inline bool page_is_access_protected(struct page *page)
 {
 	return false;
 }
+
 static inline void dev_mk_readwrite(void) { }
 static inline void dev_mk_noaccess(void) { }
+
+static inline bool page_is_globally_kmapped(struct page *page)
+{
+	return false;
+}
+
+static inline int dev_get_dev_pkey(void)
+{
+	return INT_MIN;
+}
 #endif /* CONFIG_ZONE_DEVICE_ACCESS_PROTECTION */
 
 /* 127: arbitrary random number, small enough to assemble well */

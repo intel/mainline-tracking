@@ -3884,6 +3884,20 @@
 	pirq=		[SMP,APIC] Manual mp-table setup
 			See Documentation/x86/i386/IO-APIC.rst.
 
+	fault.pks_mode=	[X86] Control the behavior of a PKS fault.
+			(depends on CONFIG_ARCH_ENABLE_SUPERVISOR_PKEYS).
+			Change at run-time Control how a PKS fault is handled
+			on a page which has been mapped 'global'.
+
+			Format: { relaxed | silent | strict }
+
+			relaxed - Print a warning and handle the fault by
+				  updating the thread pks value
+			silent - Same as relaxed but without the warning
+			strict - Do not handle the fault
+
+			default: relaxed
+
 	plip=		[PPT,NET] Parallel port network link
 			Format: { parport<nr> | timid | 0 }
 			See also Documentation/admin-guide/parport.rst.

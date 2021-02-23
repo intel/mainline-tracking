@@ -784,6 +784,7 @@ config ZONE_DEVICE_ACCESS_PROTECTION
 	bool "Device memory access protection"
 	depends on ZONE_DEVICE
 	depends on ARCH_HAS_SUPERVISOR_PKEYS
+	depends on !HIGHMEM
 
 	help
 	  Enable extra protections on device memory.  This protects against
