@@ -6,6 +6,7 @@
 #include <asm/enclu.h>
 
 #include "extable.h"
+#include "../calling.h"
 
 /* Relative to %rbp. */
 #define SGX_ENCLAVE_OFFSET_OF_RUN		16
@@ -27,6 +28,7 @@
 SYM_FUNC_START(__vdso_sgx_enter_enclave)
 	/* Prolog */
 	.cfi_startproc
+	ENDBR
 	push	%rbp
 	.cfi_adjust_cfa_offset	8
 	.cfi_rel_offset		%rbp, 0
@@ -62,6 +64,7 @@ SYM_FUNC_START(__vdso_sgx_enter_enclave)
 .Lasync_exit_pointer:
 .Lenclu_eenter_eresume:
 	enclu
+	ENDBR
 
 	/* EEXIT jumps here unless the enclave is doing something fancy. */
 	mov	SGX_ENCLAVE_OFFSET_OF_RUN(%rbp), %rbx
@@ -91,6 +94,7 @@ SYM_FUNC_START(__vdso_sgx_enter_enclave)
 	jmp	.Lout
 
 .Lhandle_exception:
+	ENDBR
 	mov	SGX_ENCLAVE_OFFSET_OF_RUN(%rbp), %rbx
 
 	/* Set the exception info. */
