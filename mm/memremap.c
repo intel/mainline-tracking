@@ -131,6 +131,12 @@ static int __init __dev_access_protection_init(void)
 	return 0;
 }
 subsys_initcall(__dev_access_protection_init);
+
+int dev_get_dev_pkey(void)
+{
+	return dev_page_pkey;
+}
+EXPORT_SYMBOL_GPL(dev_get_dev_pkey);
 #else
 static pgprot_t dev_pgprot_get(struct dev_pagemap *pgmap, pgprot_t prot)
 {

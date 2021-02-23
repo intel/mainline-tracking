@@ -890,6 +890,17 @@ static inline struct extended_pt_regs *extended_pt_regs(struct pt_regs *regs)
 {
 	return container_of(regs, struct extended_pt_regs, pt_regs);
 }
+
+bool handle_pks(struct pt_regs *regs, unsigned long error_code,
+		unsigned long address);
+#else
+
+static inline bool handle_pks(struct pt_regs *regs, unsigned long error_code,
+			      unsigned long address)
+{
+	return false;
+}
+
 #endif
 
 #endif /* _ASM_X86_PROCESSOR_H */

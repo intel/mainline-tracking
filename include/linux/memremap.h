@@ -91,6 +91,7 @@ struct dev_pagemap_ops {
 
 #define PGMAP_ALTMAP_VALID	(1 << 0)
 #define PGMAP_PROT_ENABLED	(1 << 1)
+#define PGMAP_KMAP_GLOBAL	(1 << 2)
 
 /**
  * struct dev_pagemap - metadata for ZONE_DEVICE mappings
