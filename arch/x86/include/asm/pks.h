@@ -22,12 +22,20 @@ static inline struct extended_pt_regs *extended_pt_regs(struct pt_regs *regs)
 }
 
 void show_extended_regs_oops(struct pt_regs *regs, unsigned error_code);
+bool handle_pks(struct pt_regs *regs, unsigned long error_code,
+		unsigned long address);
 
 #else /* !CONFIG_ARCH_ENABLE_SUPERVISOR_PKEYS */
 
 static inline void setup_pks(void) { }
 static inline void show_extended_regs_oops(struct pt_regs *regs,
 					   unsigned error_code) { }
+
+static inline bool handle_pks(struct pt_regs *regs, unsigned long error_code,
+			      unsigned long address)
+{
+	return false;
+}
 
 #endif /* CONFIG_ARCH_ENABLE_SUPERVISOR_PKEYS */
 
