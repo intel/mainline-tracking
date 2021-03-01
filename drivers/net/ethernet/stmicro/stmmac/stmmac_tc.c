@@ -1176,16 +1176,18 @@ static int tc_taprio_configure(struct stmmac_priv *priv,
 
 disable:
 	if (priv->plat->est) {
-		mutex_lock(&priv->plat->est->lock);
-		priv->plat->est->enable = false;
-		stmmac_est_configure(priv, priv, priv->plat->est,
-				     priv->plat->clk_ptp_rate);
-		/* Reset taprio status */
-		for (i = 0; i < priv->plat->tx_queues_to_use; i++) {
-			priv->xstats.max_sdu_txq_drop[i] = 0;
-			priv->xstats.mtl_est_txq_hlbf[i] = 0;
+		if (priv->est_hw_del_wa) {
+			mutex_lock(&priv->plat->est->lock);
+			priv->plat->est->enable = false;
+			stmmac_est_configure(priv, priv, priv->plat->est,
+					priv->plat->clk_ptp_rate);
+			/* Reset taprio status */
+			for (i = 0; i < priv->plat->tx_queues_to_use; i++) {
+				priv->xstats.max_sdu_txq_drop[i] = 0;
+				priv->xstats.mtl_est_txq_hlbf[i] = 0;
+			}
+			mutex_unlock(&priv->plat->est->lock);
 		}
-		mutex_unlock(&priv->plat->est->lock);
 	}
 
 	priv->plat->fpe_cfg->enable = false;
