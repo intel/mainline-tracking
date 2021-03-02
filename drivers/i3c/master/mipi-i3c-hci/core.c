@@ -632,6 +632,7 @@ static int i3c_hci_init(struct i3c_hci *hci)
 		   hci->version_major, hci->version_minor, hci->revision);
 	/* known versions */
 	switch (regval & ~0xf) {
+	case 0x050:	/* version 0.5 */
 	case 0x100:	/* version 1.0 */
 	case 0x110:	/* version 1.1 */
 	case 0x200:	/* version 2.0 */
