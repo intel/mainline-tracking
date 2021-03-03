@@ -57,6 +57,9 @@ enum tb_security_level {
 	TB_SECURITY_NOPCIE,
 };
 
+/* Connection manager exposes details about tunneling */
+#define TB_CAP_TUNNEL_DETAILS	BIT(0)
+
 /**
  * struct tb - main thunderbolt bus structure
  * @dev: Domain device
@@ -67,6 +70,8 @@ enum tb_security_level {
  * @wq: Ordered workqueue for all domain specific work
  * @root_switch: Root switch of this domain
  * @cm_ops: Connection manager specific operations vector
+ * @cm_caps: Extra capabilities supported by the connection manager
+ *	     implementation
  * @index: Linux assigned domain number
  * @security_level: Current security level
  * @nboot_acl: Number of boot ACLs the domain supports
@@ -80,6 +85,7 @@ struct tb {
 	struct workqueue_struct *wq;
 	struct tb_switch *root_switch;
 	const struct tb_cm_ops *cm_ops;
+	unsigned int cm_caps;
 	int index;
 	enum tb_security_level security_level;
 	size_t nboot_acl;

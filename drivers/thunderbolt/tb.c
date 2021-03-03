@@ -104,10 +104,39 @@ static void tb_remove_dp_resources(struct tb_switch *sw)
 	}
 }
 
+static void tb_add_tunnel(struct tb *tb, struct tb_tunnel *tunnel)
+{
+	struct tb_switch *sw = tunnel->dst_port->sw;
+	struct tb_cm *tcm = tb_priv(tb);
+
+	if (tb_tunnel_is_usb3(tunnel)) {
+		sw->usb3++;
+	} else if (tb_tunnel_is_dp(tunnel)) {
+		sw->dp++;
+		/* Inform userspace about DP tunneling change */
+		kobject_uevent(&sw->dev.kobj, KOBJ_CHANGE);
+	}
+
+	list_add_tail(&tunnel->list, &tcm->tunnel_list);
+}
+
+static void tb_remove_tunnel(struct tb_tunnel *tunnel)
+{
+	struct tb_switch *sw = tunnel->dst_port->sw;
+
+	if (tb_tunnel_is_usb3(tunnel) && sw->usb3) {
+		sw->usb3--;
+	} else if (tb_tunnel_is_dp(tunnel) && sw->dp) {
+		sw->dp--;
+		kobject_uevent(&sw->dev.kobj, KOBJ_CHANGE);
+	}
+
+	list_del(&tunnel->list);
+}
+
 static void tb_discover_tunnels(struct tb_switch *sw)
 {
 	struct tb *tb = sw->tb;
-	struct tb_cm *tcm = tb_priv(tb);
 	struct tb_port *port;
 
 	tb_switch_for_each_port(sw, port) {
@@ -146,7 +175,7 @@ static void tb_discover_tunnels(struct tb_switch *sw)
 			pm_runtime_get_sync(&tunnel->dst_port->sw->dev);
 		}
 
-		list_add_tail(&tunnel->list, &tcm->tunnel_list);
+		tb_add_tunnel(tb, tunnel);
 	}
 
 	tb_switch_for_each_port(sw, port) {
@@ -440,7 +469,6 @@ static int tb_tunnel_usb3(struct tb *tb, struct tb_switch *sw)
 	struct tb_switch *parent = tb_switch_parent(sw);
 	int ret, available_up, available_down;
 	struct tb_port *up, *down, *port;
-	struct tb_cm *tcm = tb_priv(tb);
 	struct tb_tunnel *tunnel;
 
 	if (!tb_acpi_may_tunnel_usb3()) {
@@ -503,7 +531,7 @@ static int tb_tunnel_usb3(struct tb *tb, struct tb_switch *sw)
 		goto err_free;
 	}
 
-	list_add_tail(&tunnel->list, &tcm->tunnel_list);
+	tb_add_tunnel(tb, tunnel);
 	if (tb_route(parent))
 		tb_reclaim_usb3_bandwidth(tb, down, up);
 
@@ -686,7 +714,7 @@ static void tb_deactivate_and_free_tunnel(struct tb_tunnel *tunnel)
 		return;
 
 	tb_tunnel_deactivate(tunnel);
-	list_del(&tunnel->list);
+	tb_remove_tunnel(tunnel);
 
 	tb = tunnel->tb;
 	src_port = tunnel->src_port;
@@ -937,7 +965,7 @@ static void tb_tunnel_dp(struct tb *tb)
 		goto err_free;
 	}
 
-	list_add_tail(&tunnel->list, &tcm->tunnel_list);
+	tb_add_tunnel(tb, tunnel);
 	tb_reclaim_usb3_bandwidth(tb, in, out);
 	return;
 
@@ -1038,7 +1066,7 @@ static int tb_disconnect_pci(struct tb *tb, struct tb_switch *sw)
 		return -ENODEV;
 
 	tb_tunnel_deactivate(tunnel);
-	list_del(&tunnel->list);
+	tb_remove_tunnel(tunnel);
 	tb_tunnel_free(tunnel);
 	return 0;
 }
@@ -1046,7 +1074,6 @@ static int tb_disconnect_pci(struct tb *tb, struct tb_switch *sw)
 static int tb_tunnel_pci(struct tb *tb, struct tb_switch *sw)
 {
 	struct tb_port *up, *down, *port;
-	struct tb_cm *tcm = tb_priv(tb);
 	struct tb_switch *parent_sw;
 	struct tb_tunnel *tunnel;
 
@@ -1075,7 +1102,7 @@ static int tb_tunnel_pci(struct tb *tb, struct tb_switch *sw)
 		return -EIO;
 	}
 
-	list_add_tail(&tunnel->list, &tcm->tunnel_list);
+	tb_add_tunnel(tb, tunnel);
 	return 0;
 }
 
@@ -1083,7 +1110,6 @@ static int tb_approve_xdomain_paths(struct tb *tb, struct tb_xdomain *xd,
 				    int transmit_path, int transmit_ring,
 				    int receive_path, int receive_ring)
 {
-	struct tb_cm *tcm = tb_priv(tb);
 	struct tb_port *nhi_port, *dst_port;
 	struct tb_tunnel *tunnel;
 	struct tb_switch *sw;
@@ -1108,7 +1134,7 @@ static int tb_approve_xdomain_paths(struct tb *tb, struct tb_xdomain *xd,
 		return -EIO;
 	}
 
-	list_add_tail(&tunnel->list, &tcm->tunnel_list);
+	tb_add_tunnel(tb, tunnel);
 	mutex_unlock(&tb->lock);
 	return 0;
 }
@@ -1586,6 +1612,7 @@ struct tb *tb_probe(struct tb_nhi *nhi)
 		tb->security_level = TB_SECURITY_NOPCIE;
 
 	tb->cm_ops = &tb_cm_ops;
+	tb->cm_caps |= TB_CAP_TUNNEL_DETAILS;
 
 	tcm = tb_priv(tb);
 	INIT_LIST_HEAD(&tcm->tunnel_list);

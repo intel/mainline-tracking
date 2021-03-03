@@ -282,11 +282,21 @@ static ssize_t security_show(struct device *dev, struct device_attribute *attr,
 }
 static DEVICE_ATTR_RO(security);
 
+static ssize_t tunneling_details_show(struct device *dev,
+				      struct device_attribute *attr, char *buf)
+{
+	const struct tb *tb = container_of(dev, struct tb, dev);
+
+	return sprintf(buf, "%d\n", !!(tb->cm_caps & TB_CAP_TUNNEL_DETAILS));
+}
+static DEVICE_ATTR_RO(tunneling_details);
+
 static struct attribute *domain_attrs[] = {
 	&dev_attr_boot_acl.attr,
 	&dev_attr_deauthorization.attr,
 	&dev_attr_iommu_dma_protection.attr,
 	&dev_attr_security.attr,
+	&dev_attr_tunneling_details.attr,
 	NULL,
 };
 

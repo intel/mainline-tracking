@@ -1487,6 +1487,21 @@ device_name_show(struct device *dev, struct device_attribute *attr, char *buf)
 }
 static DEVICE_ATTR_RO(device_name);
 
+static ssize_t dp_show(struct device *dev, struct device_attribute *attr,
+		       char *buf)
+{
+	struct tb_switch *sw = tb_to_switch(dev);
+	int ret;
+
+	if (!mutex_trylock(&sw->tb->lock))
+		return restart_syscall();
+	ret = sprintf(buf, "%u\n", sw->dp);
+	mutex_unlock(&sw->tb->lock);
+
+	return ret;
+}
+static DEVICE_ATTR_RO(dp);
+
 static ssize_t
 generation_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
@@ -1693,6 +1708,21 @@ static ssize_t nvm_version_show(struct device *dev,
 }
 static DEVICE_ATTR_RO(nvm_version);
 
+static ssize_t usb3_show(struct device *dev, struct device_attribute *attr,
+			 char *buf)
+{
+	struct tb_switch *sw = tb_to_switch(dev);
+	int ret;
+
+	if (!mutex_trylock(&sw->tb->lock))
+		return restart_syscall();
+	ret = sprintf(buf, "%u\n", sw->usb3);
+	mutex_unlock(&sw->tb->lock);
+
+	return ret;
+}
+static DEVICE_ATTR_RO(usb3);
+
 static ssize_t vendor_show(struct device *dev, struct device_attribute *attr,
 			   char *buf)
 {
@@ -1725,6 +1755,7 @@ static struct attribute *switch_attrs[] = {
 	&dev_attr_boot.attr,
 	&dev_attr_device.attr,
 	&dev_attr_device_name.attr,
+	&dev_attr_dp.attr,
 	&dev_attr_generation.attr,
 	&dev_attr_key.attr,
 	&dev_attr_nvm_authenticate.attr,
@@ -1734,6 +1765,7 @@ static struct attribute *switch_attrs[] = {
 	&dev_attr_rx_lanes.attr,
 	&dev_attr_tx_speed.attr,
 	&dev_attr_tx_lanes.attr,
+	&dev_attr_usb3.attr,
 	&dev_attr_vendor.attr,
 	&dev_attr_vendor_name.attr,
 	&dev_attr_unique_id.attr,
@@ -1757,6 +1789,7 @@ static umode_t switch_attr_is_visible(struct kobject *kobj,
 {
 	struct device *dev = kobj_to_dev(kobj);
 	struct tb_switch *sw = tb_to_switch(dev);
+	const struct tb *tb = sw->tb;
 
 	if (attr == &dev_attr_authorized.attr) {
 		if (sw->tb->security_level == TB_SECURITY_NOPCIE ||
@@ -1768,6 +1801,10 @@ static umode_t switch_attr_is_visible(struct kobject *kobj,
 			return 0;
 	} else if (attr == &dev_attr_device_name.attr) {
 		if (!sw->device_name)
+			return 0;
+	} else if (attr == &dev_attr_dp.attr) {
+		if (!(tb->cm_caps & TB_CAP_TUNNEL_DETAILS) ||
+		    !has_port(sw, TB_TYPE_DP_HDMI_OUT))
 			return 0;
 	} else if (attr == &dev_attr_vendor.attr)  {
 		if (!sw->vendor)
@@ -1788,6 +1825,10 @@ static umode_t switch_attr_is_visible(struct kobject *kobj,
 		if (tb_route(sw))
 			return attr->mode;
 		return 0;
+	} else if (attr == &dev_attr_usb3.attr) {
+		if (!(tb->cm_caps & TB_CAP_TUNNEL_DETAILS) ||
+		    !has_port(sw, TB_TYPE_USB3_UP))
+			return 0;
 	} else if (attr == &dev_attr_nvm_authenticate.attr) {
 		if (nvm_upgradeable(sw))
 			return attr->mode;

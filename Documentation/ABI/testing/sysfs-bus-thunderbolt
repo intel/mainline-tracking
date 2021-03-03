@@ -61,6 +61,14 @@ Description:	This attribute holds current Thunderbolt security level
 			 the BIOS.
 		=======  ==================================================
 
+What: /sys/bus/thunderbolt/devices/.../domainX/tunneling_details
+Date:		July 2021
+KernelVersion:	5.13
+Contact:	Mika Westerberg <mika.westerberg@linux.intel.com>
+Description:	The connection manager implementation may expose
+		additional details about tunneling. If it supports this
+		the attribute reads 1.
+
 What: /sys/bus/thunderbolt/devices/.../authorized
 Date:		Sep 2017
 KernelVersion:	4.13
@@ -101,6 +109,15 @@ KernelVersion:	4.17
 Contact:	thunderbolt-software@lists.01.org
 Description:	This attribute contains 1 if Thunderbolt device was already
 		authorized on boot and 0 otherwise.
+
+What: /sys/bus/thunderbolt/devices/.../dp
+Date:		Jul 2021
+KernelVersion:	5.13
+Contact:	Mika Westerberg <mika.westerberg@linux.intel.com>
+Description:	Only available if the domain tunneling_details attribute
+		reads 1. If present means that the device router has
+		DisplayPort sink. Contents will be number how many
+		active DisplayPort tunnels end up to this router.
 
 What: /sys/bus/thunderbolt/devices/.../generation
 Date:		Jan 2020
@@ -168,6 +185,15 @@ KernelVersion:	5.5
 Contact:	Mika Westerberg <mika.westerberg@linux.intel.com>
 Description:	This attribute reports number of TX lanes the device is
 		using simultaneusly through its upstream port.
+
+What: /sys/bus/thunderbolt/devices/.../usb3
+Date:		Jul 2021
+KernelVersion:	5.13
+Contact:	Mika Westerberg <mika.westerberg@linux.intel.com>
+Description:	Only available if the domain tunneling_details attribute
+		reads 1. If present means that the device router has
+		USB 3.x upstream adapter. Reads 1 if there is an active
+		USB 3.x tunnel to this router.
 
 What:		/sys/bus/thunderbolt/devices/.../vendor
 Date:		Sep 2017

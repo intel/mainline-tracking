@@ -123,6 +123,8 @@ struct tb_switch_tmu {
  * @safe_mode: The switch is in safe-mode
  * @boot: Whether the switch was already authorized on boot or not
  * @rpm: The switch supports runtime PM
+ * @usb3: Number of USB 3.x tunnels to this switch (0 or 1)
+ * @dp: Number of DisplayPort tunnels ending to this switch
  * @authorized: Whether the switch is authorized by user or policy
  * @security_level: Switch supported security level
  * @debugfs_dir: Pointer to the debugfs structure
@@ -167,6 +169,8 @@ struct tb_switch {
 	bool safe_mode;
 	bool boot;
 	bool rpm;
+	unsigned int usb3;
+	unsigned int dp;
 	unsigned int authorized;
 	enum tb_security_level security_level;
 	struct dentry *debugfs_dir;
