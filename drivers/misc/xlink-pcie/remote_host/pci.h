@@ -10,6 +10,7 @@
 #ifndef XPCIE_PCI_HEADER_
 #define XPCIE_PCI_HEADER_
 
+#include <linux/bitfield.h>
 #include <linux/interrupt.h>
 #include <linux/list.h>
 #include <linux/pci.h>
