@@ -284,7 +284,7 @@ static void xpcie_device_poll(struct work_struct *work)
 		return;
 #endif
 	}
-	schedule_delayed_work(&xdev->wait_event, msecs_to_jiffies(100));
+	schedule_delayed_work(&xdev->wait_event, msecs_to_jiffies(1000));
 }
 
 static int intel_xpcie_pci_prepare_dev_reset(struct xpcie_dev *xdev,
