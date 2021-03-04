@@ -74,6 +74,10 @@ struct xpcie_epf {
 	int                             irq_doorbell;
 	int                             irq_rdma;
 	int                             irq_wdma;
+	wait_queue_head_t		dma_rd_wq;
+	bool				dma_rd_done;
+	wait_queue_head_t		dma_wr_wq;
+	bool				dma_wr_done;
 #else
 	int irq_dma;
 	int irq_err;
