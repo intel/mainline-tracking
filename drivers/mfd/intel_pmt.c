@@ -24,20 +24,28 @@
 #define INTEL_DVSEC_TABLE		0xC
 #define INTEL_DVSEC_TABLE_BAR(x)	((x) & GENMASK(2, 0))
 #define INTEL_DVSEC_TABLE_OFFSET(x)	((x) & GENMASK(31, 3))
-#define INTEL_DVSEC_ENTRY_SIZE		4
 
-/* PMT capabilities */
+/* Intel Extended Features */
 #define DVSEC_INTEL_ID_TELEMETRY	2
 #define DVSEC_INTEL_ID_WATCHER		3
 #define DVSEC_INTEL_ID_CRASHLOG		4
 
+#define FEATURE_ID_NAME_LENGTH		16
+
 struct intel_dvsec_header {
+	u8	rev;
 	u16	length;
 	u16	id;
 	u8	num_entries;
 	u8	entry_size;
 	u8	tbir;
 	u32	offset;
+};
+
+static int intel_ext_feature_allow_list[] = {
+	DVSEC_INTEL_ID_TELEMETRY,
+	DVSEC_INTEL_ID_WATCHER,
+	DVSEC_INTEL_ID_CRASHLOG,
 };
 
 enum pmt_quirks {
@@ -84,42 +92,62 @@ static const struct pmt_platform_info dg1_info = {
 	.capabilities = dg1_capabilities,
 };
 
+static bool pmt_feature_disabled(u16 id, unsigned long quirks)
+{
+	bool ret;
+
+	switch (id) {
+	case DVSEC_INTEL_ID_WATCHER:
+		if (quirks & PMT_QUIRK_NO_WATCHER)
+			ret = true;
+		break;
+
+	case DVSEC_INTEL_ID_CRASHLOG:
+		if (quirks & PMT_QUIRK_NO_CRASHLOG)
+			ret = true;
+		break;
+
+	default:
+		ret = false;
+		break;
+	}
+
+	return ret;
+}
+
+static bool intel_ext_feature_allowed(u16 id)
+{
+	int i;
+
+	for (i = 0; i < ARRAY_SIZE(intel_ext_feature_allow_list); i++)
+		if (intel_ext_feature_allow_list[i] == id)
+			return true;
+
+	return false;
+}
+
 static int pmt_add_dev(struct pci_dev *pdev, struct intel_dvsec_header *header,
 		       unsigned long quirks)
 {
 	struct device *dev = &pdev->dev;
 	struct resource *res, *tmp;
 	struct mfd_cell *cell;
-	const char *name;
+	char feature_id_name[FEATURE_ID_NAME_LENGTH];
 	int count = header->num_entries;
 	int size = header->entry_size;
 	int id = header->id;
 	int i;
 
-	switch (id) {
-	case DVSEC_INTEL_ID_TELEMETRY:
-		name = "pmt_telemetry";
-		break;
-	case DVSEC_INTEL_ID_WATCHER:
-		if (quirks & PMT_QUIRK_NO_WATCHER) {
-			dev_info(dev, "Watcher not supported\n");
-			return -EINVAL;
-		}
-		name = "pmt_watcher";
-		break;
-	case DVSEC_INTEL_ID_CRASHLOG:
-		if (quirks & PMT_QUIRK_NO_CRASHLOG) {
-			dev_info(dev, "Crashlog not supported\n");
-			return -EINVAL;
-		}
-		name = "pmt_crashlog";
-		break;
-	default:
+	if (!intel_ext_feature_allowed(id))
 		return -EINVAL;
-	}
+
+	if (pmt_feature_disabled(id, quirks))
+		return -EINVAL;
+
+	snprintf(feature_id_name, sizeof(feature_id_name), "intel-dvsec-%d", id);
 
 	if (!header->num_entries || !header->entry_size) {
-		dev_err(dev, "Invalid count or size for %s header\n", name);
+		dev_err(dev, "Invalid count or size for %s header\n", feature_id_name);
 		return -EINVAL;
 	}
 
@@ -149,7 +177,7 @@ static int pmt_add_dev(struct pci_dev *pdev, struct intel_dvsec_header *header,
 
 	cell->resources = res;
 	cell->num_resources = count;
-	cell->name = name;
+	cell->name = feature_id_name;
 
 	return devm_mfd_add_devices(dev, PLATFORM_DEVID_AUTO, cell, 1, NULL, 0,
 				    NULL);
@@ -189,19 +217,30 @@ static int pmt_pci_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 	} else {
 		do {
 			struct intel_dvsec_header header;
-			u32 table;
+			u32 table, hdr;
 			u16 vid;
 
 			pos = pci_find_next_ext_capability(pdev, pos, PCI_EXT_CAP_ID_DVSEC);
 			if (!pos)
 				break;
 
-			pci_read_config_word(pdev, pos + PCI_DVSEC_HEADER1, &vid);
+			pci_read_config_dword(pdev, pos + PCI_DVSEC_HEADER1, &hdr);
+			vid = PCI_DVSEC_HEADER_VID(hdr);
 			if (vid != PCI_VENDOR_ID_INTEL)
 				continue;
 
-			pci_read_config_word(pdev, pos + PCI_DVSEC_HEADER2,
-					     &header.id);
+			pci_read_config_word(pdev, pos + PCI_DVSEC_HEADER2, &header.id);
+
+			/* Support only revision 1 */
+			header.rev = PCI_VNDR_HEADER_REV(hdr);
+			if (header.rev != 1) {
+				dev_warn(&pdev->dev, "Unsupported DVSEC revision %d\n",
+					 header.rev);
+				continue;
+			}
+
+			header.length = PCI_DVSEC_HEADER_LEN(hdr);
+
 			pci_read_config_byte(pdev, pos + INTEL_DVSEC_ENTRIES,
 					     &header.num_entries);
 			pci_read_config_byte(pdev, pos + INTEL_DVSEC_SIZE,
