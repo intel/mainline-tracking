@@ -151,14 +151,14 @@ enum xpcie_ep_engine_type {
 	READ_ENGINE
 };
 
-#if (IS_ENABLED(CONFIG_PCIE_TBH_EP))
+#if (IS_ENABLED(CONFIG_ARCH_THUNDERBAY))
 #define DMA_CHAN_NUM (8)
 #else
 #define DMA_CHAN_NUM (4)
 #endif
 
 static u32 dma_chan_offset[2][DMA_CHAN_NUM] = {
-#if (IS_ENABLED(CONFIG_PCIE_TBH_EP))
+#if (IS_ENABLED(CONFIG_ARCH_THUNDERBAY))
 	{ 0x200, 0x400, 0x600, 0x800, 0xA00, 0xC00, 0xE00, 0x1000 },
 	{ 0x300, 0x500, 0x700, 0x900, 0xB00, 0xD00, 0xF00, 0x1100 }
 #else
@@ -171,15 +171,8 @@ static void __iomem *intel_xpcie_ep_get_dma_base(struct pci_epf *epf)
 {
 	struct device *dev = &epf->dev;
 	struct xpcie_epf *xpcie_epf = (struct xpcie_epf *)dev->driver_data;
-#if (IS_ENABLED(CONFIG_PCIE_TBH_EP))
-	struct pci_epc *epc = epf->epc;
-	struct dw_pcie_ep *ep = epc_get_drvdata(epc);
-	struct dw_pcie *pci = to_dw_pcie_from_ep(ep);
 
-	xpcie_epf->dbi_base = pci->dbi_base;
-#endif
-
-	return pci->dbi_base + DMA_DBI_OFFSET;
+	return xpcie_epf->dbi_base + DMA_DBI_OFFSET;
 }
 
 static int intel_xpcie_ep_dma_disable(void __iomem *dma_base,
@@ -284,7 +277,9 @@ static void intel_xpcie_ep_dma_enable(void __iomem *dma_base,
 static int intel_xpcie_ep_dma_doorbell(struct xpcie_epf *xpcie_epf, int chan,
 				       void __iomem *doorbell)
 {
-	int i = DMA_PCIE_PM_L1_TIMEOUT, rc = 0;
+	int rc = 0;
+#if (!IS_ENABLED(CONFIG_ARCH_THUNDERBAY))
+	int i = DMA_PCIE_PM_L1_TIMEOUT;
 	u32 val, pm_val;
 
 	val = ioread32(xpcie_epf->apb_base + PCIE_REGS_PCIE_APP_CNTRL);
@@ -305,6 +300,9 @@ static int intel_xpcie_ep_dma_doorbell(struct xpcie_epf *xpcie_epf, int chan,
 
 	iowrite32(val & ~APP_XFER_PENDING,
 		  xpcie_epf->apb_base + PCIE_REGS_PCIE_APP_CNTRL);
+#else
+	iowrite32((u32)chan, doorbell);
+#endif
 
 	return rc;
 }
@@ -365,14 +363,14 @@ int intel_xpcie_ep_dma_write_ll(struct pci_epf *epf, int chan, int descs_num)
 	struct __iomem pcie_dma_reg * dma_reg =
 				(struct __iomem pcie_dma_reg *)(dma_base);
 	int rc;
-#if (!IS_ENABLED(CONFIG_PCIE_TBH_EP))
+#if (!IS_ENABLED(CONFIG_ARCH_THUNDERBAY))
 	int i;
 #endif
 
 	if (descs_num <= 0 || descs_num > XPCIE_NUM_TX_DESCS)
 		return -EINVAL;
 
-#if (IS_ENABLED(CONFIG_PCIE_TBH_EP))
+#if (IS_ENABLED(CONFIG_ARCH_THUNDERBAY))
 	chan = xpcie_epf->epf->func_no;
 #endif
 
@@ -386,7 +384,7 @@ int intel_xpcie_ep_dma_write_ll(struct pci_epf *epf, int chan, int descs_num)
 
 	intel_xpcie_ep_dma_setup_ll_descs(dma_chan, desc_buf, descs_num);
 
-#if (IS_ENABLED(CONFIG_PCIE_TBH_EP))
+#if (IS_ENABLED(CONFIG_ARCH_THUNDERBAY))
 	xpcie_epf->dma_wr_done = false;
 #endif
 
@@ -397,7 +395,7 @@ int intel_xpcie_ep_dma_write_ll(struct pci_epf *epf, int chan, int descs_num)
 	if (rc)
 		return rc;
 
-#if (!IS_ENABLED(CONFIG_PCIE_TBH_EP))
+#if (!IS_ENABLED(CONFIG_ARCH_THUNDERBAY))
 	/* Wait for DMA transfer to complete. */
 	for (i = 0; i < DMA_POLLING_TIMEOUT; i++) {
 		usleep_range(5, 10);
@@ -421,7 +419,7 @@ int intel_xpcie_ep_dma_write_ll(struct pci_epf *epf, int chan, int descs_num)
 					   &dma_reg->dma_write_err_status,
 					   chan);
 
-#if (!IS_ENABLED(CONFIG_PCIE_TBH_EP))
+#if (!IS_ENABLED(CONFIG_ARCH_THUNDERBAY))
 cleanup:
 	/* Clear the done/abort interrupt. */
 	iowrite32((DMA_DONE_INTERRUPT_CH_MASK(chan) |
@@ -450,14 +448,14 @@ int intel_xpcie_ep_dma_read_ll(struct pci_epf *epf, int chan, int descs_num)
 				(struct __iomem pcie_dma_reg *)(dma_base);
 	struct __iomem pcie_dma_chan * dma_chan;
 	int rc;
-#if (!IS_ENABLED(CONFIG_PCIE_TBH_EP))
+#if (!IS_ENABLED(CONFIG_ARCH_THUNDERBAY))
 	int i;
 #endif
 
 	if (descs_num <= 0 || descs_num > XPCIE_NUM_RX_DESCS)
 		return -EINVAL;
 
-#if (IS_ENABLED(CONFIG_PCIE_TBH_EP))
+#if (IS_ENABLED(CONFIG_ARCH_THUNDERBAY))
 	chan = xpcie_epf->epf->func_no;
 #endif
 
@@ -471,7 +469,7 @@ int intel_xpcie_ep_dma_read_ll(struct pci_epf *epf, int chan, int descs_num)
 
 	intel_xpcie_ep_dma_setup_ll_descs(dma_chan, desc_buf, descs_num);
 
-#if (IS_ENABLED(CONFIG_PCIE_TBH_EP))
+#if (IS_ENABLED(CONFIG_ARCH_THUNDERBAY))
 	xpcie_epf->dma_rd_done = false;
 #endif
 
@@ -482,7 +480,7 @@ int intel_xpcie_ep_dma_read_ll(struct pci_epf *epf, int chan, int descs_num)
 	if (rc)
 		return rc;
 
-#if (!IS_ENABLED(CONFIG_PCIE_TBH_EP))
+#if (!IS_ENABLED(CONFIG_ARCH_THUNDERBAY))
 	/* Wait for DMA transfer to complete. */
 	for (i = 0; i < DMA_POLLING_TIMEOUT; i++) {
 		usleep_range(5, 10);
@@ -512,7 +510,7 @@ int intel_xpcie_ep_dma_read_ll(struct pci_epf *epf, int chan, int descs_num)
 						chan);
 	}
 
-#if (!IS_ENABLED(CONFIG_PCIE_TBH_EP))
+#if (!IS_ENABLED(CONFIG_ARCH_THUNDERBAY))
 cleanup:
 	/* Clear the done/abort interrupt. */
 	iowrite32((DMA_DONE_INTERRUPT_CH_MASK(chan) |
@@ -534,7 +532,7 @@ cleanup:
 
 static void intel_xpcie_ep_dma_free_ll_descs_mem(struct xpcie_epf *xpcie_epf)
 {
-#if (IS_ENABLED(CONFIG_PCIE_TBH_EP))
+#if (IS_ENABLED(CONFIG_ARCH_THUNDERBAY))
 	struct device *dma_dev = &xpcie_epf->epf->dev;
 #else
 	struct device *dma_dev = xpcie_epf->epf->epc->dev.parent;
@@ -567,7 +565,7 @@ static int intel_xpcie_ep_dma_alloc_ll_descs_mem(struct xpcie_epf *xpcie_epf)
 	int tx_num = XPCIE_NUM_TX_DESCS + 1;
 	int rx_num = XPCIE_NUM_RX_DESCS + 1;
 	size_t tx_size, rx_size;
-#if (IS_ENABLED(CONFIG_PCIE_TBH_EP))
+#if (IS_ENABLED(CONFIG_ARCH_THUNDERBAY))
 	struct device *dma_dev = &xpcie_epf->epf->dev;
 #else
 	struct device *dma_dev = xpcie_epf->epf->epc->dev.parent;
@@ -616,7 +614,7 @@ static irqreturn_t intel_xpcie_ep_dma_wr_interrupt(int irq, void *args)
 	void __iomem *dma_base = xpcie_epf->dma_base;
 	struct pcie_dma_reg *dma_reg = (struct pcie_dma_reg *)dma_base;
 	struct pcie_dma_chan *dma_chan;
-#if (IS_ENABLED(CONFIG_PCIE_TBH_EP))
+#if (IS_ENABLED(CONFIG_ARCH_THUNDERBAY))
 	int chan = xpcie_epf->epf->func_no;
 #endif
 	dma_chan = (struct pcie_dma_chan *)
@@ -641,7 +639,7 @@ static irqreturn_t intel_xpcie_ep_dma_rd_interrupt(int irq, void *args)
 	void __iomem *dma_base = xpcie_epf->dma_base;
 	struct pcie_dma_reg *dma_reg = (struct pcie_dma_reg *)dma_base;
 	struct pcie_dma_chan *dma_chan;
-#if (IS_ENABLED(CONFIG_PCIE_TBH_EP))
+#if (IS_ENABLED(CONFIG_ARCH_THUNDERBAY))
 	int chan = xpcie_epf->epf->func_no;
 #endif
 
@@ -669,7 +667,7 @@ int intel_xpcie_ep_dma_uninit(struct pci_epf *epf)
 	    intel_xpcie_ep_dma_disable(xpcie_epf->dma_base, READ_ENGINE))
 		return -EBUSY;
 
-#if (IS_ENABLED(CONFIG_PCIE_TBH_EP))
+#if (IS_ENABLED(CONFIG_ARCH_THUNDERBAY))
 	if (xpcie_epf->irq_rdma)
 		free_irq(xpcie_epf->irq_rdma, xpcie_epf);
 	if (xpcie_epf->irq_wdma)
@@ -692,7 +690,7 @@ int intel_xpcie_ep_dma_init(struct pci_epf *epf)
 	if (rc)
 		return rc;
 
-#if (IS_ENABLED(CONFIG_PCIE_TBH_EP))
+#if (IS_ENABLED(CONFIG_ARCH_THUNDERBAY))
 	init_waitqueue_head(&xpcie_epf->dma_rd_wq);
 	init_waitqueue_head(&xpcie_epf->dma_wr_wq);
 

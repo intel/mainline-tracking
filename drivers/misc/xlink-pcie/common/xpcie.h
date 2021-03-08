@@ -47,7 +47,7 @@
 struct xpcie_mmio {
 	u32 device_status;
 	u32 host_status;
-#if (IS_ENABLED(CONFIG_PCIE_TBH_EP))
+#if (IS_ENABLED(CONFIG_ARCH_THUNDERBAY))
 	u16 phy_dev_id;
 	u8 max_functions;
 #endif
@@ -58,7 +58,7 @@ struct xpcie_mmio {
 	u8 dtoh_tx_doorbell;
 	u8 dtoh_rx_doorbell;
 	u8 dtoh_event_doorbell;
-#if (IS_ENABLED(CONFIG_PCIE_TBH_EP))
+#if (IS_ENABLED(CONFIG_ARCH_THUNDERBAY))
 	u8 htod_phy_id_doorbell_status;
 #endif
 	u8 reserved;
@@ -85,7 +85,7 @@ struct xpcie_mmio {
 #define XPCIE_MMIO_CAP_OFF	(offsetof(struct xpcie_mmio, cap_offset))
 #define XPCIE_MMIO_MAGIC_OFF	(offsetof(struct xpcie_mmio, magic))
 
-#if (IS_ENABLED(CONFIG_PCIE_TBH_EP))
+#if (IS_ENABLED(CONFIG_ARCH_THUNDERBAY))
 
 #define XPCIE_MMIO_PHY_DEV_ID	(offsetof(struct xpcie_mmio, phy_dev_id))
 #define XPCIE_MMIO_MAX_FUNCTIONS \
@@ -101,7 +101,7 @@ struct xpcie {
 	void *mmio;
 	void *bar4;
 	void *io_comm;
-#if (IS_ENABLED(CONFIG_PCIE_TBH_EP))
+#if (IS_ENABLED(CONFIG_ARCH_THUNDERBAY))
 	void __iomem *doorbell_base; /*IPC DoorBell address space*/
 	void __iomem *doorbell_clear; /*IPC DoorBell clear address space*/
 #endif

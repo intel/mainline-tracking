@@ -42,7 +42,7 @@ u32 intel_xpcie_get_device_status(struct xpcie *xpcie);
 u32 intel_xpcie_get_host_status(struct xpcie *xpcie);
 void intel_xpcie_set_host_status(struct xpcie *xpcie, u32 status);
 
-#if (IS_ENABLED(CONFIG_PCIE_TBH_EP))
+#if (IS_ENABLED(CONFIG_ARCH_THUNDERBAY))
 
 void intel_xpcie_set_max_functions(struct xpcie *xpcie, u8 max_functions);
 u8 intel_xpcie_get_max_functions(struct xpcie *xpcie);

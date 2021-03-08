@@ -36,7 +36,7 @@ static size_t intel_xpcie_doorbell_offset(struct xpcie *xpcie,
 		return XPCIE_MMIO_DTOH_RX_DOORBELL;
 	if (dirt == FROM_DEVICE && type == DEV_EVENT)
 		return XPCIE_MMIO_DTOH_EVENT_DOORBELL;
-#if (IS_ENABLED(CONFIG_PCIE_TBH_EP))
+#if (IS_ENABLED(CONFIG_ARCH_THUNDERBAY))
 	if (dirt == TO_DEVICE && type == PHY_ID_UPDATED)
 		return XPCIE_MMIO_HTOD_PHY_ID_DOORBELL_STATUS;
 #endif
@@ -95,7 +95,7 @@ struct xpcie_buf_desc *intel_xpcie_alloc_bd(size_t length)
 	return bd;
 }
 
-#if (IS_ENABLED(CONFIG_PCIE_TBH_EP))
+#if (IS_ENABLED(CONFIG_ARCH_THUNDERBAY))
 u32 intel_xpcie_create_sw_device_id(u8 func_no, u16 phy_id,
 				    u8 max_functions)
 {

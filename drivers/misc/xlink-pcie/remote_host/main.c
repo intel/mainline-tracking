@@ -15,7 +15,7 @@
 
 static const struct pci_device_id xpcie_pci_table[] = {
 	{ PCI_DEVICE(PCI_VENDOR_ID_INTEL, PCI_DEVICE_ID_INTEL_KEEMBAY), 0 },
-#if (IS_ENABLED(CONFIG_PCIE_TBH_EP))
+#if (IS_ENABLED(CONFIG_ARCH_THUNDERBAY))
 	{ PCI_DEVICE(PCI_VENDOR_ID_INTEL, PCI_DEVICE_ID_INTEL_TBH_FULL), 0 },
 	{ PCI_DEVICE(PCI_VENDOR_ID_INTEL, PCI_DEVICE_ID_INTEL_TBH_PRIME), 0 },
 #endif
@@ -31,7 +31,7 @@ static int intel_xpcie_probe(struct pci_dev *pdev,
 	u16 hw_id;
 	int ret;
 
-#if (IS_ENABLED(CONFIG_PCIE_TBH_EP))
+#if (IS_ENABLED(CONFIG_ARCH_THUNDERBAY))
 	if (PCI_FUNC(pdev->devfn) & 0x1)
 		return 0;
 #endif
@@ -39,7 +39,7 @@ static int intel_xpcie_probe(struct pci_dev *pdev,
 	hw_id = FIELD_PREP(HW_ID_HI_MASK, pdev->bus->number) |
 		FIELD_PREP(HW_ID_LO_MASK, PCI_SLOT(pdev->devfn));
 
-#if (!IS_ENABLED(CONFIG_PCIE_TBH_EP))
+#if (!IS_ENABLED(CONFIG_ARCH_THUNDERBAY))
 	sw_devid = FIELD_PREP(XLINK_DEV_INF_TYPE_MASK, XLINK_DEV_INF_PCIE) |
 		FIELD_PREP(XLINK_DEV_PHYS_ID_MASK, hw_id) |
 		FIELD_PREP(XLINK_DEV_TYPE_MASK, XLINK_DEV_TYPE_KMB) |
@@ -78,7 +78,7 @@ static void intel_xpcie_remove(struct pci_dev *pdev)
 	if (xdev) {
 		intel_xpcie_pci_cleanup(xdev);
 		intel_xpcie_pci_notify_event(xdev, NOTIFY_DEVICE_DISCONNECTED);
-#if (IS_ENABLED(CONFIG_PCIE_TBH_EP))
+#if (IS_ENABLED(CONFIG_ARCH_THUNDERBAY))
 		intel_xpcie_list_del_device(xdev);
 #endif
 		intel_xpcie_remove_device(xdev);

@@ -12,7 +12,6 @@
 
 #include <linux/pci-epc.h>
 #include <linux/pci-epf.h>
-#include <pcie-keembay.h>
 
 #include "../common/xpcie.h"
 #include "../common/util.h"
@@ -22,7 +21,7 @@
 
 #define KEEMBAY_XPCIE_STEPPING_MAXLEN 8
 
-#if (IS_ENABLED(CONFIG_PCIE_TBH_EP))
+#if (IS_ENABLED(CONFIG_ARCH_THUNDERBAY))
 #define DMA_CHAN_NUM		(8)
 #else
 #define DMA_CHAN_NUM		(4)
@@ -62,7 +61,7 @@ struct xpcie_dma_ll_desc_buf {
 struct xpcie_epf {
 	struct pci_epf *epf;
 	void *vaddr[BAR_5 + 1];
-#if (IS_ENABLED(CONFIG_PCIE_TBH_EP))
+#if (IS_ENABLED(CONFIG_ARCH_THUNDERBAY))
 	enum pci_barno                  doorbell_bar;
 #endif
 	enum pci_barno comm_bar;
@@ -70,7 +69,7 @@ struct xpcie_epf {
 	const struct pci_epc_features *epc_features;
 	struct xpcie xpcie;
 	int irq;
-#if (IS_ENABLED(CONFIG_PCIE_TBH_EP))
+#if (IS_ENABLED(CONFIG_ARCH_THUNDERBAY))
 	int                             irq_doorbell;
 	int                             irq_rdma;
 	int                             irq_wdma;
@@ -85,6 +84,15 @@ struct xpcie_epf {
 	void __iomem *apb_base;
 	void __iomem *dma_base;
 	void __iomem *dbi_base;
+
+#if (IS_ENABLED(CONFIG_ARCH_THUNDERBAY))
+	struct resource *doorbell_base;
+	struct resource *doorbell_clear;
+	struct resource mmr2;
+	struct resource mmr4;
+	bool tbh_half;
+#endif
+
 	char stepping[KEEMBAY_XPCIE_STEPPING_MAXLEN];
 
 	irq_handler_t			core_irq_callback;
@@ -95,7 +103,7 @@ struct xpcie_epf {
 	struct xpcie_dma_ll_desc_buf     tx_desc_buf;
 	struct xpcie_dma_ll_desc_buf     rx_desc_buf;
 
-#if (IS_ENABLED(CONFIG_PCIE_TBH_EP))
+#if (IS_ENABLED(CONFIG_ARCH_THUNDERBAY))
 #define MXLK_MAX_NAME_LEN (32)
 	char                            name[MXLK_MAX_NAME_LEN];
 	u32                             sw_devid;
@@ -112,7 +120,7 @@ static inline struct device *xpcie_to_dev(struct xpcie *xpcie)
 	return &xpcie_epf->epf->dev;
 }
 
-#if (IS_ENABLED(CONFIG_PCIE_TBH_EP))
+#if (IS_ENABLED(CONFIG_ARCH_THUNDERBAY))
 struct xpcie_epf *intel_xpcie_get_device_by_name(const char *name);
 #endif
 int intel_xpcie_ep_dma_init(struct pci_epf *epf);
