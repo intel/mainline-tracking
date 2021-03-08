@@ -12,7 +12,7 @@
 
 #include <linux/types.h>
 
-#if (IS_ENABLED(CONFIG_PCIE_TBH_EP))
+#if (IS_ENABLED(CONFIG_ARCH_THUNDERBAY))
 #define XPCIE_BOOT_MAGIC_ROM "THBROM"
 #define XPCIE_BOOT_MAGIC_EMMC "THBEMMC"
 #else

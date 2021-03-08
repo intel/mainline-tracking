@@ -10,19 +10,21 @@
 #include <linux/of.h>
 #include <linux/platform_device.h>
 #include <linux/reboot.h>
+#include <linux/of_address.h>
 #include <linux/of_device.h>
+#include <linux/of_irq.h>
 #include <linux/of_reserved_mem.h>
 
 #include "epf.h"
 #include "../common/boot.h"
 
-#if (IS_ENABLED(CONFIG_PCIE_TBH_EP))
+#if (IS_ENABLED(CONFIG_ARCH_THUNDERBAY))
 #define BAR0_MIN_SIZE			SZ_4K
 #endif
 
 #define BAR2_MIN_SIZE			SZ_16K
 
-#if (IS_ENABLED(CONFIG_PCIE_TBH_EP))
+#if (IS_ENABLED(CONFIG_ARCH_THUNDERBAY))
 #define BAR4_MIN_SIZE			SZ_8K
 #else
 #define BAR4_MIN_SIZE			SZ_16K
@@ -42,7 +44,7 @@
 
 static struct pci_epf_header xpcie_header = {
 	.vendorid = PCI_VENDOR_ID_INTEL,
-#if (IS_ENABLED(CONFIG_PCIE_TBH_EP))
+#if (IS_ENABLED(CONFIG_ARCH_THUNDERBAY))
 	.deviceid = PCI_DEVICE_ID_INTEL_TBH_FULL,
 #else
 	.deviceid = PCI_DEVICE_ID_INTEL_KEEMBAY,
@@ -60,11 +62,11 @@ static const struct pci_epf_device_id xpcie_epf_ids[] = {
 	{},
 };
 
-#if (!IS_ENABLED(CONFIG_PCIE_TBH_EP))
+#if (!IS_ENABLED(CONFIG_ARCH_THUNDERBAY))
 u32 xlink_sw_id;
 #endif
 
-#if (IS_ENABLED(CONFIG_PCIE_TBH_EP))
+#if (IS_ENABLED(CONFIG_ARCH_THUNDERBAY))
 #define XPCIE_MAX_NAME_LEN	(32)
 
 static LIST_HEAD(dev_list);
@@ -153,7 +155,7 @@ int intel_xpcie_raise_irq(struct xpcie *xpcie, enum xpcie_doorbell_type type)
 	return pci_epc_raise_irq(epf->epc, epf->func_no, PCI_EPC_IRQ_MSI, 1);
 }
 
-#if (!IS_ENABLED(CONFIG_PCIE_TBH_EP))
+#if (!IS_ENABLED(CONFIG_ARCH_THUNDERBAY))
 static irqreturn_t intel_xpcie_err_interrupt(int irq, void *args)
 {
 	struct xpcie_epf *xpcie_epf;
@@ -177,7 +179,7 @@ static irqreturn_t intel_xpcie_host_interrupt(int irq, void *args)
 	struct xpcie_epf *xpcie_epf = container_of(xpcie,
 						   struct xpcie_epf, xpcie);
 	u8 event;
-#if (!IS_ENABLED(CONFIG_PCIE_TBH_EP))
+#if (!IS_ENABLED(CONFIG_ARCH_THUNDERBAY))
 	u32 val;
 
 	val = ioread32(xpcie_epf->apb_base + PCIE_REGS_PCIE_INTR_FLAGS);
@@ -277,7 +279,7 @@ static void intel_xpcie_cleanup_bars(struct pci_epf *epf)
 	xpcie_epf->xpcie.bar4 = NULL;
 }
 
-#if (IS_ENABLED(CONFIG_PCIE_TBH_EP))
+#if (IS_ENABLED(CONFIG_ARCH_THUNDERBAY))
 static int intel_xpcie_setup_bar(struct pci_epf *epf, enum pci_barno barno,
 				 size_t size, size_t align)
 {
@@ -286,25 +288,25 @@ static int intel_xpcie_setup_bar(struct pci_epf *epf, enum pci_barno barno,
 	struct pci_epc *epc = epf->epc;
 	struct xpcie_epf *xpcie_epf = epf_get_drvdata(epf);
 	struct pci_epf_bar *bar = &epf->bar[barno];
-	struct dw_pcie_ep *ep = epc_get_drvdata(epc);
-	struct dw_pcie *pci = to_dw_pcie_from_ep(ep);
-	struct thunderbay_pcie *thunderbay = to_thunderbay_pcie(pci);
+	//struct dw_pcie_ep *ep = epc_get_drvdata(epc);
+	//struct dw_pcie *pci = to_dw_pcie_from_ep(ep);
+	//struct thunderbay_pcie *thunderbay = to_thunderbay_pcie(pci);
 
 	bar->flags |= PCI_BASE_ADDRESS_MEM_TYPE_64;
 	bar->size = size;
 
 	if (barno == 0) {
 		bar->phys_addr =
-			thunderbay->doorbell_base->start + (epf->func_no * 0x1000);
+			xpcie_epf->doorbell_base->start + (epf->func_no * 0x1000);
 		vaddr = ioremap(bar->phys_addr, size);
 	}
 
 	if (barno == 2) {
-		bar->phys_addr = thunderbay->mmr2[epf->func_no]->start;
+		bar->phys_addr = xpcie_epf->mmr2.start;
 		vaddr = ioremap(bar->phys_addr, size);
 	}
 	if (barno == 4) {
-		bar->phys_addr = thunderbay->mmr4[epf->func_no]->start;
+		bar->phys_addr = xpcie_epf->mmr4.start;
 		vaddr = ioremap_cache(bar->phys_addr, size);
 	}
 
@@ -320,9 +322,7 @@ static int intel_xpcie_setup_bar(struct pci_epf *epf, enum pci_barno barno,
 		PCI_BASE_ADDRESS_MEM_TYPE_64 :
 		PCI_BASE_ADDRESS_MEM_TYPE_32;
 
-	thunderbay->setup_bar[epf->func_no] = true;
 	ret = pci_epc_set_bar(epc, epf->func_no, bar);
-	thunderbay->setup_bar[epf->func_no] = false;
 
 	if (ret) {
 		pci_epf_free_space(epf, vaddr, barno);
@@ -375,7 +375,7 @@ static int intel_xpcie_setup_bars(struct pci_epf *epf, size_t align)
 	int ret;
 
 	struct xpcie_epf *xpcie_epf = epf_get_drvdata(epf);
-#if (IS_ENABLED(CONFIG_PCIE_TBH_EP))
+#if (IS_ENABLED(CONFIG_ARCH_THUNDERBAY))
 	ret = intel_xpcie_setup_bar(epf, BAR_0, BAR0_MIN_SIZE, align);
 	if (ret)
 		return ret;
@@ -403,40 +403,37 @@ static int intel_xpcie_setup_bars(struct pci_epf *epf, size_t align)
 	return 0;
 }
 
-#if (IS_ENABLED(CONFIG_PCIE_TBH_EP))
+#if (IS_ENABLED(CONFIG_ARCH_THUNDERBAY))
 static void intel_xpcie_enable_multi_functions(struct pci_epf *epf)
 {
-	struct pci_epc *epc = epf->epc;
 	struct xpcie_epf *xpcie_epf = epf_get_drvdata(epf);
-	struct dw_pcie_ep *ep = epc_get_drvdata(epc);
-	struct dw_pcie *pci = to_dw_pcie_from_ep(ep);
-	struct thunderbay_pcie *thunderbay = to_thunderbay_pcie(pci);
-	size_t doorbell_clr_size = 0;
 	unsigned long doorbell_clr_addr = 0;
+	struct platform_device *pdev = NULL;
+	struct pci_epc *epc = epf->epc;
+	size_t doorbell_clr_size = 0;
+	struct device *dev = NULL;
 	int ret = 0;
 
-	xpcie_epf->irq_doorbell = thunderbay->irq_doorbell[epf->func_no];
-	xpcie_epf->irq_rdma = thunderbay->irq_rdma[epf->func_no];
-	xpcie_epf->irq_wdma = thunderbay->irq_wdma[epf->func_no];
-	xpcie_epf->apb_base = thunderbay->base;
+	dev = epc->dev.parent;
+	pdev = to_platform_device(dev);
 
 	switch (epf->func_no) {
 	case 0:
-		if (thunderbay->tbh_half) {
+		if (xpcie_epf->tbh_half) {
 			ret = of_reserved_mem_device_init_by_idx
-				(&epf->dev, pci->dev->of_node, 8);
+				(&epf->dev, pdev->dev.of_node, 8);
 		} else {
 			ret = of_reserved_mem_device_init_by_idx
-				(&epf->dev, pci->dev->of_node, 16);
+				(&epf->dev, pdev->dev.of_node, 16);
 			}
 		if (ret) {
 			dev_warn(&epc->dev,
 				 "of_reserved_mem_device_init_by_idx(): %d\n",
 				 ret);
 		}
-		epf->dev.dma_mask = pci->dev->dma_mask;
-		epf->dev.coherent_dma_mask = pci->dev->coherent_dma_mask;
-		ret = of_dma_configure(&epf->dev, pci->dev->of_node, true);
+		epf->dev.dma_mask = dev->dma_mask;
+		epf->dev.coherent_dma_mask = dev->coherent_dma_mask;
+		ret = of_dma_configure(&epf->dev, pdev->dev.of_node, true);
 		if (ret) {
 			dev_warn(&epc->dev,
 				 "pcie:failed of_dma_configure()ret=%d\n", ret);
@@ -446,28 +443,28 @@ static void intel_xpcie_enable_multi_functions(struct pci_epf *epf)
 			dev_warn(&epc->dev,
 				 "pcie:failed to set dma mask. ret=%d\n", ret);
 		}
-		doorbell_clr_addr = thunderbay->doorbell_clear->start;
+		doorbell_clr_addr = xpcie_epf->doorbell_clear->start;
 		doorbell_clr_size = 4;
 		break;
 	case 1:
-		doorbell_clr_addr = thunderbay->doorbell_clear->start + 0x8;
+		doorbell_clr_addr = xpcie_epf->doorbell_clear->start + 0x8;
 		doorbell_clr_size = 4;
 		break;
 	case 2:
-		if (thunderbay->tbh_half)
+		if (xpcie_epf->tbh_half)
 			ret = of_reserved_mem_device_init_by_idx
-				(&epf->dev, pci->dev->of_node, 9);
+				(&epf->dev, pdev->dev.of_node, 9);
 		else
 			ret = of_reserved_mem_device_init_by_idx
-				(&epf->dev, pci->dev->of_node, 17);
+				(&epf->dev, pdev->dev.of_node, 17);
 		if (ret) {
 			dev_warn(&epc->dev,
 				 "of_reserved_mem_device_init_by_idx(): %d\n",
 				 ret);
 		}
-		epf->dev.dma_mask = pci->dev->dma_mask;
-		epf->dev.coherent_dma_mask = pci->dev->coherent_dma_mask;
-		ret = of_dma_configure(&epf->dev, pci->dev->of_node, true);
+		epf->dev.dma_mask = dev->dma_mask;
+		epf->dev.coherent_dma_mask = dev->coherent_dma_mask;
+		ret = of_dma_configure(&epf->dev, pdev->dev.of_node, true);
 		if (ret) {
 			dev_warn(&epc->dev,
 				 "pcie:failed of_dma_configure()ret=%d\n", ret);
@@ -477,24 +474,24 @@ static void intel_xpcie_enable_multi_functions(struct pci_epf *epf)
 			dev_warn(&epc->dev,
 				 "pcie:failed to set dma mask. ret=%d\n", ret);
 		}
-		doorbell_clr_addr = thunderbay->doorbell_clear->start + 0x14;
+		doorbell_clr_addr = xpcie_epf->doorbell_clear->start + 0x14;
 		doorbell_clr_size = 4;
 		break;
 	case 3:
-		doorbell_clr_addr = thunderbay->doorbell_clear->start + 0x1C;
+		doorbell_clr_addr = xpcie_epf->doorbell_clear->start + 0x1C;
 		doorbell_clr_size = 4;
 		break;
 	case 4:
 		ret = of_reserved_mem_device_init_by_idx
-			(&epf->dev, pci->dev->of_node, 18);
+			(&epf->dev, pdev->dev.of_node, 18);
 		if (ret) {
 			dev_warn(&epc->dev,
 				 "of_xx_mem_device_init_by_idx(): 18 ret=%d\n",
 				 ret);
 		}
-		epf->dev.dma_mask = pci->dev->dma_mask;
-		epf->dev.coherent_dma_mask = pci->dev->coherent_dma_mask;
-		ret = of_dma_configure(&epf->dev, pci->dev->of_node, true);
+		epf->dev.dma_mask = dev->dma_mask;
+		epf->dev.coherent_dma_mask = dev->coherent_dma_mask;
+		ret = of_dma_configure(&epf->dev, pdev->dev.of_node, true);
 		if (ret) {
 			dev_warn(&epc->dev, "failed of_dma_configure(): %d\n",
 				 ret);
@@ -504,24 +501,24 @@ static void intel_xpcie_enable_multi_functions(struct pci_epf *epf)
 			dev_warn(&epc->dev, "failed to set dma mask ret=%d\n",
 				 ret);
 		}
-		doorbell_clr_addr = thunderbay->doorbell_clear->start + 0x28;
+		doorbell_clr_addr = xpcie_epf->doorbell_clear->start + 0x28;
 		doorbell_clr_size = 4;
 		break;
 	case 5:
-		doorbell_clr_addr = thunderbay->doorbell_clear->start + 0x30;
+		doorbell_clr_addr = xpcie_epf->doorbell_clear->start + 0x30;
 		doorbell_clr_size = 4;
 		break;
 	case 6:
 		ret = of_reserved_mem_device_init_by_idx
-			(&epf->dev, pci->dev->of_node, 19);
+			(&epf->dev, pdev->dev.of_node, 19);
 		if (ret) {
 			dev_warn(&epc->dev,
 				 "of_xx_mem_device_init_by_idx(): 19 ret=%d\n",
 				 ret);
 		}
-		epf->dev.dma_mask = pci->dev->dma_mask;
-		epf->dev.coherent_dma_mask = pci->dev->coherent_dma_mask;
-		ret = of_dma_configure(&epf->dev, pci->dev->of_node, true);
+		epf->dev.dma_mask = dev->dma_mask;
+		epf->dev.coherent_dma_mask = dev->coherent_dma_mask;
+		ret = of_dma_configure(&epf->dev, pdev->dev.of_node, true);
 		if (ret) {
 			dev_warn(&epc->dev,
 				 "pcie:failed of_dma_configure() ret:%d\n",
@@ -532,20 +529,17 @@ static void intel_xpcie_enable_multi_functions(struct pci_epf *epf)
 			dev_warn(&epc->dev, "failed to set dma mask ret=%d\n",
 				 ret);
 		}
-		doorbell_clr_addr = thunderbay->doorbell_clear->start + 0x3C;
+		doorbell_clr_addr = xpcie_epf->doorbell_clear->start + 0x3C;
 		doorbell_clr_size = 4;
 		break;
 	case 7:
-		doorbell_clr_addr = thunderbay->doorbell_clear->start + 0x44;
+		doorbell_clr_addr = xpcie_epf->doorbell_clear->start + 0x44;
 		doorbell_clr_size = 4;
 		break;
 	}
 
 	xpcie_epf->xpcie.doorbell_clear =
 				ioremap(doorbell_clr_addr, doorbell_clr_size);
-	dev_dbg(&epc->dev,
-		"virtual doorbell_clear=%p,physical doorbell_clr_addr=%lx\n",
-		 xpcie_epf->xpcie.doorbell_clear, doorbell_clr_addr);
 	intel_xpcie_set_max_functions(&xpcie_epf->xpcie, epc->max_functions);
 	list_add_tail(&xpcie_epf->list, &dev_list);
 	snprintf(xpcie_epf->name, MXLK_MAX_NAME_LEN, "%s_func%x", epf->name,
@@ -555,6 +549,55 @@ static void intel_xpcie_enable_multi_functions(struct pci_epf *epf)
 			  &xpcie_epf->xpcie);
 	if (ret)
 		dev_err(&epf->dev, "failed to request irq\n");
+}
+
+static int intel_xpcie_epf_get_platform_data(struct device *dev,
+					     struct xpcie_epf *xpcie_epf)
+{
+	struct platform_device *pdev = to_platform_device(dev);
+	struct pci_epf *epf = xpcie_epf->epf;
+	struct pci_epc *epc = epf->epc;
+	struct device_node *np;
+	struct resource *res;
+	int ret;
+
+	res = platform_get_resource_byname(pdev, IORESOURCE_MEM, "dbi");
+	xpcie_epf->dbi_base =
+		devm_ioremap(dev, res->start, resource_size(res));
+	if (IS_ERR(xpcie_epf->dbi_base))
+		return PTR_ERR(xpcie_epf->dbi_base);
+
+	xpcie_epf->irq_doorbell = irq_of_parse_and_map(pdev->dev.of_node,
+						       epf->func_no + 2);
+	xpcie_epf->irq_wdma = irq_of_parse_and_map(pdev->dev.of_node,
+						   epf->func_no + 10);
+	xpcie_epf->irq_rdma = irq_of_parse_and_map(pdev->dev.of_node,
+						   epf->func_no + 18);
+
+	xpcie_epf->doorbell_base = platform_get_resource_byname(pdev,
+								IORESOURCE_MEM,
+								"doorbell");
+	xpcie_epf->doorbell_clear = platform_get_resource_byname(pdev,
+								 IORESOURCE_MEM,
+								 "doorbellclr");
+
+	np = of_parse_phandle(pdev->dev.of_node,
+			      "memory-region", epf->func_no * 2);
+	ret = of_address_to_resource(np, 0, &xpcie_epf->mmr2);
+
+	np = of_parse_phandle(pdev->dev.of_node,
+			      "memory-region", (epf->func_no * 2) + 1);
+	ret = of_address_to_resource(np, 0, &xpcie_epf->mmr4);
+
+	ret = of_property_read_u8(pdev->dev.of_node,
+				  "max-functions",
+				  &epc->max_functions);
+	if (epc->max_functions == 8)
+		xpcie_epf->tbh_half = 0;
+	else if (epc->max_functions == 4)
+		xpcie_epf->tbh_half = 1;
+
+	return 0;
 }
 #else
 static int intel_xpcie_epf_get_platform_data(struct device *dev,
@@ -622,7 +665,7 @@ static int intel_xpcie_epf_bind(struct pci_epf *epf)
 	struct xpcie_epf *xpcie_epf = epf_get_drvdata(epf);
 	const struct pci_epc_features *features;
 	struct pci_epc *epc = epf->epc;
-#if (!IS_ENABLED(CONFIG_PCIE_TBH_EP))
+#if (!IS_ENABLED(CONFIG_ARCH_THUNDERBAY))
 	u32 bus_num = 0, dev_num = 0;
 #endif
 	struct device *dev;
@@ -632,7 +675,7 @@ static int intel_xpcie_epf_bind(struct pci_epf *epf)
 	if (WARN_ON_ONCE(!epc))
 		return -EINVAL;
 
-#if (IS_ENABLED(CONFIG_PCIE_TBH_EP))
+#if (IS_ENABLED(CONFIG_ARCH_THUNDERBAY))
 	if ((epf->func_no & 0x1))
 		return 0;
 #endif
@@ -647,20 +690,20 @@ static int intel_xpcie_epf_bind(struct pci_epf *epf)
 			return ret;
 	}
 
-	ret = intel_xpcie_setup_bars(epf, align);
-	if (ret) {
-		dev_err(&epf->dev, "BAR initialization failed\n");
-		return ret;
-	}
-#if (IS_ENABLED(CONFIG_PCIE_TBH_EP))
-	intel_xpcie_enable_multi_functions(epf);
-#else
 	ret = intel_xpcie_epf_get_platform_data(dev, xpcie_epf);
 	if (ret) {
 		dev_err(&epf->dev, "Unable to get platform data\n");
 		return -EINVAL;
 	}
 
+	ret = intel_xpcie_setup_bars(epf, align);
+	if (ret) {
+		dev_err(&epf->dev, "BAR initialization failed\n");
+		return ret;
+	}
+#if (IS_ENABLED(CONFIG_ARCH_THUNDERBAY))
+	intel_xpcie_enable_multi_functions(epf);
+#else
 	if (!strcmp(xpcie_epf->stepping, "A0")) {
 		xpcie_epf->xpcie.legacy_a0 = true;
 		intel_xpcie_iowrite32(1, xpcie_epf->xpcie.mmio +
@@ -697,14 +740,14 @@ static int intel_xpcie_epf_bind(struct pci_epf *epf)
 	}
 
 	intel_xpcie_set_device_status(&xpcie_epf->xpcie, XPCIE_STATUS_READY);
-#if (!IS_ENABLED(CONFIG_PCIE_TBH_EP))
+#if (!IS_ENABLED(CONFIG_ARCH_THUNDERBAY))
 	ret = ioread32(xpcie_epf->apb_base + PCIE_REGS_PCIE_SYS_CFG_CORE);
 	bus_num = (ret >> PCIE_CFG_PBUS_NUM_OFFSET) & PCIE_CFG_PBUS_NUM_MASK;
 	dev_num = (ret >> PCIE_CFG_PBUS_DEV_NUM_OFFSET) &
 			PCIE_CFG_PBUS_DEV_NUM_MASK;
 #endif
 
-#if (!IS_ENABLED(CONFIG_PCIE_TBH_EP))
+#if (!IS_ENABLED(CONFIG_ARCH_THUNDERBAY))
 	xlink_sw_id = FIELD_PREP(XLINK_DEV_INF_TYPE_MASK,
 				 XLINK_DEV_INF_PCIE) |
 		      FIELD_PREP(XLINK_DEV_PHYS_ID_MASK,

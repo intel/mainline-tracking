@@ -37,7 +37,7 @@ struct xpcie_dev *intel_xpcie_get_device_by_id(u32 id)
 	}
 
 	list_for_each_entry(xdev, &dev_list, list) {
-#if (IS_ENABLED(CONFIG_PCIE_TBH_EP))
+#if (IS_ENABLED(CONFIG_ARCH_THUNDERBAY))
 		if (xdev->sw_devid == id) {
 #else
 		if (xdev->devid == id) {
@@ -116,7 +116,7 @@ static void intel_xpcie_pci_unmap_bar(struct xpcie_dev *xdev)
 	if (xdev->xpcie.bar0) {
 		iounmap((void __iomem *)xdev->xpcie.bar0);
 		xdev->xpcie.bar0 = NULL;
-#if (IS_ENABLED(CONFIG_PCIE_TBH_EP))
+#if (IS_ENABLED(CONFIG_ARCH_THUNDERBAY))
 		xdev->xpcie.doorbell_base = xdev->xpcie.bar0;
 #endif
 	}
@@ -147,7 +147,7 @@ static int intel_xpcie_pci_map_bar(struct xpcie_dev *xdev)
 		dev_err(&xdev->pci->dev, "failed to ioremap BAR0\n");
 		goto bar_error;
 	}
-#if (IS_ENABLED(CONFIG_PCIE_TBH_EP))
+#if (IS_ENABLED(CONFIG_ARCH_THUNDERBAY))
 	xdev->xpcie.doorbell_base = xdev->xpcie.bar0;
 #endif
 	xdev->xpcie.io_comm = (void __force *)pci_ioremap_bar(xdev->pci, 2);
@@ -181,7 +181,7 @@ static irqreturn_t intel_xpcie_core_interrupt(int irq, void *args)
 	enum xpcie_stage stage;
 	u8 event;
 
-#if (IS_ENABLED(CONFIG_PCIE_TBH_EP))
+#if (IS_ENABLED(CONFIG_ARCH_THUNDERBAY))
 	stage = intel_xpcie_check_magic(xdev);
 	if (stage == STAGE_ROM || stage == STAGE_UBOOT || stage == STAGE_RECOV)
 		schedule_work(&xdev->irq_event);
@@ -258,7 +258,7 @@ static void xpcie_device_poll(struct work_struct *work)
 	struct xpcie_dev *xdev = container_of(work, struct xpcie_dev,
 					      wait_event.work);
 	enum xpcie_stage stage = intel_xpcie_check_magic(xdev);
-#if (IS_ENABLED(CONFIG_PCIE_TBH_EP))
+#if (IS_ENABLED(CONFIG_ARCH_THUNDERBAY))
 	u8 max_functions;
 #endif
 	if (stage == STAGE_RECOV) {
@@ -266,7 +266,7 @@ static void xpcie_device_poll(struct work_struct *work)
 			xdev->xpcie.status = XPCIE_STATUS_RECOVERY;
 	} else if (stage == STAGE_OS) {
 		xdev->xpcie.status = XPCIE_STATUS_READY;
-#if (IS_ENABLED(CONFIG_PCIE_TBH_EP))
+#if (IS_ENABLED(CONFIG_ARCH_THUNDERBAY))
 		intel_xpcie_set_physical_device_id(&xdev->xpcie, xdev->devid);
 		max_functions = intel_xpcie_get_max_functions(&xdev->xpcie);
 		xdev->sw_devid =
@@ -320,7 +320,7 @@ static int xpcie_device_init(struct xpcie_dev *xdev)
 
 	INIT_DELAYED_WORK(&xdev->wait_event, xpcie_device_poll);
 	INIT_DELAYED_WORK(&xdev->shutdown_event, xpcie_device_shutdown);
-#if (IS_ENABLED(CONFIG_PCIE_TBH_EP))
+#if (IS_ENABLED(CONFIG_ARCH_THUNDERBAY))
 	INIT_WORK(&xdev->irq_event, xpcie_device_irq);
 #endif
 	rc = intel_xpcie_pci_irq_init(xdev);
@@ -401,7 +401,7 @@ int intel_xpcie_pci_cleanup(struct xpcie_dev *xdev)
 
 	cancel_delayed_work(&xdev->wait_event);
 	cancel_delayed_work(&xdev->shutdown_event);
-#if (IS_ENABLED(CONFIG_PCIE_TBH_EP))
+#if (IS_ENABLED(CONFIG_ARCH_THUNDERBAY))
 	cancel_work_sync(&xdev->irq_event);
 #endif
 	xdev->core_irq_callback = NULL;
@@ -429,7 +429,7 @@ int intel_xpcie_pci_raise_irq(struct xpcie_dev *xdev,
 
 	intel_xpcie_set_doorbell(&xdev->xpcie, TO_DEVICE, type, value);
 	pci_read_config_word(xdev->pci, PCI_STATUS, &pci_status);
-#if (IS_ENABLED(CONFIG_PCIE_TBH_EP))
+#if (IS_ENABLED(CONFIG_ARCH_THUNDERBAY))
 	iowrite32(1, xdev->xpcie.doorbell_base);
 #endif
 	return 0;
@@ -448,7 +448,7 @@ u32 intel_xpcie_get_device_num(u32 *id_list)
 	}
 
 	list_for_each_entry(p, &dev_list, list) {
-#if (IS_ENABLED(CONFIG_PCIE_TBH_EP))
+#if (IS_ENABLED(CONFIG_ARCH_THUNDERBAY))
 		*id_list++ = p->sw_devid;
 #else
 		*id_list++ = p->devid;
@@ -596,7 +596,7 @@ void intel_xpcie_pci_notify_event(struct xpcie_dev *xdev,
 		xdev->event_fn(xdev->devid, event_type);
 }
 
-#if (IS_ENABLED(CONFIG_PCIE_TBH_EP))
+#if (IS_ENABLED(CONFIG_ARCH_THUNDERBAY))
 struct xpcie_dev *intel_xpcie_get_device_by_name(const char *name)
 {
 	struct xpcie_dev *p;

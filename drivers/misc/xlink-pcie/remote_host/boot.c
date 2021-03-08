@@ -46,7 +46,7 @@ enum xpcie_stage intel_xpcie_check_magic(struct xpcie_dev *xdev)
 	return STAGE_UNINIT;
 }
 
-#if (IS_ENABLED(CONFIG_PCIE_TBH_EP))
+#if (IS_ENABLED(CONFIG_ARCH_THUNDERBAY))
 void xpcie_device_irq(struct work_struct *work)
 {
 	struct xpcie_dev *xdev = container_of(work, struct xpcie_dev,

@@ -20,7 +20,7 @@
 #include "../common/util.h"
 #include "../common/boot.h"
 
-#if (IS_ENABLED(CONFIG_PCIE_TBH_EP))
+#if (IS_ENABLED(CONFIG_ARCH_THUNDERBAY))
 #include <linux/mxlk_boot_inf.h>
 #endif
 
@@ -36,7 +36,7 @@ struct xpcie_dev {
 	struct pci_dev *pci;
 	char name[XPCIE_MAX_NAME_LEN];
 	u32 devid;
-#if (IS_ENABLED(CONFIG_PCIE_TBH_EP))
+#if (IS_ENABLED(CONFIG_ARCH_THUNDERBAY))
 	u32 sw_devid;
 #endif
 	char fw_name[XPCIE_MAX_NAME_LEN];
@@ -50,7 +50,7 @@ struct xpcie_dev {
 	struct xpcie xpcie;
 	xlink_device_event event_fn;
 
-#if (IS_ENABLED(CONFIG_PCIE_TBH_EP))
+#if (IS_ENABLED(CONFIG_ARCH_THUNDERBAY))
 	struct work_struct irq_event;
 	bool boot_dev_link;
 	mxlk_pcie_boot_event boot_notif_fn;
