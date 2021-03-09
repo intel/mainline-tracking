@@ -23,6 +23,7 @@ struct hid_humidity_state {
 	int scale_post_decml;
 	int scale_precision;
 	int value_offset;
+	s64 timestamp;
 };
 
 /* Channel definitions */
@@ -127,10 +128,14 @@ static int humidity_proc_event(struct hid_sensor_hub_device *hsdev,
 	struct iio_dev *indio_dev = platform_get_drvdata(pdev);
 	struct hid_humidity_state *humid_st = iio_priv(indio_dev);
 
-	if (atomic_read(&humid_st->common_attributes.data_ready))
-		iio_push_to_buffers_with_timestamp(indio_dev, &humid_st->scan,
-						   iio_get_time_ns(indio_dev));
+	if (atomic_read(&humid_st->common_attributes.data_ready)) {
+		if (!humid_st->timestamp)
+			humid_st->timestamp = iio_get_time_ns(indio_dev);
 
+ 		iio_push_to_buffers_with_timestamp(indio_dev, &humid_st->scan,
+						   humid_st->timestamp);
+		humid_st->timestamp = 0;
+	}
 	return 0;
 }
 
@@ -146,6 +151,10 @@ static int humidity_capture_sample(struct hid_sensor_hub_device *hsdev,
 	case HID_USAGE_SENSOR_ATMOSPHERIC_HUMIDITY:
 		humid_st->scan.humidity_data = *(s32 *)raw_data;
 
+		return 0;
+	case HID_USAGE_SENSOR_TIME_TIMESTAMP:
+		humid_st->timestamp = hid_sensor_convert_timestamp(&humid_st->common_attributes,
+								   *(s64 *)raw_data);
 		return 0;
 	default:
 		return -EINVAL;
