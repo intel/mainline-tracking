@@ -1185,11 +1185,11 @@ static struct xlink_ipc_dev *get_xlink_dev_by_sw_device_id(u32 sw_device_id)
 		pdev = to_platform_device(dev);
 		xlink_dev = platform_get_drvdata(pdev);
 		ipc_id = GET_VPU_ID_FROM_SW_DEVICE_ID(sw_device_id);
-		if (GET_VPU_ID_FROM_SW_DEVICE_ID(xlink_dev->sw_device_id) == ipc_id)
+		if (GET_VPU_ID_FROM_SW_DEVICE_ID(xlink_dev->sw_device_id) == ipc_id) {
 			break;
-
-		xlink_dev = NULL;
-
+		} else {
+			xlink_dev = NULL;
+		}
 	}
 	return xlink_dev;
 }
@@ -1235,9 +1235,11 @@ static struct xlink_ipc_dev *get_xlink_dev_by_vpu_id(u32 id)
 			dev))) {
 		pdev = to_platform_device(dev);
 		xlink_dev = platform_get_drvdata(pdev);
-		if (xlink_dev->vpu_id == id)
+		if (xlink_dev->vpu_id == id) {
 			break;
-		xlink_dev = NULL;
+		} else {
+			xlink_dev = NULL;
+		}
 	}
 	return xlink_dev;
 }
