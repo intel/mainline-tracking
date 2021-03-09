@@ -75,7 +75,14 @@ static unsigned long change_pte_range(struct vm_area_struct *vma, pmd_t *pmd,
 		oldpte = *pte;
 		if (pte_present(oldpte)) {
 			pte_t ptent;
-			bool preserve_write = prot_numa && pte_write(oldpte);
+			bool shstk = arch_shadow_stack_mapping(vma->vm_flags);
+			bool preserve_write;
+
+			/*
+			 * Preserve only normal writable PTE, but not shadow
+			 * stack (RW=0, Dirty=1).
+			 */
+			preserve_write = prot_numa && pte_write(oldpte) && !shstk;
 
 			/*
 			 * Avoid trapping faults against the zero or KSM
