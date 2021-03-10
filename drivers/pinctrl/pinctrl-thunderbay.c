@@ -81,7 +81,7 @@
 #define THB_MAX_NPINS_SUPPORTED (67u)
 
 /* THB Board specific requirements handle */
-#define THB_BOARD_SPECIFIC_GPIO_REQUIREMENTS_HANDLE (1u)
+#define THB_BOARD_SPECIFIC_GPIO_REQUIREMENTS_HANDLE (0u)
 
 /* store Pin status */
 static u32 thb_pinx_status[THB_MAX_NPINS_SUPPORTED] = { 0u };
