@@ -1066,7 +1066,7 @@ static int mmc_blk_rpmb_process(struct mmc_blk_data *md,
 	req_to_mmc_queue_req(req)->drv_op_data = idata;
 	req_to_mmc_queue_req(req)->ioc_count = num_of_cmds;
 
-	blk_execute_rq(mq->queue, NULL, req, 0);
+	blk_execute_rq(NULL, req, 0);
 
 	err = req_to_mmc_queue_req(req)->drv_op_result;
 
