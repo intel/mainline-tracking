@@ -81,6 +81,7 @@ static void tb_add_dp_resources(struct tb_switch *sw)
 			continue;
 
 		list_add_tail(&port->list, &tcm->dp_resources);
+		sw->tb->ndpin++;
 		tb_port_dbg(port, "DP IN resource available\n");
 	}
 }
@@ -98,7 +99,12 @@ static void tb_remove_dp_resources(struct tb_switch *sw)
 
 	list_for_each_entry_safe(port, tmp, &tcm->dp_resources, list) {
 		if (port->sw == sw) {
-			tb_port_dbg(port, "DP OUT resource unavailable\n");
+			if (tb_port_is_dpin(port)) {
+				sw->tb->ndpin--;
+				tb_port_dbg(port, "DP IN resource unavailable\n");
+			} else {
+				tb_port_dbg(port, "DP OUT resource unavailable\n");
+			}
 			list_del_init(&port->list);
 		}
 	}
