@@ -2358,7 +2358,7 @@ int nvme_sec_recv(struct nvme_ctrl *ctrl, u8 nssf, u16 spsp, u8 secp,
 	cmd.common.cdw10 = cpu_to_le32(((u32)secp) << 24 | ((u32)spsp) << 8 | nssf);
 	cmd.common.cdw11 = cpu_to_le32(len);
 	return __nvme_submit_sync_cmd(ctrl->admin_q, &cmd, NULL, buffer, len,
-				      ADMIN_TIMEOUT, NVME_QID_ANY, 1, 0, false);
+				      NVME_ADMIN_TIMEOUT, NVME_QID_ANY, 1, 0, false);
 }
 EXPORT_SYMBOL_GPL(nvme_sec_recv);
 
