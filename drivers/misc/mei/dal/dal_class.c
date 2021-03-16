@@ -652,7 +652,7 @@ struct device *dal_find_dev(enum dal_dev_type device_id)
  *
  * Return: 0
  */
-static int dal_remove(struct mei_cl_device *cldev)
+static void dal_remove(struct mei_cl_device *cldev)
 {
 	struct dal_device *ddev = mei_cldev_get_drvdata(cldev);
 	struct dal_client *dc;
@@ -660,7 +660,7 @@ static int dal_remove(struct mei_cl_device *cldev)
 	unsigned int i;
 
 	if (!ddev)
-		return 0;
+		return;
 
 	dal_dev_del(ddev);
 
@@ -682,8 +682,6 @@ static int dal_remove(struct mei_cl_device *cldev)
 	device_unregister(&ddev->dev);
 
 	mei_cldev_disable(cldev);
-
-	return 0;
 }
 
 /**
