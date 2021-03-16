@@ -263,7 +263,7 @@ static void intel_xpcie_cleanup_bar(struct pci_epf *epf, enum pci_barno barno)
 
 	if (xpcie_epf->vaddr[barno]) {
 		pci_epc_clear_bar(epc, epf->func_no, &epf->bar[barno]);
-		pci_epf_free_space(epf, xpcie_epf->vaddr[barno], barno);
+		pci_epf_free_space(epf, xpcie_epf->vaddr[barno], barno, PRIMARY_INTERFACE);
 		xpcie_epf->vaddr[barno] = NULL;
 	}
 }
@@ -325,7 +325,7 @@ static int intel_xpcie_setup_bar(struct pci_epf *epf, enum pci_barno barno,
 	ret = pci_epc_set_bar(epc, epf->func_no, bar);
 
 	if (ret) {
-		pci_epf_free_space(epf, vaddr, barno);
+		pci_epf_free_space(epf, vaddr, barno, PRIMARY_INTERFACE);
 		dev_err(&epf->dev, "Failed to set BAR%d\n", barno);
 		return ret;
 	}
@@ -351,7 +351,7 @@ static int intel_xpcie_setup_bar(struct pci_epf *epf, enum pci_barno barno,
 	if (barno == BAR_4)
 		bar->flags |= PCI_BASE_ADDRESS_MEM_PREFETCH;
 
-	vaddr = pci_epf_alloc_space(epf, bar->size, barno, align);
+	vaddr = pci_epf_alloc_space(epf, bar->size, barno, align, PRIMARY_INTERFACE);
 	if (!vaddr) {
 		dev_err(&epf->dev, "Failed to map BAR%d\n", barno);
 		return -ENOMEM;
@@ -359,7 +359,7 @@ static int intel_xpcie_setup_bar(struct pci_epf *epf, enum pci_barno barno,
 
 	ret = pci_epc_set_bar(epc, epf->func_no, bar);
 	if (ret) {
-		pci_epf_free_space(epf, vaddr, barno);
+		pci_epf_free_space(epf, vaddr, barno, PRIMARY_INTERFACE);
 		dev_err(&epf->dev, "Failed to set BAR%d\n", barno);
 		return ret;
 	}
