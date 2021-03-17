@@ -1141,11 +1141,12 @@ do_kern_addr_fault(struct pt_regs *regs, unsigned long hw_error_code,
 		   unsigned long address)
 {
 	/*
-	 * Protection keys exceptions only happen on user pages.  We
-	 * have no user pages in the kernel portion of the address
-	 * space, so do not expect them here.
+	 * PF_PK is expected on kernel addresses when supervisor pkeys are
+	 * enabled.
 	 */
-	WARN_ON_ONCE(hw_error_code & X86_PF_PK);
+	if (!cpu_feature_enabled(X86_FEATURE_PKS))
+		WARN_ON_ONCE(hw_error_code & X86_PF_PK);
+
 
 #ifdef CONFIG_X86_32
 	/*
