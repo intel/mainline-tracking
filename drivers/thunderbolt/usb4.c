@@ -472,12 +472,18 @@ int usb4_switch_set_wake(struct tb_switch *sw, unsigned int flags)
 
 		val &= ~(PORT_CS_19_WOC | PORT_CS_19_WOD | PORT_CS_19_WOU4);
 
-		if (flags & TB_WAKE_ON_CONNECT)
-			val |= PORT_CS_19_WOC;
-		if (flags & TB_WAKE_ON_DISCONNECT)
-			val |= PORT_CS_19_WOD;
-		if (flags & TB_WAKE_ON_USB4)
+		if (tb_is_upstream_port(port)) {
 			val |= PORT_CS_19_WOU4;
+		} else {
+			bool configured = val & PORT_CS_19_PC;
+
+			if ((flags & TB_WAKE_ON_CONNECT) && !configured)
+				val |= PORT_CS_19_WOC;
+			if ((flags & TB_WAKE_ON_DISCONNECT) && configured)
+				val |= PORT_CS_19_WOD;
+			if ((flags & TB_WAKE_ON_USB4) && configured)
+				val |= PORT_CS_19_WOU4;
+		}
 
 		ret = tb_port_write(port, &val, TB_CFG_PORT,
 				    port->cap_usb4 + PORT_CS_19, 1);
@@ -486,7 +492,7 @@ int usb4_switch_set_wake(struct tb_switch *sw, unsigned int flags)
 	}
 
 	/*
-	 * Enable wakes from PCIe and USB 3.x on this router. Only
+	 * Enable wakes from PCIe, USB 3.x and DP on this router. Only
 	 * needed for device routers.
 	 */
 	if (route) {
@@ -494,11 +500,13 @@ int usb4_switch_set_wake(struct tb_switch *sw, unsigned int flags)
 		if (ret)
 			return ret;
 
-		val &= ~(ROUTER_CS_5_WOP | ROUTER_CS_5_WOU);
+		val &= ~(ROUTER_CS_5_WOP | ROUTER_CS_5_WOU | ROUTER_CS_5_WOD);
 		if (flags & TB_WAKE_ON_USB3)
 			val |= ROUTER_CS_5_WOU;
 		if (flags & TB_WAKE_ON_PCIE)
 			val |= ROUTER_CS_5_WOP;
+		if (flags & TB_WAKE_ON_DP)
+			val |= ROUTER_CS_5_WOD;
 
 		ret = tb_sw_write(sw, &val, TB_CFG_SWITCH, ROUTER_CS_5, 1);
 		if (ret)
@@ -1174,6 +1182,46 @@ static int usb4_port_sb_op(struct tb_port *port, enum usb4_sb_target target,
 	return -ETIMEDOUT;
 }
 
+static int usb4_port_set_router_offline(struct tb_port *port, bool offline)
+{
+	u32 val = offline;
+	int ret;
+
+	ret = usb4_port_sb_write(port, USB4_SB_TARGET_ROUTER, 0,
+				  USB4_SB_METADATA, &val, sizeof(val));
+	if (ret)
+		return ret;
+
+	val = USB4_SB_OPCODE_ROUTER_OFFLINE;
+	return usb4_port_sb_write(port, USB4_SB_TARGET_ROUTER, 0,
+				  USB4_SB_OPCODE, &val, sizeof(val));
+}
+
+/**
+ * usb4_port_router_online() - Put the port into online mode
+ * @port: USB4 port
+ *
+ * Reverse of usb4_port_router_offline(). After this is successfully called
+ * the @port starts reacting to hotplug events again.
+ */
+int usb4_port_router_online(struct tb_port *port)
+{
+	/* Passing true means exit offline mode. Go figure. */
+	return usb4_port_set_router_offline(port, true);
+}
+
+/**
+ * usb4_port_router_offline() - Put the port into offline mode
+ * @port: USB4 port
+ *
+ * Puts the @port into offline mode so it does not react to hotplug events.
+ * Used with retimer access if there is nothing connected to the port.
+ */
+int usb4_port_router_offline(struct tb_port *port)
+{
+	return usb4_port_set_router_offline(port, false);
+}
+
 /**
  * usb4_port_enumerate_retimers() - Send RT broadcast transaction
  * @port: USB4 port
@@ -1197,6 +1245,32 @@ static inline int usb4_port_retimer_op(struct tb_port *port, u8 index,
 {
 	return usb4_port_sb_op(port, USB4_SB_TARGET_RETIMER, index, opcode,
 			       timeout_msec);
+}
+
+/**
+ * usb4_port_retimer_set_inbound_sbtx() - Enable sideband channel transactions
+ * @port: USB4 port
+ * @index: Retimer index
+ *
+ * Enables sideband channel transations on SBTX. Can be used when USB4
+ * link does not go up, for example if there is no device connected.
+ */
+int usb4_port_retimer_set_inbound_sbtx(struct tb_port *port, u8 index)
+{
+	int ret;
+
+	ret = usb4_port_retimer_op(port, index, USB4_SB_OPCODE_SET_INBOUND_SBTX,
+				   500);
+	/*
+	 * Per the USB4 retimer spec, the retimer is not required to
+	 * send an RT (Retimer Transaction) response for the first
+	 * SET_INBOUND_SBTX command
+	 */
+	if (ret == -ENODEV)
+		return usb4_port_retimer_op(port, index,
+					    USB4_SB_OPCODE_SET_INBOUND_SBTX,
+					    500);
+	return ret;
 }
 
 /**
