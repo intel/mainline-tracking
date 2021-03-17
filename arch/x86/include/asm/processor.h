@@ -18,6 +18,7 @@ struct vm86;
 #include <asm/cpufeatures.h>
 #include <asm/page.h>
 #include <asm/pgtable_types.h>
+#include <asm/pkeys_common.h>
 #include <asm/percpu.h>
 #include <asm/msr.h>
 #include <asm/desc_defs.h>
@@ -519,6 +520,12 @@ struct thread_struct {
 	unsigned long		cr2;
 	unsigned long		trap_nr;
 	unsigned long		error_code;
+
+#ifdef	CONFIG_ARCH_HAS_SUPERVISOR_PKEYS
+	/* Saved Protection key register for supervisor mappings */
+	u32			saved_pkrs;
+#endif
+
 #ifdef CONFIG_VM86
 	/* Virtual 86 mode info */
 	struct vm86		*vm86;
@@ -784,7 +791,16 @@ static inline void spin_lock_prefetch(const void *x)
 #define KSTK_ESP(task)		(task_pt_regs(task)->sp)
 
 #else
-#define INIT_THREAD { }
+
+#ifdef CONFIG_ARCH_HAS_SUPERVISOR_PKEYS
+#define INIT_THREAD_PKRS	.saved_pkrs = INIT_PKRS_VALUE
+#else
+#define INIT_THREAD_PKRS	0
+#endif
+
+#define INIT_THREAD  {						\
+	INIT_THREAD_PKRS,					\
+}
 
 extern unsigned long KSTK_ESP(struct task_struct *task);
 
@@ -862,5 +878,29 @@ enum mds_mitigations {
 	MDS_MITIGATION_FULL,
 	MDS_MITIGATION_VMWERV,
 };
+
+#ifdef CONFIG_ARCH_HAS_SUPERVISOR_PKEYS
+struct extended_pt_regs {
+	u32 thread_pkrs;
+	u32 pkrs_ref;
+	struct pt_regs pt_regs;
+};
+
+static inline struct extended_pt_regs *extended_pt_regs(struct pt_regs *regs)
+{
+	return container_of(regs, struct extended_pt_regs, pt_regs);
+}
+
+bool handle_pks(struct pt_regs *regs, unsigned long error_code,
+		unsigned long address);
+#else
+
+static inline bool handle_pks(struct pt_regs *regs, unsigned long error_code,
+			      unsigned long address)
+{
+	return false;
+}
+
+#endif
 
 #endif /* _ASM_X86_PROCESSOR_H */

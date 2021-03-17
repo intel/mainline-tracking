@@ -20,6 +20,7 @@
 #include <linux/efi.h>			/* efi_crash_gracefully_on_page_fault()*/
 #include <linux/mm_types.h>
 
+#include <asm/processor.h>		/* extended_pt_regs, ...	*/
 #include <asm/cpufeature.h>		/* boot_cpu_has, ...		*/
 #include <asm/traps.h>			/* dotraplinkage, ...		*/
 #include <asm/fixmap.h>			/* VSYSCALL_ADDR		*/
@@ -35,6 +36,70 @@
 
 #define CREATE_TRACE_POINTS
 #include <asm/trace/exceptions.h>
+
+#ifdef CONFIG_ARCH_HAS_SUPERVISOR_PKEYS
+
+typedef enum {
+	PKS_MODE_STRICT  = 0,
+	PKS_MODE_RELAXED = 1,
+	PKS_MODE_SILENT  = 2,
+} pks_fault_modes;
+
+pks_fault_modes pks_mode = PKS_MODE_RELAXED;
+
+static int param_set_pks_fault_mode(const char *val, const struct kernel_param *kp)
+{
+	char *s = strstrip((char *)val);
+	int ret = -EINVAL;
+
+	if (!strcmp(s, "relaxed")) {
+		pks_mode = PKS_MODE_RELAXED;
+		ret = 0;
+	} else if (!strcmp(s, "silent")) {
+		pks_mode = PKS_MODE_SILENT;
+		ret = 0;
+	} else if (!strcmp(s, "strict")) {
+		pks_mode = PKS_MODE_STRICT;
+		ret = 0;
+	}
+
+	return ret;
+}
+
+static int param_get_pks_fault_mode(char *buffer, const struct kernel_param *kp)
+{
+	int ret = 0;
+
+	switch (pks_mode) {
+	case PKS_MODE_STRICT:
+		ret = sprintf(buffer, "strict\n");
+		break;
+	case PKS_MODE_RELAXED:
+		ret = sprintf(buffer, "relaxed\n");
+		break;
+	case PKS_MODE_SILENT:
+		ret = sprintf(buffer, "silent\n");
+		break;
+	default:
+		ret = sprintf(buffer, "<unknown>\n");
+		break;
+	}
+
+	return ret;
+}
+
+static const struct kernel_param_ops param_ops_pks_fault_modes =
+{
+	.set = param_set_pks_fault_mode,
+	.get = param_get_pks_fault_mode,
+};
+
+#define param_check_pks_fault_modes(name, p) \
+	__param_check(name, p, pks_fault_modes)
+module_param(pks_mode, pks_fault_modes, 0644);
+
+#endif /* CONFIG_ARCH_HAS_SUPERVISOR_PKEYS */
+
 
 /*
  * Returns 0 if mmiotrace is disabled, or if the fault is not
@@ -502,6 +567,22 @@ static void show_ldttss(const struct desc_ptr *gdt, const char *name, u16 index)
 		 name, index, addr, (desc.limit0 | (desc.limit1 << 16)));
 }
 
+#ifdef CONFIG_ARCH_HAS_SUPERVISOR_PKEYS
+static void
+show_extended_regs_oops(struct pt_regs *regs, unsigned error_code)
+{
+	struct extended_pt_regs *ept_regs = extended_pt_regs(regs);
+
+	if (cpu_feature_enabled(X86_FEATURE_PKS) && (error_code & X86_PF_PK))
+		pr_alert("PKRS: 0x%x\n", ept_regs->thread_pkrs);
+}
+#else
+static __always_inline void show_extended_regs_oops(struct pt_regs *regs,
+						    unsigned error_code)
+{
+}
+#endif
+
 static void
 show_fault_oops(struct pt_regs *regs, unsigned long error_code, unsigned long address)
 {
@@ -546,6 +627,8 @@ show_fault_oops(struct pt_regs *regs, unsigned long error_code, unsigned long ad
 		 (error_code & X86_PF_RSVD)  ? "reserved bit violation" :
 		 (error_code & X86_PF_PK)    ? "protection keys violation" :
 					       "permissions violation");
+
+	show_extended_regs_oops(regs, error_code);
 
 	if (!(error_code & X86_PF_USER) && user_mode(regs)) {
 		struct desc_ptr idt, gdt;
@@ -1131,6 +1214,55 @@ bool fault_in_kernel_space(unsigned long address)
 	return address >= TASK_SIZE_MAX;
 }
 
+#ifdef CONFIG_PKS_TEST
+static bool handle_pks_test(unsigned long hw_error_code, struct pt_regs *regs)
+{
+	/*
+	 * If we get a protection key exception it could be because we
+	 * are running the PKS test.  If so, pks_test_callback() will
+	 * clear the protection mechanism and return true to indicate
+	 * the fault was handled.
+	 */
+	return (hw_error_code & X86_PF_PK) && pks_test_callback(regs);
+}
+#else
+static bool handle_pks_test(unsigned long hw_error_code, struct pt_regs *regs)
+{
+	return false;
+}
+#endif
+
+#ifdef CONFIG_ARCH_HAS_SUPERVISOR_PKEYS
+bool handle_pks(struct pt_regs *regs, unsigned long error_code,
+		unsigned long address)
+{
+	if (error_code & X86_PF_PK) {
+		struct extended_pt_regs *ept_regs;
+		struct page *page;
+		int pkey;
+
+		page = virt_to_page(address);
+
+		if (!page || !page_is_globally_mapped(page))
+			return false;
+
+		if (pks_mode == PKS_MODE_STRICT)
+			return false;
+
+		WARN_ONCE(pks_mode == PKS_MODE_RELAXED,
+			"PKS fault on globally mapped device page 0x%lu pfn %lu",
+			address, page_to_pfn(page));
+
+		pkey = dev_get_dev_pkey();
+		ept_regs = extended_pt_regs(regs);
+		update_pkey_val(ept_regs->thread_pkrs, pkey, 0);
+		return true;
+	}
+
+	return false;
+}
+#endif
+
 /*
  * Called for all faults where 'address' is part of the kernel address
  * space.  Might get called for faults that originate from *code* that
@@ -1141,11 +1273,17 @@ do_kern_addr_fault(struct pt_regs *regs, unsigned long hw_error_code,
 		   unsigned long address)
 {
 	/*
-	 * Protection keys exceptions only happen on user pages.  We
-	 * have no user pages in the kernel portion of the address
-	 * space, so do not expect them here.
+	 * PF_PK is expected on kernel addresses when supervisor pkeys are
+	 * enabled.
 	 */
-	WARN_ON_ONCE(hw_error_code & X86_PF_PK);
+	if (!cpu_feature_enabled(X86_FEATURE_PKS))
+		WARN_ON_ONCE(hw_error_code & X86_PF_PK);
+
+	if (handle_pks_test(hw_error_code, regs))
+		return;
+
+	if (handle_pks(regs, hw_error_code, address))
+		return;
 
 #ifdef CONFIG_X86_32
 	/*

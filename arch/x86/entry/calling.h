@@ -97,6 +97,36 @@ For 32-bit we have the following conventions - kernel is built with
 
 #define SIZEOF_PTREGS	21*8
 
+/**
+ * call_ext_ptregs - Helper macro to call into C with extended pt_regs
+ * @cfunc:		C function to be called
+ * @has_error_code:	Hardware pushed error code on stack
+ *
+ * This will ensure that extended_ptregs is added and removed as needed during
+ * a call into C code.
+ */
+.macro call_ext_ptregs cfunc annotate_retpoline_safe:req
+#ifdef CONFIG_ARCH_HAS_SUPERVISOR_PKEYS
+	pushq	$0xDEAD	/* space for extended_pt_regs.thread_pkrs/pad */
+			/* The value does not matter and will
+			 * be overwritten by the C code later if used.
+			 * Regardless, we put a token value in which could be
+			 * used as a debugging flag if needed because it costs
+			 * nothing.
+			 */
+#endif
+	.if \annotate_retpoline_safe == 1
+		ANNOTATE_RETPOLINE_SAFE
+	.endif
+	call	\cfunc
+#ifdef CONFIG_ARCH_HAS_SUPERVISOR_PKEYS
+	popq %r15	/* remove space for extended_pt_regs.thread_pkrs/pad */
+			/* The value is thrown into r15 which gets overwritten
+			 * by the normal popq of registers
+			 */
+#endif
+.endm
+
 .macro PUSH_AND_CLEAR_REGS rdx=%rdx rax=%rax save_ret=0
 	.if \save_ret
 	pushq	%rsi		/* pt_regs->si */

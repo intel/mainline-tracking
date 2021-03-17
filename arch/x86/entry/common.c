@@ -19,6 +19,7 @@
 #include <linux/nospec.h>
 #include <linux/syscalls.h>
 #include <linux/uaccess.h>
+#include <linux/pkeys.h>
 
 #ifdef CONFIG_XEN_PV
 #include <xen/xen-ops.h>
@@ -28,6 +29,7 @@
 #include <asm/desc.h>
 #include <asm/traps.h>
 #include <asm/vdso.h>
+#include <asm/processor.h>
 #include <asm/cpufeature.h>
 #include <asm/fpu/api.h>
 #include <asm/nospec-branch.h>
@@ -214,6 +216,68 @@ SYSCALL_DEFINE0(ni_syscall)
 	return -ENOSYS;
 }
 
+#ifdef CONFIG_ARCH_HAS_SUPERVISOR_PKEYS
+/*
+ * PKRS is a per-logical-processor MSR which overlays additional protection for
+ * pages which have been mapped with a protection key.
+ *
+ * The register is not maintained with XSAVE so we have to maintain the MSR
+ * value in software during context switch and exception handling.
+ *
+ * Context switches save the MSR in the task struct thus taking that value to
+ * other processors if necessary.
+ *
+ * To protect against exceptions having access to this memory we save the
+ * current running value and sets the PKRS value to be used during the
+ * exception.
+ *
+ * Zone Device Access Protection maintains access in a re-entrant manner
+ * through a reference count which also needs to be maintained should exception
+ * handlers use those interfaces for memory access.  Here we start off the
+ * exception handler ref count to 0 and ensure it is 0 when the exception is
+ * done.  Then restore it for the interrupted task.
+ */
+void irq_save_set_pkrs(struct pt_regs *regs, u32 val)
+{
+	struct extended_pt_regs *ept_regs;
+
+	if (!cpu_feature_enabled(X86_FEATURE_PKS))
+		return;
+
+	ept_regs = extended_pt_regs(regs);
+	ept_regs->thread_pkrs = current->thread.saved_pkrs;
+
+#ifdef CONFIG_ZONE_DEVICE_ACCESS_PROTECTION
+	/*
+	 * Save the ref count of the current running process and set it to 0
+	 * for any irq users to properly track re-entrance
+	 */
+	ept_regs->pkrs_ref = current->dev_page_access_ref;
+	current->dev_page_access_ref = 0;
+#endif
+
+	write_pkrs(val);
+}
+
+void irq_restore_pkrs(struct pt_regs *regs)
+{
+	struct extended_pt_regs *ept_regs;
+
+	if (!cpu_feature_enabled(X86_FEATURE_PKS))
+		return;
+
+	ept_regs = extended_pt_regs(regs);
+	write_pkrs(ept_regs->thread_pkrs);
+	current->thread.saved_pkrs = ept_regs->thread_pkrs;
+
+#ifdef CONFIG_ZONE_DEVICE_ACCESS_PROTECTION
+	WARN_ON_ONCE(current->dev_page_access_ref != 0);
+	/* Restore the interrupted process reference */
+	current->dev_page_access_ref = ept_regs->pkrs_ref;
+#endif
+}
+#endif /* CONFIG_ARCH_HAS_SUPERVISOR_PKEYS */
+
 #ifdef CONFIG_XEN_PV
 #ifndef CONFIG_PREEMPTION
 /*
@@ -270,6 +334,8 @@ __visible noinstr void xen_pv_evtchn_do_upcall(struct pt_regs *regs)
 
 	inhcall = get_and_clear_inhcall();
 	if (inhcall && !WARN_ON_ONCE(state.exit_rcu)) {
+		/* Normally called by irqentry_exit, we must restore pkrs here */
+		irq_restore_pkrs(regs);
 		instrumentation_begin();
 		irqentry_exit_cond_resched();
 		instrumentation_end();

@@ -147,7 +147,9 @@ static blk_status_t pmem_do_read(struct pmem_device *pmem,
 	if (unlikely(is_bad_pmem(&pmem->bb, sector, len)))
 		return BLK_STS_IOERR;
 
+	dev_mk_readwrite();
 	rc = read_pmem(page, page_off, pmem_addr, len);
+	dev_mk_noaccess();
 	flush_dcache_page(page);
 	return rc;
 }
@@ -179,11 +181,13 @@ static blk_status_t pmem_do_write(struct pmem_device *pmem,
 	 * after clear poison.
 	 */
 	flush_dcache_page(page);
+	dev_mk_readwrite();
 	write_pmem(pmem_addr, page, page_off, len);
 	if (unlikely(bad_pmem)) {
 		rc = pmem_clear_poison(pmem, pmem_off, len);
 		write_pmem(pmem_addr, page, page_off, len);
 	}
+	dev_mk_noaccess();
 
 	return rc;
 }
@@ -419,6 +423,8 @@ static int pmem_attach_disk(struct device *dev,
 		dev_warn(dev, "could not reserve region %pR\n", res);
 		return -EBUSY;
 	}
+
+	pmem->pgmap.flags |= PGMAP_PROT_ENABLED;
 
 	q = blk_alloc_queue(dev_to_node(dev));
 	if (!q)

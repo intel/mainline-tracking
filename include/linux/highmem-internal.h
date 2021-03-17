@@ -134,6 +134,31 @@ static inline void totalhigh_pages_add(long count)
 
 #else /* CONFIG_HIGHMEM */
 
+#ifdef CONFIG_ZONE_DEVICE_ACCESS_PROTECTION
+
+static inline void dev_page_mk_readwrite(struct page *page, bool global)
+{
+	if (!page_is_access_protected(page))
+		return;
+	if (global)
+		page->pgmap->flags |=  PGMAP_KMAP_GLOBAL;
+	dev_mk_readwrite();
+}
+
+static inline void dev_page_mk_noaccess(struct page *page, bool global)
+{
+	if (!page_is_access_protected(page))
+		return;
+	if (global)
+		page->pgmap->flags &= ~PGMAP_KMAP_GLOBAL;
+	dev_mk_noaccess();
+}
+
+#else
+static inline void dev_page_mk_readwrite(struct page *page, bool global) { }
+static inline void dev_page_mk_noaccess(struct page *page, bool global) { }
+#endif
+
 static inline struct page *kmap_to_page(void *addr)
 {
 	return virt_to_page(addr);
@@ -142,6 +167,7 @@ static inline struct page *kmap_to_page(void *addr)
 static inline void *kmap(struct page *page)
 {
 	might_sleep();
+	dev_page_mk_readwrite(page, true);
 	return page_address(page);
 }
 
@@ -150,6 +176,7 @@ static inline void kmap_flush_unused(void) { }
 
 static inline void kunmap(struct page *page)
 {
+	dev_page_mk_noaccess(page, true);
 #ifdef ARCH_HAS_FLUSH_ON_KUNMAP
 	kunmap_flush_on_unmap(page_address(page));
 #endif
@@ -157,6 +184,7 @@ static inline void kunmap(struct page *page)
 
 static inline void *kmap_local_page(struct page *page)
 {
+	dev_page_mk_readwrite(page, false);
 	return page_address(page);
 }
 
@@ -175,12 +203,14 @@ static inline void __kunmap_local(void *addr)
 #ifdef ARCH_HAS_FLUSH_ON_KUNMAP
 	kunmap_flush_on_unmap(addr);
 #endif
+	dev_page_mk_noaccess(kmap_to_page(addr), false);
 }
 
 static inline void *kmap_atomic(struct page *page)
 {
 	preempt_disable();
 	pagefault_disable();
+	dev_page_mk_readwrite(page, false);
 	return page_address(page);
 }
 
@@ -199,6 +229,7 @@ static inline void __kunmap_atomic(void *addr)
 #ifdef ARCH_HAS_FLUSH_ON_KUNMAP
 	kunmap_flush_on_unmap(addr);
 #endif
+	dev_page_mk_noaccess(kmap_to_page(addr), false);
 	pagefault_enable();
 	preempt_enable();
 }
