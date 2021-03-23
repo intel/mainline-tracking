@@ -411,14 +411,78 @@ TRACE_EVENT(xlink_event_receive,
 		),
 		TP_printk("swid=%d chan=%d size=%d id=%d", __entry->swid, __entry->chan, __entry->size, __entry->id)
 );
+TRACE_EVENT(xlink_rx_read_pkt_data_arrived_event,
+	    TP_PROTO(u32 swid, uint16_t chan,
+		     u32 id, u32 size),
+		     TP_ARGS(swid, chan, id, size),
+		     TP_STRUCT__entry(__field(uint32_t, swid)
+			      __field(uint16_t, chan)
+			      __field(uint32_t, id)
+			      __field(uint32_t, size)
+		     ),
+		     TP_fast_assign(__entry->swid = swid;
+			    __entry->chan = chan;
+			    __entry->size = id;
+			    __entry->size = size;
+		     ),
+		     TP_printk("swid=%d chan=%d size=%d id=%d",
+			       __entry->swid, __entry->chan,
+			       __entry->size, __entry->id)
+);
+
+TRACE_EVENT(xlink_rx_read_pkt_control_arrived_event,
+	    TP_PROTO(u32 swid, uint16_t chan,
+		     u32 id, u32 size),
+		TP_ARGS(swid, chan, id, size),
+		TP_STRUCT__entry(__field(uint32_t, swid)
+			__field(uint16_t, chan)
+			__field(uint32_t, id)
+			__field(uint32_t, size)
+		),
+		TP_fast_assign(__entry->swid = swid;
+			__entry->chan = chan;
+			__entry->size = id;
+			__entry->size = size;
+		),
+		TP_printk("swid=%d chan=%d size=%d id=%d",
+			  __entry->swid, __entry->chan,
+			  __entry->size, __entry->id)
+);
+
+TRACE_EVENT(xlink_rx_read_consumed_arrived_event,
+	    TP_PROTO(u32 swid, uint16_t chan,
+		     u32 id, u32 size),
+		TP_ARGS(swid, chan, id, size),
+		TP_STRUCT__entry(__field(uint32_t, swid)
+			__field(uint16_t, chan)
+			__field(uint32_t, id)
+			__field(uint32_t, size)
+		),
+		TP_fast_assign(__entry->swid = swid;
+			__entry->chan = chan;
+			__entry->size = id;
+			__entry->size = size;
+		),
+		TP_printk("swid=%d chan=%d size=%d id=%d",
+			  __entry->swid, __entry->chan,
+			  __entry->size, __entry->id)
+);
 #endif /* _XLINK_TRACE_H */
 
 /* This part must be outside protection */
+/*
+ *#undef TRACE_INCLUDE_PATH
+ *#define TRACE_INCLUDE_PATH	../../drivers/misc/xlink-core
+ *#undef TRACE_INCLUDE_FILE
+ *#define TRACE_INCLUDE_FILE xlink-trace
+ *#include <trace/define_trace.h>
+*/
+
 #undef TRACE_INCLUDE_PATH
-#ifdef CONFIG_XLINK_LOCAL_HOST
-#define TRACE_INCLUDE_PATH	../../drivers/misc/xlink-core
-#else
+#ifndef CONFIG_XLINK_LOCAL_HOST
 #define TRACE_INCLUDE_PATH	.
+#else
+#define TRACE_INCLUDE_PATH	../../drivers/misc/xlink-core
 #endif
 #define TRACE_INCLUDE_FILE xlink-trace
 #include <trace/define_trace.h>
