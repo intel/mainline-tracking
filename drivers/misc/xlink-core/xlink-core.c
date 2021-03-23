@@ -8,6 +8,8 @@
 #include <linux/module.h>
 #include <linux/kernel.h>
 #include <linux/fs.h>
+#include <linux/sysfs.h>
+#include <linux/version.h>
 #include <linux/cdev.h>
 #include <linux/platform_device.h>
 #include <linux/mod_devicetable.h>
@@ -97,7 +99,7 @@ static ssize_t eventx_show(struct device *dev, struct device_attribute *attr,
 	struct keembay_xlink_dev *xlink_dev = dev_get_drvdata(dev);
 	struct xlink_attr *a = &xlink_dev->eventx[index];
 
-	return sysfs_emit(buf, "0x%x 0x%lx\n", a->sw_dev_id, a->value);
+	return scnprintf(buf, PAGE_SIZE, "0x%x 0x%lx\n", a->sw_dev_id, a->value);
 }
 
 static ssize_t event0_show(struct device *dev, struct device_attribute *attr, char *buf)

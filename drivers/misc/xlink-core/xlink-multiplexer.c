@@ -119,13 +119,21 @@ static enum xlink_error run_callback(struct open_channel *opchan,
 				     void *callback, struct task_struct *pid)
 {
 	enum xlink_error rc = X_LINK_SUCCESS;
-	struct kernel_siginfo info;
 	void (*func)(int chan);
 	int ret;
 
+#if KERNEL_VERSION(4, 20, 0) > LINUX_VERSION_CODE
+	struct siginfo info;
+
+	memset(&info, 0, sizeof(struct siginfo));
+#else
+	struct kernel_siginfo info;
+
+	memset(&info, 0, sizeof(struct kernel_siginfo));
+#endif
+
 	if (opchan->callback_origin == 'U') { // user-space origin
 		if (pid) {
-			memset(&info, 0, sizeof(struct kernel_siginfo));
 			info.si_signo = SIGXLNK;
 			info.si_code = SI_QUEUE;
 			info.si_errno = opchan->id;
