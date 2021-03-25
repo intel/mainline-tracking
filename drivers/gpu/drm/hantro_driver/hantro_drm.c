@@ -15,29 +15,29 @@
 extern const struct dma_buf_ops hantro_dmabuf_ops;
 static struct drm_gem_object_funcs hantro_gem_object_funcs;
 
-int hantro_recordmem(struct device_info *pdevice, void *obj, int size)
+int hantro_recordmem(struct device_info *pdevinfo, void *obj, int size)
 {
 	int ret;
 
-	mutex_lock(&pdevice->alloc_mutex);
-	ret = idr_alloc(&pdevice->allocations, obj, 1, 0, GFP_KERNEL);
-	mutex_unlock(&pdevice->alloc_mutex);
+	mutex_lock(&pdevinfo->alloc_mutex);
+	ret = idr_alloc(&pdevinfo->allocations, obj, 1, 0, GFP_KERNEL);
+	mutex_unlock(&pdevinfo->alloc_mutex);
 	return (ret > 0 ? 0 : -ENOMEM);
 }
 
-void hantro_unrecordmem(struct device_info *pdevice, void *obj)
+void hantro_unrecordmem(struct device_info *pdevinfo, void *obj)
 {
 	int id;
 	void *cma_obj;
 
-	mutex_lock(&pdevice->alloc_mutex);
-	idr_for_each_entry(&pdevice->allocations, cma_obj, id) {
+	mutex_lock(&pdevinfo->alloc_mutex);
+	idr_for_each_entry(&pdevinfo->allocations, cma_obj, id) {
 		if (cma_obj == obj) {
-			idr_remove(&pdevice->allocations, id);
+			idr_remove(&pdevinfo->allocations, id);
 			break;
 		}
 	}
-	mutex_unlock(&pdevice->alloc_mutex);
+	mutex_unlock(&pdevinfo->alloc_mutex);
 }
 
 static void hantro_drm_fb_destroy(struct drm_framebuffer *fb)
@@ -85,14 +85,14 @@ static int hantro_gem_dumb_create_internal(struct drm_file *file_priv,
 {
 	struct drm_gem_hantro_object *cma_obj = NULL;
 	struct drm_gem_object *obj;
-	struct device_info *pdevice;
+	struct device_info *pdevinfo;
 	int min_pitch = DIV_ROUND_UP(args->width * args->bpp, 8);
 	unsigned int deviceidx = (args->flags & 0xf);
 	unsigned int region = (args->flags >> 0x8) & 0xf;
 	int ret = 0;
 
-	pdevice = get_deviceinfo(deviceidx);
-	if (!pdevice)
+	pdevinfo = get_deviceinfo(deviceidx);
+	if (!pdevinfo)
 		return -EINVAL;
 
 	if (mutex_lock_interruptible(&dev->struct_mutex))
@@ -113,13 +113,13 @@ static int hantro_gem_dumb_create_internal(struct drm_file *file_priv,
 	obj->funcs = &hantro_gem_object_funcs;
 	cma_obj->dmapriv.self = cma_obj;
 	cma_obj->num_pages = args->size >> PAGE_SHIFT;
-	cma_obj->pdevice = pdevice;
+	cma_obj->pdevinfo = pdevinfo;
 
-	if (region == CODEC_RESERVED && pdevice->codec_rsvmem)
-		cma_obj->memdev = pdevice->codec_rsvmem;
+	if (region == CODEC_RESERVED && pdevinfo->codec_rsvmem)
+		cma_obj->memdev = pdevinfo->codec_rsvmem;
 
 	if (!cma_obj->memdev) {
-		cma_obj->memdev = pdevice->dev;
+		cma_obj->memdev = pdevinfo->dev;
 		region = PIXEL_CMA;
 	}
 
@@ -127,7 +127,7 @@ static int hantro_gem_dumb_create_internal(struct drm_file *file_priv,
 		dma_alloc_coherent(cma_obj->memdev, args->size, &cma_obj->paddr,
 				   GFP_KERNEL | GFP_DMA);
 	if (region == CODEC_RESERVED && !cma_obj->vaddr) {
-		cma_obj->memdev = pdevice->dev;
+		cma_obj->memdev = pdevinfo->dev;
 		region = PIXEL_CMA;
 		cma_obj->vaddr = dma_alloc_coherent(cma_obj->memdev, args->size,
 						    &cma_obj->paddr,
@@ -137,10 +137,10 @@ static int hantro_gem_dumb_create_internal(struct drm_file *file_priv,
 	if (!cma_obj->vaddr) {
 		int used_mem[2] = { 0 }, alloc_count[2] = { 0 };
 
-		mem_usage_internal(deviceidx, pdevice->dev, &used_mem[0],
+		mem_usage_internal(deviceidx, pdevinfo->dev, &used_mem[0],
 				   &alloc_count[0], NULL);
-		if (pdevice->codec_rsvmem)
-			mem_usage_internal(deviceidx, pdevice->codec_rsvmem,
+		if (pdevinfo->codec_rsvmem)
+			mem_usage_internal(deviceidx, pdevinfo->codec_rsvmem,
 					   &used_mem[1], &alloc_count[1], NULL);
 
 		__trace_hantro_err("Device %d out of memory; Requested region = %d;  CMA 0: %dK in %d allocations\n CMA 1: %dK in %d allocations",
@@ -167,7 +167,7 @@ static int hantro_gem_dumb_create_internal(struct drm_file *file_priv,
 	cma_obj->dmapriv.self = cma_obj;
 	cma_obj->file_priv = file_priv;
 
-	hantro_recordmem(pdevice, cma_obj, args->size);
+	hantro_recordmem(pdevinfo, cma_obj, args->size);
 	drm_gem_object_put(obj);
 	trace_gem_handle_create(args->handle);
 	trace_hantro_cma_alloc(deviceidx, region, (void *)cma_obj->paddr, args->handle,
@@ -364,7 +364,7 @@ static int hantro_gem_prime_mmap(struct drm_gem_object *obj,
 static void hantro_gem_free_object(struct drm_gem_object *gem_obj)
 {
 	struct drm_gem_hantro_object *cma_obj;
-	struct device_info *pdevice;
+	struct device_info *pdevinfo;
 	/*
 	 * dma buf imported from others,
 	 * release data structures allocated by ourselves
@@ -387,14 +387,14 @@ static void hantro_gem_free_object(struct drm_gem_object *gem_obj)
 
 		drm_prime_gem_destroy(gem_obj, cma_obj->sgt);
 	} else if (cma_obj->vaddr) {
-		pdevice = cma_obj->pdevice;
-		if (!pdevice)
+		pdevinfo = cma_obj->pdevinfo;
+		if (!pdevinfo)
 			return;
 
 		dma_free_coherent(cma_obj->memdev, cma_obj->base.size,
 				  cma_obj->vaddr, cma_obj->paddr);
-		hantro_unrecordmem(cma_obj->pdevice, cma_obj);
-		trace_hantro_cma_free(pdevice->deviceid, (void *)cma_obj->paddr,
+		hantro_unrecordmem(cma_obj->pdevinfo, cma_obj);
+		trace_hantro_cma_free(pdevinfo->deviceid, (void *)cma_obj->paddr,
 				      cma_obj->handle);
 	}
 
@@ -466,13 +466,13 @@ static int hantro_map_vaddr(struct drm_device *dev, void *data,
 static int hantro_get_hwcfg(struct drm_device *dev, void *data,
 			    struct drm_file *file_priv)
 {
-	struct device_info *pdevice;
+	struct device_info *pdevinfo;
 	u32 config = 0;
 	int i;
 
 	for (i = 0; i < get_devicecount(); i++) {
-		pdevice = get_deviceinfo(i);
-		config |= pdevice->config;
+		pdevinfo = get_deviceinfo(i);
+		config |= pdevinfo->config;
 	}
 
 	return config;
@@ -1433,7 +1433,7 @@ static int hantro_mmap(struct file *filp, struct vm_area_struct *vma)
 	int sgtidx = 0;
 	struct scatterlist *pscatter = NULL;
 	struct page **pages = NULL;
-	struct device_info *pdevice;
+	struct device_info *pdevinfo;
 	struct device *dev;
 
 	if (mutex_lock_interruptible(&hantro_drm.drm_dev->struct_mutex))
@@ -1463,8 +1463,8 @@ static int hantro_mmap(struct file *filp, struct vm_area_struct *vma)
 	}
 
 	if ((cma_obj->flag & HANTRO_GEM_FLAG_IMPORT) == 0) {
-		pdevice = cma_obj->pdevice;
-		if (!pdevice) {
+		pdevinfo = cma_obj->pdevinfo;
+		if (!pdevinfo) {
 			mutex_unlock(&hantro_drm.drm_dev->struct_mutex);
 			return -EINVAL;
 		}

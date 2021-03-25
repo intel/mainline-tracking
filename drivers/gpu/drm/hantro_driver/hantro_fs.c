@@ -242,48 +242,48 @@ int mem_usage_internal(unsigned int deviceidx, struct device *memdev,
 ssize_t mem_usage_show(struct device *kdev, struct device_attribute *attr,
 		       char *buf)
 {
-	struct device_info *pdevice = dev_get_drvdata(kdev);
+	struct device_info *pdevinfo = dev_get_drvdata(kdev);
 	int deviceidx, bufsize = 0;
 
 	int used_mem0 = 0, alloc_count0 = 0;
 	int used_mem1 = 0, alloc_count1 = 0;
 
-	if (pdevice < 0)
+	if (pdevinfo < 0)
 		return 0;
 
-	deviceidx = pdevice->deviceid;
-	mem_usage_internal(deviceidx, pdevice->dev, &used_mem0, &alloc_count0,
+	deviceidx = pdevinfo->deviceid;
+	mem_usage_internal(deviceidx, pdevinfo->dev, &used_mem0, &alloc_count0,
 			   NULL);
-	if (pdevice->codec_rsvmem)
-		mem_usage_internal(deviceidx, pdevice->codec_rsvmem, &used_mem1,
+	if (pdevinfo->codec_rsvmem)
+		mem_usage_internal(deviceidx, pdevinfo->codec_rsvmem, &used_mem1,
 				   &alloc_count1, NULL);
 
 	bufsize += snprintf(buf + bufsize, PAGE_SIZE, "Device %d mem usage:\n",
 			    deviceidx);
 	bufsize += snprintf(buf + bufsize, PAGE_SIZE,
 		"\tCMA 0 : %lld MB - [0x%llx - 0x%llx]\n\t\t %dK in %d allocations\n\n",
-		resource_size(&pdevice->mem_res[0]) / (1024 * 1024),
-		pdevice->mem_res[0].start, pdevice->mem_res[0].end,
+		resource_size(&pdevinfo->mem_res[0]) / (1024 * 1024),
+		pdevinfo->mem_res[0].start, pdevinfo->mem_res[0].end,
 		used_mem0 / 1024, alloc_count0);
 	bufsize += snprintf(buf + bufsize, PAGE_SIZE,
 		"\tCMA 1 : %lld MB - [0x%llx - 0x%llx]\n\t\t %dK in %d allocations\n",
-		resource_size(&pdevice->mem_res[1]) / (1024 * 1024),
-		pdevice->mem_res[1].start, pdevice->mem_res[1].end,
+		resource_size(&pdevinfo->mem_res[1]) / (1024 * 1024),
+		pdevinfo->mem_res[1].start, pdevinfo->mem_res[1].end,
 		used_mem1 / 1024, alloc_count1);
 	return bufsize;
 }
 
 static void reset_perf_data(void)
 {
-	struct device_info *pdevice;
+	struct device_info *pdevinfo;
 	struct hantrodec_t *dechdr;
 	struct hantroenc_t *enchdr;
 	int i, devcnt;
 
 	devcnt = get_devicecount();
 	for (i = 0; i < devcnt; i++) {
-		pdevice = get_deviceinfo(i);
-		dechdr = pdevice->dechdr;
+		pdevinfo = get_deviceinfo(i);
+		dechdr = pdevinfo->dechdr;
 		while (dechdr) {
 			dechdr->perf_data.count = 0;
 			dechdr->perf_data.totaltime = 0;
@@ -291,7 +291,7 @@ static void reset_perf_data(void)
 			dechdr = dechdr->next;
 		}
 
-		enchdr = pdevice->enchdr;
+		enchdr = pdevinfo->enchdr;
 		while (enchdr) {
 			enchdr->perf_data.count = 0;
 			enchdr->perf_data.totaltime = 0;
@@ -304,7 +304,7 @@ static void reset_perf_data(void)
 static ssize_t fps_show(struct device *kdev, struct device_attribute *attr,
 			char *buf)
 {
-	struct device_info *pdevice;
+	struct device_info *pdevinfo;
 	struct hantrodec_t *dechdr;
 	struct hantroenc_t *enchdr;
 	int buf_size = 0, i, diff, devcnt, core;
@@ -319,10 +319,10 @@ static ssize_t fps_show(struct device *kdev, struct device_attribute *attr,
 	msleep(1000);
 	diff = (sched_clock() - start) / 1000000; // diff in ms
 	for (i = 0; i < devcnt; i++) {
-		pdevice = get_deviceinfo(i);
+		pdevinfo = get_deviceinfo(i);
 		buf_size +=
 			snprintf(buf + buf_size, PAGE_SIZE, "Device %d:\n", i);
-		dechdr = pdevice->dechdr;
+		dechdr = pdevinfo->dechdr;
 		core = 0;
 		totalfps = 0;
 		buf_size += snprintf(buf + buf_size, PAGE_SIZE, "\tDecode\n");
@@ -359,7 +359,7 @@ static ssize_t fps_show(struct device *kdev, struct device_attribute *attr,
 		core = 0;
 		totalfps = 0;
 		buf_size += snprintf(buf + buf_size, PAGE_SIZE, "\tEncode\n");
-		enchdr = pdevice->enchdr;
+		enchdr = pdevinfo->enchdr;
 		while (enchdr) {
 			fps = 0;
 			clk_freq = clk_get_rate(enchdr->dev_clk);
@@ -428,19 +428,19 @@ static const struct attribute_group hantro_attr_group = {
 //print mem_usage details through debugfs
 int mem_usage_debugfs_show(struct seq_file *s, void *v)
 {
-	struct device_info *pdevice = s->private;
-	int deviceidx = pdevice->deviceid;
+	struct device_info *pdevinfo = s->private;
+	int deviceidx = pdevinfo->deviceid;
 
 	seq_printf(s, "Memory usage for device %d:\n", deviceidx);
 	seq_printf(s, "Pixel CMA: %lld MB - [0x%llx - 0x%llx]\n",
-		   resource_size(&pdevice->mem_res[0]) / (1024 * 1024),
-		   pdevice->mem_res[0].start, pdevice->mem_res[0].end);
-	mem_usage_internal(deviceidx, pdevice->dev, NULL, NULL, s);
-	if (pdevice && pdevice->codec_rsvmem) {
+		   resource_size(&pdevinfo->mem_res[0]) / (1024 * 1024),
+		   pdevinfo->mem_res[0].start, pdevinfo->mem_res[0].end);
+	mem_usage_internal(deviceidx, pdevinfo->dev, NULL, NULL, s);
+	if (pdevinfo && pdevinfo->codec_rsvmem) {
 		seq_printf(s, "Codec CMA: %lld MB - [0x%llx - 0x%llx]\n",
-			   resource_size(&pdevice->mem_res[1]) / (1024 * 1024),
-			   pdevice->mem_res[1].start, pdevice->mem_res[1].end);
-		mem_usage_internal(deviceidx, pdevice->codec_rsvmem, NULL, NULL,
+			   resource_size(&pdevinfo->mem_res[1]) / (1024 * 1024),
+			   pdevinfo->mem_res[1].start, pdevinfo->mem_res[1].end);
+		mem_usage_internal(deviceidx, pdevinfo->codec_rsvmem, NULL, NULL,
 				   s);
 	}
 
@@ -449,24 +449,24 @@ int mem_usage_debugfs_show(struct seq_file *s, void *v)
 
 DEFINE_SHOW_ATTRIBUTE(mem_usage_debugfs);
 
-int create_sysfs(struct device_info *pdevice)
+int create_sysfs(struct device_info *pdevinfo)
 {
-	return devm_device_add_group(pdevice->dev, &hantro_attr_group);
+	return devm_device_add_group(pdevinfo->dev, &hantro_attr_group);
 }
 
-void remove_sysfs(struct device_info *pdevice)
+void remove_sysfs(struct device_info *pdevinfo)
 {
-	devm_device_remove_group(pdevice->dev, &hantro_attr_group);
+	devm_device_remove_group(pdevinfo->dev, &hantro_attr_group);
 }
 
-void create_debugfs(struct device_info *pdevice, bool has_codecmem)
+void create_debugfs(struct device_info *pdevinfo, bool has_codecmem)
 {
 	char filename[64];
 
 	if (!hantro_drm.debugfs_root)
 		return;
 
-	sprintf(filename, "mem_usage%d", pdevice->deviceid);
+	sprintf(filename, "mem_usage%d", pdevinfo->deviceid);
 	debugfs_create_file(filename, S_IFREG | 0444, hantro_drm.debugfs_root,
-			    pdevice, &mem_usage_debugfs_fops);
+			    pdevinfo, &mem_usage_debugfs_fops);
 }

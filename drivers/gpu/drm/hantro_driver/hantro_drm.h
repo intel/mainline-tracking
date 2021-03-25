@@ -86,7 +86,7 @@ struct drm_gem_hantro_object {
 	unsigned int ctxno;
 	int handle;
 	int fd;
-	struct device_info *pdevice;
+	struct device_info *pdevinfo;
 	struct drm_file *file_priv;
 	int flag;
 	/* common meta information for dec400, MUST next to base */

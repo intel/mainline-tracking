@@ -86,13 +86,13 @@ static struct hantrodec_t *get_core_ctrl(u32 id)
 	return pcore;
 }
 
-u32 hantrodec_readbandwidth(struct device_info *pdevice, int is_read_bw)
+u32 hantrodec_readbandwidth(struct device_info *pdevinfo, int is_read_bw)
 {
 	int i, devcnt = get_devicecount();
 	u32 bandwidth = 0;
 	struct hantrodec_t *dev;
 
-	if (!pdevice) {
+	if (!pdevinfo) {
 		for (i = 0; i < devcnt; i++) {
 			dev = get_decnode_bydeviceid(i, 0);
 			while (dev) {
@@ -109,7 +109,7 @@ u32 hantrodec_readbandwidth(struct device_info *pdevice, int is_read_bw)
 			}
 		}
 	} else {
-		dev = get_decnode(pdevice, 0);
+		dev = get_decnode(pdevinfo, 0);
 		while (dev) {
 			if (is_read_bw)
 				bandwidth +=
@@ -369,13 +369,13 @@ static int get_dec_core(long core, struct hantrodec_t *dev, struct file *filp,
 {
 	int success = 0;
 	unsigned long flags;
-	struct device_info *parentdevice = getparentdevice(dev, CORE_DEC);
+	struct device_info *pdevinfo = getparentdevice(dev, CORE_DEC);
 
 	PDEBUG("hantrodec: %s\n", __func__);
-	spin_lock_irqsave(&parentdevice->owner_lock, flags);
+	spin_lock_irqsave(&pdevinfo->owner_lock, flags);
 	if (core_has_format(dev->cfg, format) && !dev->dec_owner) {
 		dev->dec_owner = filp;
-		((struct device_info *)(dev->parentdevice))->dec_irq &=
+		((struct device_info *)(dev->pdevinfo))->dec_irq &=
 			~(1 << core);
 		success = 1;
 		/*
@@ -399,7 +399,7 @@ static int get_dec_core(long core, struct hantrodec_t *dev, struct file *filp,
 			dev->its_main_core_id->cfg = (1 << format);
 	}
 
-	spin_unlock_irqrestore(&parentdevice->owner_lock, flags);
+	spin_unlock_irqrestore(&pdevinfo->owner_lock, flags);
 	return success;
 }
 
@@ -435,20 +435,20 @@ static int get_dec_coreid(struct hantrodec_t *dev, struct file *filp,
 	long c = 0;
 	unsigned long flags;
 	int core_id = -1;
-	struct device_info *parentdevice = getparentdevice(dev, CORE_DEC);
+	struct device_info *pdevinfo = getparentdevice(dev, CORE_DEC);
 
 	PDEBUG("hantrodec: %s\n", __func__);
 	while (dev) {
 		/* a core that has format */
-		spin_lock_irqsave(&parentdevice->owner_lock, flags);
+		spin_lock_irqsave(&pdevinfo->owner_lock, flags);
 		if (core_has_format(dev->cfg_backup, format)) {
 			core_id = c;
-			spin_unlock_irqrestore(&parentdevice->owner_lock,
+			spin_unlock_irqrestore(&pdevinfo->owner_lock,
 					       flags);
 			break;
 		}
 
-		spin_unlock_irqrestore(&parentdevice->owner_lock, flags);
+		spin_unlock_irqrestore(&pdevinfo->owner_lock, flags);
 		dev = dev->next;
 		c++;
 	}
@@ -460,38 +460,38 @@ static long reserve_decoder(struct hantrodec_t *dev, struct file *filp,
 			    unsigned long format)
 {
 	long core = -1;
-	struct device_info *parentdevice = getparentdevice(dev, CORE_DEC);
+	struct device_info *pdevinfo = getparentdevice(dev, CORE_DEC);
 	struct hantrodec_t *reserved_core = NULL;
 
 	START_TIME;
 	/* reserve a core */
-	if (down_interruptible(&parentdevice->dec_core_sem)) {
+	if (down_interruptible(&pdevinfo->dec_core_sem)) {
 		core = -ERESTARTSYS;
 		goto out;
 	}
 
 	/* lock a core that has specific format*/
-	if (wait_event_interruptible(parentdevice->hw_queue,
+	if (wait_event_interruptible(pdevinfo->hw_queue,
 				     get_dec_core_any(&core, dev, filp,
 						      format) != 0)) {
 		core = -ERESTARTSYS;
 		goto out;
 	}
 
-	reserved_core = get_decnode(parentdevice, KCORE(core));
+	reserved_core = get_decnode(pdevinfo, KCORE(core));
 	if (!reserved_core) {
 		pr_err("Core not found");
 		goto out;
 	}
 
 	if (reserved_core->dev_clk &&
-	    parentdevice->thermal_data.clk_freq != reserved_core->clk_freq) {
+	    pdevinfo->thermal_data.clk_freq != reserved_core->clk_freq) {
 		PDEBUG("Reserve decoder:  setting to %ld for device %d, core %ld\n",
-		       parentdevice->thermal_data.clk_freq,
-		       parentdevice->deviceid, core);
+		       pdevinfo->thermal_data.clk_freq,
+		       pdevinfo->deviceid, core);
 		clk_set_rate(reserved_core->dev_clk,
-			     parentdevice->thermal_data.clk_freq);
-		reserved_core->clk_freq = parentdevice->thermal_data.clk_freq;
+			     pdevinfo->thermal_data.clk_freq);
+		reserved_core->clk_freq = pdevinfo->thermal_data.clk_freq;
 	}
 
 	reserved_core->perf_data.last_resv = sched_clock();
@@ -504,11 +504,11 @@ static void release_decoder(struct hantrodec_t *dev, long core)
 {
 	u32 status;
 	unsigned long flags;
-	struct device_info *parentdevice = getparentdevice(dev, CORE_DEC);
+	struct device_info *pdevinfo = getparentdevice(dev, CORE_DEC);
 	struct hantrodec_t *reserved_core = NULL;
 
 	PDEBUG("hantrodec: %s\n", __func__);
-	reserved_core = get_decnode(parentdevice, KCORE(core));
+	reserved_core = get_decnode(pdevinfo, KCORE(core));
 	reserved_core->perf_data.count++;
 	reserved_core->perf_data.totaltime +=
 		(sched_clock() - (reserved_core->perf_data.last_resv == 0 ?
@@ -525,7 +525,7 @@ static void release_decoder(struct hantrodec_t *dev, long core)
 			  (void *)(dev->hwregs + HANTRODEC_IRQ_STAT_DEC_OFF));
 	}
 
-	spin_lock_irqsave(&parentdevice->owner_lock, flags);
+	spin_lock_irqsave(&pdevinfo->owner_lock, flags);
 	/* If aux core released, revert main core's config back */
 	if (dev->its_main_core_id)
 		dev->its_main_core_id->cfg = dev->its_main_core_id->cfg_backup;
@@ -535,9 +535,9 @@ static void release_decoder(struct hantrodec_t *dev, long core)
 		dev->its_aux_core_id->cfg = dev->its_aux_core_id->cfg_backup;
 
 	dev->dec_owner = NULL;
-	spin_unlock_irqrestore(&parentdevice->owner_lock, flags);
-	up(&parentdevice->dec_core_sem);
-	wake_up_interruptible_all(&parentdevice->hw_queue);
+	spin_unlock_irqrestore(&pdevinfo->owner_lock, flags);
+	up(&pdevinfo->dec_core_sem);
+	wake_up_interruptible_all(&pdevinfo->hw_queue);
 	trace_dec_release(dev->deviceidx, KCORE(core));
 }
 
@@ -545,24 +545,24 @@ static long reserve_post_processor(struct hantrodec_t *dev, struct file *filp)
 {
 	unsigned long flags;
 	long core = 0;
-	struct device_info *parentdevice = getparentdevice(dev, CORE_DEC);
+	struct device_info *pdevinfo = getparentdevice(dev, CORE_DEC);
 
 	/* single core PP only */
-	if (down_interruptible(&parentdevice->pp_core_sem))
+	if (down_interruptible(&pdevinfo->pp_core_sem))
 		return -ERESTARTSYS;
 
-	spin_lock_irqsave(&parentdevice->owner_lock, flags);
+	spin_lock_irqsave(&pdevinfo->owner_lock, flags);
 	if (dev)
 		dev->pp_owner = filp;
 
-	spin_unlock_irqrestore(&parentdevice->owner_lock, flags);
+	spin_unlock_irqrestore(&pdevinfo->owner_lock, flags);
 	return core;
 }
 
 static void release_post_processor(struct hantrodec_t *dev, long core)
 {
 	unsigned long flags;
-	struct device_info *parentdevice = getparentdevice(dev, CORE_DEC);
+	struct device_info *pdevinfo = getparentdevice(dev, CORE_DEC);
 
 	u32 status = ioread32((void *)(dev->hwregs + HANTRO_IRQ_STAT_PP_OFF));
 
@@ -576,10 +576,10 @@ static void release_post_processor(struct hantrodec_t *dev, long core)
 		iowrite32(0x10, (void *)(dev->hwregs + HANTRO_IRQ_STAT_PP_OFF));
 	}
 
-	spin_lock_irqsave(&parentdevice->owner_lock, flags);
+	spin_lock_irqsave(&pdevinfo->owner_lock, flags);
 	dev->pp_owner = NULL;
-	spin_unlock_irqrestore(&parentdevice->owner_lock, flags);
-	up(&parentdevice->pp_core_sem);
+	spin_unlock_irqrestore(&pdevinfo->owner_lock, flags);
+	up(&pdevinfo->pp_core_sem);
 }
 
 static long dec_flush_regs(struct hantrodec_t *dev, struct core_desc *core)
@@ -624,18 +624,18 @@ static int check_dec_irq(struct hantrodec_t *dev, int id)
 {
 	unsigned long flags;
 	int rdy = 0;
-	struct device_info *parentdevice = getparentdevice(dev, CORE_DEC);
+	struct device_info *pdevinfo = getparentdevice(dev, CORE_DEC);
 	const u32 irq_mask = (1 << id);
 
-	spin_lock_irqsave(&parentdevice->owner_lock, flags);
-	if (parentdevice->dec_irq & irq_mask) {
+	spin_lock_irqsave(&pdevinfo->owner_lock, flags);
+	if (pdevinfo->dec_irq & irq_mask) {
 		/* reset the wait condition(s) */
 		PDEBUG("hantrodec: %s\n", __func__);
-		parentdevice->dec_irq &= ~irq_mask;
+		pdevinfo->dec_irq &= ~irq_mask;
 		rdy = 1;
 	}
 
-	spin_unlock_irqrestore(&parentdevice->owner_lock, flags);
+	spin_unlock_irqrestore(&pdevinfo->owner_lock, flags);
 	return rdy;
 }
 
@@ -644,10 +644,10 @@ static long wait_dec_ready_and_refresh_regs(struct hantrodec_t *dev,
 {
 	u32 id = KCORE(core->id);
 	long ret;
-	struct device_info *parentdevice = getparentdevice(dev, CORE_DEC);
+	struct device_info *pdevinfo = getparentdevice(dev, CORE_DEC);
 
 	PDEBUG("wait_event_interruptible DEC[%d]\n", id);
-	ret = wait_event_interruptible_timeout(parentdevice->dec_wait_queue,
+	ret = wait_event_interruptible_timeout(pdevinfo->dec_wait_queue,
 					       check_dec_irq(dev, id),
 					       msecs_to_jiffies(10));
 	if (ret == -ERESTARTSYS) {
@@ -777,17 +777,17 @@ static int check_pp_irq(struct hantrodec_t *dev, int id)
 {
 	unsigned long flags;
 	int rdy = 0;
-	struct device_info *parentdevice = getparentdevice(dev, CORE_DEC);
+	struct device_info *pdevinfo = getparentdevice(dev, CORE_DEC);
 	const u32 irq_mask = (1 << id);
 
-	spin_lock_irqsave(&parentdevice->owner_lock, flags);
-	if (parentdevice->pp_irq & irq_mask) {
+	spin_lock_irqsave(&pdevinfo->owner_lock, flags);
+	if (pdevinfo->pp_irq & irq_mask) {
 		/* reset the wait condition(s) */
-		parentdevice->pp_irq &= ~irq_mask;
+		pdevinfo->pp_irq &= ~irq_mask;
 		rdy = 1;
 	}
 
-	spin_unlock_irqrestore(&parentdevice->owner_lock, flags);
+	spin_unlock_irqrestore(&pdevinfo->owner_lock, flags);
 	return rdy;
 }
 
@@ -795,10 +795,10 @@ static long wait_pp_ready_and_refresh_regs(struct hantrodec_t *dev,
 					   struct core_desc *core)
 {
 	u32 id = core->id;
-	struct device_info *parentdevice = getparentdevice(dev, CORE_DEC);
+	struct device_info *pdevinfo = getparentdevice(dev, CORE_DEC);
 
 	PDEBUG("wait_event_interruptible PP[%d]\n", id);
-	if (wait_event_interruptible(parentdevice->pp_wait_queue,
+	if (wait_event_interruptible(pdevinfo->pp_wait_queue,
 				     check_pp_irq(dev, id))) {
 		pr_err("PP[%d]  failed to wait_event_interruptible interrupted\n",
 		       id);
@@ -815,31 +815,31 @@ static int check_core_irq(struct hantrodec_t *dev, const struct file *filp,
 {
 	unsigned long flags;
 	int rdy = 0, n = 0;
-	struct device_info *parentdevice = getparentdevice(dev, CORE_DEC);
+	struct device_info *pdevinfo = getparentdevice(dev, CORE_DEC);
 
 	while (dev) {
 		u32 irq_mask = (1 << n);
 
-		spin_lock_irqsave(&parentdevice->owner_lock, flags);
-		if (parentdevice->dec_irq & irq_mask) {
+		spin_lock_irqsave(&pdevinfo->owner_lock, flags);
+		if (pdevinfo->dec_irq & irq_mask) {
 			if (*id == n) {
 				/* we have an IRQ for our client */
 				/* reset the wait condition(s) */
-				parentdevice->dec_irq &= ~irq_mask;
+				pdevinfo->dec_irq &= ~irq_mask;
 				/* signal ready Core no. for our client */
 				rdy = 1;
-				spin_unlock_irqrestore(&parentdevice->owner_lock, flags);
+				spin_unlock_irqrestore(&pdevinfo->owner_lock, flags);
 				break;
 			} else if (!dev->dec_owner) {
 				/* zombie IRQ */
 				pr_info("IRQ on Core[%d], but no owner!!!\n",
 					n);
 				/* reset the wait condition(s) */
-				parentdevice->dec_irq &= ~irq_mask;
+				pdevinfo->dec_irq &= ~irq_mask;
 			}
 		}
 
-		spin_unlock_irqrestore(&parentdevice->owner_lock, flags);
+		spin_unlock_irqrestore(&pdevinfo->owner_lock, flags);
 		n++; /* next Core */
 		dev = dev->next;
 	}
@@ -850,11 +850,11 @@ static int check_core_irq(struct hantrodec_t *dev, const struct file *filp,
 static long wait_core_ready(struct hantrodec_t *dev, const struct file *filp,
 			    u32 *id)
 {
-	struct device_info *parentdevice = getparentdevice(dev, CORE_DEC);
+	struct device_info *pdevinfo = getparentdevice(dev, CORE_DEC);
 
 	PDEBUG("wait_event_interruptible CORE\n");
 
-	if (wait_event_interruptible(parentdevice->dec_wait_queue,
+	if (wait_event_interruptible(pdevinfo->dec_wait_queue,
 				     check_core_irq(dev, filp, id))) {
 		pr_err("CORE  failed to wait_event_interruptible interrupted\n");
 		return -ERESTARTSYS;
@@ -1177,7 +1177,7 @@ long hantrodec_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 		return 0;
 	}
 	case _IOC_NR(HANTRODEC_DEBUG_STATUS): {
-		struct device_info *parentdevice;
+		struct device_info *pdevinfo;
 
 		PDEBUG("hantrodec: IRQs received/sent2user = %d / %d\n",
 		       atomic_read(&irq_rx), atomic_read(&irq_tx));
@@ -1187,11 +1187,11 @@ long hantrodec_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 			if (!pcore)
 				continue;
 
-			parentdevice = getparentdevice(pcore, CORE_DEC);
+			pdevinfo = getparentdevice(pcore, CORE_DEC);
 			PDEBUG("hantrodec: device %d dec_irq     = 0x%08x\n", i,
-			       parentdevice->dec_irq);
+			       pdevinfo->dec_irq);
 			PDEBUG("hantrodec: device %d pp_irq      = 0x%08x\n", i,
-			       parentdevice->pp_irq);
+			       pdevinfo->pp_irq);
 			id = 0;
 			while (pcore) {
 				PDEBUG("hantrodec: device %d dec_core[%i] %s\n",
@@ -1370,7 +1370,7 @@ static int init_dec_clock(struct hantrodec_t *pcore, dtbnode *pnode)
 	if (strlen(pnode->clock_name) == 0)
 		return 0;
 
-	pcore->dev_clk = clk_get(pnode->pdevice->dev, pnode->clock_name);
+	pcore->dev_clk = clk_get(pnode->pdevinfo->dev, pnode->clock_name);
 	if (IS_ERR(pcore->dev_clk) || !pcore->dev_clk) {
 		pr_err("%s: clock %s not found. err = %ld", __func__,
 		       pnode->clock_name, PTR_ERR(pcore->dev_clk));
@@ -1379,7 +1379,7 @@ static int init_dec_clock(struct hantrodec_t *pcore, dtbnode *pnode)
 	}
 
 	clk_prepare_enable(pcore->dev_clk);
-	pcore->clk_freq = pnode->pdevice->thermal_data.clk_freq;
+	pcore->clk_freq = pnode->pdevinfo->thermal_data.clk_freq;
 	clk_set_rate(pcore->dev_clk, pcore->clk_freq);
 	return 0;
 }
@@ -1453,20 +1453,20 @@ int hantrodec_probe(dtbnode *pnode)
 	}
 
 	init_dec_clock(pcore, pnode);
-	add_decnode(pnode->pdevice, pcore);
+	add_decnode(pnode->pdevinfo, pcore);
 	if (auxcore)
-		add_decnode(pnode->pdevice, auxcore);
+		add_decnode(pnode->pdevinfo, auxcore);
 
 	return 0;
 }
 
-void hantrodec_remove(struct device_info *pdevice)
+void hantrodec_remove(struct device_info *pdevinfo)
 {
 	struct hantrodec_t *dev, *next;
 	int i;
 
 	/* free the IRQ */
-	dev = get_decnode(pdevice, 0);
+	dev = get_decnode(pdevinfo, 0);
 	while (dev) {
 		/* reset hardware */
 		disable_dec_clock(dev);
@@ -1651,10 +1651,10 @@ static irqreturn_t hantrodec_isr(int irq, void *dev_id)
 	u8 *hwregs;
 	struct hantrodec_t *dev = (struct hantrodec_t *)dev_id;
 	u32 irq_status_dec;
-	struct device_info *parentdevice = getparentdevice(dev, CORE_DEC);
+	struct device_info *pdevinfo = getparentdevice(dev, CORE_DEC);
 
-	dev = getfirst_decnodes(parentdevice);
-	spin_lock_irqsave(&parentdevice->owner_lock, flags);
+	dev = getfirst_decnodes(pdevinfo);
+	spin_lock_irqsave(&pdevinfo->owner_lock, flags);
 	while (dev) {
 		u8 *hwregs = dev->hwregs;
 
@@ -1671,9 +1671,9 @@ static irqreturn_t hantrodec_isr(int irq, void *dev_id)
 
 			atomic_inc(&irq_rx);
 
-			parentdevice->dec_irq |= (1 << i);
+			pdevinfo->dec_irq |= (1 << i);
 
-			wake_up_interruptible_all(&parentdevice->dec_wait_queue);
+			wake_up_interruptible_all(&pdevinfo->dec_wait_queue);
 			handled++;
 		}
 
@@ -1681,7 +1681,7 @@ static irqreturn_t hantrodec_isr(int irq, void *dev_id)
 		dev = dev->next;
 	}
 
-	spin_unlock_irqrestore(&parentdevice->owner_lock, flags);
+	spin_unlock_irqrestore(&pdevinfo->owner_lock, flags);
 	if (!handled)
 		PDEBUG("IRQ received, but not hantrodec's!\n");
 

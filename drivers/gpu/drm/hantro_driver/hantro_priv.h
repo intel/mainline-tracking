@@ -121,7 +121,7 @@ typedef struct dtbnode {
 	int parenttype;
 	phys_addr_t parentaddr;
 	int deviceidx;
-	struct device_info *pdevice;
+	struct device_info *pdevinfo;
 	struct dtbnode *next;
 	struct device *dev;
 } dtbnode;

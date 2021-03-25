@@ -70,10 +70,10 @@ struct hantrodec_t *get_decnode_bydeviceid(u32 deviceid, u32 nodeidx)
 	return p;
 }
 
-struct hantrodec_t *getfirst_decnodes(struct device_info *pdevice)
+struct hantrodec_t *getfirst_decnodes(struct device_info *pdevinfo)
 {
-	if (pdevice) //atomic_read(&devicenum))
-		return pdevice->dechdr;
+	if (pdevinfo) //atomic_read(&devicenum))
+		return pdevinfo->dechdr;
 
 	return NULL;
 }
@@ -208,16 +208,16 @@ struct dec400_t *get_dec400nodebytype(u32 deviceid, u32 parenttype,
 	return p;
 }
 
-int add_decnode(struct device_info *pdevice, struct hantrodec_t *deccore)
+int add_decnode(struct device_info *pdevinfo, struct hantrodec_t *deccore)
 {
 	struct hantrodec_t *pdec;
 
-	if (!pdevice)
+	if (!pdevinfo)
 		return -EINVAL;
 
-	pdec = pdevice->dechdr;
+	pdec = pdevinfo->dechdr;
 	if (!pdec) {
-		pdevice->dechdr = deccore;
+		pdevinfo->dechdr = deccore;
 	} else {
 		while (pdec->next)
 			pdec = pdec->next;
@@ -226,26 +226,26 @@ int add_decnode(struct device_info *pdevice, struct hantrodec_t *deccore)
 	}
 
 	deccore->next = NULL;
-	pdevice->deccore_num++;
-	deccore->core_id = pdevice->deccore_num - 1;
-	deccore->deviceidx = pdevice->deviceid;
-	deccore->parentdevice = pdevice;
-	pdevice->config |= CONFIG_HWDEC;
+	pdevinfo->deccore_num++;
+	deccore->core_id = pdevinfo->deccore_num - 1;
+	deccore->deviceidx = pdevinfo->deviceid;
+	deccore->pdevinfo = pdevinfo;
+	pdevinfo->config |= CONFIG_HWDEC;
 
-	sema_init(&pdevice->dec_core_sem, pdevice->deccore_num);
+	sema_init(&pdevinfo->dec_core_sem, pdevinfo->deccore_num);
 	return 0;
 }
 
-int add_encnode(struct device_info *pdevice, struct hantroenc_t *enccore)
+int add_encnode(struct device_info *pdevinfo, struct hantroenc_t *enccore)
 {
 	struct hantroenc_t *penc;
 
-	if (!pdevice)
+	if (!pdevinfo)
 		return -EINVAL;
 
-	penc = pdevice->enchdr;
+	penc = pdevinfo->enchdr;
 	if (!penc) {
-		pdevice->enchdr = enccore;
+		pdevinfo->enchdr = enccore;
 	} else {
 		while (penc->next)
 			penc = penc->next;
@@ -254,26 +254,26 @@ int add_encnode(struct device_info *pdevice, struct hantroenc_t *enccore)
 	}
 
 	enccore->next = NULL;
-	pdevice->enccore_num++;
-	enccore->core_id = pdevice->enccore_num - 1;
-	enccore->core_cfg.deviceidx = pdevice->deviceid;
-	enccore->parentdevice = pdevice;
-	pdevice->config |= CONFIG_HWENC;
+	pdevinfo->enccore_num++;
+	enccore->core_id = pdevinfo->enccore_num - 1;
+	enccore->core_cfg.deviceidx = pdevinfo->deviceid;
+	enccore->pdevinfo = pdevinfo;
+	pdevinfo->config |= CONFIG_HWENC;
 	return 0;
 }
 
-int add_dec400node(struct device_info *pdevice, struct dec400_t *dec400core)
+int add_dec400node(struct device_info *pdevinfo, struct dec400_t *dec400core)
 {
 	struct dec400_t *pdec400;
 	struct hantrodec_t *pdec;
 	struct hantroenc_t *penc;
 
-	if (!pdevice)
+	if (!pdevinfo)
 		return -EINVAL;
 
-	pdec400 = pdevice->dec400hdr;
+	pdec400 = pdevinfo->dec400hdr;
 	if (!pdec400) {
-		pdevice->dec400hdr = dec400core;
+		pdevinfo->dec400hdr = dec400core;
 	} else {
 		while (pdec400->next)
 			pdec400 = pdec400->next;
@@ -282,22 +282,22 @@ int add_dec400node(struct device_info *pdevice, struct dec400_t *dec400core)
 	}
 
 	dec400core->next = NULL;
-	pdevice->dec400core_num++;
-	dec400core->core_id = pdevice->dec400core_num - 1;
-	pdevice->config |= CONFIG_DEC400;
-	dec400core->core_cfg.deviceidx = pdevice->deviceid;
+	pdevinfo->dec400core_num++;
+	dec400core->core_id = pdevinfo->dec400core_num - 1;
+	pdevinfo->config |= CONFIG_DEC400;
+	dec400core->core_cfg.deviceidx = pdevinfo->deviceid;
 	/* set default */
-	dec400core->parentcore = pdevice;
+	dec400core->parentcore = pdevinfo;
 	dec400core->parentid = CORE_DEVICE;
-	dec400core->parentdevice = pdevice;
+	dec400core->pdevinfo = pdevinfo;
 
-	if (dec400core->core_cfg.parentaddr == pdevice->rsvmem_addr) {
-		dec400core->parentcore = pdevice;
+	if (dec400core->core_cfg.parentaddr == pdevinfo->rsvmem_addr) {
+		dec400core->parentcore = pdevinfo;
 		dec400core->parenttype = CORE_DEVICE;
 		goto end;
 	}
 
-	penc = pdevice->enchdr;
+	penc = pdevinfo->enchdr;
 	while (penc) {
 		if ((unsigned long long)penc->core_cfg.base_addr ==
 		    dec400core->core_cfg.parentaddr) {
@@ -310,7 +310,7 @@ int add_dec400node(struct device_info *pdevice, struct dec400_t *dec400core)
 		penc = penc->next;
 	}
 
-	pdec = pdevice->dechdr;
+	pdec = pdevinfo->dechdr;
 	while (pdec) {
 		if ((unsigned long long)pdec->multicorebase ==
 		    dec400core->core_cfg.parentaddr) {
@@ -327,18 +327,18 @@ end:
 	return 0;
 }
 
-int add_cachenode(struct device_info *pdevice, struct cache_dev_t *cachecore)
+int add_cachenode(struct device_info *pdevinfo, struct cache_dev_t *cachecore)
 {
 	struct cache_dev_t *pcache;
 	struct hantrodec_t *pdec;
 	struct hantroenc_t *penc;
 
-	if (!pdevice)
+	if (!pdevinfo)
 		return -ENODEV;
 
-	pcache = pdevice->cachehdr;
+	pcache = pdevinfo->cachehdr;
 	if (!pcache) {
-		pdevice->cachehdr = cachecore;
+		pdevinfo->cachehdr = cachecore;
 	} else {
 		while (pcache->next)
 			pcache = pcache->next;
@@ -347,19 +347,19 @@ int add_cachenode(struct device_info *pdevice, struct cache_dev_t *cachecore)
 	}
 
 	cachecore->next = NULL;
-	pdevice->cachecore_num++;
-	cachecore->core_id = pdevice->cachecore_num - 1;
-	cachecore->core_cfg.deviceidx = pdevice->deviceid;
-	pdevice->config |= CONFIG_L2CACHE;
+	pdevinfo->cachecore_num++;
+	cachecore->core_id = pdevinfo->cachecore_num - 1;
+	cachecore->core_cfg.deviceidx = pdevinfo->deviceid;
+	pdevinfo->config |= CONFIG_L2CACHE;
 
 	/* set default */
-	cachecore->parentcore = pdevice;
-	cachecore->parentid = pdevice->deviceid;
+	cachecore->parentcore = pdevinfo;
+	cachecore->parentid = pdevinfo->deviceid;
 	cachecore->parenttype = CORE_DEVICE;
-	cachecore->parentdevice = pdevice;
+	cachecore->pdevinfo = pdevinfo;
 
 	if (cachecore->core_cfg.client == VC8000E) {
-		penc = pdevice->enchdr;
+		penc = pdevinfo->enchdr;
 		while (penc) {
 			if ((unsigned long long)penc->core_cfg.base_addr ==
 			    cachecore->core_cfg.parentaddr) {
@@ -372,7 +372,7 @@ int add_cachenode(struct device_info *pdevice, struct cache_dev_t *cachecore)
 			penc = penc->next;
 		}
 	} else {
-		pdec = pdevice->dechdr;
+		pdec = pdevinfo->dechdr;
 		while (pdec) {
 			if ((unsigned long long)pdec->multicorebase ==
 			    cachecore->core_cfg.parentaddr) {
@@ -401,19 +401,19 @@ struct device_info *getparentdevice(void *node, int type)
 	switch (type) {
 	case CORE_CACHE:
 		pdevice = (struct device_info *)((struct cache_dev_t *)node)
-				  ->parentdevice;
+				  ->pdevinfo;
 		break;
 	case CORE_DEC:
 		pdevice = (struct device_info *)((struct hantrodec_t *)node)
-				  ->parentdevice;
+				  ->pdevinfo;
 		break;
 	case CORE_ENC:
 		pdevice = (struct device_info *)((struct hantroenc_t *)node)
-				  ->parentdevice;
+				  ->pdevinfo;
 		break;
 	case CORE_DEC400:
 		pdevice = (struct device_info *)((struct dec400_t *)node)
-				  ->parentdevice;
+				  ->pdevinfo;
 		break;
 	default:
 		break;
@@ -435,7 +435,7 @@ void device_printdebug(void)
 {
 	struct hantrodec_t *pdec, *pdec2;
 	struct hantroenc_t *penc, *penc2;
-	struct device_info *pdevice;
+	struct device_info *pdevinfo;
 	struct cache_dev_t *pcache, *pcache2;
 	struct dec400_t *pdec400, *pdec400_2;
 	int i, n = get_devicecount(), k;
@@ -593,10 +593,10 @@ void device_printdebug(void)
 						pdec->multicorebase);
 					break;
 				case CORE_DEVICE:
-					pdevice = (struct device_info *)
+					pdevinfo = (struct device_info *)
 							  pdec400->parentcore;
 					pr_info("parent device addr %llx",
-						pdevice->rsvmem_addr);
+						pdevinfo->rsvmem_addr);
 					break;
 				default:
 					pr_info("error: dec400 parent type unknown");

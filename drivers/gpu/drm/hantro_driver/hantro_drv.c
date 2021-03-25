@@ -150,19 +150,19 @@ static int getclockname(dtbnode *pnode)
 	} else {
 		if (strstr(nodename, "decoderA") == nodename)
 			sprintf(pnode->clock_name, "vc8000da_aclk_computess%d",
-				pnode->pdevice->deviceid);
+				pnode->pdevinfo->deviceid);
 
 		if (strstr(nodename, "decoderB") == nodename)
 			sprintf(pnode->clock_name, "vc8000db_aclk_computess%d",
-				pnode->pdevice->deviceid);
+				pnode->pdevinfo->deviceid);
 
 		if (strstr(nodename, "encoderA") == nodename)
 			sprintf(pnode->clock_name, "vc8000ej_aclk_computess%d",
-				pnode->pdevice->deviceid);
+				pnode->pdevinfo->deviceid);
 
 		if (strstr(nodename, "encoderB") == nodename)
 			sprintf(pnode->clock_name, "vc8000e_aclk_computess%d",
-				pnode->pdevice->deviceid);
+				pnode->pdevinfo->deviceid);
 	}
 
 	return -EINVAL;
@@ -187,7 +187,7 @@ static int getnodetype(const char *name)
 
 static dtbnode *trycreatenode(struct platform_device *pdev,
 			      struct device_node *ofnode,
-			      struct device_info *pdevice, int parenttype,
+			      struct device_info *pdevinfo, int parenttype,
 			      phys_addr_t parentaddr)
 {
 	struct fwnode_handle *fwnode;
@@ -205,7 +205,7 @@ static dtbnode *trycreatenode(struct platform_device *pdev,
 	pnode->type = getnodetype(ofnode->name);
 	pnode->parentaddr = parentaddr;
 	pnode->parenttype = parenttype;
-	pnode->pdevice = pdevice;
+	pnode->pdevinfo = pdevinfo;
 	pnode->ofnode = ofnode;
 	fwnode = &ofnode->fwnode;
 	getclockname(pnode);
@@ -391,48 +391,48 @@ static int hantro_clock_control(struct device *dev, bool enable)
 static int hantro_cooling_get_max_state(struct thermal_cooling_device *cdev,
 					unsigned long *state)
 {
-	struct device_info *pdevice = cdev->devdata;
+	struct device_info *pdevinfo = cdev->devdata;
 
-	if (!pdevice)
+	if (!pdevinfo)
 		return -EINVAL;
 
-	*state = pdevice->thermal_data.media_clk_max_state;
+	*state = pdevinfo->thermal_data.media_clk_max_state;
 	return 0;
 }
 
 static int hantro_cooling_set_cur_state(struct thermal_cooling_device *cdev,
 					unsigned long state)
 {
-	struct device_info *pdevice = cdev->devdata;
+	struct device_info *pdevinfo = cdev->devdata;
 
-	if (!pdevice || state > pdevice->thermal_data.media_clk_max_state)
+	if (!pdevinfo || state > pdevinfo->thermal_data.media_clk_max_state)
 		return -EINVAL;
 
-	if (state == pdevice->thermal_data.media_clk_state ||
+	if (state == pdevinfo->thermal_data.media_clk_state ||
 	    state > 2) //only	3 states supported
 		return 0;
 
-	pdevice->thermal_data.media_clk_state = state;
+	pdevinfo->thermal_data.media_clk_state = state;
 
 	if (hantro_drm.device_type == DEVICE_KEEMBAY)
-		pdevice->thermal_data.clk_freq = kmb_freq_table[state];
+		pdevinfo->thermal_data.clk_freq = kmb_freq_table[state];
 	else if (hantro_drm.device_type == DEVICE_THUNDERBAY)
-		pdevice->thermal_data.clk_freq = tbh_freq_table[state];
+		pdevinfo->thermal_data.clk_freq = tbh_freq_table[state];
 
 	pr_info("set_cur_state: %ld for device %d\n",
-		pdevice->thermal_data.clk_freq, pdevice->deviceid);
+		pdevinfo->thermal_data.clk_freq, pdevinfo->deviceid);
 	return 0;
 }
 
 static int hantro_cooling_get_cur_state(struct thermal_cooling_device *cdev,
 					unsigned long *state)
 {
-	struct device_info *pdevice = cdev->devdata;
+	struct device_info *pdevinfo = cdev->devdata;
 
-	if (!pdevice)
+	if (!pdevinfo)
 		return -EINVAL;
 
-	*state = pdevice->thermal_data.media_clk_state;
+	*state = pdevinfo->thermal_data.media_clk_state;
 	return 0;
 }
 
@@ -442,32 +442,32 @@ static const struct thermal_cooling_device_ops hantro_cooling_ops = {
 	.set_cur_state = hantro_cooling_set_cur_state,
 };
 
-int setup_thermal_cooling(struct device_info *pdevice)
+int setup_thermal_cooling(struct device_info *pdevinfo)
 {
 	int result;
 	char thermal_str[64];
-	struct device_node *np = pdevice->dev->of_node;
+	struct device_node *np = pdevinfo->dev->of_node;
 
-	if (!pdevice) {
+	if (!pdevinfo) {
 		pr_warn("Device info NULL\n");
 		return -EINVAL;
 	}
 
-	pdevice->thermal_data.media_clk_max_state = 3;
+	pdevinfo->thermal_data.media_clk_max_state = 3;
 	if (hantro_drm.device_type == DEVICE_KEEMBAY)
-		pdevice->thermal_data.clk_freq = kmb_freq_table[0];
+		pdevinfo->thermal_data.clk_freq = kmb_freq_table[0];
 	else
-		pdevice->thermal_data.clk_freq = tbh_freq_table[0];
+		pdevinfo->thermal_data.clk_freq = tbh_freq_table[0];
 
-	sprintf(thermal_str, "media-cooling%d", pdevice->deviceid);
-	pdevice->thermal_data.cooling_dev = devm_thermal_of_cooling_device_register(pdevice->dev,
+	sprintf(thermal_str, "media-cooling%d", pdevinfo->deviceid);
+	pdevinfo->thermal_data.cooling_dev = devm_thermal_of_cooling_device_register(pdevinfo->dev,
 										    np,
 										    thermal_str,
-										    pdevice,
+										    pdevinfo,
 										    &hantro_cooling_ops);
-	if (IS_ERR(pdevice->thermal_data.cooling_dev)) {
-		result = PTR_ERR(pdevice->thermal_data.cooling_dev);
-		dev_err(pdevice->dev,
+	if (IS_ERR(pdevinfo->thermal_data.cooling_dev)) {
+		result = PTR_ERR(pdevinfo->thermal_data.cooling_dev);
+		dev_err(pdevinfo->dev,
 			"failed to register thermal zone device %d", result);
 	}
 
@@ -527,7 +527,7 @@ static int hantro_reset_control(struct platform_device *pdev, bool deassert)
 
 int hantro_analyze_subnode(struct platform_device *pdev,
 			   struct device_node *pofnode,
-			   struct device_info *pdevice)
+			   struct device_info *pdevinfo)
 {
 	dtbnode *head, *nhead, *newtail, *node;
 
@@ -538,7 +538,7 @@ int hantro_analyze_subnode(struct platform_device *pdev,
 	head->type = CORE_DEVICE;
 	head->parenttype = CORE_DEVICE;
 	head->ofnode = pofnode;
-	head->dev = pdevice->dev;
+	head->pdevinfo = pdevinfo;
 	head->ioaddr = -1;
 	head->iosize = 0;
 	head->next = NULL;
@@ -550,7 +550,7 @@ int hantro_analyze_subnode(struct platform_device *pdev,
 			struct device_node *child, *ofnode = head->ofnode;
 
 			for_each_child_of_node(ofnode, child) {
-				node = trycreatenode(pdev, child, pdevice,
+				node = trycreatenode(pdev, child, pdevinfo,
 						     head->type, head->ioaddr);
 				if (node) {
 					if (!nhead) {
@@ -923,9 +923,9 @@ int __init hantro_init(void)
 
 	init_fence_data();
 	for (i = 0; i < get_devicecount(); i++) {
-		struct device_info *pdevice = get_deviceinfo(i);
+		struct device_info *pdevinfo = get_deviceinfo(i);
 
-		hantro_drm.config |= pdevice->config;
+		hantro_drm.config |= pdevinfo->config;
 	}
 
 	hantrodec_init();
