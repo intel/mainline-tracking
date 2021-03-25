@@ -37,27 +37,27 @@ static irqreturn_t cache_isr(int irq, void *dev_id);
 /******************************************************************************/
 static int check_cache_irq(struct cache_dev_t *dev)
 {
-	struct device_info *parentdevice = getparentdevice(dev, CORE_CACHE);
+	struct device_info *pdevinfo = getparentdevice(dev, CORE_CACHE);
 	unsigned long flags;
 	int rdy = 0;
 
-	spin_lock_irqsave(&parentdevice->cache_owner_lock, flags);
+	spin_lock_irqsave(&pdevinfo->cache_owner_lock, flags);
 	if (dev->irq_received) {
 		/* reset the wait condition(s) */
 		dev->irq_received = 0;
 		rdy = 1;
 	}
 
-	spin_unlock_irqrestore(&parentdevice->cache_owner_lock, flags);
+	spin_unlock_irqrestore(&pdevinfo->cache_owner_lock, flags);
 
 	return rdy;
 }
 
 static unsigned int wait_cache_ready(struct cache_dev_t *dev)
 {
-	struct device_info *parentdevice = getparentdevice(dev, CORE_CACHE);
+	struct device_info *pdevinfo = getparentdevice(dev, CORE_CACHE);
 
-	if (wait_event_interruptible(parentdevice->cache_wait_queue,
+	if (wait_event_interruptible(pdevinfo->cache_wait_queue,
 				     check_cache_irq(dev))) {
 		PDEBUG("Cache wait_event_interruptible interrupted\n");
 		return -ERESTARTSYS;
@@ -68,18 +68,18 @@ static unsigned int wait_cache_ready(struct cache_dev_t *dev)
 
 static int check_core_occupation(struct cache_dev_t *dev, struct file *filp)
 {
-	struct device_info *parentdevice = getparentdevice(dev, CORE_CACHE);
+	struct device_info *pdevinfo = getparentdevice(dev, CORE_CACHE);
 	int ret = 0;
 	unsigned long flags;
 
-	spin_lock_irqsave(&parentdevice->cache_owner_lock, flags);
+	spin_lock_irqsave(&pdevinfo->cache_owner_lock, flags);
 	if (!dev->is_reserved) {
 		dev->is_reserved = 1;
 		dev->cacheowner = filp;
 		ret = 1;
 	}
 
-	spin_unlock_irqrestore(&parentdevice->cache_owner_lock, flags);
+	spin_unlock_irqrestore(&pdevinfo->cache_owner_lock, flags);
 	return ret;
 }
 
@@ -90,13 +90,13 @@ static int get_workable_core(struct cache_dev_t *dev, struct file *filp)
 
 static long reserve_core(struct cache_dev_t *dev, struct file *filp)
 {
-	struct device_info *parentdevice;
+	struct device_info *pdevinfo;
 	int ret = 0;
 
 	START_TIME;
-	parentdevice = getparentdevice(dev, CORE_CACHE);
+	pdevinfo = getparentdevice(dev, CORE_CACHE);
 	/* lock a core that has specified core id */
-	if (wait_event_interruptible(parentdevice->cache_hw_queue,
+	if (wait_event_interruptible(pdevinfo->cache_hw_queue,
 				     get_workable_core(dev, filp) != 0))
 		ret = -ERESTARTSYS;
 
@@ -107,10 +107,10 @@ static long reserve_core(struct cache_dev_t *dev, struct file *filp)
 static void release_core(struct cache_dev_t *dev)
 {
 	unsigned long flags;
-	struct device_info *parentdevice = getparentdevice(dev, CORE_CACHE);
+	struct device_info *pdevinfo = getparentdevice(dev, CORE_CACHE);
 
 	/* release specified core id */
-	spin_lock_irqsave(&parentdevice->cache_owner_lock, flags);
+	spin_lock_irqsave(&pdevinfo->cache_owner_lock, flags);
 	if (dev->is_reserved) {
 		dev->cacheowner = NULL;
 		dev->is_reserved = 0;
@@ -118,8 +118,8 @@ static void release_core(struct cache_dev_t *dev)
 
 	dev->irq_received = 0;
 	dev->irq_status = 0;
-	spin_unlock_irqrestore(&parentdevice->cache_owner_lock, flags);
-	wake_up_interruptible_all(&parentdevice->cache_hw_queue);
+	spin_unlock_irqrestore(&pdevinfo->cache_owner_lock, flags);
+	wake_up_interruptible_all(&pdevinfo->cache_hw_queue);
 	trace_cache_release(dev->deviceidx);
 }
 
@@ -356,16 +356,16 @@ int cache_probe(dtbnode *pnode)
 	}
 
 	pccore->core_cfg.parentaddr = pnode->parentaddr;
-	add_cachenode(pnode->pdevice, pccore);
+	add_cachenode(pnode->pdevinfo, pccore);
 	return 0;
 }
 
-void hantrocache_remove(struct device_info *pdevice)
+void hantrocache_remove(struct device_info *pdevinfo)
 {
 	struct cache_dev_t *pccore, *pnext;
 	int k;
 
-	pccore = get_cachenodes(pdevice->deviceid, 0);
+	pccore = get_cachenodes(pdevinfo->deviceid, 0);
 	while (pccore) {
 		pnext = pccore->next;
 		writel(0, pccore->hwregs + 0x04); /* disable HW */

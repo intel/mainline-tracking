@@ -52,7 +52,7 @@ static int check_enc_irq(struct hantroenc_t *dev, u32 *core_info,
 	int rdy = 0;
 	u32 i = 0;
 	u8 core_mapping = 0;
-	struct device_info *parentdevice = getparentdevice(dev, CORE_ENC);
+	struct device_info *pdevinfo = getparentdevice(dev, CORE_ENC);
 
 	core_mapping = (u8)(*core_info & 0xFF);
 
@@ -61,7 +61,7 @@ static int check_enc_irq(struct hantroenc_t *dev, u32 *core_info,
 			if (i >= nodenum)
 				break;
 
-			spin_lock_irqsave(&parentdevice->enc_owner_lock, flags);
+			spin_lock_irqsave(&pdevinfo->enc_owner_lock, flags);
 
 			if (dev->irq_received) {
 				/* reset the wait condition(s) */
@@ -72,7 +72,7 @@ static int check_enc_irq(struct hantroenc_t *dev, u32 *core_info,
 				*irq_status = dev->irq_status;
 			}
 
-			spin_unlock_irqrestore(&parentdevice->enc_owner_lock,
+			spin_unlock_irqrestore(&pdevinfo->enc_owner_lock,
 					       flags);
 			break;
 		}
@@ -87,10 +87,10 @@ static int check_enc_irq(struct hantroenc_t *dev, u32 *core_info,
 static unsigned int wait_enc_ready(struct hantroenc_t *dev, u32 *core_info,
 				   u32 *irq_status, u32 nodenum)
 {
-	struct device_info *parentdevice = getparentdevice(dev, CORE_ENC);
+	struct device_info *pdevinfo = getparentdevice(dev, CORE_ENC);
 
 	PDEBUG("%s\n", __func__);
-	if (wait_event_interruptible(parentdevice->enc_wait_queue,
+	if (wait_event_interruptible(pdevinfo->enc_wait_queue,
 				     check_enc_irq(dev, core_info, irq_status,
 						   nodenum))) {
 		PDEBUG("ENC wait_event_interruptible interrupted\n");
@@ -101,13 +101,13 @@ static unsigned int wait_enc_ready(struct hantroenc_t *dev, u32 *core_info,
 	return 0;
 }
 
-u32 hantroenc_readbandwidth(struct device_info *pdevice, int is_read_bw)
+u32 hantroenc_readbandwidth(struct device_info *pdevinfo, int is_read_bw)
 {
 	int i, devcnt = get_devicecount();
 	u32 bandwidth = 0;
 	struct hantroenc_t *pcore;
 
-	if (!pdevice) {
+	if (!pdevinfo) {
 		for (i = 0; i < devcnt; i++) {
 			pcore = get_encnode_bydeviceid(i, 0);
 			while (pcore) {
@@ -135,7 +135,7 @@ u32 hantroenc_readbandwidth(struct device_info *pdevice, int is_read_bw)
 			}
 		}
 	} else {
-		pcore = get_encnode(pdevice, 0);
+		pcore = get_encnode(pdevinfo, 0);
 		while (pcore) {
 			if (is_read_bw) {
 				if (hantro_drm.device_type == DEVICE_KEEMBAY)
@@ -165,9 +165,9 @@ static int check_core_occupation(struct hantroenc_t *dev)
 {
 	int ret = 0;
 	unsigned long flags;
-	struct device_info *parentdevice = getparentdevice(dev, CORE_ENC);
+	struct device_info *pdevinfo = getparentdevice(dev, CORE_ENC);
 
-	spin_lock_irqsave(&parentdevice->enc_owner_lock, flags);
+	spin_lock_irqsave(&pdevinfo->enc_owner_lock, flags);
 	if (!dev->is_reserved) {
 		dev->is_reserved = 1;
 		dev->pid = current->pid;
@@ -175,7 +175,7 @@ static int check_core_occupation(struct hantroenc_t *dev)
 		PDEBUG("%s pid=%d\n", __func__, dev->pid);
 	}
 
-	spin_unlock_irqrestore(&parentdevice->enc_owner_lock, flags);
+	spin_unlock_irqrestore(&pdevinfo->enc_owner_lock, flags);
 	return ret;
 }
 
@@ -247,7 +247,7 @@ static int get_workable_core(struct hantroenc_t *dev, u32 *core_info,
 static long reserve_encoder(struct hantroenc_t *dev, u32 *core_info,
 			    u32 nodenum)
 {
-	struct device_info *parentdevice = getparentdevice(dev, CORE_ENC);
+	struct device_info *pdevinfo = getparentdevice(dev, CORE_ENC);
 	struct hantroenc_t *reserved_core = NULL;
 	u32 core_info_tmp = 0;
 	int ret = 0;
@@ -256,7 +256,7 @@ static long reserve_encoder(struct hantroenc_t *dev, u32 *core_info,
 	PDEBUG("hx280enc: %s\n", __func__);
 	/* If HW resources are shared inter cores, just make sure only one is using the HW */
 	if (resource_shared) {
-		if (down_interruptible(&parentdevice->enc_core_sem)) {
+		if (down_interruptible(&pdevinfo->enc_core_sem)) {
 			ret = -ERESTARTSYS;
 			nodenum = 0xffffffff;
 			goto out;
@@ -264,7 +264,7 @@ static long reserve_encoder(struct hantroenc_t *dev, u32 *core_info,
 	}
 
 	/* lock a core that has specified core id */
-	if (wait_event_interruptible(parentdevice->enc_hw_queue,
+	if (wait_event_interruptible(pdevinfo->enc_hw_queue,
 				     get_workable_core(dev, core_info,
 						       &core_info_tmp,
 						       nodenum) != 0)) {
@@ -273,17 +273,17 @@ static long reserve_encoder(struct hantroenc_t *dev, u32 *core_info,
 		goto out;
 	}
 
-	reserved_core = get_encnode(parentdevice, KCORE(*core_info) - 1);
+	reserved_core = get_encnode(pdevinfo, KCORE(*core_info) - 1);
 	if (!reserved_core) {
 		pr_debug("Core not found. Possibly Lookahead node");
 		goto out;
 	}
 
 	if (reserved_core->dev_clk &&
-	    parentdevice->thermal_data.clk_freq != reserved_core->clk_freq) {
+	    pdevinfo->thermal_data.clk_freq != reserved_core->clk_freq) {
 		clk_set_rate(reserved_core->dev_clk,
-			     parentdevice->thermal_data.clk_freq);
-		reserved_core->clk_freq = parentdevice->thermal_data.clk_freq;
+			     pdevinfo->thermal_data.clk_freq);
+		reserved_core->clk_freq = pdevinfo->thermal_data.clk_freq;
 	}
 
 	reserved_core->perf_data.last_resv = sched_clock();
@@ -300,11 +300,11 @@ static void release_encoder(struct hantroenc_t *dev, u32 *core_info,
 	u32 core_num = 0;
 	u32 i = 0, core_id;
 	u8 core_mapping = 0;
-	struct device_info *parentdevice = getparentdevice(dev, CORE_ENC);
+	struct device_info *pdevinfo = getparentdevice(dev, CORE_ENC);
 	struct hantroenc_t *reserved_core = NULL;
 
 	core_id = KCORE((*core_info));
-	reserved_core = get_encnode(parentdevice, core_id - 1);
+	reserved_core = get_encnode(pdevinfo, core_id - 1);
 	if (reserved_core) {
 		reserved_core->perf_data.count++;
 		reserved_core->perf_data.totaltime +=
@@ -325,7 +325,7 @@ static void release_encoder(struct hantroenc_t *dev, u32 *core_info,
 				break;
 
 			core_id = i;
-			spin_lock_irqsave(&parentdevice->enc_owner_lock, flags);
+			spin_lock_irqsave(&pdevinfo->enc_owner_lock, flags);
 			PDEBUG("dev[core_id].pid=%d,current->pid=%d\n",
 			       dev->pid, current->pid);
 			if (dev->is_reserved && dev->pid == current->pid) {
@@ -334,7 +334,7 @@ static void release_encoder(struct hantroenc_t *dev, u32 *core_info,
 				dev->irq_received = 0;
 				dev->irq_status = 0;
 			}
-			spin_unlock_irqrestore(&parentdevice->enc_owner_lock,
+			spin_unlock_irqrestore(&pdevinfo->enc_owner_lock,
 					       flags);
 		}
 
@@ -343,9 +343,9 @@ static void release_encoder(struct hantroenc_t *dev, u32 *core_info,
 		dev = dev->next;
 	}
 
-	wake_up_interruptible_all(&parentdevice->enc_hw_queue);
+	wake_up_interruptible_all(&pdevinfo->enc_hw_queue);
 	if (resource_shared)
-		up(&parentdevice->enc_core_sem);
+		up(&pdevinfo->enc_core_sem);
 
 	trace_enc_release(dev->deviceidx, KCORE((*core_info)));
 }
@@ -456,7 +456,7 @@ long hantroenc_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 
 int hantroenc_release(void)
 {
-	struct device_info *parentdevice;
+	struct device_info *pdevinfo;
 	int i, devicecnt = get_devicecount();
 	struct hantroenc_t *dev;
 	unsigned long flags;
@@ -469,9 +469,9 @@ int hantroenc_release(void)
 		if (!dev)
 			continue;
 
-		parentdevice = getparentdevice(dev, CORE_ENC);
+		pdevinfo = getparentdevice(dev, CORE_ENC);
 		while (dev) {
-			spin_lock_irqsave(&parentdevice->enc_owner_lock, flags);
+			spin_lock_irqsave(&pdevinfo->enc_owner_lock, flags);
 			if (dev->is_reserved == 1 && dev->pid == current->pid) {
 				dev->pid = -1;
 				dev->is_reserved = 0;
@@ -479,14 +479,14 @@ int hantroenc_release(void)
 				dev->irq_status = 0;
 				PDEBUG("release reserved core\n");
 			}
-			spin_unlock_irqrestore(&parentdevice->enc_owner_lock,
+			spin_unlock_irqrestore(&pdevinfo->enc_owner_lock,
 					       flags);
 			dev = dev->next;
 		}
 
-		wake_up_interruptible_all(&parentdevice->enc_hw_queue);
+		wake_up_interruptible_all(&pdevinfo->enc_hw_queue);
 		if (resource_shared)
-			up(&parentdevice->enc_core_sem);
+			up(&pdevinfo->enc_core_sem);
 	}
 
 	return 0;
@@ -576,7 +576,7 @@ static int init_enc_clock(struct hantroenc_t *pcore, dtbnode *pnode)
 	if (strlen(pnode->clock_name) == 0)
 		return 0;
 
-	pcore->dev_clk = clk_get(pnode->pdevice->dev, pnode->clock_name);
+	pcore->dev_clk = clk_get(pnode->pdevinfo->dev, pnode->clock_name);
 	if (IS_ERR(pcore->dev_clk) || !pcore->dev_clk) {
 		pr_err("%s: clock %s not found. err = %ld", __func__,
 		       pnode->clock_name, PTR_ERR(pcore->dev_clk));
@@ -585,7 +585,7 @@ static int init_enc_clock(struct hantroenc_t *pcore, dtbnode *pnode)
 	}
 
 	clk_prepare_enable(pcore->dev_clk);
-	pcore->clk_freq = pnode->pdevice->thermal_data.clk_freq;
+	pcore->clk_freq = pnode->pdevinfo->thermal_data.clk_freq;
 	clk_set_rate(pcore->dev_clk, pcore->clk_freq);
 	return 0;
 }
@@ -645,17 +645,17 @@ int hantroenc_probe(dtbnode *pnode)
 	}
 
 	init_enc_clock(pcore, pnode);
-	add_encnode(pnode->pdevice, pcore);
+	add_encnode(pnode->pdevinfo, pcore);
 	pr_info("hx280enc: module inserted. Major <%d>\n", hantroenc_major);
 	return 0;
 }
 
-void hantroenc_remove(struct device_info *pdevice)
+void hantroenc_remove(struct device_info *pdevinfo)
 {
 	int k;
 	struct hantroenc_t *pcore, *pnext;
 
-	pcore = get_encnode(pdevice, 0);
+	pcore = get_encnode(pdevinfo, 0);
 	while (pcore) {
 		u32 hwid = pcore->hw_id;
 		u32 major_id = (hwid & 0x0000FF00) >> 8;
@@ -728,13 +728,13 @@ static irqreturn_t hantroenc_isr(int irq, void *dev_id)
 	struct hantroenc_t *dev = (struct hantroenc_t *)dev_id;
 	u32 irq_status;
 	unsigned long flags;
-	struct device_info *parentdevice = getparentdevice(dev, CORE_ENC);
+	struct device_info *pdevinfo = getparentdevice(dev, CORE_ENC);
 
 	/*
 	 * If core is not reserved by any user, but irq is received, just
 	 * ignore it
 	 */
-	spin_lock_irqsave(&parentdevice->enc_owner_lock, flags);
+	spin_lock_irqsave(&pdevinfo->enc_owner_lock, flags);
 	if (!dev->is_reserved) {
 		PDEBUG("%s:received IRQ but core is not reserved!\n", __func__);
 		irq_status = (u32)ioread32((void *)(dev->hwregs + 0x04));
@@ -760,11 +760,11 @@ static irqreturn_t hantroenc_isr(int irq, void *dev_id)
 			iowrite32(wclr, (void *)(dev->hwregs + 0x04));
 		}
 
-		spin_unlock_irqrestore(&parentdevice->enc_owner_lock, flags);
+		spin_unlock_irqrestore(&pdevinfo->enc_owner_lock, flags);
 		return IRQ_HANDLED;
 	}
 
-	spin_unlock_irqrestore(&parentdevice->enc_owner_lock, flags);
+	spin_unlock_irqrestore(&pdevinfo->enc_owner_lock, flags);
 	irq_status = (u32)ioread32((void *)(dev->hwregs + 0x04));
 	if (irq_status & 0x01) {
 		/*
@@ -779,11 +779,11 @@ static irqreturn_t hantroenc_isr(int irq, void *dev_id)
 			iowrite32(0, (void *)(dev->hwregs + 0x14));
 
 		iowrite32(wclr, (void *)(dev->hwregs + 0x04));
-		spin_lock_irqsave(&parentdevice->enc_owner_lock, flags);
+		spin_lock_irqsave(&pdevinfo->enc_owner_lock, flags);
 		dev->irq_received = 1;
 		dev->irq_status = irq_status & (~0x01);
-		spin_unlock_irqrestore(&parentdevice->enc_owner_lock, flags);
-		wake_up_interruptible_all(&parentdevice->enc_wait_queue);
+		spin_unlock_irqrestore(&pdevinfo->enc_owner_lock, flags);
+		wake_up_interruptible_all(&pdevinfo->enc_wait_queue);
 		handled++;
 	}
 

@@ -67,7 +67,7 @@ struct cache_dev_t {
 	device_coretype parenttype;
 	u32 parentid; /* parent codec core's core_id */
 	void *parentcore; /* either struct hantroenc_t or struct hantrodec_t, or device itself */
-	void *parentdevice;
+	struct device_info *pdevinfo;
 	int deviceidx;
 	struct cache_dev_t *next;
 };
@@ -90,7 +90,7 @@ struct dec400_t {
 	device_coretype parenttype;
 	u32 parentid; /* parent codec core's core_id */
 	void *parentcore; /* either struct hantroenc_t or struct hantrodec_t, or device itself */
-	void *parentdevice;
+	struct device_info *pdevinfo;
 	struct dec400_t *next;
 };
 
@@ -123,7 +123,7 @@ struct hantroenc_t {
 	struct fasync_struct *async_queue;
 	int irqlist[4];
 	char irq_name[4][32];
-	void *parentdevice;
+	struct device_info *pdevinfo;
 	int deviceidx;
 	performance_data perf_data;
 	struct hantroenc_t *next;
@@ -167,7 +167,7 @@ struct hantrodec_t {
 	unsigned long clk_freq;
 	struct file *dec_owner;
 	struct file *pp_owner;
-	void *parentdevice;
+	struct device_info *pdevinfo;
 	u32 deviceidx;
 	performance_data perf_data;
 	struct hantrodec_t *next;
@@ -262,10 +262,10 @@ struct device_info {
 
 struct device_info *getdevicenode(u32 deviceid);
 int get_devicecorenum(u32 deviceindex, device_coretype type);
-struct hantrodec_t *get_decnode(struct device_info *pdevice, u32 nodeidx);
+struct hantrodec_t *get_decnode(struct device_info *pdevinfo, u32 nodeidx);
 struct hantrodec_t *get_decnode_bydeviceid(u32 deviceindex, u32 nodeidx);
-struct hantrodec_t *getfirst_decnodes(struct device_info *pdevice);
-struct hantroenc_t *get_encnode(struct device_info *pdevice, u32 nodeidx);
+struct hantrodec_t *getfirst_decnodes(struct device_info *pdevinfo);
+struct hantroenc_t *get_encnode(struct device_info *pdevinfo, u32 nodeidx);
 struct hantroenc_t *get_encnode_bydeviceid(u32 deviceid, u32 nodeidx);
 struct cache_dev_t *get_cachenodes(u32 deviceid, u32 nodeidx);
 struct cache_dev_t *get_cachenodebytype(u32 deviceid, u32 parenttype,
@@ -273,10 +273,10 @@ struct cache_dev_t *get_cachenodebytype(u32 deviceid, u32 parenttype,
 struct dec400_t *get_dec400nodes(u32 deviceid, u32 nodeidx);
 struct dec400_t *get_dec400nodebytype(u32 deviceid, u32 parenttype,
 				      u32 parentnodeidx);
-int add_decnode(struct device_info *pdevice, struct hantrodec_t *deccore);
-int add_encnode(struct device_info *pdevice, struct hantroenc_t *enccore);
-int add_dec400node(struct device_info *splice, struct dec400_t *dec400core);
-int add_cachenode(struct device_info *splice, struct cache_dev_t *cachecore);
+int add_decnode(struct device_info *pdevinfo, struct hantrodec_t *deccore);
+int add_encnode(struct device_info *pdevinfo, struct hantroenc_t *enccore);
+int add_dec400node(struct device_info *pdevinfo, struct dec400_t *dec400core);
+int add_cachenode(struct device_info *pdevinfo, struct cache_dev_t *cachecore);
 int get_devicecount(void);
 struct device_info *getparentdevice(void *node, int type);
 int device_remove(void);

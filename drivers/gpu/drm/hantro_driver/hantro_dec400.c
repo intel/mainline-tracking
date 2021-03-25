@@ -242,7 +242,7 @@ int hantro_dec400_probe(dtbnode *pnode)
 	}
 
 	dec400_reset_asic(pdec400);
-	add_dec400node(pnode->pdevice, pdec400);
+	add_dec400node(pnode->pdevinfo, pdec400);
 	pr_info("hantrodec400: HW at base <0x%llx>\n",
 		pdec400->core_cfg.dec400corebase);
 	return 0;
