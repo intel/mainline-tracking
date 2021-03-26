@@ -175,8 +175,6 @@ static void mei_virtio_intr_enable(struct mei_device *dev)
 	struct mei_virtio_hw *hw = to_virtio_hw(dev);
 	struct virtio_device *vdev = dev_to_virtio(dev->dev);
 
-	virtio_config_enable(vdev);
-
 	virtqueue_enable_cb(hw->in);
 	virtqueue_enable_cb(hw->out);
 }
@@ -190,8 +188,6 @@ static void mei_virtio_intr_disable(struct mei_device *dev)
 {
 	struct mei_virtio_hw *hw = to_virtio_hw(dev);
 	struct virtio_device *vdev = dev_to_virtio(dev->dev);
-
-	virtio_config_disable(vdev);
 
 	virtqueue_disable_cb(hw->in);
 	virtqueue_disable_cb(hw->out);
