@@ -5714,6 +5714,10 @@ static const struct pci_device_id vmd_bridge_tbl[] = {
 	{ PCI_VDEVICE(INTEL, 0x9a09) },
 	{ PCI_VDEVICE(INTEL, 0xa0b0) },
 	{ PCI_VDEVICE(INTEL, 0xa0bc) },
+	{ PCI_VDEVICE(INTEL, 0x7ab0) },
+	{ PCI_VDEVICE(INTEL, 0x7abc) },
+	{ PCI_VDEVICE(INTEL, 0x7ab4) },
+	{ PCI_VDEVICE(INTEL, 0x464d) },
 	{ }
 };
 
