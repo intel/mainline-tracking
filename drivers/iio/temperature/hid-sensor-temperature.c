@@ -23,6 +23,7 @@ struct temperature_state {
 	int scale_post_decml;
 	int scale_precision;
 	int value_offset;
+	s64 timestamp;
 };
 
 /* Channel definitions */
@@ -125,9 +126,14 @@ static int temperature_proc_event(struct hid_sensor_hub_device *hsdev,
 	struct iio_dev *indio_dev = platform_get_drvdata(pdev);
 	struct temperature_state *temp_st = iio_priv(indio_dev);
 
-	if (atomic_read(&temp_st->common_attributes.data_ready))
-		iio_push_to_buffers_with_timestamp(indio_dev, &temp_st->scan,
-						   iio_get_time_ns(indio_dev));
+	if (atomic_read(&temp_st->common_attributes.data_ready)) {
+		if (!temp_st->timestamp)
+			temp_st->timestamp = iio_get_time_ns(indio_dev);
+
+ 		iio_push_to_buffers_with_timestamp(indio_dev, &temp_st->scan,
+						   temp_st->timestamp);
+		temp_st->timestamp = 0;
+	}
 
 	return 0;
 }
@@ -143,6 +149,10 @@ static int temperature_capture_sample(struct hid_sensor_hub_device *hsdev,
 	switch (usage_id) {
 	case HID_USAGE_SENSOR_DATA_ENVIRONMENTAL_TEMPERATURE:
 		temp_st->scan.temperature_data = *(s32 *)raw_data;
+		return 0;
+	case HID_USAGE_SENSOR_TIME_TIMESTAMP:
+		temp_st->timestamp = hid_sensor_convert_timestamp(&temp_st->common_attributes,
+								  *(s64 *)raw_data);
 		return 0;
 	default:
 		return -EINVAL;
