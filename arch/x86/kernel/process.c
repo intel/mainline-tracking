@@ -197,7 +197,9 @@ void flush_thread(void)
 
 	fpu__clear_all(&tsk->thread.fpu);
 
+#ifndef CONFIG_X86_32
 	pks_init_task(tsk);
+#endif
 }
 
 void disable_TSC(void)
