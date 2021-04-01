@@ -472,7 +472,7 @@ enum {
 #define VTD_FLAG_IRQ_REMAP_PRE_ENABLED	(1 << 1)
 #define VTD_FLAG_SVM_CAPABLE		(1 << 2)
 
-extern int intel_iommu_sm;
+extern int intel_iommu_sm, boot_debug;
 extern spinlock_t device_domain_lock;
 
 #define sm_supported(iommu)	(intel_iommu_sm && ecap_smts((iommu)->ecap))
@@ -748,6 +748,7 @@ int intel_iommu_enable_pasid(struct intel_iommu *iommu, struct device *dev);
 struct dmar_domain *find_domain(struct device *dev);
 struct device_domain_info *get_domain_info(struct device *dev);
 struct intel_iommu *device_to_iommu(struct device *dev, u8 *bus, u8 *devfn);
+struct dmar_domain *get_domain_from_bus_devfn(struct intel_iommu *iommu, u8 bus, u16 devfn);
 
 #ifdef CONFIG_INTEL_IOMMU_SVM
 extern void intel_svm_check(struct intel_iommu *iommu);
@@ -795,8 +796,10 @@ static inline void intel_svm_check(struct intel_iommu *iommu) {}
 
 #ifdef CONFIG_INTEL_IOMMU_DEBUGFS
 void intel_iommu_debugfs_init(void);
+void dmar_translation_walk(struct intel_iommu *iommu, u8 bus, u16 devfn);
 #else
 static inline void intel_iommu_debugfs_init(void) {}
+static inline void dmar_translation_walk(struct intel_iommu *iommu, u8 bus, u16 devfn) {}
 #endif /* CONFIG_INTEL_IOMMU_DEBUGFS */
 
 extern const struct attribute_group *intel_iommu_groups[];
