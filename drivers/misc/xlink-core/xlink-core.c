@@ -426,6 +426,7 @@ static int kmb_xlink_remove(struct platform_device *pdev)
 	device_destroy(dev_class, xdev);
 	cdev_del(&xlink_cdev);
 	class_destroy(dev_class);
+	kobject_del(ev_kobj);
 	pr_info("XLink Driver removed\n");
 	return 0;
 }
