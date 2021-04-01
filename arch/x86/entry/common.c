@@ -348,7 +348,9 @@ __visible noinstr void xen_pv_evtchn_do_upcall(struct pt_regs *regs)
 	inhcall = get_and_clear_inhcall();
 	if (inhcall && !WARN_ON_ONCE(state.exit_rcu)) {
 		/* Normally called by irqentry_exit, we must restore pkrs here */
+#ifdef CONFIG_ARCH_ENABLE_SUPERVISOR_PKEYS
 		pkrs_restore_irq(regs);
+#endif
 		instrumentation_begin();
 		irqentry_exit_cond_resched();
 		instrumentation_end();
