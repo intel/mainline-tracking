@@ -84,5 +84,7 @@ void __init tdg_filter_init(void)
 	/* Register TDX PCI device filter list */
 	register_dev_filter(&pci_filter_node);
 
+	acpi_tbl_allow_setup("RDSP,XSDT,FACP,DSDT,FACS,APIC");
+
 	pr_info("Enabled TDX guest device filter\n");
 }
