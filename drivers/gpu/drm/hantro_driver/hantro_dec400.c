@@ -222,7 +222,6 @@ int hantro_dec400_probe(dtbnode *pnode)
 
 	pdec400->core_cfg.dec400corebase = pnode->ioaddr;
 	pdec400->core_cfg.iosize = pnode->iosize;
-	pdec400->core_cfg.deviceidx = pnode->deviceidx;
 	pdec400->core_cfg.parentaddr = pnode->parentaddr;
 	if (!request_mem_region(pdec400->core_cfg.dec400corebase,
 				pdec400->core_cfg.iosize, "hantrodec400")) {

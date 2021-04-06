@@ -44,7 +44,6 @@ struct cache_core_config {
 	u32 iosize;
 	int irq;
 	driver_cache_dir dir;
-	u32 deviceidx;
 	unsigned long long parentaddr;
 };
 
@@ -68,7 +67,6 @@ struct cache_dev_t {
 	u32 parentid; /* parent codec core's core_id */
 	void *parentcore; /* either struct hantroenc_t or struct hantrodec_t, or device itself */
 	struct device_info *pdevinfo;
-	int deviceidx;
 	struct cache_dev_t *next;
 };
 
@@ -76,7 +74,6 @@ struct dec400_core_cfg {
 	unsigned long long dec400corebase;
 
 	unsigned int iosize;
-	u32 deviceidx;
 	unsigned long long parentaddr;
 };
 
@@ -103,7 +100,6 @@ typedef struct {
 	 * If 1, cores can not work at same time.
 	 */
 	u32 resource_shared;
-	u32 deviceidx;
 } CORE_CONFIG;
 
 struct hantroenc_t {
@@ -118,13 +114,16 @@ struct hantroenc_t {
 	unsigned int buffsize;
 	u8 *hwregs;
 	char reg_name[32];
-	struct clk *dev_clk;
 	unsigned long clk_freq;
 	struct fasync_struct *async_queue;
 	int irqlist[4];
 	char irq_name[4][32];
+	int reset_index;
+	int clock_index;
+	int pd_index;
 	struct device_info *pdevinfo;
-	int deviceidx;
+	int enabled;
+	struct mutex core_mutex;
 	performance_data perf_data;
 	struct hantroenc_t *next;
 };
@@ -163,12 +162,15 @@ struct hantrodec_t {
 	u32 dec_regs[DEC_IO_SIZE_MAX / 4];
 	int irqlist[4];
 	char irq_name[4][32];
-	struct clk *dev_clk;
+	int reset_index;
+	int clock_index;
+	int pd_index;
 	unsigned long clk_freq;
 	struct file *dec_owner;
 	struct file *pp_owner;
 	struct device_info *pdevinfo;
-	u32 deviceidx;
+	int enabled;
+	struct mutex core_mutex;
 	performance_data perf_data;
 	struct hantrodec_t *next;
 };
@@ -257,6 +259,15 @@ struct device_info {
 	struct idr allocations;
 	/* alloc mutex struct */
 	struct mutex alloc_mutex;
+
+	const char **reset_names;
+	int reset_count;
+	struct reset_control **dev_reset;
+
+	const char **clk_names;
+	int clk_count;
+	struct clk  **dev_clk;
+
 	struct device_info *next;
 };
 

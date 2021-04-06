@@ -52,6 +52,14 @@ bool enable_irqmode = 1;
 module_param(enable_irqmode, bool, 0);
 MODULE_PARM_DESC(enable_irqmode, "Enable IRQ Mode(default 1)");
 
+bool power_save_mode = 1;
+module_param(power_save_mode, bool, 0);
+MODULE_PARM_DESC(power_save_mode, "Power saving mode (default 1 - enabled)");
+
+uint sleep_duration_ms = 5 * MSEC_PER_SEC;
+module_param(sleep_duration_ms, uint, 0);
+MODULE_PARM_DESC(sleep_duration_ms, "Power saving mdoe thread check time in ms (default 5000 ms)");
+
 static int link_device_drm(struct device_info *pdevinfo)
 {
 	struct device_info *tmpdev;
@@ -126,48 +134,6 @@ static inline unsigned long virt_to_bus(void *address)
 }
 #endif
 
-static int getclockname(dtbnode *pnode)
-{
-	const char *nodename;
-
-	if (!pnode || !pnode->ofnode)
-		return -EINVAL;
-
-	nodename = pnode->ofnode->name;
-
-	if (hantro_drm.device_type == DEVICE_KEEMBAY) {
-		if (strstr(nodename, "decoderA") == nodename)
-			sprintf(pnode->clock_name, "clk_xin_vdec");
-
-		if (strstr(nodename, "decoderB") == nodename)
-			sprintf(pnode->clock_name, "clk_xin_vdec");
-
-		if (strstr(nodename, "encoderA") == nodename)
-			sprintf(pnode->clock_name, "clk_xin_venc");
-
-		if (strstr(nodename, "encoderB") == nodename)
-			sprintf(pnode->clock_name, "clk_xin_jpeg");
-	} else {
-		if (strstr(nodename, "decoderA") == nodename)
-			sprintf(pnode->clock_name, "vc8000da_aclk_computess%d",
-				pnode->pdevinfo->deviceid);
-
-		if (strstr(nodename, "decoderB") == nodename)
-			sprintf(pnode->clock_name, "vc8000db_aclk_computess%d",
-				pnode->pdevinfo->deviceid);
-
-		if (strstr(nodename, "encoderA") == nodename)
-			sprintf(pnode->clock_name, "vc8000ej_aclk_computess%d",
-				pnode->pdevinfo->deviceid);
-
-		if (strstr(nodename, "encoderB") == nodename)
-			sprintf(pnode->clock_name, "vc8000e_aclk_computess%d",
-				pnode->pdevinfo->deviceid);
-	}
-
-	return -EINVAL;
-}
-
 static int getnodetype(const char *name)
 {
 	if (strstr(name, NODENAME_DECODER) == name)
@@ -195,6 +161,7 @@ static dtbnode *trycreatenode(struct platform_device *pdev,
 	int i, na, ns, ret = 0;
 	int endian = of_device_is_big_endian(ofnode);
 	u32 reg_u32[4];
+	u32 index_array[4];
 	const char *reg_name;
 	u64 ioaddress, iosize;
 	dtbnode *pnode = kzalloc(sizeof(dtbnode), GFP_KERNEL);
@@ -208,7 +175,6 @@ static dtbnode *trycreatenode(struct platform_device *pdev,
 	pnode->pdevinfo = pdevinfo;
 	pnode->ofnode = ofnode;
 	fwnode = &ofnode->fwnode;
-	getclockname(pnode);
 
 	na = of_n_addr_cells(ofnode);
 	ns = of_n_size_cells(ofnode);
@@ -269,6 +235,19 @@ static dtbnode *trycreatenode(struct platform_device *pdev,
 			pnode->irq[i] = -1;
 		}
 	}
+
+	pnode->reset_index = -1;
+	pnode->clock_index = -1;
+	pnode->pd_index = -1;
+
+	if (!fwnode_property_read_u32_array(fwnode, "reset-index", index_array, 3))
+		pnode->reset_index = index_array[0];
+
+	if(!fwnode_property_read_u32_array(fwnode, "clock-index", index_array, 1))
+		pnode->clock_index = index_array[0];
+
+	if (!fwnode_property_read_u32_array(fwnode, "pd-index", index_array, 1))
+		pnode->pd_index = index_array[0];
 
 	switch (pnode->type) {
 	case CORE_DEC:
@@ -331,62 +310,7 @@ static void hantro_mmu_control(struct platform_device *pdev)
 	}
 }
 
-/* hantro_enable_clock to enable/disable the media SS clocks */
-static int hantro_clock_control(struct device *dev, bool enable)
-{
-	struct clk *dev_clk = NULL;
-	const char **clock_names;
-	int i = 0, ret = 0, count = 0;
-	unsigned long rate;
 
-	// Read clock names
-	count = device_property_read_string_array(dev, "clock-names", NULL, 0);
-	if (count > 0) {
-		clock_names = kcalloc(count, sizeof(*clock_names), GFP_KERNEL);
-		if (!clock_names)
-			return 0;
-
-		ret = device_property_read_string_array(dev, "clock-names",
-							clock_names, count);
-		if (ret < 0) {
-			pr_err("failed to read clock names\n");
-			kfree(clock_names);
-			return 0;
-		}
-
-		for (i = 0; i < count; i++) {
-			DBG("hantro: clock_name = %s\n", clock_names[i]);
-			dev_clk = clk_get(dev, clock_names[i]);
-			if (enable) {
-				clk_prepare_enable(dev_clk);
-
-				if (verbose)
-					pr_info("hantro: default clock frequency of clock_name = %s is %ld\n"
-						, clock_names[i],
-						clk_get_rate(dev_clk));
-
-				if (hantro_drm.device_type == DEVICE_KEEMBAY)
-					rate = kmb_freq_table[0];
-				else if (hantro_drm.device_type == DEVICE_THUNDERBAY)
-					rate = tbh_freq_table[0];
-
-				clk_set_rate(dev_clk, rate);
-				if (verbose)
-					pr_info("hantro: set %lu Mhz clock frequency of clock_name = %s is %ld\n"
-					, rate, clock_names[i], clk_get_rate(dev_clk));
-
-			} else {
-				clk_disable_unprepare(dev_clk);
-			}
-
-			clk_put(dev_clk);
-		}
-
-		kfree(clock_names);
-	}
-
-	return 0;
-}
 
 static int hantro_cooling_get_max_state(struct thermal_cooling_device *cdev,
 					unsigned long *state)
@@ -475,54 +399,184 @@ int setup_thermal_cooling(struct device_info *pdevinfo)
 }
 
 /* hantro_reset_clock to de-assert/assert the media SS cores and MMU */
-static int hantro_reset_control(struct platform_device *pdev, bool deassert)
+int hantro_clock_control(struct device_info *pdevinfo, int index, bool enable)
 {
-	struct device *dev = &pdev->dev;
-	const char **reset_names;
-	struct reset_control *dev_reset = NULL;
-	int i = 0, ret = 0, count = 0;
+	if (!pdevinfo || index < 0)
+		return -1;
 
-	// Read reset names
-	count = device_property_read_string_array(dev, "reset-names", NULL, 0);
-	if (count > 0) {
-		reset_names = kcalloc(count, sizeof(*reset_names), GFP_KERNEL);
-		if (!reset_names)
-			return 0;
+	if (enable) {
+		if(verbose)
+			pr_info("Enabling Clock %s", pdevinfo->clk_names[index]);
 
-		ret = device_property_read_string_array(dev, "reset-names",
-							reset_names, count);
-		if (ret < 0) {
-			pr_err("failed to read clock names\n");
-			kfree(reset_names);
-			return 0;
-		}
+		clk_prepare_enable(pdevinfo->dev_clk[index]);
+	} else {
+		if(verbose)
+			pr_info("Disabling Clock %s", pdevinfo->clk_names[index]);
 
-		for (i = 0; i < count; i++) {
-			if (verbose)
-				pr_info("hantro: reset_name = %s\n",
-					reset_names[i]);
-
-			dev_reset = devm_reset_control_get(dev, reset_names[i]);
-			if (deassert) {
-				ret = reset_control_deassert(dev_reset);
-				if (ret < 0) {
-					pr_err("failed to deassert reset : %s, %d\n",
-					       reset_names[i], ret);
-				}
-
-			} else {
-				ret = reset_control_assert(dev_reset);
-				if (ret < 0) {
-					pr_err("failed to assert reset : %s, %d\n",
-					       reset_names[i], ret);
-				}
-			}
-		}
-
-		kfree(reset_names);
+		clk_disable_unprepare(pdevinfo->dev_clk[index]);
 	}
 
 	return 0;
+}
+
+/* hantro_reset_clock to de-assert/assert the media SS cores and MMU */
+int hantro_reset_control(struct device_info *pdevinfo, int index, bool deassert)
+{
+	if (!pdevinfo || index < 0)
+		return -1;
+
+	if (deassert) {
+		if(verbose)
+			pr_info("Deasserting %s", pdevinfo->reset_names[index]);
+
+		reset_control_deassert(pdevinfo->dev_reset[index]);
+	}
+	else {
+		if(verbose)
+			pr_info("Asserting %s", pdevinfo->reset_names[index]);
+
+		reset_control_assert(pdevinfo->dev_reset[index]);
+	}
+
+	return 0;
+}
+
+/* hantro_reset_clock to de-assert/assert the media SS cores and MMU */
+static int hantro_clock_init(struct device_info *pdevinfo)
+{
+	struct device *dev = pdevinfo->dev;
+	const char **clock_names;
+	struct clk **dev_clk = NULL;
+	int i = 0, ret = 0, count = 0;
+
+	// Read reset names
+	count = device_property_read_string_array(dev, "clock-names", NULL, 0);
+	if (count <= 0)
+	   return -1;
+
+	clock_names = devm_kcalloc(dev, count, sizeof(*clock_names), GFP_KERNEL);
+	if (!clock_names)
+		return 0;
+
+	ret = device_property_read_string_array(dev, "clock-names",
+						clock_names, count);
+	if (ret < 0) {
+		pr_err("failed to read clock names\n");
+		kfree(clock_names);
+		return 0;
+	}
+
+	dev_clk = devm_kcalloc(dev, count, sizeof(*dev_clk), GFP_KERNEL);
+	for (i = 0; i < count; i++) {
+		if (verbose)
+			pr_info("hantro: clock_name = %s\n",
+				clock_names[i]);
+
+		dev_clk[i] = devm_clk_get(pdevinfo->dev, clock_names[i]);
+	}
+
+	pdevinfo->clk_names = clock_names;
+	pdevinfo->clk_count = count;
+	pdevinfo->dev_clk = dev_clk;
+
+	return 0;
+}
+
+
+/* hantro_reset_clock to de-assert/assert the media SS cores and MMU */
+static int hantro_reset_init(struct device_info *pdevinfo)
+{
+	struct device *dev = pdevinfo->dev;
+	const char **reset_names;
+	struct reset_control **dev_reset = NULL;
+	int i = 0, ret = 0, count = 0;
+	// Read reset names
+	count = device_property_read_string_array(dev, "reset-names", NULL, 0);
+	if (count <= 0)
+	   return -1;
+
+	 //TODO: change that to devm_kcalloc
+	reset_names = devm_kcalloc(dev, count, sizeof(*reset_names), GFP_KERNEL);
+	if (!reset_names)
+		return 0;
+
+	ret = device_property_read_string_array(dev, "reset-names",
+						reset_names, count);
+	if (ret < 0) {
+		pr_err("failed to read reset names\n");
+		kfree(reset_names);
+		return 0;
+	}
+
+	//TODO: change that to devm_kcalloc
+	dev_reset = devm_kcalloc(dev, count, sizeof(*dev_reset), GFP_KERNEL);
+	for (i = 0; i < count; i++) {
+		if (verbose)
+			pr_info("hantro: reset_name = %s\n",
+				reset_names[i]);
+
+		dev_reset[i] = devm_reset_control_get(dev, reset_names[i]);
+	}
+
+	pdevinfo->reset_names = reset_names;
+	pdevinfo->reset_count = count;
+	pdevinfo->dev_reset = dev_reset;
+
+	return 0;
+}
+
+int hantro_device_clock_control(struct device_info *pdevinfo, bool enable)
+{
+	int i = 0;
+
+	for (i = 0; i < pdevinfo->clk_count; i++) {
+		if (enable) {
+			clk_prepare_enable(pdevinfo->dev_clk[i]);
+		} else {
+			clk_disable_unprepare(pdevinfo->dev_clk[i]);
+		}
+	}
+
+	return 0;
+}
+
+void hantro_device_change_status(struct device_info *pdevinfo, bool turnon)
+{
+	if (pdevinfo) {
+		hantrodec_device_change_status(pdevinfo, turnon);
+		hantroenc_device_change_status(pdevinfo, turnon);
+	}
+}
+
+//Turn on/off all clocks & resets.  Used in probe
+void hantro_device_change_status_all(struct device_info *pdevinfo, bool turnon)
+{
+	int i;
+
+	for (i = 0; i < pdevinfo->reset_count; i++) {
+		hantro_reset_control(pdevinfo, i, turnon);
+	}
+
+	for (i = 0; i < pdevinfo->clk_count; i++) {
+		hantro_clock_control(pdevinfo, i, turnon);
+	}
+}
+
+// Turn on/off all 'cores' on all of devices
+// This function called from drm open callback whenever a client opens up drm handle
+void hantro_all_devices_turnon(void)
+{
+	struct device_info *pdevinfo;
+
+	hantro_drm.turning_on = 1;
+	pdevinfo = hantro_drm.pdevice_list;
+	while (pdevinfo) {
+		hantro_device_change_status(pdevinfo, true);
+		pdevinfo = pdevinfo->next;
+	}
+
+	msleep(50);
+	hantro_drm.turning_on = 0;
 }
 
 int hantro_analyze_subnode(struct platform_device *pdev,
@@ -678,6 +732,10 @@ int init_device_info(struct device *dev, struct device_info *pdevinfo)
 	pdevinfo->deviceid = atomic_read(&hantro_drm.devicecount);
 	atomic_inc(&hantro_drm.devicecount);
 	set_device_type(pdevinfo);
+
+	hantro_clock_init(pdevinfo);
+	hantro_reset_init(pdevinfo);
+
 	return 0;
 }
 
@@ -720,6 +778,81 @@ int get_reserved_mem_size(struct device_info *pdevice)
 	return 0;
 }
 
+int hantro_power_domain(struct device_info *pdevinfo, int index, bool turnon)
+{
+	struct device *virtual_dev = NULL;
+	struct device *dev = pdevinfo->dev;
+	struct generic_pm_domain *gen_pd;
+	int ret;
+
+	if (index < 0)
+		return 0;
+
+	virtual_dev = dev_pm_domain_attach_by_id(dev, index);
+	ret = (int)virtual_dev;
+	if (IS_ERR(virtual_dev))
+		return PTR_ERR(virtual_dev);
+
+	gen_pd = pd_to_genpd(virtual_dev->pm_domain);
+	if (gen_pd) {
+		if (turnon)
+			gen_pd->power_on(gen_pd);
+		else
+			gen_pd->power_off(gen_pd);
+	}
+
+	dev_pm_domain_detach(virtual_dev, true);
+
+	msleep(1);
+	return 0;
+}
+
+int power_monitor_thread(void *arg) {
+	struct device_info *pdevinfo;
+	struct hantrodec_t *dec_core = NULL;
+	struct hantroenc_t *enc_core = NULL;
+	unsigned long long curr_time, sleep_diff_ns = (sleep_duration_ms * NSEC_PER_MSEC) - (NSEC_PER_MSEC * 2); // reduce 2 ms to compensate logic delay.
+
+	while (!kthread_should_stop()) {
+		msleep(sleep_duration_ms);
+		if (hantro_drm.turning_on)
+			continue;
+
+		if (verbose)
+			pr_info("Checking for idle cores");
+
+		curr_time = sched_clock();
+
+		pdevinfo = hantro_drm.pdevice_list;
+		while (pdevinfo) {
+			dec_core = pdevinfo->dechdr;
+			while (dec_core) {
+				if (dec_core->enabled && !hantro_drm.turning_on) {
+					if ((curr_time > dec_core->perf_data.last_resv) && (curr_time - dec_core->perf_data.last_resv) > sleep_diff_ns) {
+						hantrodec_core_status_change(dec_core, false);
+					}
+				}
+				dec_core = dec_core->next;
+			}
+
+			enc_core = pdevinfo->enchdr;
+			while (enc_core) {
+				if (enc_core->enabled && !hantro_drm.turning_on) {
+					if ((curr_time > enc_core->perf_data.last_resv) && (curr_time - enc_core->perf_data.last_resv) > sleep_diff_ns) {
+						hantroenc_core_status_change(enc_core, false);
+					}
+				}
+				enc_core = enc_core->next;
+			}
+
+			pdevinfo = pdevinfo->next;
+		}
+		__trace_hantro_msg("end checking");
+	}
+
+	return 0;
+}
+
 static int hantro_drm_probe(struct platform_device *pdev)
 {
 	struct device *dev = &pdev->dev;
@@ -735,16 +868,19 @@ static int hantro_drm_probe(struct platform_device *pdev)
 		return -ENOMEM;
 
 	init_device_info(dev, pdevinfo);
-	setup_thermal_cooling(pdevinfo);
-	hantro_clock_control(dev, true);
+	hantro_device_change_status_all(pdevinfo, true);
+
 	if (hantro_drm.device_type != DEVICE_KEEMBAY) {
-		hantro_reset_control(pdev, true);
+		setup_thermal_cooling(pdevinfo);
 		hantro_mmu_control(pdev);
 	}
+
+	hantro_analyze_subnode(pdev, dev->of_node, pdevinfo);
+
 	result = of_reserved_mem_device_init(dev);
 	dma_set_mask(dev, DMA_BIT_MASK(48));
 	dma_set_coherent_mask(dev, DMA_BIT_MASK(48));
-	hantro_analyze_subnode(pdev, dev->of_node, pdevinfo);
+
 	result = init_codec_rsvd_mem(pdevinfo->dev, pdevinfo, "codec_reserved",
 				     1);
 	get_reserved_mem_size(pdevinfo);
@@ -788,10 +924,14 @@ static int hantro_drm_remove(struct platform_device *pdev)
 	class_compat_remove_link(hantro_drm.media_class, &pdev->dev,
 				 pdev->dev.parent);
 	remove_sysfs(pdevinfo);
+
+	hantro_device_change_status(pdevinfo, false);
+
 	hantrodec_remove(pdevinfo);
 	hantroenc_remove(pdevinfo);
 	hantrodec400_remove(pdevinfo);
 	hantrocache_remove(pdevinfo);
+
 	unlink_device_drm(pdevinfo);
 	return 0;
 }
@@ -863,6 +1003,11 @@ void __exit hantro_cleanup(void)
 	debugfs_remove(hantro_drm.debugfs_root);
 	release_fence_data();
 
+	if (hantro_drm.monitor_task) {
+        kthread_stop(hantro_drm.monitor_task);
+		hantro_drm.monitor_task = NULL;
+    }
+
 	hantrodec_cleanup();
 	hantroenc_cleanup();
 	hantrocache_cleanup();
@@ -877,6 +1022,7 @@ void __exit hantro_cleanup(void)
 	mutex_destroy(&hantro_drm.hantro_mutex);
 	pr_info("hantro driver removed\n");
 }
+
 
 int __init hantro_init(void)
 {
@@ -932,6 +1078,16 @@ int __init hantro_init(void)
 	hantroenc_init();
 	hantrocache_init();
 	hantrodec400_init();
+
+	if (power_save_mode) {
+		hantro_drm.monitor_task =  kthread_create(power_monitor_thread,NULL,"power_monitor_thread");
+		if (!IS_ERR(hantro_drm.monitor_task)) {
+			wake_up_process(hantro_drm.monitor_task);
+		}
+		else {
+			hantro_drm.monitor_task = NULL;
+		}
+	}
 
 	if (verbose)
 		device_printdebug();

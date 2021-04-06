@@ -328,7 +328,7 @@ static ssize_t fps_show(struct device *kdev, struct device_attribute *attr,
 		buf_size += snprintf(buf + buf_size, PAGE_SIZE, "\tDecode\n");
 		while (dechdr) {
 			fps = 0;
-			clk_freq = clk_get_rate(dechdr->dev_clk);
+			clk_freq = clk_get_rate(pdevinfo->dev_clk[dechdr->clock_index]);
 			if (dechdr->perf_data.count == 0) {
 				buf_size += snprintf(buf + buf_size, PAGE_SIZE,
 					"\t\tCore [%d]    0 fps, %ld Mhz\n",
@@ -337,7 +337,7 @@ static ssize_t fps_show(struct device *kdev, struct device_attribute *attr,
 				averagecycles = dechdr->perf_data.hwcycles /
 						dechdr->perf_data.count;
 				totaltime_hw = dechdr->perf_data.hwcycles /
-					       (dechdr->clk_freq / 100000);
+					       (clk_freq / 100000);
 				totaltime_sw =
 					dechdr->perf_data.totaltime / 10000;
 				fps = (dechdr->perf_data.count * 1000) /
@@ -362,7 +362,7 @@ static ssize_t fps_show(struct device *kdev, struct device_attribute *attr,
 		enchdr = pdevinfo->enchdr;
 		while (enchdr) {
 			fps = 0;
-			clk_freq = clk_get_rate(enchdr->dev_clk);
+			clk_freq = clk_get_rate(pdevinfo->dev_clk[enchdr->clock_index]);
 			if (clk_freq != 0) {
 				if (enchdr->perf_data.count == 0) {
 					buf_size += snprintf(buf + buf_size, PAGE_SIZE,
