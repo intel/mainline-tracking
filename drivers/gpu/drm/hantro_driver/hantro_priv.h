@@ -61,6 +61,13 @@
 #include <drm/drm_framebuffer.h>
 #include <drm/drm_legacy.h>
 
+#include <linux/pm_opp.h>
+#include <linux/pm_runtime.h>
+#include <linux/pm_domain.h>
+#include <linux/pm_qos.h>
+#include <linux/pm_clock.h>
+
+
 #include <asm/io.h>
 #include <asm/irq.h>
 #include <asm/uaccess.h>
@@ -117,7 +124,9 @@ typedef struct dtbnode {
 	char reg_name[32];
 	int irq[4];
 	char irq_name[4][32];
-	char clock_name[32];
+	int reset_index;
+	int clock_index;
+	int pd_index;
 	int parenttype;
 	phys_addr_t parentaddr;
 	int deviceidx;
@@ -139,6 +148,8 @@ struct hantro_drm_handle {
 	atomic_t devicecount;
 	/* hantro mutex struct */
 	struct mutex hantro_mutex;
+	struct task_struct *monitor_task;
+	int turning_on;
 	u32 config;
 };
 
@@ -241,6 +252,17 @@ int init_hantro_resv(struct dma_resv *presv,
 void create_debugfs(struct device_info *pdevice, bool has_codecmem);
 int mem_usage_internal(unsigned int deviceidx, struct device *memdev,
 		       u32 *pused_mem, u32 *pallocations, struct seq_file *s);
+
+void hantrodec_core_status_change(struct hantrodec_t *pcore, bool turnon);
+void hantrodec_device_change_status(struct device_info *pdevinfo, bool turnon);
+
+void hantroenc_core_status_change(struct hantroenc_t *pcore, bool turnon);
+void hantroenc_device_change_status(struct device_info *pdevinfo, bool turnon);
+
+int hantro_power_domain_1(struct device_info *pdevinfo, int index, bool turnon);
+int hantro_clock_control(struct device_info *pdevinfo, int index, bool enable);
+int hantro_reset_control(struct device_info *pdevinfo, int index, bool deassert);
+void hantro_all_devices_turnon(void);
 
 struct drm_device *create_hantro_drm(struct device *dev);
 int create_sysfs(struct device_info *pdevice);

@@ -52,7 +52,7 @@ static int check_enc_irq(struct hantroenc_t *dev, u32 *core_info,
 	int rdy = 0;
 	u32 i = 0;
 	u8 core_mapping = 0;
-	struct device_info *pdevinfo = getparentdevice(dev, CORE_ENC);
+	struct device_info *pdevinfo = dev->pdevinfo;
 
 	core_mapping = (u8)(*core_info & 0xFF);
 
@@ -87,7 +87,7 @@ static int check_enc_irq(struct hantroenc_t *dev, u32 *core_info,
 static unsigned int wait_enc_ready(struct hantroenc_t *dev, u32 *core_info,
 				   u32 *irq_status, u32 nodenum)
 {
-	struct device_info *pdevinfo = getparentdevice(dev, CORE_ENC);
+	struct device_info *pdevinfo = dev->pdevinfo;
 
 	PDEBUG("%s\n", __func__);
 	if (wait_event_interruptible(pdevinfo->enc_wait_queue,
@@ -165,7 +165,7 @@ static int check_core_occupation(struct hantroenc_t *dev)
 {
 	int ret = 0;
 	unsigned long flags;
-	struct device_info *pdevinfo = getparentdevice(dev, CORE_ENC);
+	struct device_info *pdevinfo = dev->pdevinfo;
 
 	spin_lock_irqsave(&pdevinfo->enc_owner_lock, flags);
 	if (!dev->is_reserved) {
@@ -247,7 +247,7 @@ static int get_workable_core(struct hantroenc_t *dev, u32 *core_info,
 static long reserve_encoder(struct hantroenc_t *dev, u32 *core_info,
 			    u32 nodenum)
 {
-	struct device_info *pdevinfo = getparentdevice(dev, CORE_ENC);
+	struct device_info *pdevinfo = dev->pdevinfo;
 	struct hantroenc_t *reserved_core = NULL;
 	u32 core_info_tmp = 0;
 	int ret = 0;
@@ -279,16 +279,19 @@ static long reserve_encoder(struct hantroenc_t *dev, u32 *core_info,
 		goto out;
 	}
 
-	if (reserved_core->dev_clk &&
-	    pdevinfo->thermal_data.clk_freq != reserved_core->clk_freq) {
-		clk_set_rate(reserved_core->dev_clk,
+	if (reserved_core->enabled == 0) {
+		hantroenc_core_status_change(reserved_core, true);
+	}
+
+	if (pdevinfo->thermal_data.clk_freq != reserved_core->clk_freq) {
+		clk_set_rate(pdevinfo->dev_clk[reserved_core->clock_index],
 			     pdevinfo->thermal_data.clk_freq);
 		reserved_core->clk_freq = pdevinfo->thermal_data.clk_freq;
 	}
 
 	reserved_core->perf_data.last_resv = sched_clock();
 out:
-	trace_enc_reserve(dev->deviceidx, KCORE((*core_info)),
+	trace_enc_reserve(pdevinfo->deviceid, KCORE((*core_info)),
 			  (sched_clock() - start) / 1000);
 	return ret;
 }
@@ -300,7 +303,7 @@ static void release_encoder(struct hantroenc_t *dev, u32 *core_info,
 	u32 core_num = 0;
 	u32 i = 0, core_id;
 	u8 core_mapping = 0;
-	struct device_info *pdevinfo = getparentdevice(dev, CORE_ENC);
+	struct device_info *pdevinfo = dev->pdevinfo;
 	struct hantroenc_t *reserved_core = NULL;
 
 	core_id = KCORE((*core_info));
@@ -347,7 +350,7 @@ static void release_encoder(struct hantroenc_t *dev, u32 *core_info,
 	if (resource_shared)
 		up(&pdevinfo->enc_core_sem);
 
-	trace_enc_release(dev->deviceidx, KCORE((*core_info)));
+	trace_enc_release(pdevinfo->deviceid, KCORE((*core_info)));
 }
 
 long hantroenc_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
@@ -469,7 +472,7 @@ int hantroenc_release(void)
 		if (!dev)
 			continue;
 
-		pdevinfo = getparentdevice(dev, CORE_ENC);
+		pdevinfo = dev->pdevinfo;
 		while (dev) {
 			spin_lock_irqsave(&pdevinfo->enc_owner_lock, flags);
 			if (dev->is_reserved == 1 && dev->pid == current->pid) {
@@ -561,33 +564,44 @@ int __exit hantroenc_cleanup(void)
 	return 0;
 }
 
-static void disable_enc_clock(struct hantroenc_t *pcore)
+void hantroenc_core_status_change(struct hantroenc_t *pcore, bool turnon)
 {
-	if (!pcore->dev_clk)
+	if (!pcore)
 		return;
 
-	clk_disable_unprepare(pcore->dev_clk);
-	clk_put(pcore->dev_clk);
-	pcore->dev_clk = NULL;
-}
+	mutex_lock(&pcore->core_mutex);
+	if (turnon && !pcore->enabled) {
 
-static int init_enc_clock(struct hantroenc_t *pcore, dtbnode *pnode)
-{
-	if (strlen(pnode->clock_name) == 0)
-		return 0;
-
-	pcore->dev_clk = clk_get(pnode->pdevinfo->dev, pnode->clock_name);
-	if (IS_ERR(pcore->dev_clk) || !pcore->dev_clk) {
-		pr_err("%s: clock %s not found. err = %ld", __func__,
-		       pnode->clock_name, PTR_ERR(pcore->dev_clk));
-		pcore->dev_clk = NULL;
-		return -EINVAL;
+		hantro_clock_control(pcore->pdevinfo, pcore->clock_index, true);
+		hantro_reset_control(pcore->pdevinfo, pcore->reset_index, true);
+		hantro_reset_control(pcore->pdevinfo, pcore->reset_index+1, true);
+		hantro_reset_control(pcore->pdevinfo, pcore->reset_index+2, true);
+		//hantro_power_domain_1(pcore->pdevinfo, pcore->pd_index, true);
+		pcore->perf_data.last_resv = sched_clock();
+		pcore->enabled = 1;
+		msleep(1);
+	} else
+	if(!turnon && pcore->enabled)
+	{
+		pcore->enabled = 0;
+		//hantro_power_domain_1(pcore->pdevinfo, pcore->pd_index, false);
+		hantro_reset_control(pcore->pdevinfo, pcore->reset_index, false);
+		hantro_reset_control(pcore->pdevinfo, pcore->reset_index+1, false);
+		hantro_reset_control(pcore->pdevinfo, pcore->reset_index+2, false);
+		hantro_clock_control(pcore->pdevinfo, pcore->clock_index, false);
+		msleep(1);
 	}
 
-	clk_prepare_enable(pcore->dev_clk);
-	pcore->clk_freq = pnode->pdevinfo->thermal_data.clk_freq;
-	clk_set_rate(pcore->dev_clk, pcore->clk_freq);
-	return 0;
+	mutex_unlock(&pcore->core_mutex);
+}
+
+void hantroenc_device_change_status(struct device_info *pdevinfo, bool turnon)
+{
+	struct hantroenc_t *enc_core = pdevinfo->enchdr;
+	while (enc_core) {
+		hantroenc_core_status_change(enc_core, turnon);
+		enc_core = enc_core->next;
+	}
 }
 
 int hantroenc_probe(dtbnode *pnode)
@@ -607,7 +621,11 @@ int hantroenc_probe(dtbnode *pnode)
 	memset(pcore, 0, sizeof(struct hantroenc_t));
 	pcore->core_cfg.base_addr = pnode->ioaddr;
 	pcore->core_cfg.iosize = pnode->iosize;
-	pcore->deviceidx = pnode->deviceidx;
+	pcore->reset_index = pnode->reset_index;
+	pcore->clock_index = pnode->clock_index;
+	pcore->pd_index = pnode->pd_index;
+
+	pcore->enabled = 1;
 
 	result = reserve_io(pcore);
 	if (result < 0) {
@@ -644,8 +662,9 @@ int hantroenc_probe(dtbnode *pnode)
 		}
 	}
 
-	init_enc_clock(pcore, pnode);
+	mutex_init(&pcore->core_mutex);
 	add_encnode(pnode->pdevinfo, pcore);
+
 	pr_info("hx280enc: module inserted. Major <%d>\n", hantroenc_major);
 	return 0;
 }
@@ -662,7 +681,6 @@ void hantroenc_remove(struct device_info *pdevinfo)
 		u32 wclr = (major_id >= 0x61) ? (0x1FD) : (0);
 
 		pnext = pcore->next;
-		disable_enc_clock(pcore);
 		iowrite32(0, (void *)(pcore->hwregs + 0x14)); /* disable HW */
 		iowrite32(wclr,
 			  (void *)(pcore->hwregs + 0x04)); /* clear enc IRQ */
@@ -673,6 +691,7 @@ void hantroenc_remove(struct device_info *pdevinfo)
 				free_irq(pcore->irqlist[k], (void *)pcore);
 
 		release_io(pcore);
+		mutex_destroy(&pcore->core_mutex);
 		vfree(pcore);
 		pcore = pnext;
 	}
@@ -728,7 +747,7 @@ static irqreturn_t hantroenc_isr(int irq, void *dev_id)
 	struct hantroenc_t *dev = (struct hantroenc_t *)dev_id;
 	u32 irq_status;
 	unsigned long flags;
-	struct device_info *pdevinfo = getparentdevice(dev, CORE_ENC);
+	struct device_info *pdevinfo = dev->pdevinfo;
 
 	/*
 	 * If core is not reserved by any user, but irq is received, just
