@@ -1,4 +1,4 @@
 #
 # Makefile for KeemBay xlink Linux driver
 #
-obj-m += xlink-net.o
+obj-$(CONFIG_XLINK_NET) += xlink-net.o
