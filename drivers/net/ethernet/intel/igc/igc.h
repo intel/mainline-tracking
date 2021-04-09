@@ -231,6 +231,12 @@ struct igc_adapter {
 
 	char fw_version[32];
 
+	struct system_time_snapshot prev_snapshot;
+	struct system_time_snapshot curr_snapshot;
+	struct delayed_work ptm_report;
+	struct mutex ptm_time_lock; /* protects host and device timestamps */
+	ktime_t ptm_device_time;
+	struct system_counterval_t ptm_host_time;
 	struct bpf_prog *xdp_prog;
 
 	bool pps_sys_wrap_on;
