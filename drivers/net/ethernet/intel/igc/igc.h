@@ -230,7 +230,6 @@ struct igc_adapter {
 	ktime_t ptp_reset_start; /* Reset time in clock mono */
 
 	char fw_version[32];
-
 	struct system_time_snapshot prev_snapshot;
 	struct system_time_snapshot curr_snapshot;
 	struct delayed_work ptm_report;
