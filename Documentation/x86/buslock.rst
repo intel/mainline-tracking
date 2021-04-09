@@ -61,6 +61,11 @@ The kernel #AC and #DB handlers handle bus lock based on kernel parameter
 |		   |When both features are	|			|
 |		   |supported, fatal in #AC	|			|
 +------------------+----------------------------+-----------------------+
+|ratelimit:N	   |Do nothing			|Limit bus lock rate to	|
+|(0 < N <= 1000)   |				|N bus locks per second	|
+|		   |				|system wide and warn on|
+|		   |				|bus locks.		|
++------------------+----------------------------+-----------------------+
 
 Usages
 ======
@@ -108,3 +113,21 @@ fatal
 In this case, the bus lock is not tolerated and the process is killed.
 
 It is useful in hard real time system.
+
+ratelimit
+---------
+
+A system wide bus lock rate limit N is specified where 0 < N <= 1000.
+Less bus locks can be generated when N is smaller.
+
+This may find usage in throttling malicious processes in cloud. For
+example, a few malicious users may generate a lot of bus locks to launch
+Denial of Service (DoS) attack. By setting ratelimit, the system wide
+bus locks is rate limited by N bus locks per second and the DoS attack
+will be mitigated. The bus locks are warned so that the system
+administrator can found the malicious users and processes.
+
+Selecting a rate limit of 1000 would allow the bus to be locked for
+up to about seven million cycles each second (assuming 7000 cycles for
+each bus lock). On a 2 GHz processor that would be about 0.35% system
+impact.
