@@ -60,6 +60,6 @@ void *xlink_platform_allocate(struct device *dev, dma_addr_t *handle,
 
 void xlink_platform_deallocate(struct device *dev, void *buf,
 			       dma_addr_t handle, u32 size, u32 alignment,
-			       enum xlink_memory_region region);
+			       enum xlink_memory_region region, uint32_t sw_device_id);
 
 #endif /* __XLINK_PLATFORM_H */

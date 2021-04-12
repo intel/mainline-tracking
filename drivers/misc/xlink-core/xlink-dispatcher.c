@@ -260,54 +260,55 @@ static int is_valid_event_header(struct xlink_event *event)
 
 static int dispatcher_event_send(struct xlink_event *event)
 {
-	int rc;
-	size_t transfer_size = 0;
+	int rc = 0;
+	static int error_printed;
 	size_t event_header_size = sizeof(event->header) - XLINK_MAX_CONTROL_DATA_PCIE_SIZE;
+	size_t transfer_size = 0;
 
-	trace_xlink_dispatcher_header(event->handle->sw_device_id,
-				      event->header.chan,
-				      event->header.id,
-				      event_header_size);
-
+	trace_xlink_dispatcher_header(event->handle->sw_device_id, event->header.chan,
+				      event->header.id, event_header_size);
+	// write event header
+	// printk(KERN_DEBUG "Sending event: type = 0x%x, id = 0x%x\n",
+			// event->header.type, event->header.id);
 	if (event->header.type == XLINK_WRITE_CONTROL_REQ)
 		event_header_size += event->header.size;
+
 	transfer_size = event_header_size;
 
 	rc = xlink_platform_write(event->interface,
-				  event->handle->sw_device_id, &event->header,
-				  &event_header_size, event->header.timeout, NULL);
+			event->handle->sw_device_id, &event->header,
+			&event_header_size, event->header.timeout, NULL);
 	if (rc || event_header_size != transfer_size) {
-		pr_err("Write header failed %d\n", rc);
+		if (!error_printed)
+			pr_err("Write header failed %d\n", rc);
+		error_printed = 1;
 		return rc;
 	}
 	if (event->header.type == XLINK_WRITE_REQ ||
-	    event->header.type == XLINK_WRITE_VOLATILE_REQ) {
+		event->header.type == XLINK_WRITE_VOLATILE_REQ ||
+		event->header.type == XLINK_PASSTHRU_VOLATILE_WRITE_REQ ||
+		event->header.type == XLINK_PASSTHRU_WRITE_REQ) {
+		error_printed = 0;
 		// write event data
 		rc = xlink_platform_write(event->interface,
-					  event->handle->sw_device_id, event->data,
-					  &event->header.size, event->header.timeout,
-					  NULL);
-		trace_xlink_dispatcher_write(event->handle->sw_device_id,
-					     event->header.chan,
-					     event->header.id,
-					     event->header.size);
-		if (rc) {
+				event->handle->sw_device_id, event->data,
+				&event->header.size, event->header.timeout,
+				NULL);
+		if (rc)
 			pr_err("Write data failed %d\n", rc);
-			return rc;
-		}
 		if (event->user_data == 1) {
 			if (event->paddr != 0) {
 				xlink_platform_deallocate(xlinkd->dev,
-							  event->data, event->paddr,
-							  event->header.size,
-							  XLINK_PACKET_ALIGNMENT,
-							  XLINK_CMA_MEMORY);
+					event->data, event->paddr,
+					event->header.size,
+					XLINK_PACKET_ALIGNMENT,
+					XLINK_CMA_MEMORY, event->handle->sw_device_id);
 			} else {
 				xlink_platform_deallocate(xlinkd->dev,
-							  event->data, event->paddr,
-							  event->header.size,
-							  XLINK_PACKET_ALIGNMENT,
-							  XLINK_NORMAL_MEMORY);
+					event->data, event->paddr,
+					event->header.size,
+					XLINK_PACKET_ALIGNMENT,
+					XLINK_NORMAL_MEMORY, event->handle->sw_device_id);
 			}
 		}
 	}
@@ -570,7 +571,8 @@ enum xlink_error xlink_dispatcher_destroy(void)
 							  event->paddr,
 							  event->header.size,
 							  XLINK_PACKET_ALIGNMENT,
-							  XLINK_NORMAL_MEMORY);
+							  XLINK_NORMAL_MEMORY,
+							  XLINK_INVALID_SW_DEVICE_ID);
 			}
 			xlink_destroy_event(event);
 		}

@@ -312,7 +312,8 @@ static int release_packet_from_channel(struct open_channel *opchan,
 		return X_LINK_ERROR;
 	// packet found, deallocate and remove from queue
 	xlink_platform_deallocate(xmux->dev, pkt->data, pkt->paddr, pkt->length,
-				  XLINK_PACKET_ALIGNMENT, XLINK_NORMAL_MEMORY);
+				  XLINK_PACKET_ALIGNMENT, XLINK_NORMAL_MEMORY,
+				  XLINK_INVALID_SW_DEVICE_ID);
 	list_del(&pkt->list);
 	queue->count--;
 	opchan->rx_fill_level -= pkt->length;
@@ -796,7 +797,8 @@ enum xlink_error xlink_multiplexer_rx(struct xlink_event *event)
 							  paddr,
 							  event->header.size,
 							  XLINK_PACKET_ALIGNMENT,
-							  XLINK_NORMAL_MEMORY);
+							  XLINK_NORMAL_MEMORY,
+							  XLINK_INVALID_SW_DEVICE_ID);
 			} else {
 				pr_err("Fatal error: can't allocate memory in line:%d func:%s\n",
 				       __LINE__, __func__);
@@ -820,7 +822,8 @@ enum xlink_error xlink_multiplexer_rx(struct xlink_event *event)
 								  paddr,
 								  event->header.size,
 								  XLINK_PACKET_ALIGNMENT,
-								  XLINK_NORMAL_MEMORY);
+								  XLINK_NORMAL_MEMORY,
+								  XLINK_INVALID_SW_DEVICE_ID);
 					rc = X_LINK_ERROR;
 					release_channel(opchan);
 					break;
@@ -835,7 +838,8 @@ enum xlink_error xlink_multiplexer_rx(struct xlink_event *event)
 								  buffer, paddr,
 								  event->header.size,
 								  XLINK_PACKET_ALIGNMENT,
-								  XLINK_NORMAL_MEMORY);
+								  XLINK_NORMAL_MEMORY,
+								  XLINK_INVALID_SW_DEVICE_ID);
 					rc = X_LINK_ERROR;
 					release_channel(opchan);
 					break;
@@ -882,8 +886,10 @@ enum xlink_error xlink_multiplexer_rx(struct xlink_event *event)
 							 opchan->chan->timeout, NULL);
 				if (rc || event->header.size != size) {
 					xlink_platform_deallocate(xmux->dev, buffer, paddr,
-								  event->header.size, XLINK_PACKET_ALIGNMENT,
-								  XLINK_NORMAL_MEMORY);
+								  event->header.size,
+								  XLINK_PACKET_ALIGNMENT,
+								  XLINK_NORMAL_MEMORY,
+								  XLINK_INVALID_SW_DEVICE_ID);
 					rc = X_LINK_ERROR;
 					release_channel(opchan);
 					break;
@@ -900,7 +906,8 @@ enum xlink_error xlink_multiplexer_rx(struct xlink_event *event)
 								  buffer, paddr,
 								  event->header.size,
 								  XLINK_PACKET_ALIGNMENT,
-								  XLINK_NORMAL_MEMORY);
+								  XLINK_NORMAL_MEMORY,
+								  XLINK_INVALID_SW_DEVICE_ID);
 					rc = X_LINK_ERROR;
 					release_channel(opchan);
 					break;

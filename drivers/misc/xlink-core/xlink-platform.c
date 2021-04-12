@@ -20,7 +20,9 @@
 #include "xlink-platform.h"
 
 #ifdef CONFIG_XLINK_LOCAL_HOST
+
 #include <linux/xlink-ipc.h>
+
 #else /* !CONFIG_XLINK_LOCAL_HOST */
 
 static inline int xlink_ipc_connect(u32 sw_device_id)
@@ -57,10 +59,10 @@ static inline int xlink_ipc_close_channel(u32 sw_device_id,
 { return -1; }
 
 static inline int xlink_ipc_register_for_events(u32 sw_device_id,
-						int (*callback)(u32 sw_device_id, u32 event))
-{ return -1; }
-static inline int xlink_ipc_unregister_for_events(u32 sw_device_id)
-{ return -1; }
+						int (*callback)
+		(u32 sw_device_id, u32 event)) { return -1; }
+static inline int xlink_ipc_unregister_for_events(u32 sw_device_id) { return -1; }
+
 #endif /* CONFIG_XLINK_LOCAL_HOST */
 
 /*
@@ -257,7 +259,7 @@ void *xlink_platform_allocate(struct device *dev, dma_addr_t *handle,
 
 void xlink_platform_deallocate(struct device *dev, void *buf,
 			       dma_addr_t handle, u32 size, u32 alignment,
-			       enum xlink_memory_region region)
+			       enum xlink_memory_region region, uint32_t sw_device_id)
 {
 #if defined(CONFIG_XLINK_PSS) || !defined(CONFIG_XLINK_LOCAL_HOST)
 	kfree(buf);
