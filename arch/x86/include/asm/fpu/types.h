@@ -355,6 +355,18 @@ struct fpu {
 	unsigned long			avx512_timestamp;
 
 	/*
+	 * @state_perm:
+	 *
+	 * This bitmap indicates the permission for dynamic state
+	 * components.
+	 *
+	 * Always reference group_leader's value via
+	 * get_group_dynamic_state_perm() as it readily represents the
+	 * process's state permission.
+	 */
+	u64				dynamic_state_perm;
+
+	/*
 	 * @state_mask:
 	 *
 	 * The bitmap represents state components to be saved in ->state.

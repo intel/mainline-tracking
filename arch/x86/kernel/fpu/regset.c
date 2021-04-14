@@ -166,7 +166,7 @@ int xstateregs_set(struct task_struct *target, const struct user_regset *regset,
 	/*
 	 * When a ptracer attempts to write any dynamic user state in the
 	 * target buffer but not sufficiently allocated, it dynamically
-	 * expands the buffer.
+	 * expands the buffer if permitted.
 	 */
 	if (xfeatures_mask_user_dynamic) {
 		u64 state_mask;
@@ -175,13 +175,16 @@ int xstateregs_set(struct task_struct *target, const struct user_regset *regset,
 		memcpy(&state_mask, (kbuf ?: tmpbuf) + offsetof(struct xregs_state, header),
 		       sizeof(u64));
 
-		/* Expand the xstate buffer based on the XSTATE_BV. */
-		state_mask &= xfeatures_mask_user_dynamic;
-		if (state_mask) {
-			ret = realloc_xstate_buffer(fpu, state_mask);
-			if (ret)
-				goto out;
+		/* Check the permission. */
+		if (!dynamic_state_permitted(target, state_mask)) {
+			ret = -EFAULT;
+			goto out;
 		}
+
+		/* Expand the xstate buffer based on the XSTATE_BV. */
+		ret = realloc_xstate_buffer(fpu, state_mask);
+		if (ret)
+			goto out;
 	}
 
 	fpu_force_restore(fpu);

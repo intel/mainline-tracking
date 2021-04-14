@@ -682,6 +682,8 @@ void set_personality_64bit(void)
 	   so it's not too bad. The main problem is just that
 	   32bit children are affected again. */
 	current->personality &= ~READ_IMPLIES_EXEC;
+
+	reset_dynamic_state_perm(current);
 }
 
 static void __set_personality_x32(void)
@@ -726,6 +728,8 @@ void set_personality_ia32(bool x32)
 {
 	/* Make sure to be in 32bit mode */
 	set_thread_flag(TIF_ADDR32);
+
+	reset_dynamic_state_perm(current);
 
 	if (x32)
 		__set_personality_x32();

@@ -8,6 +8,7 @@
 #include <asm/processor.h>
 #include <asm/fpu/api.h>
 #include <asm/user.h>
+#include <asm/prctl.h>
 
 /* Bit 63 of XCR0 is reserved for future expansion */
 #define XFEATURE_MASK_EXTEND	(~(XFEATURE_MASK_FPSSE | (1ULL << 63)))
@@ -158,6 +159,36 @@ unsigned int calculate_xstate_buf_size_from_mask(u64 mask);
 void *get_xsave_addr(struct fpu *fpu, int xfeature_nr);
 int realloc_xstate_buffer(struct fpu *fpu, u64 mask);
 void free_xstate_buffer(struct fpu *fpu);
+
+/**
+ * get_group_dynamic_state_perm - Get a per-process dynamic state perm
+ * @tsk:	A struct task_struct * pointer
+ * Return:	A bitmap to indicate which state permission is set.
+ */
+static inline u64 get_group_dynamic_state_perm(struct task_struct *tsk)
+{
+	return tsk->group_leader->thread.fpu.dynamic_state_perm;
+}
+
+/**
+ * dynamic_state_permitted - Check a task's permission for indicated
+ *			     features.
+ * @tsk:	A struct task_struct * pointer
+ * @state_mask:	A bitmap of queried features
+ * Return:	true if all of the queried features are permitted;
+ *		otherwise, false.
+ */
+static inline bool dynamic_state_permitted(struct task_struct *tsk, u64 state_mask)
+{
+	u64 dynamic_state_mask = state_mask & xfeatures_mask_user_dynamic;
+
+	return ((dynamic_state_mask & get_group_dynamic_state_perm(tsk)) ==
+		dynamic_state_mask);
+}
+
+void reset_dynamic_state_perm(struct task_struct *tsk);
+long do_arch_prctl_state(struct task_struct *tsk, int option, unsigned long arg2);
+
 int xfeature_size(int xfeature_nr);
 int copy_uabi_from_kernel_to_xstate(struct fpu *fpu, const void *kbuf);
 int copy_sigframe_from_user_to_xstate(struct fpu *fpu, const void __user *ubuf);
