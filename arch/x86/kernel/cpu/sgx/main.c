@@ -18,48 +18,28 @@ static int sgx_nr_epc_sections;
 static struct task_struct *ksgxd_tsk;
 static DECLARE_WAIT_QUEUE_HEAD(ksgxd_waitq);
 
-/*
- * These variables are part of the state of the reclaimer, and must be accessed
- * with sgx_reclaimer_lock acquired.
- */
+/* The reclaimer lock protected variables prepend the lock. */
 static LIST_HEAD(sgx_active_page_list);
-
 static DEFINE_SPINLOCK(sgx_reclaimer_lock);
 
+/* The free page list lock protected variables prepend the lock. */
+static unsigned long sgx_nr_free_pages;
+
+/* Nodes with one or more EPC sections. */
+static nodemask_t sgx_numa_mask;
+
 /*
- * Reset dirty EPC pages to uninitialized state. Laundry can be left with SECS
- * pages whose child pages blocked EREMOVE.
+ * Array with one list_head for each possible NUMA node.  Each
+ * list contains all the sgx_epc_section's which are on that
+ * node.
  */
-static void sgx_sanitize_section(struct sgx_epc_section *section)
-{
-	struct sgx_epc_page *page;
-	LIST_HEAD(dirty);
-	int ret;
+static struct sgx_numa_node *sgx_numa_nodes;
 
-	/* init_laundry_list is thread-local, no need for a lock: */
-	while (!list_empty(&section->init_laundry_list)) {
-		if (kthread_should_stop())
-			return;
-
-		/* needed for access to ->page_list: */
-		spin_lock(&section->lock);
-
-		page = list_first_entry(&section->init_laundry_list,
-					struct sgx_epc_page, list);
-
-		ret = __eremove(sgx_get_epc_virt_addr(page));
-		if (!ret)
-			list_move(&page->list, &section->page_list);
-		else
-			list_move_tail(&page->list, &dirty);
-
-		spin_unlock(&section->lock);
-
-		cond_resched();
-	}
-
-	list_splice(&dirty, &section->init_laundry_list);
-}
+/*
+ * When the driver initialized, EPC pages go first here, as they could be
+ * initialized to an active enclave, on kexec entry.
+ */
+static LIST_HEAD(sgx_dirty_page_list);
 
 static bool sgx_reclaimer_age(struct sgx_epc_page *epc_page)
 {
@@ -305,7 +285,6 @@ static void sgx_reclaim_pages(void)
 {
 	struct sgx_epc_page *chunk[SGX_NR_TO_SCAN];
 	struct sgx_backing backing[SGX_NR_TO_SCAN];
-	struct sgx_epc_section *section;
 	struct sgx_encl_page *encl_page;
 	struct sgx_epc_page *epc_page;
 	pgoff_t page_index;
@@ -378,51 +357,58 @@ skip:
 		kref_put(&encl_page->encl->refcount, sgx_encl_release);
 		epc_page->flags &= ~SGX_EPC_PAGE_RECLAIMER_TRACKED;
 
-		section = &sgx_epc_sections[epc_page->section];
-		spin_lock(&section->lock);
-		list_add_tail(&epc_page->list, &section->page_list);
-		section->free_cnt++;
-		spin_unlock(&section->lock);
+		sgx_free_epc_page(epc_page);
 	}
-}
-
-static unsigned long sgx_nr_free_pages(void)
-{
-	unsigned long cnt = 0;
-	int i;
-
-	for (i = 0; i < sgx_nr_epc_sections; i++)
-		cnt += sgx_epc_sections[i].free_cnt;
-
-	return cnt;
 }
 
 static bool sgx_should_reclaim(unsigned long watermark)
 {
-	return sgx_nr_free_pages() < watermark &&
-	       !list_empty(&sgx_active_page_list);
+	return sgx_nr_free_pages < watermark && !list_empty(&sgx_active_page_list);
 }
 
 static int ksgxd(void *p)
 {
-	int i;
+	struct sgx_epc_page *page;
+	LIST_HEAD(dirty);
+	int i, ret;
 
 	set_freezable();
 
 	/*
-	 * Sanitize pages in order to recover from kexec(). The 2nd pass is
-	 * required for SECS pages, whose child pages blocked EREMOVE.
+	 * Reset initialized EPC pages in sgx_dirty_page_list to uninitialized state,
+	 * and free them using sgx_free_epc_page(). Do two passes, as for SECS pages the
+	 * first round can fail, if all child pages have not yet been removed.  The
+	 * driver puts all pages on startup first to sgx_dirty_page_list, as the
+	 * initialization could be triggered by kexec(), meaning that pages have been
+	 * reserved for active enclaves before the operation.
 	 */
-	for (i = 0; i < sgx_nr_epc_sections; i++)
-		sgx_sanitize_section(&sgx_epc_sections[i]);
 
-	for (i = 0; i < sgx_nr_epc_sections; i++) {
-		sgx_sanitize_section(&sgx_epc_sections[i]);
+	/* sgx_dirty_page_list is thread-local to ksgxd, no need for a lock: */
+	for (i = 0; i < 2 && !list_empty(&sgx_dirty_page_list); i++) {
+		while (!list_empty(&sgx_dirty_page_list)) {
+			if (kthread_should_stop())
+				return 0;
 
-		/* Should never happen. */
-		if (!list_empty(&sgx_epc_sections[i].init_laundry_list))
-			WARN(1, "EPC section %d has unsanitized pages.\n", i);
+			page = list_first_entry(&sgx_dirty_page_list, struct sgx_epc_page, list);
+
+			ret = __eremove(sgx_get_epc_virt_addr(page));
+			if (!ret) {
+				/* The page is clean - move to the free list. */
+				list_del(&page->list);
+				sgx_free_epc_page(page);
+			} else {
+				/* The page is not yet clean - move to the dirty list. */
+				list_move_tail(&page->list, &dirty);
+			}
+
+			cond_resched();
+		}
+
+		list_splice(&dirty, &sgx_dirty_page_list);
 	}
+
+	if (!list_empty(&sgx_dirty_page_list))
+		WARN(1, "EPC section %d has unsanitized pages.\n", i);
 
 	while (!kthread_should_stop()) {
 		if (try_to_freeze())
@@ -454,50 +440,63 @@ static bool __init sgx_page_reclaimer_init(void)
 	return true;
 }
 
-static struct sgx_epc_page *__sgx_alloc_epc_page_from_section(struct sgx_epc_section *section)
+static struct sgx_epc_page *__sgx_alloc_epc_page_from_node(int nid)
 {
-	struct sgx_epc_page *page;
+	struct sgx_numa_node *node = &sgx_numa_nodes[nid];
+	struct sgx_epc_page *page = NULL;
 
-	spin_lock(&section->lock);
+	if (!node_isset(nid, sgx_numa_mask))
+		return NULL;
 
-	if (list_empty(&section->page_list)) {
-		spin_unlock(&section->lock);
+	spin_lock(&node->lock);
+
+	if (list_empty(&node->free_page_list)) {
+		spin_unlock(&node->lock);
 		return NULL;
 	}
 
-	page = list_first_entry(&section->page_list, struct sgx_epc_page, list);
+	page = list_first_entry(&node->free_page_list, struct sgx_epc_page, list);
 	list_del_init(&page->list);
-	section->free_cnt--;
+	sgx_nr_free_pages--;
 
-	spin_unlock(&section->lock);
+	spin_unlock(&node->lock);
+
 	return page;
 }
 
 /**
  * __sgx_alloc_epc_page() - Allocate an EPC page
  *
- * Iterate through EPC sections and borrow a free EPC page to the caller. When a
- * page is no longer needed it must be released with sgx_free_epc_page().
+ * Iterate through NUMA nodes and borrow a free EPC page to the caller. When a
+ * page is no longer needed it must be released with sgx_free_epc_page(). Start
+ * from the NUMA node, where the caller is executing.
  *
  * Return:
- *   an EPC page,
- *   -errno on error
+ * - an EPC page:	Free EPC pages were available.
+ * - ERR_PTR(-ENOMEM):	Run out of EPC pages.
  */
 struct sgx_epc_page *__sgx_alloc_epc_page(void)
 {
-	struct sgx_epc_section *section;
 	struct sgx_epc_page *page;
-	int i;
+	int nid = numa_node_id();
 
-	for (i = 0; i < sgx_nr_epc_sections; i++) {
-		section = &sgx_epc_sections[i];
+	/* Try to allocate EPC from the current node, first: */
+	page = __sgx_alloc_epc_page_from_node(nid);
+	if (page)
+		return page;
 
-		page = __sgx_alloc_epc_page_from_section(section);
+	/* Then, go through the other nodes: */
+	while (true) {
+		nid = next_node_in(nid, sgx_numa_mask);
+		if (nid == numa_node_id())
+			break;
+
+		page = __sgx_alloc_epc_page_from_node(nid);
 		if (page)
-			return page;
+			break;
 	}
 
-	return ERR_PTR(-ENOMEM);
+	return page;
 }
 
 /**
@@ -603,6 +602,7 @@ struct sgx_epc_page *sgx_alloc_epc_page(void *owner, bool reclaim)
 void sgx_free_epc_page(struct sgx_epc_page *page)
 {
 	struct sgx_epc_section *section = &sgx_epc_sections[page->section];
+	struct sgx_numa_node *node = section->node;
 	int ret;
 
 	WARN_ON_ONCE(page->flags & SGX_EPC_PAGE_RECLAIMER_TRACKED);
@@ -611,10 +611,12 @@ void sgx_free_epc_page(struct sgx_epc_page *page)
 	if (WARN_ONCE(ret, "EREMOVE returned %d (0x%x)", ret, ret))
 		return;
 
-	spin_lock(&section->lock);
-	list_add_tail(&page->list, &section->page_list);
-	section->free_cnt++;
-	spin_unlock(&section->lock);
+	spin_lock(&node->lock);
+
+	list_add_tail(&page->list, &node->free_page_list);
+	sgx_nr_free_pages++;
+
+	spin_unlock(&node->lock);
 }
 
 static bool __init sgx_setup_epc_section(u64 phys_addr, u64 size,
@@ -635,18 +637,15 @@ static bool __init sgx_setup_epc_section(u64 phys_addr, u64 size,
 	}
 
 	section->phys_addr = phys_addr;
-	spin_lock_init(&section->lock);
-	INIT_LIST_HEAD(&section->page_list);
-	INIT_LIST_HEAD(&section->init_laundry_list);
 
 	for (i = 0; i < nr_pages; i++) {
 		section->pages[i].section = index;
 		section->pages[i].flags = 0;
 		section->pages[i].owner = NULL;
-		list_add_tail(&section->pages[i].list, &section->init_laundry_list);
+		list_add_tail(&section->pages[i].list, &sgx_dirty_page_list);
 	}
 
-	section->free_cnt = nr_pages;
+	sgx_nr_free_pages += nr_pages;
 	return true;
 }
 
@@ -665,7 +664,10 @@ static bool __init sgx_page_cache_init(void)
 {
 	u32 eax, ebx, ecx, edx, type;
 	u64 pa, size;
+	int nid;
 	int i;
+
+	sgx_numa_nodes = kmalloc_array(num_possible_nodes(), sizeof(*sgx_numa_nodes), GFP_KERNEL);
 
 	for (i = 0; i < ARRAY_SIZE(sgx_epc_sections); i++) {
 		cpuid_count(SGX_CPUID, i + SGX_CPUID_EPC, &eax, &ebx, &ecx, &edx);
@@ -688,6 +690,21 @@ static bool __init sgx_page_cache_init(void)
 			pr_err("No free memory for an EPC section\n");
 			break;
 		}
+
+		nid = numa_map_to_online_node(phys_to_target_node(pa));
+		if (nid == NUMA_NO_NODE) {
+			/* The physical address is already printed above. */
+			pr_warn(FW_BUG "Unable to map EPC section to online node. Fallback to the NUMA node 0.\n");
+			nid = 0;
+		}
+
+		if (!node_isset(nid, sgx_numa_mask)) {
+			spin_lock_init(&sgx_numa_nodes[nid].lock);
+			INIT_LIST_HEAD(&sgx_numa_nodes[nid].free_page_list);
+			node_set(nid, sgx_numa_mask);
+		}
+
+		sgx_epc_sections[i].node =  &sgx_numa_nodes[nid];
 
 		sgx_nr_epc_sections++;
 	}
