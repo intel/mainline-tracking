@@ -627,28 +627,6 @@ int tb_port_add_nfc_credits(struct tb_port *port, int credits)
 }
 
 /**
- * tb_port_set_initial_credits() - Set initial port link credits allocated
- * @port: Port to set the initial credits
- * @credits: Number of credits to to allocate
- *
- * Set initial credits value to be used for ingress shared buffering.
- */
-int tb_port_set_initial_credits(struct tb_port *port, u32 credits)
-{
-	u32 data;
-	int ret;
-
-	ret = tb_port_read(port, &data, TB_CFG_PORT, ADP_CS_5, 1);
-	if (ret)
-		return ret;
-
-	data &= ~ADP_CS_5_LCA_MASK;
-	data |= (credits << ADP_CS_5_LCA_SHIFT) & ADP_CS_5_LCA_MASK;
-
-	return tb_port_write(port, &data, TB_CFG_PORT, ADP_CS_5, 1);
-}
-
-/**
  * tb_port_clear_counter() - clear a counter in TB_CFG_COUNTER
  * @port: Port whose counters to clear
  * @counter: Counter index to clear
@@ -1331,7 +1309,7 @@ int tb_switch_reset(struct tb_switch *sw)
 			      TB_CFG_SWITCH, 2, 2);
 	if (res.err)
 		return res.err;
-	res = tb_cfg_reset(sw->tb->ctl, tb_route(sw), TB_CFG_DEFAULT_TIMEOUT);
+	res = tb_cfg_reset(sw->tb->ctl, tb_route(sw));
 	if (res.err > 0)
 		return -EIO;
 	return res.err;
@@ -1508,6 +1486,21 @@ device_name_show(struct device *dev, struct device_attribute *attr, char *buf)
 	return sprintf(buf, "%s\n", sw->device_name ? sw->device_name : "");
 }
 static DEVICE_ATTR_RO(device_name);
+
+static ssize_t dp_show(struct device *dev, struct device_attribute *attr,
+		       char *buf)
+{
+	struct tb_switch *sw = tb_to_switch(dev);
+	int ret;
+
+	if (!mutex_trylock(&sw->tb->lock))
+		return restart_syscall();
+	ret = sprintf(buf, "%u\n", sw->dp);
+	mutex_unlock(&sw->tb->lock);
+
+	return ret;
+}
+static DEVICE_ATTR_RO(dp);
 
 static ssize_t
 generation_show(struct device *dev, struct device_attribute *attr, char *buf)
@@ -1715,6 +1708,21 @@ static ssize_t nvm_version_show(struct device *dev,
 }
 static DEVICE_ATTR_RO(nvm_version);
 
+static ssize_t usb3_show(struct device *dev, struct device_attribute *attr,
+			 char *buf)
+{
+	struct tb_switch *sw = tb_to_switch(dev);
+	int ret;
+
+	if (!mutex_trylock(&sw->tb->lock))
+		return restart_syscall();
+	ret = sprintf(buf, "%u\n", sw->usb3);
+	mutex_unlock(&sw->tb->lock);
+
+	return ret;
+}
+static DEVICE_ATTR_RO(usb3);
+
 static ssize_t vendor_show(struct device *dev, struct device_attribute *attr,
 			   char *buf)
 {
@@ -1747,6 +1755,7 @@ static struct attribute *switch_attrs[] = {
 	&dev_attr_boot.attr,
 	&dev_attr_device.attr,
 	&dev_attr_device_name.attr,
+	&dev_attr_dp.attr,
 	&dev_attr_generation.attr,
 	&dev_attr_key.attr,
 	&dev_attr_nvm_authenticate.attr,
@@ -1756,27 +1765,46 @@ static struct attribute *switch_attrs[] = {
 	&dev_attr_rx_lanes.attr,
 	&dev_attr_tx_speed.attr,
 	&dev_attr_tx_lanes.attr,
+	&dev_attr_usb3.attr,
 	&dev_attr_vendor.attr,
 	&dev_attr_vendor_name.attr,
 	&dev_attr_unique_id.attr,
 	NULL,
 };
 
+static bool has_port(const struct tb_switch *sw, enum tb_port_type type)
+{
+	const struct tb_port *port;
+
+	tb_switch_for_each_port(sw, port) {
+		if (!port->disabled && port->config.type == type)
+			return true;
+	}
+
+	return false;
+}
+
 static umode_t switch_attr_is_visible(struct kobject *kobj,
 				      struct attribute *attr, int n)
 {
 	struct device *dev = kobj_to_dev(kobj);
 	struct tb_switch *sw = tb_to_switch(dev);
+	const struct tb *tb = sw->tb;
 
 	if (attr == &dev_attr_authorized.attr) {
 		if (sw->tb->security_level == TB_SECURITY_NOPCIE ||
-		    sw->tb->security_level == TB_SECURITY_DPONLY)
+		    sw->tb->security_level == TB_SECURITY_DPONLY ||
+		    !has_port(sw, TB_TYPE_PCIE_UP))
 			return 0;
 	} else if (attr == &dev_attr_device.attr) {
 		if (!sw->device)
 			return 0;
 	} else if (attr == &dev_attr_device_name.attr) {
 		if (!sw->device_name)
+			return 0;
+	} else if (attr == &dev_attr_dp.attr) {
+		if (!(tb->cm_caps & TB_CAP_TUNNEL_DETAILS) ||
+		    !has_port(sw, TB_TYPE_DP_HDMI_OUT))
 			return 0;
 	} else if (attr == &dev_attr_vendor.attr)  {
 		if (!sw->vendor)
@@ -1797,6 +1825,10 @@ static umode_t switch_attr_is_visible(struct kobject *kobj,
 		if (tb_route(sw))
 			return attr->mode;
 		return 0;
+	} else if (attr == &dev_attr_usb3.attr) {
+		if (!(tb->cm_caps & TB_CAP_TUNNEL_DETAILS) ||
+		    !has_port(sw, TB_TYPE_USB3_UP))
+			return 0;
 	} else if (attr == &dev_attr_nvm_authenticate.attr) {
 		if (nvm_upgradeable(sw))
 			return attr->mode;
@@ -1849,6 +1881,39 @@ static void tb_switch_release(struct device *dev)
 	kfree(sw);
 }
 
+static int tb_switch_uevent(struct device *dev, struct kobj_uevent_env *env)
+{
+	struct tb_switch *sw = tb_to_switch(dev);
+	const char *type;
+
+	if (sw->config.thunderbolt_version == USB4_VERSION_1_0) {
+		if (add_uevent_var(env, "USB4_VERSION=1.0"))
+			return -ENOMEM;
+	}
+
+	if (!tb_route(sw)) {
+		type = "host";
+	} else {
+		const struct tb_port *port;
+		bool hub = false;
+
+		/* Device is hub if it has any downstream ports */
+		tb_switch_for_each_port(sw, port) {
+			if (!port->disabled && !tb_is_upstream_port(port) &&
+			     tb_port_is_null(port)) {
+				hub = true;
+				break;
+			}
+		}
+
+		type = hub ? "hub" : "device";
+	}
+
+	if (add_uevent_var(env, "USB4_TYPE=%s", type))
+		return -ENOMEM;
+	return 0;
+}
+
 /*
  * Currently only need to provide the callbacks. Everything else is handled
  * in the connection manager.
@@ -1882,6 +1947,7 @@ static const struct dev_pm_ops tb_switch_pm_ops = {
 struct device_type tb_switch_type = {
 	.name = "thunderbolt_device",
 	.release = tb_switch_release,
+	.uevent = tb_switch_uevent,
 	.pm = &tb_switch_pm_ops,
 };
 
@@ -2542,6 +2608,8 @@ int tb_switch_add(struct tb_switch *sw)
 		}
 		tb_sw_dbg(sw, "uid: %#llx\n", sw->uid);
 
+		tb_check_quirks(sw);
+
 		ret = tb_switch_set_uuid(sw);
 		if (ret) {
 			dev_err(&sw->dev, "failed to set UUID\n");
@@ -2817,7 +2885,8 @@ void tb_switch_suspend(struct tb_switch *sw, bool runtime)
 	if (runtime) {
 		/* Trigger wake when something is plugged in/out */
 		flags |= TB_WAKE_ON_CONNECT | TB_WAKE_ON_DISCONNECT;
-		flags |= TB_WAKE_ON_USB4 | TB_WAKE_ON_USB3 | TB_WAKE_ON_PCIE;
+		flags |= TB_WAKE_ON_USB4;
+		flags |= TB_WAKE_ON_USB3 | TB_WAKE_ON_PCIE | TB_WAKE_ON_DP;
 	} else if (device_may_wakeup(&sw->dev)) {
 		flags |= TB_WAKE_ON_USB4 | TB_WAKE_ON_USB3 | TB_WAKE_ON_PCIE;
 	}
