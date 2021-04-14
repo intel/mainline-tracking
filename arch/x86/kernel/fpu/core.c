@@ -283,10 +283,11 @@ int fpu_clone(struct task_struct *dst)
 		return 0;
 
 	/*
-	 * The child does not inherit the dynamic states. Thus, use the
-	 * buffer embedded in struct task_struct, which has the minimum
-	 * size.
+	 * The child does not inherit the dynamic states but permission.
+	 * Use the buffer embedded in struct task_struct, which has the
+	 * minimum size.
 	 */
+	dst_fpu->dynamic_state_perm = get_group_dynamic_state_perm(current);
 	dst_fpu->state_mask = (xfeatures_mask_all & ~xfeatures_mask_user_dynamic);
 	dst_fpu->state = &dst_fpu->__default_state;
 	/*

@@ -1108,7 +1108,7 @@ DEFINE_IDTENTRY(exc_spurious_interrupt_bug)
 	 */
 }
 
-static __always_inline bool handle_xfd_event(struct fpu *fpu)
+static __always_inline bool handle_xfd_event(struct fpu *fpu, struct pt_regs *regs)
 {
 	bool handled = false;
 	u64 xfd_err;
@@ -1135,19 +1135,28 @@ static __always_inline bool handle_xfd_event(struct fpu *fpu)
 			int err = -1;
 
 			/*
-			 * Make sure not in interrupt context as handling a
-			 * trap from userspace.
+			 * Make sure that dynamic buffer expansion is permitted
+			 * and not in interrupt context as handling a trap from
+			 * userspace.
+			 *
+			 * Raise SIGILL with insufficient permission and SIGSEGV
+			 * with the buffer allocation failure.
 			 */
-			if (!WARN_ON(in_interrupt())) {
-				err = realloc_xstate_buffer(fpu, xfd_event);
-				if (!err)
-					wrmsrl_safe(MSR_IA32_XFD, (fpu->state_mask &
-								   xfeatures_mask_user_dynamic) ^
-								  xfeatures_mask_user_dynamic);
-			}
+			if (!dynamic_state_permitted(current, xfd_event)) {
+				force_sig_fault(SIGILL, ILL_ILLOPC, error_get_trap_addr(regs));
+			} else {
+				if (!WARN_ON(in_interrupt())) {
+					err = realloc_xstate_buffer(fpu, xfd_event);
+					if (!err)
+						wrmsrl_safe(MSR_IA32_XFD,
+							    (fpu->state_mask &
+							     xfeatures_mask_user_dynamic) ^
+							    xfeatures_mask_user_dynamic);
+				}
 
-			if (err)
-				force_sig(SIGSEGV);
+				if (err)
+					force_sig(SIGSEGV);
+			}
 		}
 		handled = true;
 	}
@@ -1158,7 +1167,7 @@ DEFINE_IDTENTRY(exc_device_not_available)
 {
 	unsigned long cr0 = read_cr0();
 
-	if (handle_xfd_event(&current->thread.fpu))
+	if (handle_xfd_event(&current->thread.fpu, regs))
 		return;
 
 #ifdef CONFIG_MATH_EMULATION
