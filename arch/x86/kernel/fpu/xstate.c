@@ -615,11 +615,11 @@ static void __xstate_dump_leaves(void)
 } while (0)
 
 #define XCHECK_SZ(sz, nr, nr_macro, __struct) do {			\
-	if ((nr == nr_macro) &&						\
-	    WARN_ONCE(sz != sizeof(__struct),				\
-		"%s: struct is %zu bytes, cpu state %d bytes\n",	\
-		__stringify(nr_macro), sizeof(__struct), sz)) {		\
+	if ((nr == nr_macro) &&	(sz != sizeof(__struct))) {		\
+		pr_err("%s: struct is %zu bytes, cpu state %d bytes\n",	\
+		       __stringify(nr_macro), sizeof(__struct), sz);	\
 		__xstate_dump_leaves();					\
+		return -EINVAL;						\
 	}								\
 } while (0)
 
@@ -628,7 +628,7 @@ static void __xstate_dump_leaves(void)
  * that our software representation matches what the CPU
  * tells us about the state's size.
  */
-static void check_xstate_against_struct(int nr)
+static int check_xstate_against_struct(int nr)
 {
 	/*
 	 * Ask the CPU for the size of the state.
@@ -660,9 +660,12 @@ static void check_xstate_against_struct(int nr)
 	    (nr == XFEATURE_RSRVD_COMP_13) ||
 	    (nr == XFEATURE_LBR) ||
 	    (nr >= XFEATURE_MAX)) {
-		WARN_ONCE(1, "no structure for xstate: %d\n", nr);
+		pr_err("no structure for xstate: %d\n", nr);
 		XSTATE_WARN_ON(1);
+		return -EINVAL;
 	}
+
+	return 0;
 }
 
 /**
@@ -675,13 +678,14 @@ static void check_xstate_against_struct(int nr)
  * excluded. Only the size of the buffer for task->fpu is checked here.
  *
  * @include_dynamic_states:	A knob to include dynamic states or not.
+ * @size:			A pointer to record the size.
  *
- * Return:			The calculated xstate size.
+ * Return:			0 if successful; otherwise, error code.
  */
-static unsigned int calculate_xstate_size(bool include_dynamic_states)
+static int calculate_xstate_size(bool include_dynamic_states, unsigned int *size)
 {
 	unsigned int xstate_size = FXSAVE_SIZE + XSAVE_HDR_SIZE;
-	int i;
+	int i, err;
 
 	for (i = FIRST_EXTENDED_XFEATURE; i < XFEATURE_MAX; i++) {
 		if (!xfeature_enabled(i))
@@ -690,7 +694,10 @@ static unsigned int calculate_xstate_size(bool include_dynamic_states)
 		if ((xfeatures_mask_user_dynamic & BIT_ULL(i)) && !include_dynamic_states)
 			continue;
 
-		check_xstate_against_struct(i);
+		err = check_xstate_against_struct(i);
+		if (err)
+			return err;
+
 		/*
 		 * Supervisor state components can be managed only by
 		 * XSAVES.
@@ -716,7 +723,9 @@ static unsigned int calculate_xstate_size(bool include_dynamic_states)
 		xstate_size += xfeature_size(i);
 	}
 
-	return xstate_size;
+	if (size)
+		*size = xstate_size;
+	return 0;
 }
 
 /*
@@ -802,6 +811,7 @@ static int __init init_xstate_size(void)
 	/* Recompute the context size for enabled features: */
 	unsigned int possible_xstate_size, xstate_size;
 	unsigned int xsave_size;
+	int err;
 
 	xsave_size = get_xsave_size();
 
@@ -814,14 +824,18 @@ static int __init init_xstate_size(void)
 	 * Calculate the maximum xstate size, including the dynamic states.
 	 */
 	fpu_buf_cfg.max_size = possible_xstate_size;
-	xstate_size = calculate_xstate_size(true);
+	err = calculate_xstate_size(true, &xstate_size);
+	if (err)
+		return err;
 	XSTATE_WARN_ON(possible_xstate_size != xstate_size);
 
 	/*
 	 * Calculate the minimum xstate size, i.e., excluding the dynamic
 	 * xstates.
 	 */
-	xstate_size = calculate_xstate_size(false);
+	err = calculate_xstate_size(false, &xstate_size);
+	if (err)
+		return err;
 	if (!is_supported_xstate_size(xstate_size))
 		return -EINVAL;
 
