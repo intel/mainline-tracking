@@ -374,6 +374,14 @@ struct fpu {
 	unsigned long			avx512_timestamp;
 
 	/*
+	 * @state_perm:
+	 *
+	 * The bitmap indicates the permission of using some state
+	 * components which are dynamically stored in the per-task buffer.
+	 */
+	u64				dynamic_state_perm;
+
+	/*
 	 * @state_mask:
 	 *
 	 * The bitmap represents state components reserved to be saved in

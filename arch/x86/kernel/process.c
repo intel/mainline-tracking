@@ -1037,6 +1037,10 @@ long do_arch_prctl_common(struct task_struct *task, int option,
 		return get_cpuid_mode();
 	case ARCH_SET_CPUID:
 		return set_cpuid_mode(task, arg2);
+	case ARCH_SET_STATE_ENABLE:
+		return set_process_xstate_perm(task, arg2);
+	case ARCH_GET_STATE_ENABLE:
+		return get_task_state_perm(task);
 	}
 
 	return prctl_cet(option, arg2);

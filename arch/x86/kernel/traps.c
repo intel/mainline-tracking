@@ -1195,10 +1195,12 @@ DEFINE_IDTENTRY(exc_device_not_available)
 				int err = -1;
 
 				/*
-				 * Make sure not in interrupt context as handling a
-				 * trap from userspace.
+				 * Make sure that dynamic buffer expansion is permitted
+				 * and not in interrupt context as handling a trap from
+				 * userspace.
 				 */
-				if (!WARN_ON(in_interrupt())) {
+				if (((xfd_event & fpu->dynamic_state_perm) == xfd_event) &&
+				    !WARN_ON(in_interrupt())) {
 					err = alloc_xstate_buffer(fpu, xfd_event);
 					if (!err)
 						xfd_write((fpu->state_mask & xfd_capable()) ^
