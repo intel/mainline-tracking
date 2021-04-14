@@ -978,6 +978,7 @@ void __init fpu__init_system_xstate(void)
 		goto out_disable;
 
 	/* Make sure init_task does not include the dynamic user states. */
+	current->thread.fpu.dynamic_state_perm = 0;
 	current->thread.fpu.state_mask = (xfeatures_mask_all & ~xfeatures_mask_user_dynamic);
 
 	/*
@@ -1248,6 +1249,101 @@ int alloc_xstate_buffer(struct fpu *fpu, u64 mask)
 	fpu->state = state;
 	fpu->state_mask = state_mask;
 	return 0;
+}
+
+/**
+ * set_process_xstate_perm - Set a per-process permission to use dynamic
+ *			     user xstates.
+ * @tsk:	A struct task_struct * pointer
+ * @state_perm:	A bitmap to indicate which state's permission to be set.
+ * Return:	0 if successful; otherwise, error code.
+ */
+long set_process_xstate_perm(struct task_struct *tsk, u64 state_perm)
+{
+	u64 req_dynstate_perm, old_dynstate_perm;
+	struct task_struct *t;
+	int nr_threads = 0;
+	u64 features_mask;
+
+	if (!boot_cpu_has(X86_FEATURE_FPU))
+		features_mask = 0;
+	else if (use_xsave())
+		features_mask = xfeatures_mask_uabi();
+	else if (use_fxsr())
+		features_mask = XFEATURE_MASK_FPSSE;
+	else
+		features_mask = XFEATURE_MASK_FP;
+
+	if (state_perm & ~features_mask)
+		return -EINVAL;
+
+	req_dynstate_perm = state_perm & xfeatures_mask_user_dynamic;
+	if (!req_dynstate_perm)
+		return 0;
+
+	old_dynstate_perm = tsk->thread.fpu.dynamic_state_perm;
+
+	for_each_thread(tsk, t) {
+		t->thread.fpu.dynamic_state_perm |= req_dynstate_perm;
+		nr_threads++;
+	}
+
+	if (nr_threads != tsk->signal->nr_threads) {
+		for_each_thread(tsk, t)
+			t->thread.fpu.dynamic_state_perm = old_dynstate_perm;
+		pr_err("x86/fpu: ARCH_XSTATE_PERM failed as thread number mismatched.\n");
+		return -EBUSY;
+	}
+	return 0;
+}
+
+/**
+ * reset_task_xstate_perm - Reset a task's permission to use dynamic user
+ *			    xstates.
+ *
+ * It is expected to call at exec in which one task runs in a process.
+ *
+ * @task:	A struct task_struct * pointer
+ */
+void reset_task_xstate_perm(struct task_struct *tsk)
+{
+	struct fpu *fpu = &tsk->thread.fpu;
+
+	if (!xfeatures_mask_user_dynamic ||
+	    !(fpu->state_mask & xfeatures_mask_user_dynamic))
+		return;
+
+	WARN_ON(tsk->signal->nr_threads > 1);
+
+	fpu->state_mask = (xfeatures_mask_all & ~xfeatures_mask_user_dynamic);
+	free_xstate_buffer(fpu);
+	fpu->state = &fpu->__default_state;
+	if (boot_cpu_has(X86_FEATURE_XSAVES))
+		fpstate_init_xstate(&fpu->state->xsave, fpu->state_mask);
+
+	xfd_write(xfd_capable() ^ (fpu->state_mask & xfd_capable()));
+
+	fpu->dynamic_state_perm = 0;
+}
+
+/**
+ * get_task_state_perm - get the state permission bitmap
+ * @tsk:	A struct task_struct * pointer
+ * Return:	A bitmap to indicate which state's permission is set.
+ */
+long get_task_state_perm(struct task_struct *tsk)
+{
+	if (!boot_cpu_has(X86_FEATURE_FPU))
+		return 0;
+
+	if (use_xsave())
+		return (xfeatures_mask_uabi() & ~xfeatures_mask_user_dynamic) |
+		       tsk->thread.fpu.dynamic_state_perm;
+
+	if (use_fxsr())
+		return XFEATURE_MASK_FPSSE;
+
+	return XFEATURE_MASK_FP;
 }
 
 static void copy_feature(bool from_xstate, struct membuf *to, void *xstate,
