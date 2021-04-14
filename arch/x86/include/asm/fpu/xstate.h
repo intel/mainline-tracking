@@ -152,6 +152,11 @@ void *get_xsave_addr(struct fpu *fpu, int xfeature_nr);
 unsigned int get_xstate_size(u64 mask);
 int alloc_xstate_buffer(struct fpu *fpu, u64 mask);
 void free_xstate_buffer(struct fpu *fpu);
+
+long set_process_xstate_perm(struct task_struct *tsk, u64 state_perm);
+void reset_task_xstate_perm(struct task_struct *tsk);
+long get_task_state_perm(struct task_struct *tsk);
+
 int xfeature_size(int xfeature_nr);
 int copy_uabi_from_kernel_to_xstate(struct fpu *fpu, const void *kbuf);
 int copy_sigframe_from_user_to_xstate(struct fpu *fpu, const void __user *ubuf);
