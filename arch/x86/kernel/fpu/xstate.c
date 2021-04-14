@@ -1308,6 +1308,24 @@ int realloc_xstate_buffer(struct fpu *fpu, u64 mask)
 }
 
 /**
+ * get_features_mask_uabi - Get a feature list that the kernel supports
+ * Return:	A bitmap that indicates which state the kernel enabled.
+ */
+static u64 get_features_mask_uabi(void)
+{
+	if (!cpu_feature_enabled(X86_FEATURE_FPU))
+		return 0;
+
+	if (use_xsave())
+		return xfeatures_mask_uabi();
+
+	if (use_fxsr())
+		return XFEATURE_MASK_FPSSE;
+
+	return XFEATURE_MASK_FP;
+}
+
+/**
  * reset_dynamic_state_perm - Reset a task's permission for dynamic user
  *			      state
  *
@@ -1339,7 +1357,7 @@ void reset_dynamic_state_perm(struct task_struct *tsk)
 }
 
 /**
- * do_arch_prctl_state - Read or write the state permission.
+ * do_arch_prctl_state - Handle xstate-related buffer or usage control
  * @fpu:	A struct task_struct * pointer
  * @option:	A subfunction of arch_prctl()
  * @arg2:	Either a pointer to userspace memory or state-component
@@ -1348,21 +1366,13 @@ void reset_dynamic_state_perm(struct task_struct *tsk)
  */
 long do_arch_prctl_state(struct task_struct *tsk, int option, unsigned long arg2)
 {
-	u64 features_mask;
-
-	if (!cpu_feature_enabled(X86_FEATURE_FPU))
-		features_mask = 0;
-	else if (use_fxsr())
-		features_mask = XFEATURE_MASK_FPSSE;
-	else
-		features_mask = XFEATURE_MASK_FP;
+	u64 features_mask = get_features_mask_uabi();
 
 	switch (option) {
+	case ARCH_GET_FEATURES_WITH_KERNEL_ASSISTANCE:
+		return put_user(features_mask, (unsigned long __user *)arg2);
 	case ARCH_SET_STATE_ENABLE: {
 		u64 state_perm = arg2;
-
-		if (use_xsave())
-			features_mask = xfeatures_mask_uabi();
 
 		if (state_perm & ~features_mask)
 			return -EINVAL;
