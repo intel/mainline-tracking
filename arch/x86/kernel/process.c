@@ -1033,6 +1033,7 @@ long do_arch_prctl_common(struct task_struct *task, int option,
 		return get_cpuid_mode();
 	case ARCH_SET_CPUID:
 		return set_cpuid_mode(task, arg2);
+	case ARCH_GET_FEATURES_WITH_KERNEL_ASSISTANCE:
 	case ARCH_SET_STATE_ENABLE:
 	case ARCH_GET_STATE_ENABLE:
 		return do_arch_prctl_state(task, option, arg2);
