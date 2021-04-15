@@ -70,12 +70,15 @@ u32 dts_pid_min_accum_limit;
 struct thunderbay_thermal_priv {
 	const char *name;
 	void __iomem *base_addr;
+	void __iomem *gpio_addr;
 	spinlock_t lock;		/* Spinlock */
 	u32 current_temp[THUNDERBAY_SENSOR_MAX];
 	struct intel_tsens_plat_data *plat_data;
 	struct device_node *s_node;
 	struct intel_tsens_pid *pid_info;
 	bool irq_available;
+	int calib_off;
+	int board_type;
 	struct platform_device *pdev;
 };
 
@@ -296,6 +299,7 @@ static int intel_tbh_thermal_config(struct thunderbay_thermal_priv *priv, int ty
 	struct dentry *thermal_debug;
 	struct thb_thermal *thb_t;
 	static int common_dir;
+	struct device_node *np = pdev->dev.of_node;
 
 	thb_t = devm_kzalloc(&pdev->dev,
 			     sizeof(struct thb_thermal),
@@ -304,6 +308,19 @@ static int intel_tbh_thermal_config(struct thunderbay_thermal_priv *priv, int ty
 		dev_err(&pdev->dev, "No memory");
 		return -ENOMEM;
 	}
+	ret = of_property_read_u32(np, "calib_off",
+				   &priv->calib_off);
+	if (ret && ret != -EINVAL)
+		pr_info("calib_off failed \n");
+	pr_info("hddl: calibration value for %s is %x",
+				   np->name,  priv->calib_off);
+	ret = of_property_read_u32(np, "board_type",
+				   &priv->board_type);
+	if (ret && ret != -EINVAL)
+		pr_info("board_id failed \n");
+	pr_info("hddl_thb: board_type value for %s is %x",
+		np->name, priv->board_type);
+
 	if (common_dir == 0) {
 		dir = debugfs_create_dir("thb_thermal", 0);
 		if (!dir) {
@@ -692,6 +709,71 @@ static int intel_tbh_thermal_config(struct thunderbay_thermal_priv *priv, int ty
 return 0;
 }
 
+static int thunderbay_thermal_trip(void __iomem *base_addr, int type)
+{
+	if (type == CPUSS_SOUTH_NOC)
+		iowrite32(0x1, base_addr + A53SS_THERM_CTRL);
+return 0;
+}
+
+static int thunderbay_iccmax_default_config(void __iomem *base_addr,
+					    void __iomem *gpio_addr,
+    					    int board_type, int type)
+{
+	if (board_type == 9 || board_type == 11) {
+		iowrite32(GPIO_POLARITY_EVT2, gpio_addr + GPIO_POWER_OFFSET);
+		switch (type) {
+		case PAR_VPU_0:
+			iowrite32(COMSS_THERM_SCALING_CNT,
+				  base_addr + COMSS_THERM_SCALING_CNT_OFFSET);
+			iowrite32(COMSS_0_ICCMAX_GPIO_EN_CCU0,
+				  base_addr + ICCMAX_GPIO_EN_CCU0_OFFSET);
+			iowrite32(COMSS_ICCMAX_THROT_CFG_CCU0,
+				  base_addr + ICCMAX_THROT_CFG_CCU0_OFFSET);
+			break;
+
+		case PAR_VPU_1:
+			iowrite32(COMSS_THERM_SCALING_CNT,
+				  base_addr + COMSS_THERM_SCALING_CNT_OFFSET);
+			iowrite32(COMSS_1_ICCMAX_GPIO_EN_CCU0,
+				  base_addr + ICCMAX_GPIO_EN_CCU0_OFFSET);
+			iowrite32(COMSS_ICCMAX_THROT_CFG_CCU0,
+				  base_addr + ICCMAX_THROT_CFG_CCU0_OFFSET);
+			break;
+
+		case PAR_VPU_2:
+			iowrite32(COMSS_THERM_SCALING_CNT,
+				  base_addr + COMSS_THERM_SCALING_CNT_OFFSET);
+			iowrite32(COMSS_2_ICCMAX_GPIO_EN_CCU0,
+				  base_addr + ICCMAX_GPIO_EN_CCU0_OFFSET);
+			iowrite32(COMSS_ICCMAX_THROT_CFG_CCU0,
+				  base_addr + ICCMAX_THROT_CFG_CCU0_OFFSET);
+			break;
+
+		case PAR_VPU_3:
+			iowrite32(COMSS_THERM_SCALING_CNT,
+				  base_addr + COMSS_THERM_SCALING_CNT_OFFSET);
+			iowrite32(COMSS_3_ICCMAX_GPIO_EN_CCU0,
+				  base_addr + ICCMAX_GPIO_EN_CCU0_OFFSET);
+			iowrite32(COMSS_ICCMAX_THROT_CFG_CCU0,
+				  base_addr + ICCMAX_THROT_CFG_CCU0_OFFSET);
+			break;
+
+		default:
+			break;
+			}
+		}
+	if (board_type == 8 || board_type == 10 || board_type == 12) {
+		iowrite32(GPIO_PMAX_POLARITY_EVT1, gpio_addr + GPIO_POWER_OFFSET);
+		iowrite32(COMSS_THERM_SCALING_CNT,
+			  base_addr + COMSS_THERM_SCALING_CNT_OFFSET);
+		iowrite32(COMSS_ONLY_PMAX_ENABLED,
+			  base_addr + ICCMAX_GPIO_EN_CCU0_OFFSET);
+		iowrite32(COMSS_ICCMAX_THROT_CFG_CCU0,
+			  base_addr + ICCMAX_THROT_CFG_CCU0_OFFSET);
+	}
+return 0;
+}
 
 static int thunderbay_thermal_probe(struct platform_device *pdev)
 {
@@ -710,6 +792,7 @@ static int thunderbay_thermal_probe(struct platform_device *pdev)
 		dev_err(&pdev->dev, "No memory");
 		return -ENOMEM;
 	}
+	priv->gpio_addr = devm_ioremap(&pdev->dev, GPIO_REG, GPIO_POWER_OFFSET);	
 	//iowrite32(0x1c0, plat_data->base_addr+DTS_THD_SAR_PID_EN_ABORT);
 	priv->name = plat_data->name;
 	priv->base_addr = plat_data->base_addr;
@@ -720,6 +803,12 @@ static int thunderbay_thermal_probe(struct platform_device *pdev)
 	//thermal register config
 	if (intel_tbh_thermal_config(priv, plat_data->sensor_type))
 		dev_info(&pdev->dev, "THENDERBAY_THERMAL_CONFIGURATION_FAILED");
+	//setting thermal_trip
+	thunderbay_thermal_trip(priv->base_addr, plat_data->sensor_type);
+	//seting iccmax and pmax default values
+	thunderbay_iccmax_default_config(priv->base_addr,priv->gpio_addr,
+					 priv->board_type,
+					 plat_data->sensor_type);
 	spin_lock_init(&priv->lock);
 	platform_set_drvdata(pdev, priv);
 

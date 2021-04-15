@@ -48,6 +48,7 @@ struct intel_tsens_priv {
 	void __iomem *base_addr;
 	struct clk *tsens_clk;
 	u32 tsens_clk_rate;
+	u32 board_type;
 	struct intel_tsens **intel_tsens;
 	struct device *dev;
 	struct platform_device *pdev;
@@ -540,7 +541,7 @@ static int intel_iccmax_config_dt(struct intel_tsens_priv *priv)
 	icc_config->polarity = of_property_read_bool(np, "polarity");
 	if (icc_config->polarity) {
 		of_property_read_u32_index(np, "polarity", 0, &icc_config->set_polarity);
-		iowrite32(icc_config->set_polarity, icc_config->base_addr + icc_config->size);
+		//iowrite32(icc_config->set_polarity, icc_config->base_addr + icc_config->size);
 	}
 
 	if (icc_config->n_iccmax == 0) {
@@ -678,6 +679,7 @@ static int intel_tsens_config_dt(struct intel_tsens_priv *priv)
 			return ret;
 		}
 	}
+	of_property_read_u32(np, "board_type", &priv->board_type);
 	of_property_read_string_index(np, "plat_name", 0,
 				      &priv->plat_info.plat_name);
 	priv->intel_tsens =
