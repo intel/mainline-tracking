@@ -47,6 +47,7 @@ struct intel_tsens {
 struct intel_hddl_client_priv {
 	void __iomem *base_addr;
 	int board_id;
+	int board_type;
 	int soc_id;
 	int n_clients;
 	u32 nsens;
@@ -691,6 +692,16 @@ static int intel_hddl_config_dt(struct intel_hddl_client_priv *priv)
 		dev_err(&pdev->dev, "Unable to get board/soc id");
 		return ret;
 	}
+
+	if (of_property_read_bool(np, "id")) {
+		of_property_read_u32(np, "id", &priv->board_info.soc_id);
+		priv->soc_id = priv->board_info.soc_id;
+		dev_info(&pdev->dev, "soc-id cfg available in dts %d\n",
+		priv->soc_id);
+        }
+
+        of_property_read_u32(np, "board_type", &priv->board_type);
+
 	ret = hddl_get_board_reset_data(pdev, priv);
 	if (ret) {
 		dev_err(&pdev->dev, "Unable to get reset data");
