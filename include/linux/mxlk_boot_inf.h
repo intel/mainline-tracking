@@ -18,3 +18,8 @@ int mxlk_pcie_boot_mmio_write(uint32_t phys_dev_id, uint32_t offset,
 int mxlk_pcie_boot_mmio_read(uint32_t phys_dev_id, uint32_t offset,
 			     void *status, size_t size);
 int mxlk_pcie_disconnect_boot_device(uint32_t phys_dev_id);
+
+void *xlink_pcie_alloc_dma_memory(u32 phys_dev_id,
+				  size_t size, dma_addr_t *phys_addr);
+int xlink_pcie_free_dma_memory(u32 phys_dev_id, size_t size,
+			       void *dma_buf, dma_addr_t phys_addr);
