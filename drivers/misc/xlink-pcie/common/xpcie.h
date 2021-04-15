@@ -10,6 +10,7 @@
 #ifndef XPCIE_HEADER_
 #define XPCIE_HEADER_
 
+#include <linux/interrupt.h>
 #include <linux/kernel.h>
 #include <linux/module.h>
 #include <linux/pci_ids.h>
@@ -54,6 +55,7 @@ struct xpcie_mmio {
 	u8 legacy_a0;
 	u8 htod_tx_doorbell;
 	u8 htod_rx_doorbell;
+	u8 htod_partial_rx_doorbell;
 	u8 htod_event_doorbell;
 	u8 dtoh_tx_doorbell;
 	u8 dtoh_rx_doorbell;
@@ -61,8 +63,9 @@ struct xpcie_mmio {
 #if (IS_ENABLED(CONFIG_ARCH_THUNDERBAY))
 	u8 htod_phy_id_doorbell_status;
 #endif
-	u8 reserved;
 	u32 cap_offset;
+	u32 htod_rx_bd_list_count;
+	u32 dummy;
 } __packed;
 
 #define XPCIE_MMIO_LEGACY_A0	(offsetof(struct xpcie_mmio, legacy_a0))
@@ -76,12 +79,16 @@ struct xpcie_mmio {
 	(offsetof(struct xpcie_mmio, htod_rx_doorbell))
 #define XPCIE_MMIO_HTOD_EVENT_DOORBELL \
 	(offsetof(struct xpcie_mmio, htod_event_doorbell))
+#define XPCIE_MMIO_HTOD_PARTIAL_RX_DOORBELL \
+	(offsetof(struct xpcie_mmio, htod_partial_rx_doorbell))
 #define XPCIE_MMIO_DTOH_TX_DOORBELL \
 	(offsetof(struct xpcie_mmio, dtoh_tx_doorbell))
 #define XPCIE_MMIO_DTOH_RX_DOORBELL \
 	(offsetof(struct xpcie_mmio, dtoh_rx_doorbell))
 #define XPCIE_MMIO_DTOH_EVENT_DOORBELL \
 	(offsetof(struct xpcie_mmio, dtoh_event_doorbell))
+#define XPCIE_MMIO_HTOD_RX_BD_LIST_COUNT \
+	(offsetof(struct xpcie_mmio, htod_rx_bd_list_count))
 #define XPCIE_MMIO_CAP_OFF	(offsetof(struct xpcie_mmio, cap_offset))
 #define XPCIE_MMIO_MAGIC_OFF	(offsetof(struct xpcie_mmio, magic))
 
@@ -127,6 +134,10 @@ struct xpcie {
 
 	struct delayed_work rx_event;
 	struct delayed_work tx_event;
+#ifdef XLINK_PCIE_REMOTE
+	struct tasklet_struct rx_tasklet;
+	struct hrtimer free_rx_bd_timer;
+#endif
 };
 
 #endif /* XPCIE_HEADER_ */
