@@ -377,6 +377,7 @@ static void intel_xpcie_tx_event_handler(struct work_struct *work)
 	struct xpcie_transfer_desc *td;
 	int descs_num = 0, chan = 0, rc;
 	size_t buffers = 0, bytes = 0;
+	int bd_val = 0;
 	u64 address;
 
 	if (intel_xpcie_get_host_status(xpcie) != XPCIE_STATUS_RUN)
@@ -391,6 +392,16 @@ static void intel_xpcie_tx_event_handler(struct work_struct *work)
 
 	/* add new entries */
 	while (XPCIE_CIRCULAR_INC(tail, ndesc) != head) {
+		/*
+		 * Tx flow control
+		 * Check remote host Rx bd count is more than threshold.
+		 */
+		bd_val = intel_xpcie_get_device_flwctl(xpcie, TO_DEVICE,
+						       RX_BD_COUNT);
+		if (bd_val < MAX_HOST_RX_BD_COUNT &&
+		    bd_val >= HOST_RX_BD_COUNT_THRESHOLD)
+			continue;
+
 		bd = intel_xpcie_list_get(&xpcie->write);
 		if (!bd)
 			break;
@@ -467,7 +478,7 @@ static irqreturn_t intel_xpcie_core_irq_cb(int irq, void *args)
 	u16 phy_id = 0;
 	u8 max_functions = 0, func_no = 0;
 	struct xpcie_epf *xpcie_epf =
-				container_of(xpcie, struct xpcie_epf, xpcie);
+		container_of(xpcie, struct xpcie_epf, xpcie);
 	/*clear the interrupt*/
 	writel(0x1, xpcie->doorbell_clear);
 #endif
@@ -487,15 +498,25 @@ static irqreturn_t intel_xpcie_core_irq_cb(int irq, void *args)
 			phy_id = intel_xpcie_get_physical_device_id(xpcie);
 			max_functions = intel_xpcie_get_max_functions(xpcie);
 			func_no = xpcie_epf->epf->func_no;
-		xpcie_epf->sw_devid =
-		intel_xpcie_create_sw_device_id(func_no, phy_id, max_functions);
+			xpcie_epf->sw_devid =
+				intel_xpcie_create_sw_device_id(func_no, phy_id, max_functions);
 			xpcie_epf->sw_dev_id_updated = true;
 			dev_info(xpcie_to_dev(xpcie),
-				 "pcie: func_no=%x swid updated=%x phy_id=%x\n",
-				 func_no, xpcie_epf->sw_devid, phy_id);
+					"pcie: func_no=%x swid updated=%x phy_id=%x\n",
+					func_no, xpcie_epf->sw_devid, phy_id);
 		}
 	}
 #endif
+	if (intel_xpcie_get_doorbell(xpcie, TO_DEVICE,
+				     PARTIAL_DATA_RECEIVED)) {
+		intel_xpcie_set_doorbell(xpcie, TO_DEVICE,
+					 PARTIAL_DATA_RECEIVED, 0);
+		if (xpcie->tx_pending)
+			intel_xpcie_start_tx(xpcie, 0);
+		else
+			intel_xpcie_raise_irq(xpcie, DATA_SENT);
+	}
+
 	return IRQ_HANDLED;
 }
 

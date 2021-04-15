@@ -10,6 +10,7 @@
 #ifndef XPCIE_UTIL_HEADER_
 #define XPCIE_UTIL_HEADER_
 
+#include <linux/atomic.h>
 #include "xpcie.h"
 
 enum xpcie_doorbell_direction {
@@ -21,7 +22,9 @@ enum xpcie_doorbell_type {
 	DATA_SENT,
 	DATA_RECEIVED,
 	PHY_ID_UPDATED,
-	DEV_EVENT
+	DEV_EVENT,
+	PARTIAL_DATA_RECEIVED,
+	RX_BD_COUNT,
 };
 
 enum xpcie_event_type {
@@ -36,6 +39,14 @@ void intel_xpcie_set_doorbell(struct xpcie *xpcie,
 u8 intel_xpcie_get_doorbell(struct xpcie *xpcie,
 			    enum xpcie_doorbell_direction dirt,
 			    enum xpcie_doorbell_type type);
+
+void intel_xpcie_update_device_flwctl(struct xpcie *xpcie,
+				      enum xpcie_doorbell_direction dirt,
+				      enum xpcie_doorbell_type type,
+				      int value);
+u32 intel_xpcie_get_device_flwctl(struct xpcie *xpcie,
+				  enum xpcie_doorbell_direction dirt,
+				  enum xpcie_doorbell_type type);
 
 void intel_xpcie_set_device_status(struct xpcie *xpcie, u32 status);
 u32 intel_xpcie_get_device_status(struct xpcie *xpcie);
@@ -64,6 +75,7 @@ int intel_xpcie_list_put_head(struct xpcie_list *list,
 struct xpcie_buf_desc *intel_xpcie_list_get(struct xpcie_list *list);
 void intel_xpcie_list_info(struct xpcie_list *list, size_t *bytes,
 			   size_t *buffers);
+bool intel_xpcie_list_empty(struct xpcie_list *list);
 
 struct xpcie_buf_desc *intel_xpcie_alloc_rx_bd(struct xpcie *xpcie);
 void intel_xpcie_free_rx_bd(struct xpcie *xpcie, struct xpcie_buf_desc *bd);
