@@ -18,7 +18,9 @@ struct intel_tsens_plat_data {
 	void __iomem *base_addr;
 	int (*get_temp)(struct platform_device *pdev, int type, int *temp);
 	void *pdata;
+	int sensor_type;
 	struct device_node *s_node;
+	struct platform_device *pdev;
 };
 
 struct intel_tsens_plat_info {
@@ -26,6 +28,7 @@ struct intel_tsens_plat_info {
 	int id;
 	struct platform_device *pdev;
 	void __iomem *base_addr;
+ 	int sensor_type;
 	struct device_node *s_node;
 };
 
