@@ -106,6 +106,7 @@ struct intel_tsens_data {
 	u32 passive_delay;
 	u32 polling_delay;
 	u32 sensor_type;
+	struct device_node *s_node;
 } __packed __aligned(HDDL_ALIGN);
 
 struct intel_hddl_i2c_devs_data {

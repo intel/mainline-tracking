@@ -106,6 +106,8 @@ static int intel_tsens_register_pdev(struct intel_tsens_plat_info *plat_info)
 	plat_data.name = plat_info->plat_name;
 	plat_data.get_temp = NULL;
 	plat_data.s_node = plat_info->s_node;
+ 	plat_data.sensor_type = plat_info->sensor_type;
+	plat_data.pdev = plat_info->pdev;
 	pdevinfo.data = &plat_data;
 	pdevinfo.size_data = sizeof(plat_data);
 	dd = platform_device_register_full(&pdevinfo);
@@ -136,7 +138,9 @@ static int intel_tsens_add_pdev(struct intel_tsens_priv *priv)
 	 */
 	if (priv->plat_info.plat_name) {
 		priv->plat_info.base_addr = priv->base_addr;
+ 		priv->plat_info.sensor_type = -1;
 		priv->plat_info.s_node = priv->pid_node;
+		priv->plat_info.pdev = priv->pdev;
 		ret = intel_tsens_register_pdev(&priv->plat_info);
 		if (ret) {
 			dev_err(&priv->pdev->dev,
@@ -152,6 +156,8 @@ static int intel_tsens_add_pdev(struct intel_tsens_priv *priv)
 			continue;
 		tsens->plat_info.base_addr = tsens->base_addr;
 		tsens->plat_info.s_node = priv->pid_node;
+ 		tsens->plat_info.sensor_type = tsens->sensor_type;
+		tsens->plat_info.pdev = priv->pdev;
 		ret = intel_tsens_register_pdev(&tsens->plat_info);
 		if (ret) {
 			dev_err(&priv->pdev->dev,
