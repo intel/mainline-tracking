@@ -137,4 +137,11 @@ int intel_xpcie_copy_from_host_ll(struct xpcie *xpcie,
 				  int chan, int descs_num);
 int intel_xpcie_copy_to_host_ll(struct xpcie *xpcie,
 				int chan, int descs_num);
+
+/*
+ * Sysfs entry for sw device id.
+ */
+void intel_xpcie_init_sysfs_swdev_id(struct xpcie *xpcie, struct device *dev);
+void intel_xpcie_uninit_sysfs_swdev_id(struct xpcie *xpcie, struct device *dev);
+
 #endif /* XPCIE_EPF_HEADER_ */

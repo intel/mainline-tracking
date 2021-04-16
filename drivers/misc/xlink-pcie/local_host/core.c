@@ -475,10 +475,6 @@ static irqreturn_t intel_xpcie_core_irq_cb(int irq, void *args)
 {
 	struct xpcie *xpcie = args;
 #if (IS_ENABLED(CONFIG_ARCH_THUNDERBAY))
-	u16 phy_id = 0;
-	u8 max_functions = 0, func_no = 0;
-	struct xpcie_epf *xpcie_epf =
-		container_of(xpcie, struct xpcie_epf, xpcie);
 	/*clear the interrupt*/
 	writel(0x1, xpcie->doorbell_clear);
 #endif
@@ -491,22 +487,6 @@ static irqreturn_t intel_xpcie_core_irq_cb(int irq, void *args)
 		if (xpcie->tx_pending)
 			intel_xpcie_start_tx(xpcie, 0);
 	}
-#if (IS_ENABLED(CONFIG_ARCH_THUNDERBAY))
-	if (intel_xpcie_get_doorbell(xpcie, TO_DEVICE, PHY_ID_UPDATED)) {
-		intel_xpcie_set_doorbell(xpcie, TO_DEVICE, PHY_ID_UPDATED, 0);
-		if (!xpcie_epf->sw_dev_id_updated) {
-			phy_id = intel_xpcie_get_physical_device_id(xpcie);
-			max_functions = intel_xpcie_get_max_functions(xpcie);
-			func_no = xpcie_epf->epf->func_no;
-			xpcie_epf->sw_devid =
-				intel_xpcie_create_sw_device_id(func_no, phy_id, max_functions);
-			xpcie_epf->sw_dev_id_updated = true;
-			dev_info(xpcie_to_dev(xpcie),
-					"pcie: func_no=%x swid updated=%x phy_id=%x\n",
-					func_no, xpcie_epf->sw_devid, phy_id);
-		}
-	}
-#endif
 	if (intel_xpcie_get_doorbell(xpcie, TO_DEVICE,
 				     PARTIAL_DATA_RECEIVED)) {
 		intel_xpcie_set_doorbell(xpcie, TO_DEVICE,

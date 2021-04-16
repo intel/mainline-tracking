@@ -282,14 +282,12 @@ static void xpcie_device_poll(struct work_struct *work)
 			 "sw_devid=%x, function idx=%d, max_functions=%d\n",
 			 xdev->sw_devid,
 			 PCI_FUNC(xdev->pci->devfn), max_functions);
+		intel_xpcie_pci_raise_irq(xdev, PHY_ID_UPDATED, 1);
 
-		intel_xpcie_set_doorbell(&xdev->xpcie, TO_DEVICE,
-					 PHY_ID_UPDATED, 1);
-		iowrite32(1, xdev->xpcie.doorbell_base);
 		return;
 #endif
 	}
-	schedule_delayed_work(&xdev->wait_event, msecs_to_jiffies(1000));
+	schedule_delayed_work(&xdev->wait_event, msecs_to_jiffies(2000));
 }
 
 static int intel_xpcie_pci_prepare_dev_reset(struct xpcie_dev *xdev,
