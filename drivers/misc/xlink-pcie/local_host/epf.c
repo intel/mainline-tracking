@@ -179,7 +179,10 @@ static irqreturn_t intel_xpcie_host_interrupt(int irq, void *args)
 	struct xpcie_epf *xpcie_epf = container_of(xpcie,
 						   struct xpcie_epf, xpcie);
 	u8 event;
-#if (!IS_ENABLED(CONFIG_ARCH_THUNDERBAY))
+#if (IS_ENABLED(CONFIG_ARCH_THUNDERBAY))
+	u16 phy_id = 0;
+	u8 max_functions = 0;
+#else
 	u32 val;
 
 	val = ioread32(xpcie_epf->apb_base + PCIE_REGS_PCIE_INTR_FLAGS);
@@ -196,8 +199,26 @@ static irqreturn_t intel_xpcie_host_interrupt(int irq, void *args)
 		return IRQ_HANDLED;
 	}
 
+#if (IS_ENABLED(CONFIG_ARCH_THUNDERBAY))
+	if (intel_xpcie_get_doorbell(xpcie, TO_DEVICE, PHY_ID_UPDATED)) {
+		intel_xpcie_set_doorbell(xpcie, TO_DEVICE, PHY_ID_UPDATED, 0);
+		if (!xpcie_epf->sw_dev_id_updated) {
+			phy_id = intel_xpcie_get_physical_device_id(xpcie);
+			max_functions = intel_xpcie_get_max_functions(xpcie);
+			xpcie_epf->sw_devid =
+				intel_xpcie_create_sw_device_id(xpcie_epf->epf->func_no, phy_id, max_functions);
+			xpcie_epf->sw_dev_id_updated = true;
+			dev_info(xpcie_to_dev(xpcie),
+				 "pcie: func_no=%x swid updated=%x phy_id=%x\n",
+				 xpcie_epf->epf->func_no,
+				 xpcie_epf->sw_devid, phy_id);
+		}
+	}
+#endif
 	if (likely(xpcie_epf->core_irq_callback))
 		xpcie_epf->core_irq_callback(irq, xpcie);
+	else
+		writel(0x1, xpcie->doorbell_clear); /* clearing the interrupt */
 
 	return IRQ_HANDLED;
 }
@@ -660,6 +681,47 @@ static int intel_xpcie_epf_get_platform_data(struct device *dev,
 }
 #endif
 
+static ssize_t swdev_id_show(struct device *dev,
+			     struct device_attribute *attr,
+			     char *buf)
+{
+	struct pci_epf *epf = container_of(dev, struct pci_epf, dev);
+	struct xpcie_epf *xpcie_epf = epf_get_drvdata(epf);
+	struct xpcie *xpcie = &xpcie_epf->xpcie;
+
+	if (xpcie->swdev_avail)
+		snprintf(buf, 4096, "%s\n", "okay");
+	else
+		snprintf(buf, 4096, "%s\n", "disabled");
+
+	return strlen(buf);
+}
+
+static ssize_t swdev_id_store(struct device *dev,
+			      struct device_attribute *attr,
+			      const char *buf, size_t count)
+{
+	return count;
+}
+
+static DEVICE_ATTR(swdev_id, S_IRWXU, swdev_id_show, swdev_id_store);
+
+void intel_xpcie_init_sysfs_swdev_id(struct xpcie *xpcie, struct device *dev)
+{
+	xpcie->swdev_id = dev_attr_swdev_id;
+	xpcie->swdev_avail = false;
+
+	device_create_file(dev, &xpcie->swdev_id);
+}
+
+void intel_xpcie_uninit_sysfs_swdev_id(struct xpcie *xpcie, struct device *dev)
+{
+	if (xpcie->swdev_avail) {
+		device_remove_file(dev, &xpcie->swdev_id);
+		xpcie->swdev_avail = false;
+	}
+}
+
 static int intel_xpcie_epf_bind(struct pci_epf *epf)
 {
 	struct xpcie_epf *xpcie_epf = epf_get_drvdata(epf);
@@ -771,6 +833,9 @@ static int intel_xpcie_epf_bind(struct pci_epf *epf)
 	memcpy(xpcie_epf->xpcie.io_comm + XPCIE_IO_COMM_MAGIC_OFF,
 	       XPCIE_BOOT_MAGIC_YOCTO, strlen(XPCIE_BOOT_MAGIC_YOCTO));
 
+	intel_xpcie_init_sysfs_swdev_id(&xpcie_epf->xpcie,
+					&xpcie_epf->epf->dev);
+
 	return 0;
 
 err_uninit_dma:
@@ -794,6 +859,8 @@ static void intel_xpcie_epf_unbind(struct pci_epf *epf)
 	intel_xpcie_core_cleanup(&xpcie_epf->xpcie);
 	intel_xpcie_set_device_status(&xpcie_epf->xpcie, XPCIE_STATUS_READY);
 
+	intel_xpcie_uninit_sysfs_swdev_id(&xpcie_epf->xpcie,
+					  &xpcie_epf->epf->dev);
 	intel_xpcie_ep_dma_uninit(epf);
 
 	pci_epc_stop(epc);

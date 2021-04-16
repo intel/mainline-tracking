@@ -138,6 +138,9 @@ struct xpcie {
 	struct tasklet_struct rx_tasklet;
 	struct hrtimer free_rx_bd_timer;
 #endif
+	struct device_attribute swdev_id;
+	bool swdev_avail;
+
 };
 
 #endif /* XPCIE_HEADER_ */
