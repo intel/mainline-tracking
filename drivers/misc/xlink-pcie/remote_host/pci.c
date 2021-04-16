@@ -41,7 +41,7 @@ struct xpcie_dev *intel_xpcie_get_device_by_id(u32 id)
 
 	list_for_each_entry(xdev, &dev_list, list) {
 #if (IS_ENABLED(CONFIG_ARCH_THUNDERBAY))
-		if (xdev->sw_devid == id) {
+		if (xdev->sw_devid == id || xdev->devid == id) {
 #else
 		if (xdev->devid == id) {
 #endif
@@ -263,6 +263,7 @@ static void xpcie_device_poll(struct work_struct *work)
 	enum xpcie_stage stage = intel_xpcie_check_magic(xdev);
 #if (IS_ENABLED(CONFIG_ARCH_THUNDERBAY))
 	u8 max_functions;
+	u32 devid;
 #endif
 	if (stage == STAGE_RECOV) {
 		if (xdev->xpcie.status != XPCIE_STATUS_RECOVERY)
@@ -270,12 +271,13 @@ static void xpcie_device_poll(struct work_struct *work)
 	} else if (stage == STAGE_OS) {
 		xdev->xpcie.status = XPCIE_STATUS_READY;
 #if (IS_ENABLED(CONFIG_ARCH_THUNDERBAY))
-		intel_xpcie_set_physical_device_id(&xdev->xpcie, xdev->devid);
+		devid = (PCI_BUS_NUM(xdev->devid) << 8) |
+			 PCI_SLOT(xdev->pci->devfn);
+		intel_xpcie_set_physical_device_id(&xdev->xpcie, devid);
 		max_functions = intel_xpcie_get_max_functions(&xdev->xpcie);
 		xdev->sw_devid =
 			intel_xpcie_create_sw_device_id
-			(PCI_FUNC(xdev->pci->devfn),
-			 xdev->devid, max_functions);
+			(PCI_FUNC(xdev->pci->devfn), devid, max_functions);
 		dev_info(&xdev->pci->dev,
 			 "sw_devid=%x, function idx=%d, max_functions=%d\n",
 			 xdev->sw_devid,
@@ -618,8 +620,13 @@ void intel_xpcie_pci_notify_event(struct xpcie_dev *xdev,
 	if (event_type >= NUM_EVENT_TYPE)
 		return;
 
-	if (xdev->event_fn)
+	if (xdev->event_fn) {
+		dev_info(&xdev->pci->dev,
+			 "sw_devid=0x%x, event_type=%d\n",
+			 xdev->sw_devid, event_type);
+
 		xdev->event_fn(xdev->devid, event_type);
+	}
 }
 
 #if (IS_ENABLED(CONFIG_ARCH_THUNDERBAY))
@@ -648,12 +655,20 @@ struct xpcie_dev *intel_xpcie_get_device_by_phys_id(u32 phys_id)
 	struct xpcie_dev *xdev;
 
 	mutex_lock(&dev_list_mutex);
+
+	if (list_empty(&dev_list)) {
+		mutex_unlock(&dev_list_mutex);
+		return NULL;
+	}
+
 	list_for_each_entry(xdev, &dev_list, list) {
-		if (xdev->devid == phys_id)
-			break;
+		if (xdev->devid == phys_id) {
+			mutex_unlock(&dev_list_mutex);
+			return xdev;
+		}
 	}
 	mutex_unlock(&dev_list_mutex);
 
-	return xdev;
+	return NULL;
 }
 #endif
