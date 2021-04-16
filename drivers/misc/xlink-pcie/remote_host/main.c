@@ -17,6 +17,8 @@
 #define HW_ID_LO_MASK	GENMASK(7, 0)
 #define HW_ID_HI_MASK	GENMASK(15, 8)
 
+static bool driver_unload;
+
 static const struct pci_device_id xpcie_pci_table[] = {
 	{ PCI_DEVICE(PCI_VENDOR_ID_INTEL, PCI_DEVICE_ID_INTEL_KEEMBAY), 0 },
 #if (IS_ENABLED(CONFIG_ARCH_THUNDERBAY))
@@ -120,9 +122,8 @@ static int intel_xpcie_probe(struct pci_dev *pdev,
 		return 0;
 #endif
 
-	hw_id = FIELD_PREP(HW_ID_HI_MASK, pdev->bus->number) |
-		FIELD_PREP(HW_ID_LO_MASK, PCI_SLOT(pdev->devfn));
-
+	hw_id = ((u16)pdev->bus->number << 8) |
+		 (PCI_DEVFN(PCI_SLOT(pdev->devfn), PCI_FUNC(pdev->devfn)));
 #if (!IS_ENABLED(CONFIG_ARCH_THUNDERBAY))
 	sw_devid = FIELD_PREP(XLINK_DEV_INF_TYPE_MASK, XLINK_DEV_INF_PCIE) |
 		FIELD_PREP(XLINK_DEV_PHYS_ID_MASK, hw_id) |
@@ -132,7 +133,7 @@ static int intel_xpcie_probe(struct pci_dev *pdev,
 #else
 	sw_devid = hw_id;
 #endif
-	xdev = intel_xpcie_get_device_by_id(sw_devid);
+	xdev = intel_xpcie_get_device_by_phys_id(sw_devid);
 	if (!xdev) {
 		xdev = intel_xpcie_create_device(sw_devid, pdev);
 		if (!xdev)
@@ -162,10 +163,12 @@ static void intel_xpcie_remove(struct pci_dev *pdev)
 	if (xdev) {
 		intel_xpcie_pci_cleanup(xdev);
 		intel_xpcie_pci_notify_event(xdev, NOTIFY_DEVICE_DISCONNECTED);
+		if (driver_unload) {
 #if (IS_ENABLED(CONFIG_ARCH_THUNDERBAY))
-		intel_xpcie_list_del_device(xdev);
+			intel_xpcie_list_del_device(xdev);
 #endif
-		intel_xpcie_remove_device(xdev);
+			intel_xpcie_remove_device(xdev);
+		}
 	}
 }
 
@@ -186,6 +189,7 @@ static int __init intel_xpcie_init_module(void)
 
 static void __exit intel_xpcie_exit_module(void)
 {
+	driver_unload = true;
 	pci_unregister_driver(&xpcie_driver);
 }
 
