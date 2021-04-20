@@ -337,8 +337,9 @@ static inline void os_xrstor(struct xregs_state *xstate, u64 mask)
  */
 static inline int xsave_to_user_sigframe(struct xregs_state __user *buf)
 {
+	struct fpu *fpu = &current->thread.fpu;
 	u32 lmask, hmask;
-	u64 mask;
+	u64 state_mask;
 	int err;
 
 	/*
@@ -346,21 +347,38 @@ static inline int xsave_to_user_sigframe(struct xregs_state __user *buf)
 	 * internally, e.g. PKRU. That's user space ABI and also required
 	 * to allow the signal handler to modify PKRU.
 	 */
-	mask = xfeatures_mask_uabi();
+	state_mask = xfeatures_mask_uabi();
+
+	if (!xfeatures_mask_user_dynamic)
+		goto mask_ready;
 
 	/*
 	 * Exclude dynamic user states for non-opt-in threads.
 	 */
-	if (xfeatures_mask_user_dynamic) {
-		struct fpu *fpu = &current->thread.fpu;
+	if (!fpu->dynamic_state_perm) {
+		state_mask &= ~xfeatures_mask_user_dynamic;
+	} else {
+		u64 dynamic_state_mask;
 
-		mask &= fpu->dynamic_state_perm ?
-			fpu->state_mask :
-			~xfeatures_mask_user_dynamic;
+		state_mask &= fpu->state_mask;
+
+		dynamic_state_mask = state_mask & xfeatures_mask_user_dynamic;
+		if (dynamic_state_mask && cpu_feature_enabled(X86_FEATURE_XGETBV1)) {
+			u64 dynamic_xinuse, dynamic_init;
+			u64 xinuse = xgetbv(1);
+
+			dynamic_xinuse = xinuse & dynamic_state_mask;
+			dynamic_init = ~xinuse & dynamic_state_mask;
+			if (dynamic_init) {
+				state_mask &= ~xfeatures_mask_user_dynamic;
+				state_mask |= dynamic_xinuse;
+			}
+		}
 	}
 
-	lmask = mask;
-	hmask = mask >> 32;
+mask_ready:
+	lmask = state_mask;
+	hmask = state_mask >> 32;
 
 	/*
 	 * Clear the xsave header first, so that reserved fields are
