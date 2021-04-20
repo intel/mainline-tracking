@@ -479,10 +479,10 @@ TRACE_EVENT(xlink_rx_read_consumed_arrived_event,
 */
 
 #undef TRACE_INCLUDE_PATH
-#ifndef CONFIG_XLINK_LOCAL_HOST
-#define TRACE_INCLUDE_PATH	.
-#else
+//#ifndef CONFIG_XLINK_LOCAL_HOST
+//#define TRACE_INCLUDE_PATH	.
+//#else
 #define TRACE_INCLUDE_PATH	../../drivers/misc/xlink-core
-#endif
+//#endif
 #define TRACE_INCLUDE_FILE xlink-trace
 #include <trace/define_trace.h>
