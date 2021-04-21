@@ -217,8 +217,10 @@ static irqreturn_t intel_xpcie_host_interrupt(int irq, void *args)
 #endif
 	if (likely(xpcie_epf->core_irq_callback))
 		xpcie_epf->core_irq_callback(irq, xpcie);
+#if (IS_ENABLED(CONFIG_ARCH_THUNDERBAY))
 	else
 		writel(0x1, xpcie->doorbell_clear); /* clearing the interrupt */
+#endif
 
 	return IRQ_HANDLED;
 }
