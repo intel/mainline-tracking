@@ -82,6 +82,18 @@
  */
 #define DWC_SSI_CTRLR0_KEEMBAY_MST	BIT(31)
 
+/*
+ * For Thunder Bay, CTRLR0[14] should be set to 1.
+ */
+#define DWC_SSI_CTRLR0_THUNDERBAY_SSTE	BIT(14)
+
+/*
+ * For Thunder Bay, CTRLR0[31] is used to select controller mode.
+ * 0: SSI is slave
+ * 1: SSI is master
+ */
+#define DWC_SSI_CTRLR0_THUNDERBAY_MST	BIT(31)
+
 /* Bit fields in CTRLR1 */
 #define SPI_NDF_MASK			GENMASK(15, 0)
 
@@ -125,6 +137,9 @@ enum dw_ssi_type {
 #define DW_SPI_CAP_KEEMBAY_MST		BIT(1)
 #define DW_SPI_CAP_DWC_SSI		BIT(2)
 #define DW_SPI_CAP_DFS32		BIT(3)
+#define DW_SPI_CAP_THUNDERBAY_MST	BIT(4)
+#define DW_SPI_CAP_THUNDERBAY_RST	BIT(5)
+#define DW_SPI_CAP_THUNDERBAY_SSTE	BIT(6)
 
 /* Slave spi_transfer/spi_mem_op related */
 struct dw_spi_cfg {
