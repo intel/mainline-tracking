@@ -63,3 +63,9 @@ config THUNDERBAY_THERMAL
 
 	  This driver is used for reading onchip temperature sensor
 	  values from thunderbay SoC.
+
+config MOVIDIUS_VPU_COOLING
+	tristate "Movidius VPU Cooling Driver"
+	depends on XLINK_CORE
+	help
+	Enable this option to support vpu cooling driver for Movidius VPU
