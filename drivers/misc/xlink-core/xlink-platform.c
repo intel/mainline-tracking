@@ -62,7 +62,8 @@ static inline int xlink_ipc_register_for_events(u32 sw_device_id,
 						int (*callback)
 		(u32 sw_device_id, u32 event)) { return -1; }
 static inline int xlink_ipc_unregister_for_events(u32 sw_device_id) { return -1; }
-
+static inline int xlink_ipc_get_device_mode(u32 sw_device_id, u32 *power_mode) { return -1; }
+static inline int xlink_ipc_set_device_mode(u32 sw_device_id, u32 power_mode) { return -1; }
 #endif /* CONFIG_XLINK_LOCAL_HOST */
 
 /*
@@ -94,9 +95,9 @@ static int (*dev_status_fcts[NMB_OF_INTERFACES])(u32, u32 *) = {
 		xlink_ipc_get_device_status, xlink_pcie_get_device_status,
 		NULL, NULL};
 static int (*dev_set_mode_fcts[NMB_OF_INTERFACES])(u32, u32) = {
-		NULL, NULL, NULL, NULL};
+		xlink_ipc_set_device_mode, NULL, NULL, NULL};
 static int (*dev_get_mode_fcts[NMB_OF_INTERFACES])(u32, u32 *) = {
-		NULL, NULL, NULL, NULL};
+		xlink_ipc_get_device_mode, NULL, NULL, NULL};
 static int (*open_chan_fcts[NMB_OF_INTERFACES])(u32, u32) = {
 		xlink_ipc_open_channel, NULL, NULL, NULL};
 
