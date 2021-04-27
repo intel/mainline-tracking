@@ -15499,6 +15499,17 @@ T:	git git://linuxtv.org/media_tree.git
 F:	Documentation/devicetree/bindings/media/allwinner,sun8i-a83t-de2-rotate.yaml
 F:	drivers/media/platform/sunxi/sun8i-rotate/
 
+RPMB SUBSYSTEM
+M:	Tomas Winkler <tomas.winkler@intel.com>
+L:	linux-kernel@vger.kernel.org
+S:	Supported
+F:	Documentation/ABI/testing/sysfs-class-rpmb
+F:	Documentation/driver-api/rpmb.rst
+F:	drivers/char/rpmb/*
+F:	include/uapi/linux/rpmb.h
+F:	include/linux/rpmb.h
+F:	tools/rpmb/
+
 RTL2830 MEDIA DRIVER
 M:	Antti Palosaari <crope@iki.fi>
 L:	linux-media@vger.kernel.org

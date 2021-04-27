@@ -44,6 +44,7 @@
 #include <asm/proto.h>
 #include <asm/frame.h>
 #include <asm/cet.h>
+#include <asm/processor.h>
 
 #include "process.h"
 
@@ -204,6 +205,10 @@ void flush_thread(void)
 	memset(tsk->thread.tls_array, 0, sizeof(tsk->thread.tls_array));
 
 	fpu__clear_all(&tsk->thread.fpu);
+
+#ifndef CONFIG_X86_32
+	pks_init_task(tsk);
+#endif
 }
 
 void disable_TSC(void)
