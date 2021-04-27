@@ -15,6 +15,8 @@
 #include "tb_regs.h"
 #include "tunnel.h"
 
+#define TB_TIMEOUT	100 /* ms */
+
 /**
  * struct tb_cm - Simple Thunderbolt connection manager
  * @tunnel_list: List of active tunnels
@@ -48,7 +50,7 @@ struct tb_hotplug_event {
 
 static void tb_handle_hotplug(struct work_struct *work);
 
-static void tb_queue_hotplug(struct tb *tb, u64 route, u8 port, bool unplug)
+static void __tb_queue_hotplug(struct tb *tb, u64 route, u8 port, bool unplug)
 {
 	struct tb_hotplug_event *ev;
 
@@ -102,10 +104,39 @@ static void tb_remove_dp_resources(struct tb_switch *sw)
 	}
 }
 
+static void tb_add_tunnel(struct tb *tb, struct tb_tunnel *tunnel)
+{
+	struct tb_switch *sw = tunnel->dst_port->sw;
+	struct tb_cm *tcm = tb_priv(tb);
+
+	if (tb_tunnel_is_usb3(tunnel)) {
+		sw->usb3++;
+	} else if (tb_tunnel_is_dp(tunnel)) {
+		sw->dp++;
+		/* Inform userspace about DP tunneling change */
+		kobject_uevent(&sw->dev.kobj, KOBJ_CHANGE);
+	}
+
+	list_add_tail(&tunnel->list, &tcm->tunnel_list);
+}
+
+static void tb_remove_tunnel(struct tb_tunnel *tunnel)
+{
+	struct tb_switch *sw = tunnel->dst_port->sw;
+
+	if (tb_tunnel_is_usb3(tunnel) && sw->usb3) {
+		sw->usb3--;
+	} else if (tb_tunnel_is_dp(tunnel) && sw->dp) {
+		sw->dp--;
+		kobject_uevent(&sw->dev.kobj, KOBJ_CHANGE);
+	}
+
+	list_del(&tunnel->list);
+}
+
 static void tb_discover_tunnels(struct tb_switch *sw)
 {
 	struct tb *tb = sw->tb;
-	struct tb_cm *tcm = tb_priv(tb);
 	struct tb_port *port;
 
 	tb_switch_for_each_port(sw, port) {
@@ -144,7 +175,7 @@ static void tb_discover_tunnels(struct tb_switch *sw)
 			pm_runtime_get_sync(&tunnel->dst_port->sw->dev);
 		}
 
-		list_add_tail(&tunnel->list, &tcm->tunnel_list);
+		tb_add_tunnel(tb, tunnel);
 	}
 
 	tb_switch_for_each_port(sw, port) {
@@ -438,7 +469,6 @@ static int tb_tunnel_usb3(struct tb *tb, struct tb_switch *sw)
 	struct tb_switch *parent = tb_switch_parent(sw);
 	int ret, available_up, available_down;
 	struct tb_port *up, *down, *port;
-	struct tb_cm *tcm = tb_priv(tb);
 	struct tb_tunnel *tunnel;
 
 	if (!tb_acpi_may_tunnel_usb3()) {
@@ -501,7 +531,7 @@ static int tb_tunnel_usb3(struct tb *tb, struct tb_switch *sw)
 		goto err_free;
 	}
 
-	list_add_tail(&tunnel->list, &tcm->tunnel_list);
+	tb_add_tunnel(tb, tunnel);
 	if (tb_route(parent))
 		tb_reclaim_usb3_bandwidth(tb, down, up);
 
@@ -574,8 +604,8 @@ static void tb_scan_port(struct tb_port *port)
 	if (tb_port_is_dpout(port) && tb_dp_port_hpd_is_active(port) == 1 &&
 	    !tb_dp_port_is_enabled(port)) {
 		tb_port_dbg(port, "DP adapter HPD set, queuing hotplug\n");
-		tb_queue_hotplug(port->sw->tb, tb_route(port->sw), port->port,
-				 false);
+		__tb_queue_hotplug(port->sw->tb, tb_route(port->sw), port->port,
+				   false);
 		return;
 	}
 
@@ -586,14 +616,23 @@ static void tb_scan_port(struct tb_port *port)
 			 * Downstream switch is reachable through two ports.
 			 * Only scan on the primary port (link_nr == 0).
 			 */
-	if (tb_wait_for_port(port, false) <= 0)
+
+	if (tb_wait_for_port(port, false) <= 0) {
+		/*
+		 * Scan for retimers even if the USB4 link did not come
+		 * up. It is possible that the platform supports
+		 * powering on-board retimers even if there is nothing
+		 * attached to the port.
+		 */
+		tb_retimer_scan(port, false);
 		return;
+	}
 	if (port->remote) {
 		tb_port_dbg(port, "port already has a remote\n");
 		return;
 	}
 
-	tb_retimer_scan(port);
+	tb_retimer_scan(port, true);
 
 	sw = tb_switch_alloc(port->sw->tb, &port->sw->dev,
 			     tb_downstream_route(port));
@@ -660,7 +699,7 @@ static void tb_scan_port(struct tb_port *port)
 		tb_sw_warn(sw, "failed to enable TMU\n");
 
 	/* Scan upstream retimers */
-	tb_retimer_scan(upstream_port);
+	tb_retimer_scan(upstream_port, true);
 
 	/*
 	 * Create USB 3.x tunnels only when the switch is plugged to the
@@ -684,7 +723,7 @@ static void tb_deactivate_and_free_tunnel(struct tb_tunnel *tunnel)
 		return;
 
 	tb_tunnel_deactivate(tunnel);
-	list_del(&tunnel->list);
+	tb_remove_tunnel(tunnel);
 
 	tb = tunnel->tb;
 	src_port = tunnel->src_port;
@@ -935,7 +974,7 @@ static void tb_tunnel_dp(struct tb *tb)
 		goto err_free;
 	}
 
-	list_add_tail(&tunnel->list, &tcm->tunnel_list);
+	tb_add_tunnel(tb, tunnel);
 	tb_reclaim_usb3_bandwidth(tb, in, out);
 	return;
 
@@ -1036,7 +1075,7 @@ static int tb_disconnect_pci(struct tb *tb, struct tb_switch *sw)
 		return -ENODEV;
 
 	tb_tunnel_deactivate(tunnel);
-	list_del(&tunnel->list);
+	tb_remove_tunnel(tunnel);
 	tb_tunnel_free(tunnel);
 	return 0;
 }
@@ -1044,7 +1083,6 @@ static int tb_disconnect_pci(struct tb *tb, struct tb_switch *sw)
 static int tb_tunnel_pci(struct tb *tb, struct tb_switch *sw)
 {
 	struct tb_port *up, *down, *port;
-	struct tb_cm *tcm = tb_priv(tb);
 	struct tb_switch *parent_sw;
 	struct tb_tunnel *tunnel;
 
@@ -1073,13 +1111,14 @@ static int tb_tunnel_pci(struct tb *tb, struct tb_switch *sw)
 		return -EIO;
 	}
 
-	list_add_tail(&tunnel->list, &tcm->tunnel_list);
+	tb_add_tunnel(tb, tunnel);
 	return 0;
 }
 
-static int tb_approve_xdomain_paths(struct tb *tb, struct tb_xdomain *xd)
+static int tb_approve_xdomain_paths(struct tb *tb, struct tb_xdomain *xd,
+				    int transmit_path, int transmit_ring,
+				    int receive_path, int receive_ring)
 {
-	struct tb_cm *tcm = tb_priv(tb);
 	struct tb_port *nhi_port, *dst_port;
 	struct tb_tunnel *tunnel;
 	struct tb_switch *sw;
@@ -1089,9 +1128,8 @@ static int tb_approve_xdomain_paths(struct tb *tb, struct tb_xdomain *xd)
 	nhi_port = tb_switch_find_port(tb->root_switch, TB_TYPE_NHI);
 
 	mutex_lock(&tb->lock);
-	tunnel = tb_tunnel_alloc_dma(tb, nhi_port, dst_port, xd->transmit_ring,
-				     xd->transmit_path, xd->receive_ring,
-				     xd->receive_path);
+	tunnel = tb_tunnel_alloc_dma(tb, nhi_port, dst_port, transmit_path,
+				     transmit_ring, receive_path, receive_ring);
 	if (!tunnel) {
 		mutex_unlock(&tb->lock);
 		return -ENOMEM;
@@ -1105,34 +1143,45 @@ static int tb_approve_xdomain_paths(struct tb *tb, struct tb_xdomain *xd)
 		return -EIO;
 	}
 
-	list_add_tail(&tunnel->list, &tcm->tunnel_list);
+	tb_add_tunnel(tb, tunnel);
 	mutex_unlock(&tb->lock);
 	return 0;
 }
 
-static void __tb_disconnect_xdomain_paths(struct tb *tb, struct tb_xdomain *xd)
+static void __tb_disconnect_xdomain_paths(struct tb *tb, struct tb_xdomain *xd,
+					  int transmit_path, int transmit_ring,
+					  int receive_path, int receive_ring)
 {
-	struct tb_port *dst_port;
-	struct tb_tunnel *tunnel;
+	struct tb_cm *tcm = tb_priv(tb);
+	struct tb_port *nhi_port, *dst_port;
+	struct tb_tunnel *tunnel, *n;
 	struct tb_switch *sw;
 
 	sw = tb_to_switch(xd->dev.parent);
 	dst_port = tb_port_at(xd->route, sw);
+	nhi_port = tb_switch_find_port(tb->root_switch, TB_TYPE_NHI);
 
-	/*
-	 * It is possible that the tunnel was already teared down (in
-	 * case of cable disconnect) so it is fine if we cannot find it
-	 * here anymore.
-	 */
-	tunnel = tb_find_tunnel(tb, TB_TUNNEL_DMA, NULL, dst_port);
-	tb_deactivate_and_free_tunnel(tunnel);
+	list_for_each_entry_safe(tunnel, n, &tcm->tunnel_list, list) {
+		if (!tb_tunnel_is_dma(tunnel))
+			continue;
+		if (tunnel->src_port != nhi_port || tunnel->dst_port != dst_port)
+			continue;
+
+		if (tb_tunnel_match_dma(tunnel, transmit_path, transmit_ring,
+					receive_path, receive_ring))
+			tb_deactivate_and_free_tunnel(tunnel);
+	}
 }
 
-static int tb_disconnect_xdomain_paths(struct tb *tb, struct tb_xdomain *xd)
+static int tb_disconnect_xdomain_paths(struct tb *tb, struct tb_xdomain *xd,
+				       int transmit_path, int transmit_ring,
+				       int receive_path, int receive_ring)
 {
 	if (!xd->is_unplugged) {
 		mutex_lock(&tb->lock);
-		__tb_disconnect_xdomain_paths(tb, xd);
+		__tb_disconnect_xdomain_paths(tb, xd, transmit_path,
+					      transmit_ring, receive_path,
+					      receive_ring);
 		mutex_unlock(&tb->lock);
 	}
 	return 0;
@@ -1208,12 +1257,12 @@ static void tb_handle_hotplug(struct work_struct *work)
 			 * tb_xdomain_remove() so setting XDomain as
 			 * unplugged here prevents deadlock if they call
 			 * tb_xdomain_disable_paths(). We will tear down
-			 * the path below.
+			 * all the tunnels below.
 			 */
 			xd->is_unplugged = true;
 			tb_xdomain_remove(xd);
 			port->xdomain = NULL;
-			__tb_disconnect_xdomain_paths(tb, xd);
+			__tb_disconnect_xdomain_paths(tb, xd, -1, -1, -1, -1);
 			tb_xdomain_put(xd);
 			tb_port_unconfigure_xdomain(port);
 		} else if (tb_port_is_dpout(port) || tb_port_is_dpin(port)) {
@@ -1272,7 +1321,14 @@ static void tb_handle_event(struct tb *tb, enum tb_cfg_pkg_type type,
 			pkg->port);
 	}
 
-	tb_queue_hotplug(tb, route, pkg->port, pkg->unplug);
+	__tb_queue_hotplug(tb, route, pkg->port, pkg->unplug);
+}
+
+static void tb_queue_hotplug(struct tb *tb, struct tb_port *port, bool unplug)
+{
+	struct tb_switch *sw = port->sw;
+
+	__tb_queue_hotplug(tb, tb_route(sw), port->port, unplug);
 }
 
 static void tb_stop(struct tb *tb)
@@ -1555,6 +1611,7 @@ static const struct tb_cm_ops tb_cm_ops = {
 	.approve_switch = tb_tunnel_pci,
 	.approve_xdomain_paths = tb_approve_xdomain_paths,
 	.disconnect_xdomain_paths = tb_disconnect_xdomain_paths,
+	.queue_hotplug = tb_queue_hotplug,
 };
 
 struct tb *tb_probe(struct tb_nhi *nhi)
@@ -1562,7 +1619,7 @@ struct tb *tb_probe(struct tb_nhi *nhi)
 	struct tb_cm *tcm;
 	struct tb *tb;
 
-	tb = tb_domain_alloc(nhi, sizeof(*tcm));
+	tb = tb_domain_alloc(nhi, TB_TIMEOUT, sizeof(*tcm));
 	if (!tb)
 		return NULL;
 
@@ -1572,6 +1629,7 @@ struct tb *tb_probe(struct tb_nhi *nhi)
 		tb->security_level = TB_SECURITY_NOPCIE;
 
 	tb->cm_ops = &tb_cm_ops;
+	tb->cm_caps |= TB_CAP_TUNNEL_DETAILS;
 
 	tcm = tb_priv(tb);
 	INIT_LIST_HEAD(&tcm->tunnel_list);

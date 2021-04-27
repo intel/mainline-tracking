@@ -172,6 +172,34 @@ static ssize_t nvm_authenticate_show(struct device *dev,
 	return ret;
 }
 
+static int nvm_authenticate(struct tb_retimer *rt)
+{
+	struct tb_port *port = rt->port;
+	int ret;
+
+	ret = usb4_port_retimer_nvm_authenticate(port, rt->index);
+	if (ret)
+		return ret;
+
+	/*
+	 * If we are updating NVM when the USB4 link is not up (e.g
+	 * nothing connected to the Type-C port), there will be no
+	 * hot-remove event. Instead we remove retimers manually, and
+	 * schedule re-scan.
+	 */
+	if (!rt->online) {
+		/*
+		 * For offline update need to block everything here
+		 * until the NVM update time has elapsed.
+		 */
+		msleep(6000);
+		tb_retimer_remove_all(port);
+		tb_domain_queue_hotplug(port->sw->tb, port, true);
+	}
+
+	return 0;
+}
+
 static ssize_t nvm_authenticate_store(struct device *dev,
 	struct device_attribute *attr, const char *buf, size_t count)
 {
@@ -208,7 +236,7 @@ static ssize_t nvm_authenticate_store(struct device *dev,
 		if (ret)
 			goto exit_unlock;
 
-		ret = usb4_port_retimer_nvm_authenticate(rt->port, rt->index);
+		ret = nvm_authenticate(rt);
 	}
 
 exit_unlock:
@@ -275,13 +303,71 @@ static void tb_retimer_release(struct device *dev)
 	kfree(rt);
 }
 
+static int tb_retimer_runtime_suspend(struct device *dev)
+{
+	struct tb_retimer *rt = tb_to_retimer(dev);
+
+	mutex_lock(&rt->tb->lock);
+	/*
+	 * If there is no USB4 link but the platform supports powering
+	 * on-board retimers then we turn off that power now. But only
+	 * when we are runtime suspending the closest retimer.
+	 */
+	if (!rt->online && rt->index == 1)
+		tb_acpi_power_off_retimers(rt->port);
+
+	mutex_unlock(&rt->tb->lock);
+	return 0;
+}
+
+static int tb_retimer_runtime_resume(struct device *dev)
+{
+	struct tb_retimer *rt = tb_to_retimer(dev);
+	int ret = 0;
+
+	mutex_lock(&rt->tb->lock);
+	/*
+	 * Re-enable communications with the retimer if the platform
+	 * supports powering on-board retimers and there is no active
+	 * USB4 link.
+	 */
+	if (!rt->online) {
+		struct tb_port *port = rt->port;
+
+		if (rt->index == 1) {
+			ret = tb_acpi_power_on_retimers(port);
+			if (ret)
+				goto out_unlock;
+			ret = usb4_port_enumerate_retimers(port);
+			if (ret) {
+				tb_acpi_power_off_retimers(port);
+				goto out_unlock;
+			}
+		}
+
+		/* Enable sideband channel for this retimer */
+		usb4_port_retimer_set_inbound_sbtx(port, rt->index);
+	}
+
+out_unlock:
+	mutex_unlock(&rt->tb->lock);
+	return 0;
+}
+
+static const struct dev_pm_ops tb_retimer_pm_ops = {
+	SET_RUNTIME_PM_OPS(tb_retimer_runtime_suspend,
+			   tb_retimer_runtime_resume, NULL)
+};
+
 struct device_type tb_retimer_type = {
 	.name = "thunderbolt_retimer",
 	.groups = retimer_groups,
 	.release = tb_retimer_release,
+	.pm = &tb_retimer_pm_ops,
 };
 
-static int tb_retimer_add(struct tb_port *port, u8 index, u32 auth_status)
+static int tb_retimer_add(struct tb_port *port, u8 index, u32 auth_status,
+			  bool online)
 {
 	struct tb_retimer *rt;
 	u32 vendor, device;
@@ -328,6 +414,7 @@ static int tb_retimer_add(struct tb_port *port, u8 index, u32 auth_status)
 	rt->vendor = vendor;
 	rt->device = device;
 	rt->auth_status = auth_status;
+	rt->online = online;
 	rt->port = port;
 	rt->tb = port->sw->tb;
 
@@ -354,12 +441,12 @@ static int tb_retimer_add(struct tb_port *port, u8 index, u32 auth_status)
 	dev_info(&rt->dev, "new retimer found, vendor=%#x device=%#x\n",
 		 rt->vendor, rt->device);
 
-	pm_runtime_no_callbacks(&rt->dev);
 	pm_runtime_set_active(&rt->dev);
-	pm_runtime_enable(&rt->dev);
 	pm_runtime_set_autosuspend_delay(&rt->dev, TB_AUTOSUSPEND_DELAY);
-	pm_runtime_mark_last_busy(&rt->dev);
 	pm_runtime_use_autosuspend(&rt->dev);
+	pm_runtime_mark_last_busy(&rt->dev);
+	pm_runtime_enable(&rt->dev);
+	pm_request_autosuspend(&rt->dev);
 
 	return 0;
 }
@@ -396,29 +483,17 @@ static struct tb_retimer *tb_port_find_retimer(struct tb_port *port, u8 index)
 	return NULL;
 }
 
-/**
- * tb_retimer_scan() - Scan for on-board retimers under port
- * @port: USB4 port to scan
- *
- * Tries to enumerate on-board retimers connected to @port. Found
- * retimers are registered as children of @port. Does not scan for cable
- * retimers for now.
- */
-int tb_retimer_scan(struct tb_port *port)
+static int scan_retimers(struct tb_port *port, bool online)
 {
 	u32 status[TB_MAX_RETIMER_INDEX + 1] = {};
 	int ret, i, last_idx = 0;
 
-	if (!port->cap_usb4)
-		return 0;
-
 	/*
-	 * Send broadcast RT to make sure retimer indices facing this
-	 * port are set.
+	 * Enable sideband channel for each retimer. We can do this
+	 * regardless whether there is device connected or not.
 	 */
-	ret = usb4_port_enumerate_retimers(port);
-	if (ret)
-		return ret;
+	for (i = 1; i <= TB_MAX_RETIMER_INDEX; i++)
+		usb4_port_retimer_set_inbound_sbtx(port, i);
 
 	/*
 	 * Before doing anything else, read the authentication status.
@@ -450,15 +525,77 @@ int tb_retimer_scan(struct tb_port *port)
 
 		rt = tb_port_find_retimer(port, i);
 		if (rt) {
+			if (rt->online != online) {
+				rt->online = online;
+				kobject_uevent(&rt->dev.kobj, KOBJ_CHANGE);
+			}
 			put_device(&rt->dev);
 		} else {
-			ret = tb_retimer_add(port, i, status[i]);
+			ret = tb_retimer_add(port, i, status[i], online);
 			if (ret && ret != -EOPNOTSUPP)
-				return ret;
+				break;
 		}
 	}
 
-	return 0;
+	return ret;
+}
+
+/**
+ * tb_retimer_scan() - Scan for on-board retimers under port
+ * @port: USB4 port to scan
+ * @online: Is the USB4 link up
+ *
+ * Tries to enumerate on-board retimers connected to @port. Found
+ * retimers are registered as children of @port. Does not scan for cable
+ * retimers for now. If @online is not set then the function tries to
+ * call platform to bring the sideband up and if that succeeds scans the
+ * retimers accordingly.
+ */
+int tb_retimer_scan(struct tb_port *port, bool online)
+{
+	int ret;
+
+	if (!port->cap_usb4)
+		return 0;
+
+	if (!online) {
+		ret = tb_acpi_power_on_retimers(port);
+		switch (ret) {
+		case -EBUSY:
+			return 0;
+
+		case -EOPNOTSUPP:
+			break;
+
+		case 0:
+			ret = usb4_port_router_offline(port);
+			if (ret)
+				goto out_power_off;
+			break;
+
+		default:
+			return ret;
+		}
+	}
+
+	/*
+	 * Send broadcast RT to make sure retimer indices facing this
+	 * port are set.
+	 */
+	ret = usb4_port_enumerate_retimers(port);
+	if (ret)
+		goto out_online;
+
+	ret = scan_retimers(port, online);
+
+out_online:
+	if (!online)
+		usb4_port_router_online(port);
+out_power_off:
+	if (!online)
+		tb_acpi_power_off_retimers(port);
+
+	return ret;
 }
 
 static int remove_retimer(struct device *dev, void *data)
