@@ -451,7 +451,7 @@ static struct platform_driver xlinknet_eth_driver = {
 
 static int __init xlinknet_init(void)
 {
-	struct platform_device_info xlink_net_info[8] = {0};
+	struct platform_device_info xlink_net_info[16] = {0};
 	u32 num_devices = 0, i = 0, rc = 0;
 	u32 sw_device_id_list[12];
 	int ret;
@@ -476,6 +476,9 @@ static int __init xlinknet_init(void)
 			xlink_net_info[i].name = XLINKNET_DRIVER_NAME;
 			xlink_net_info[i].id =  sw_device_id_list[i];
 			platform_device_register_full(&xlink_net_info[i]);
+#if !defined(CONFIG_XLINKNET_REMOTEHOST)
+			break;
+#endif
 		}
 	}
 
