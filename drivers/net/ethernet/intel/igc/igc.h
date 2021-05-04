@@ -559,6 +559,7 @@ enum igc_tx_flags {
 	IGC_TX_FLAGS_TSTAMP_3	= 0x400,
 
 	IGC_TX_FLAGS_TSTAMP_TIMER_1 = 0x800,
+	IGC_TX_FLAGS_DMA_TSTAMP	= 0x200,
 };
 
 enum igc_boards {
@@ -780,6 +781,8 @@ int igc_ptp_hwtstamp_get(struct net_device *netdev,
 int igc_ptp_hwtstamp_set(struct net_device *netdev,
 			 struct kernel_hwtstamp_config *config,
 			 struct netlink_ext_ack *extack);
+void igc_ptp_tx_dma_tstamp(struct igc_adapter *adapter,
+			   struct sk_buff *skb, u64 tstamp);
 void igc_ptp_tx_hang(struct igc_adapter *adapter);
 void igc_ptp_read(struct igc_adapter *adapter, struct timespec64 *ts);
 void igc_ptp_tx_tstamp_event(struct igc_adapter *adapter);
