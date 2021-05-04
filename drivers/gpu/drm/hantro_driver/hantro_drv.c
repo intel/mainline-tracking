@@ -52,9 +52,9 @@ bool enable_irqmode = 1;
 module_param(enable_irqmode, bool, 0);
 MODULE_PARM_DESC(enable_irqmode, "Enable IRQ Mode(default 1)");
 
-bool power_save_mode = 1;
+bool power_save_mode;
 module_param(power_save_mode, bool, 0);
-MODULE_PARM_DESC(power_save_mode, "Power saving mode (default 1 - enabled)");
+MODULE_PARM_DESC(power_save_mode, "Power saving mode (default 0 - disabled)");
 
 uint sleep_duration_ms = 5 * MSEC_PER_SEC;
 module_param(sleep_duration_ms, uint, 0);
