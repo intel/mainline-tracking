@@ -40,7 +40,7 @@ struct vpusmm_buffer {
 	void *cookie;
 	dma_addr_t dma_addr;
 	size_t size;
-	unsigned long dma_attrs;
+	bool coherent;
 };
 
 /*
@@ -256,24 +256,32 @@ static void release_vpusmm(struct dma_buf *dmabuf)
 {
 	struct vpusmm_buffer *buff = dmabuf->priv;
 
-	dma_free_attrs(buff->dev, buff->size, buff->cookie, buff->dma_addr, buff->dma_attrs);
+	if (buff->coherent)
+		dma_free_coherent(buff->dev, buff->size, buff->cookie,
+				  buff->dma_addr);
+	else
+		dma_free_noncoherent(buff->dev, buff->size, buff->cookie,
+				     buff->dma_addr, DMA_BIDIRECTIONAL);
+
 	kfree(buff);
 }
 
 static int mmap_vpusmm(struct dma_buf *dmabuf, struct vm_area_struct *vma)
 {
 	struct vpusmm_buffer *buff = dmabuf->priv;
-	unsigned long vm_size;
+	unsigned long user_count = vma_pages(vma);
+	unsigned long count = PAGE_ALIGN(buff->size) >> PAGE_SHIFT;
+	unsigned long pfn = PHYS_PFN(dma_to_phys(buff->dev, buff->dma_addr));
 
-	vm_size = vma->vm_end - vma->vm_start;
-	if (vm_size > PAGE_ALIGN(buff->size))
-		return -EINVAL;
+	if (vma->vm_pgoff >= count || user_count > count - vma->vm_pgoff)
+		return -ENXIO;
 
-	vma->vm_flags |= VM_IO | VM_DONTEXPAND | VM_DONTDUMP;
-	vma->vm_pgoff = 0;
+	if (!buff->coherent)
+		return remap_pfn_range(vma, vma->vm_start, pfn + vma->vm_pgoff,
+					user_count << PAGE_SHIFT, vma->vm_page_prot);
 
-	return dma_mmap_attrs(buff->dev, vma, buff->cookie, buff->dma_addr,
-			    buff->size, buff->dma_attrs);
+	return dma_mmap_coherent(buff->dev, vma, buff->cookie, buff->dma_addr,
+							 buff->size);
 }
 
 static int vmap_vpusmm(struct dma_buf *dmabuf, struct dma_buf_map *map)
@@ -288,6 +296,24 @@ static int vmap_vpusmm(struct dma_buf *dmabuf, struct dma_buf_map *map)
 	return 0;
 }
 
+static int begin_cpu_access_vpusmm(struct dma_buf *dmabuf, enum dma_data_direction direction)
+{
+	struct vpusmm_buffer *buff = dmabuf->priv;
+
+	if (!buff->coherent)
+		dma_sync_single_for_cpu(buff->dev, buff->dma_addr, buff->size, direction);
+	return 0;
+}
+
+static int end_cpu_access_vpusmm(struct dma_buf *dmabuf, enum dma_data_direction  direction)
+{
+	struct vpusmm_buffer *buff = dmabuf->priv;
+
+	if (!buff->coherent)
+		dma_sync_single_for_device(buff->dev, buff->dma_addr, buff->size, direction);
+	return 0;
+}
+
 static const struct dma_buf_ops vpusmm_dmabuf_ops =  {
 	.cache_sgt_mapping = true,
 	.map_dma_buf	= map_dma_buf_vpusmm,
@@ -295,6 +321,9 @@ static const struct dma_buf_ops vpusmm_dmabuf_ops =  {
 	.release		= release_vpusmm,
 	.mmap			= mmap_vpusmm,
 	.vmap			= vmap_vpusmm,
+
+	.begin_cpu_access = begin_cpu_access_vpusmm,
+	.end_cpu_access = end_cpu_access_vpusmm,
 };
 
 /*
@@ -328,15 +357,37 @@ int smm_alloc(struct vpumgr_smm *sess, struct vpumgr_args_alloc *arg)
 
 	buff->dev = vdev->dev;
 	buff->size = buffer_size;
-	buff->dma_attrs = DMA_ATTR_FORCE_CONTIGUOUS | DMA_ATTR_WRITE_COMBINE;
-	buff->cookie = dma_alloc_attrs(vdev->dev, buff->size, &buff->dma_addr,
-				       GFP_KERNEL | GFP_DMA, buff->dma_attrs);
+	buff->coherent = !arg->noncoherent;
+
+	if (buff->coherent)
+		buff->cookie = dma_alloc_coherent(buff->dev,
+										  buff->size,
+										  &buff->dma_addr,
+										  GFP_KERNEL);
+	else
+		buff->cookie = dma_alloc_noncoherent(
+							buff->dev,
+							buff->size,
+							&buff->dma_addr,
+							DMA_BIDIRECTIONAL,
+							GFP_KERNEL);
+
 	if (!buff->cookie) {
 		retval = -ENOMEM;
 		goto failed;
 	}
 
-	phys_addr = dma_to_phys(vdev->dev, buff->dma_addr);
+	if (dma_mapping_error(buff->dev, buff->dma_addr)) {
+		retval = -ENOMEM;
+		goto failed;
+	}
+
+	phys_addr = dma_to_phys(buff->dev, buff->dma_addr);
+
+	if (!buff->coherent && !pfn_valid(__phys_to_pfn(phys_addr))) {
+		retval = -ENOMEM;
+		goto failed;
+	}
 
 	exp_info.priv = buff;
 	dmabuf = dma_buf_export(&exp_info);
@@ -354,8 +405,8 @@ int smm_alloc(struct vpumgr_smm *sess, struct vpumgr_args_alloc *arg)
 		retval = 0;
 	}
 
-	dev_dbg(vdev->dev, "%s: dma_addr=%llx, phys_addr=%llx allocated from %s\n",
-		__func__, buff->dma_addr, phys_addr, dev_name(vdev->dev));
+	dev_dbg(vdev->dev, "%s: cookie=%px coherent=%d, phys_addr=%llx dma_addr=%llx allocated\n",
+			__func__, buff->cookie, buff->coherent, phys_addr, buff->dma_addr);
 
 	return 0;
 failed:
@@ -365,9 +416,16 @@ failed:
 		/* this will finally release underlying buff */
 		dma_buf_put(dmabuf);
 	} else if (buff) {
-		if (buff->cookie)
-			dma_free_attrs(vdev->dev, buff->size, buff->cookie,
-				       buff->dma_addr, buff->dma_attrs);
+		if (buff->cookie) {
+			if (buff->coherent)
+				dma_free_coherent(
+							vdev->dev, buff->size, buff->cookie,
+							buff->dma_addr);
+			else
+				dma_free_noncoherent(
+							vdev->dev, buff->size, buff->cookie,
+							buff->dma_addr, DMA_BIDIRECTIONAL);
+		}
 		kfree(buff);
 	}
 	return retval;
@@ -586,6 +644,9 @@ int smm_init(struct vpumgr_device *vdev)
 			}
 		}
 	}
+
+	dma_set_max_seg_size(vdev->dev, SZ_2G);
+
 	return rc;
 }
 

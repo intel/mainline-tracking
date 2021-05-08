@@ -22,7 +22,8 @@
 
 struct vpumgr_args_alloc {
 	__s32 fd;           /* out: DMABuf fd */
-	__s32 reserved[2];  /*  in: reserved */
+	__s32 reserved;     /*  in: reserved */
+	__s32 noncoherent; /*  in: if noncoherent buffer is required */
 	__u64 size;	    /*  in: required buffer size */
 };
 
