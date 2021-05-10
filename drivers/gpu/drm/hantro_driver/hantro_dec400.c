@@ -220,6 +220,7 @@ int hantro_dec400_probe(dtbnode *pnode)
 	if (!pdec400)
 		return -EINVAL;
 
+	strncpy(pdec400->node_name, pnode->node_name, NODE_NAME_SIZE);
 	pdec400->core_cfg.dec400corebase = pnode->ioaddr;
 	pdec400->core_cfg.iosize = pnode->iosize;
 	pdec400->core_cfg.parentaddr = pnode->parentaddr;

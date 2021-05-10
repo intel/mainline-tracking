@@ -9,10 +9,12 @@
 #ifndef __HANTRO_DEVICE_H__
 #define __HANTRO_DEVICE_H__
 
-#include "hantro_drm.h"
+#include <linux/ioport.h>
 
 #define MAX(a, b) (((a) > (b)) ? (a) : (b))
 #define MIN(a, b) (((a) < (b)) ? (a) : (b))
+
+#define NODE_NAME_SIZE 128
 
 typedef enum {
 	DEVICE_UNKNOWN = 0,
@@ -29,6 +31,29 @@ typedef enum {
 	CORE_CACHE,
 	CORE_DEC400,
 } device_coretype;
+
+/*
+ * device index definition is unchanged.
+ * for dec400/cache NODE(id) refers to its parent core number based on NODETYPE
+ * for dec/enc, NODE(id) refers to its core num, and NODETYPE is useless.
+ */
+/* node type for NODETYPE(id), apply to be expanded */
+
+typedef enum {
+	VC8000E,
+	VC8000D_0,
+	VC8000D_1,
+	DECODER_G1_0,
+	DECODER_G1_1,
+	DECODER_G2_0,
+	DECODER_G2_1,
+} cache_client_type;
+
+typedef enum {
+	DIR_RD = 0,
+	DIR_WR,
+	DIR_BI
+} driver_cache_dir;
 
 // structure to hold data performance data per device
 typedef struct performance_data {
@@ -51,6 +76,7 @@ struct cache_dev_t {
 	struct cache_core_config core_cfg; /* config of each core,such as base addr, irq,etc */
 	unsigned long hw_id; /* hw id to indicate project */
 	u32 core_id; /* core id for driver and sw internal use */
+	char node_name[NODE_NAME_SIZE];
 	u32 is_valid; /* indicate this core is hantro's core or not */
 	u32 is_reserved; /* indicate this core is occupied by user or not */
 	struct file *cacheowner; /* indicate which process is occupying the core */
@@ -79,10 +105,9 @@ struct dec400_core_cfg {
 
 struct dec400_t {
 	struct dec400_core_cfg core_cfg;
-
+	char node_name[NODE_NAME_SIZE];
 	u32 core_id;
 	u8 *hwregs;
-
 	char reg_name[32];
 	device_coretype parenttype;
 	u32 parentid; /* parent codec core's core_id */
@@ -106,6 +131,7 @@ struct hantroenc_t {
 	CORE_CONFIG core_cfg; /* config of each core,such as base addr, irq,etc */
 	u32 hw_id; /* hw id to indicate project */
 	u32 core_id; /* core id for driver and sw internal use */
+	char node_name[NODE_NAME_SIZE];
 	u32 is_reserved; /* indicate this core is occupied by user or not */
 	int pid; /* indicate which process is occupying the core */
 	u32 irq_received; /* indicate this core receives irq */
@@ -138,6 +164,7 @@ struct hantroenc_t {
 struct hantrodec_t {
 	u32 cfg;
 	int core_id;
+	char node_name[NODE_NAME_SIZE];
 	unsigned int iosize;
 	u32 cfg_backup;
 	/* indicate if main core exist */
@@ -266,7 +293,10 @@ struct device_info {
 
 	const char **clk_names;
 	int clk_count;
-	struct clk  **dev_clk;
+	struct clk **dev_clk;
+
+	int pd_count;
+	struct device **pd_dev;
 
 	struct device_info *next;
 };

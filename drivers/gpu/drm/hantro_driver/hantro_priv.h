@@ -78,7 +78,6 @@
 
 #include "hantro_drm.h"
 #include "hantro_device.h"
-
 #include "trace.h"
 
 #define HANTRO_GEM_FLAG_IMPORT		BIT(0)
@@ -121,6 +120,7 @@ typedef struct dtbnode {
 	int type;
 	phys_addr_t ioaddr;
 	phys_addr_t iosize;
+	char node_name[NODE_NAME_SIZE];
 	char reg_name[32];
 	int irq[4];
 	char irq_name[4][32];
@@ -259,7 +259,7 @@ void hantrodec_device_change_status(struct device_info *pdevinfo, bool turnon);
 void hantroenc_core_status_change(struct hantroenc_t *pcore, bool turnon);
 void hantroenc_device_change_status(struct device_info *pdevinfo, bool turnon);
 
-int hantro_power_domain_1(struct device_info *pdevinfo, int index, bool turnon);
+int hantro_powerdomain_control(struct device_info *pdevinfo, int index, bool turnon);
 int hantro_clock_control(struct device_info *pdevinfo, int index, bool enable);
 int hantro_reset_control(struct device_info *pdevinfo, int index, bool deassert);
 void hantro_all_devices_turnon(void);
