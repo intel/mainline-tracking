@@ -23,28 +23,6 @@
 #define NODETYPE(id)	(((u32)(id) >> 8) & 0xff)
 #define DEVICE_ID(id)	((u32)(id) >> 16)
 
-/*
- * device index definition is unchanged.
- * for dec400/cache NODE(id) refers to its parent core number based on NODETYPE
- * for dec/enc, NODE(id) refers to its core num, and NODETYPE is useless.
- */
-/* node type for NODETYPE(id), apply to be expanded */
-
-typedef enum {
-	VC8000E,
-	VC8000D_0,
-	VC8000D_1,
-	DECODER_G1_0,
-	DECODER_G1_1,
-	DECODER_G2_0,
-	DECODER_G2_1,
-} cache_client_type;
-
-typedef enum {
-	DIR_RD = 0,
-	DIR_WR,
-	DIR_BI
-} driver_cache_dir;
 
 struct hantro_drm_fb {
 	struct drm_framebuffer fb;

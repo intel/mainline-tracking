@@ -460,35 +460,33 @@ static int get_dec_coreid(struct hantrodec_t *dev, struct file *filp,
 
 void hantrodec_core_status_change(struct hantrodec_t *pcore, bool turnon)
 {
+	START_TIME;
+
 	if (!pcore)
 		return;
-
-	mutex_lock(&pcore->core_mutex);
 
 	if (turnon && !pcore->enabled) {
 		hantro_clock_control(pcore->pdevinfo, pcore->clock_index, true);
 		hantro_reset_control(pcore->pdevinfo, pcore->reset_index, true);
 		hantro_reset_control(pcore->pdevinfo, pcore->reset_index+1, true);
 		hantro_reset_control(pcore->pdevinfo, pcore->reset_index+2, true);
-		//hantro_power_domain_1(pcore->pdevinfo, pcore->pd_index, true);
-
+		hantro_powerdomain_control(pcore->pdevinfo, pcore->pd_index, true);
 		pcore->perf_data.last_resv = sched_clock();
 		pcore->enabled = 1;
-
+		trace_core_status_update(pcore->node_name,  "On", (sched_clock() - start) / 1000);
 		msleep(1);
 	} else
 	if(!turnon && pcore->enabled) {
 		pcore->enabled = 0;
-		//hantro_power_domain_1(pcore->pdevinfo, pcore->pd_index, false);
+		hantro_powerdomain_control(pcore->pdevinfo, pcore->pd_index, false);
 		hantro_reset_control(pcore->pdevinfo, pcore->reset_index, false);
 		hantro_reset_control(pcore->pdevinfo, pcore->reset_index+1, false);
 		hantro_reset_control(pcore->pdevinfo, pcore->reset_index+2, false);
 		hantro_clock_control(pcore->pdevinfo, pcore->clock_index, false);
-
+		trace_core_status_update(pcore->node_name, "Off", (sched_clock() - start) / 1000);
 		msleep(1);
 	}
 
-	mutex_unlock(&pcore->core_mutex);
 }
 
 void hantrodec_device_change_status(struct device_info *pdevinfo, bool turnon)
@@ -496,7 +494,10 @@ void hantrodec_device_change_status(struct device_info *pdevinfo, bool turnon)
 	struct hantrodec_t *dec_core = pdevinfo->dechdr;
 
 	while (dec_core) {
+		mutex_lock(&dec_core->core_mutex);
 		hantrodec_core_status_change(dec_core, turnon);
+		mutex_unlock(&dec_core->core_mutex);
+
 		dec_core = dec_core->next;
 	}
 }
@@ -529,9 +530,9 @@ static long reserve_decoder(struct hantrodec_t *dev, struct file *filp,
 		goto out;
 	}
 
-	if (reserved_core->enabled == 0) {
-		hantrodec_core_status_change(reserved_core, true);
-	}
+	mutex_lock(&reserved_core->core_mutex);
+	hantrodec_core_status_change(reserved_core, true);
+	mutex_unlock(&reserved_core->core_mutex);
 
 	if (pdevinfo->thermal_data.clk_freq != reserved_core->clk_freq) {
 		PDEBUG("Reserve decoder:  setting to %ld for device %d, core %ld\n",
@@ -544,7 +545,7 @@ static long reserve_decoder(struct hantrodec_t *dev, struct file *filp,
 
 	reserved_core->perf_data.last_resv = sched_clock();
 out:
-	trace_dec_reserve(pdevinfo->deviceid, core, (sched_clock() - start) / 1000);
+	trace_core_reserve(reserved_core->node_name,  (sched_clock() - start) / 1000);
 	return core;
 }
 
@@ -586,7 +587,7 @@ static void release_decoder(struct hantrodec_t *dev, long core)
 	spin_unlock_irqrestore(&pdevinfo->owner_lock, flags);
 	up(&pdevinfo->dec_core_sem);
 	wake_up_interruptible_all(&pdevinfo->hw_queue);
-	trace_dec_release(pdevinfo->deviceid, KCORE(core));
+	trace_core_release(reserved_core->node_name);
 }
 
 static long reserve_post_processor(struct hantrodec_t *dev, struct file *filp)
@@ -1417,6 +1418,8 @@ int hantrodec_probe(dtbnode *pnode)
 		return -ENOMEM;
 
 	memset(pcore, 0, sizeof(struct hantrodec_t));
+
+	strncpy(pcore->node_name, pnode->node_name, NODE_NAME_SIZE);
 	pcore->multicorebase = pnode->ioaddr;
 	pcore->multicorebase_actual = pnode->ioaddr;
 	pcore->iosize = pnode->iosize;
@@ -1432,6 +1435,7 @@ int hantrodec_probe(dtbnode *pnode)
 	pcore->dec_owner = NULL;
 	pcore->pp_owner = NULL;
 	pcore->enabled = 1;
+	pcore->perf_data.last_resv = sched_clock();
 
 	pcore->reset_index = pnode->reset_index;
 	pcore->clock_index = pnode->clock_index;

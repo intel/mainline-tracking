@@ -102,49 +102,34 @@ TRACE_EVENT(hantro_cma_free,
 		      __entry->paddr,
 		      __entry->handle));
 
-TRACE_EVENT(dec_reserve,
-	    TP_PROTO(int deviceidx, int core, int waittime),
-	    TP_ARGS(deviceidx, core, waittime),
-	    TP_STRUCT__entry(__field(int, deviceidx)
-			     __field(int, core)
-			     __field(int, waittime)),
-	    TP_fast_assign(__entry->deviceidx = deviceidx;
-			   __entry->core = core;
-			   __entry->waittime = waittime;),
-	    TP_printk("deviceidx = %d, core = %d, waittime = %d us",
-		      __entry->deviceidx, __entry->core, __entry->waittime));
+TRACE_EVENT(core_reserve,
+	    TP_PROTO(char *node_name, long waittime),
+	    TP_ARGS(node_name, waittime),
+	    TP_STRUCT__entry(__string(name, node_name)
+				__field(long, waittime)),
+	    TP_fast_assign(__assign_str(name, node_name);
+				__entry->waittime = waittime;),
+	    TP_printk("%s, waittime = %ld us",
+		        __get_str(name), __entry->waittime));
 
-TRACE_EVENT(dec_release,
-	    TP_PROTO(int deviceidx, int core),
-	    TP_ARGS(deviceidx, core),
-	    TP_STRUCT__entry(__field(int, deviceidx)
-			     __field(int, core)),
-	    TP_fast_assign(__entry->deviceidx = deviceidx;
-			   __entry->core = core;),
-	    TP_printk("deviceidx = %d, core = %d", __entry->deviceidx,
-		      __entry->core));
+TRACE_EVENT(core_release,
+	    TP_PROTO(char *node_name),
+	    TP_ARGS(node_name),
+	    TP_STRUCT__entry(__string(name, node_name)),
+	    TP_fast_assign(__assign_str(name, node_name);),
+	    TP_printk("%s", __get_str(name)));
 
-TRACE_EVENT(enc_reserve,
-	    TP_PROTO(int deviceidx, int core, int waittime),
-	    TP_ARGS(deviceidx, core, waittime),
-	    TP_STRUCT__entry(__field(int, deviceidx)
-			     __field(int, core)
-			     __field(int, waittime)),
-	    TP_fast_assign(__entry->deviceidx = deviceidx;
-			   __entry->core = core;
-			   __entry->waittime = waittime;),
-	    TP_printk("deviceidx = %d, core = %d, waittime = %d us",
-		      __entry->deviceidx, __entry->core, __entry->waittime));
-
-TRACE_EVENT(enc_release,
-	    TP_PROTO(int deviceidx, int core),
-	    TP_ARGS(deviceidx, core),
-	    TP_STRUCT__entry(__field(int, deviceidx)
-			     __field(int, core)),
-	    TP_fast_assign(__entry->deviceidx = deviceidx;
-			   __entry->core = core;),
-	    TP_printk("deviceidx = %d, core = %d", __entry->deviceidx,
-		      __entry->core));
+TRACE_EVENT(core_status_update,
+	    TP_PROTO(char *node_name, char *status, long waittime),
+	    TP_ARGS(node_name, status, waittime),
+	    TP_STRUCT__entry(__string(name, node_name)
+				__string(status, status)
+				__field(long, waittime)),
+	    TP_fast_assign(__assign_str(name, node_name);
+				__assign_str(status, status);
+				__entry->waittime = waittime;),
+	    TP_printk("%s - %3s, waittime = %ld us",
+		        __get_str(name), __get_str(status), __entry->waittime));
 
 TRACE_EVENT(cache_reserve,
 	    TP_PROTO(int deviceidx, int waittime),
@@ -311,10 +296,9 @@ TRACE_EVENT(hantro_err,
 #define trace_client_remove(file_attr, clientid)
 #define trace_hantro_cma_alloc(deviceidx, region, paddr, handle, size)
 #define trace_hantro_cma_free(deviceidx, paddr, handle)
-#define trace_dec_reserve(deviceidx, core, waittime)
-#define trace_dec_release(deviceidx, core)
-#define trace_enc_reserve(deviceidx, core, waittime)
-#define trace_enc_release(deviceidx, core)
+#define trace_core_reserve(name, waittime)
+#define trace_core_release(name)
+#define trace_core_status_update(name, status, waittime)
 #define trace_cache_reserve(deviceidx, waittime)
 #define trace_cache_release(deviceidx)
 #define trace_fence_acquirebuf(obj, handle, fence_handle, waittime, ret)

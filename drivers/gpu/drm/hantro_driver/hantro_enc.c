@@ -279,9 +279,9 @@ static long reserve_encoder(struct hantroenc_t *dev, u32 *core_info,
 		goto out;
 	}
 
-	if (reserved_core->enabled == 0) {
-		hantroenc_core_status_change(reserved_core, true);
-	}
+	mutex_lock(&reserved_core->core_mutex);
+	hantroenc_core_status_change(reserved_core, true);
+	mutex_unlock(&reserved_core->core_mutex);
 
 	if (pdevinfo->thermal_data.clk_freq != reserved_core->clk_freq) {
 		clk_set_rate(pdevinfo->dev_clk[reserved_core->clock_index],
@@ -291,7 +291,7 @@ static long reserve_encoder(struct hantroenc_t *dev, u32 *core_info,
 
 	reserved_core->perf_data.last_resv = sched_clock();
 out:
-	trace_enc_reserve(pdevinfo->deviceid, KCORE((*core_info)),
+	trace_core_reserve(reserved_core->node_name,
 			  (sched_clock() - start) / 1000);
 	return ret;
 }
@@ -350,7 +350,7 @@ static void release_encoder(struct hantroenc_t *dev, u32 *core_info,
 	if (resource_shared)
 		up(&pdevinfo->enc_core_sem);
 
-	trace_enc_release(pdevinfo->deviceid, KCORE((*core_info)));
+	trace_core_release(reserved_core->node_name);
 }
 
 long hantroenc_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
@@ -566,40 +566,45 @@ int __exit hantroenc_cleanup(void)
 
 void hantroenc_core_status_change(struct hantroenc_t *pcore, bool turnon)
 {
-	if (!pcore)
+	START_TIME;
+
+	if (!pcore || pcore->clock_index < 0)
 		return;
 
-	mutex_lock(&pcore->core_mutex);
 	if (turnon && !pcore->enabled) {
 
 		hantro_clock_control(pcore->pdevinfo, pcore->clock_index, true);
 		hantro_reset_control(pcore->pdevinfo, pcore->reset_index, true);
 		hantro_reset_control(pcore->pdevinfo, pcore->reset_index+1, true);
 		hantro_reset_control(pcore->pdevinfo, pcore->reset_index+2, true);
-		//hantro_power_domain_1(pcore->pdevinfo, pcore->pd_index, true);
+		hantro_powerdomain_control(pcore->pdevinfo, pcore->pd_index, true);
 		pcore->perf_data.last_resv = sched_clock();
 		pcore->enabled = 1;
+		trace_core_status_update(pcore->node_name,  "On", (sched_clock() - start) / 1000);
 		msleep(1);
 	} else
 	if(!turnon && pcore->enabled)
 	{
 		pcore->enabled = 0;
-		//hantro_power_domain_1(pcore->pdevinfo, pcore->pd_index, false);
+		hantro_powerdomain_control(pcore->pdevinfo, pcore->pd_index, false);
 		hantro_reset_control(pcore->pdevinfo, pcore->reset_index, false);
 		hantro_reset_control(pcore->pdevinfo, pcore->reset_index+1, false);
 		hantro_reset_control(pcore->pdevinfo, pcore->reset_index+2, false);
 		hantro_clock_control(pcore->pdevinfo, pcore->clock_index, false);
+		trace_core_status_update(pcore->node_name,  "Off", (sched_clock() - start) / 1000);
 		msleep(1);
 	}
 
-	mutex_unlock(&pcore->core_mutex);
 }
 
 void hantroenc_device_change_status(struct device_info *pdevinfo, bool turnon)
 {
 	struct hantroenc_t *enc_core = pdevinfo->enchdr;
 	while (enc_core) {
+		mutex_lock(&enc_core->core_mutex);
 		hantroenc_core_status_change(enc_core, turnon);
+		mutex_unlock(&enc_core->core_mutex);
+
 		enc_core = enc_core->next;
 	}
 }
@@ -619,13 +624,15 @@ int hantroenc_probe(dtbnode *pnode)
 		return -ENOMEM;
 
 	memset(pcore, 0, sizeof(struct hantroenc_t));
+
+	strncpy(pcore->node_name, pnode->node_name, NODE_NAME_SIZE);
 	pcore->core_cfg.base_addr = pnode->ioaddr;
 	pcore->core_cfg.iosize = pnode->iosize;
 	pcore->reset_index = pnode->reset_index;
 	pcore->clock_index = pnode->clock_index;
 	pcore->pd_index = pnode->pd_index;
-
 	pcore->enabled = 1;
+	pcore->perf_data.last_resv = sched_clock();
 
 	result = reserve_io(pcore);
 	if (result < 0) {

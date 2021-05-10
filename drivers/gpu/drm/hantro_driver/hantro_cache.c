@@ -317,6 +317,8 @@ int cache_probe(dtbnode *pnode)
 		return -ENOMEM;
 
 	memset(pccore, 0, sizeof(struct cache_dev_t));
+
+	strncpy(pccore->node_name, pnode->node_name, NODE_NAME_SIZE);
 	pccore->com_base_addr = pnode->ioaddr;
 	pccore->core_cfg.base_addr = pnode->ioaddr;
 	pccore->core_cfg.iosize = pnode->iosize;

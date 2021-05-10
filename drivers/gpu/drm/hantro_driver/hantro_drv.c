@@ -52,11 +52,11 @@ bool enable_irqmode = 1;
 module_param(enable_irqmode, bool, 0);
 MODULE_PARM_DESC(enable_irqmode, "Enable IRQ Mode(default 1)");
 
-bool power_save_mode;
+bool power_save_mode = 1;
 module_param(power_save_mode, bool, 0);
-MODULE_PARM_DESC(power_save_mode, "Power saving mode (default 0 - disabled)");
+MODULE_PARM_DESC(power_save_mode, "Power saving mode (default 1 - enabled)");
 
-uint sleep_duration_ms = 5 * MSEC_PER_SEC;
+uint sleep_duration_ms = 10 * MSEC_PER_SEC;
 module_param(sleep_duration_ms, uint, 0);
 MODULE_PARM_DESC(sleep_duration_ms, "Power saving mdoe thread check time in ms (default 5000 ms)");
 
@@ -169,6 +169,7 @@ static dtbnode *trycreatenode(struct platform_device *pdev,
 	if (!pnode)
 		return NULL;
 
+	strncpy(pnode->node_name, ofnode->name, NODE_NAME_SIZE);
 	pnode->type = getnodetype(ofnode->name);
 	pnode->parentaddr = parentaddr;
 	pnode->parenttype = parenttype;
@@ -525,6 +526,60 @@ static int hantro_reset_init(struct device_info *pdevinfo)
 	return 0;
 }
 
+static int hantro_powerdomain_init(struct device_info *pdevinfo)
+{
+	struct device *dev = pdevinfo->dev;
+	struct device **pd_dev = NULL;
+	int i = 0, count = 0;
+
+	count = device_property_read_u32_array(dev, "power-domains", NULL, 0);
+	if (count <= 0)
+	   return -1;
+
+	count = count / 2;  // PD enteris are tuple in DTB.
+	pd_dev = devm_kcalloc(dev, count, sizeof(*pd_dev), GFP_KERNEL);
+	if (!pd_dev)
+		return 0;
+
+	for (i = 0; i < count; i++) {
+		if (verbose)
+			pr_info("Attaching power domain\n");
+
+		pd_dev[i] = dev_pm_domain_attach_by_id(dev, i);
+		if (IS_ERR(pd_dev[i])) {
+			pr_err("Error attaching power domain");
+			return PTR_ERR(pd_dev[i]);
+		}
+	}
+
+	pdevinfo->pd_count = count;
+	pdevinfo->pd_dev = pd_dev;
+	return 0;
+}
+
+int hantro_powerdomain_control(struct device_info *pdevinfo, int index, bool turnon)
+{
+	struct generic_pm_domain *gen_pd;
+
+	if (index < 0 || index > (pdevinfo->pd_count - 1))
+		return 0;
+
+	if (!pdevinfo->pd_dev[index])
+		return 0;
+
+	gen_pd = pd_to_genpd(pdevinfo->pd_dev[index]->pm_domain);
+	if (gen_pd) {
+		if (turnon)
+			gen_pd->power_on(gen_pd);
+		else
+			gen_pd->power_off(gen_pd);
+	}
+
+	msleep(1);
+
+	return 0;
+}
+
 int hantro_device_clock_control(struct device_info *pdevinfo, bool enable)
 {
 	int i = 0;
@@ -559,6 +614,10 @@ void hantro_device_change_status_all(struct device_info *pdevinfo, bool turnon)
 
 	for (i = 0; i < pdevinfo->clk_count; i++) {
 		hantro_clock_control(pdevinfo, i, turnon);
+	}
+
+	for (i = 0; i < pdevinfo->pd_count; i++) {
+		hantro_powerdomain_control(pdevinfo, i, turnon);
 	}
 }
 
@@ -735,6 +794,7 @@ int init_device_info(struct device *dev, struct device_info *pdevinfo)
 
 	hantro_clock_init(pdevinfo);
 	hantro_reset_init(pdevinfo);
+	hantro_powerdomain_init(pdevinfo);
 
 	return 0;
 }
@@ -778,35 +838,6 @@ int get_reserved_mem_size(struct device_info *pdevice)
 	return 0;
 }
 
-int hantro_power_domain(struct device_info *pdevinfo, int index, bool turnon)
-{
-	struct device *virtual_dev = NULL;
-	struct device *dev = pdevinfo->dev;
-	struct generic_pm_domain *gen_pd;
-	int ret;
-
-	if (index < 0)
-		return 0;
-
-	virtual_dev = dev_pm_domain_attach_by_id(dev, index);
-	ret = (int)virtual_dev;
-	if (IS_ERR(virtual_dev))
-		return PTR_ERR(virtual_dev);
-
-	gen_pd = pd_to_genpd(virtual_dev->pm_domain);
-	if (gen_pd) {
-		if (turnon)
-			gen_pd->power_on(gen_pd);
-		else
-			gen_pd->power_off(gen_pd);
-	}
-
-	dev_pm_domain_detach(virtual_dev, true);
-
-	msleep(1);
-	return 0;
-}
-
 int power_monitor_thread(void *arg) {
 	struct device_info *pdevinfo;
 	struct hantrodec_t *dec_core = NULL;
@@ -815,39 +846,48 @@ int power_monitor_thread(void *arg) {
 
 	while (!kthread_should_stop()) {
 		msleep(sleep_duration_ms);
+
+		//turnning all cores to on/off could take upto 500ms
 		if (hantro_drm.turning_on)
 			continue;
 
 		if (verbose)
 			pr_info("Checking for idle cores");
 
-		curr_time = sched_clock();
+		__trace_hantro_msg("%s: Start checking", __func__);
 
 		pdevinfo = hantro_drm.pdevice_list;
 		while (pdevinfo) {
 			dec_core = pdevinfo->dechdr;
 			while (dec_core) {
+				mutex_lock(&dec_core->core_mutex);
 				if (dec_core->enabled && !hantro_drm.turning_on) {
+					curr_time = sched_clock();
 					if ((curr_time > dec_core->perf_data.last_resv) && (curr_time - dec_core->perf_data.last_resv) > sleep_diff_ns) {
 						hantrodec_core_status_change(dec_core, false);
 					}
 				}
+				mutex_unlock(&dec_core->core_mutex);
 				dec_core = dec_core->next;
 			}
 
 			enc_core = pdevinfo->enchdr;
 			while (enc_core) {
+				mutex_lock(&enc_core->core_mutex);
 				if (enc_core->enabled && !hantro_drm.turning_on) {
+					curr_time = sched_clock();
 					if ((curr_time > enc_core->perf_data.last_resv) && (curr_time - enc_core->perf_data.last_resv) > sleep_diff_ns) {
 						hantroenc_core_status_change(enc_core, false);
 					}
 				}
+				mutex_unlock(&enc_core->core_mutex);
 				enc_core = enc_core->next;
 			}
 
 			pdevinfo = pdevinfo->next;
 		}
-		__trace_hantro_msg("end checking");
+
+		__trace_hantro_msg("%s: End checking", __func__);
 	}
 
 	return 0;
@@ -901,6 +941,7 @@ static int hantro_drm_probe(struct platform_device *pdev)
 static int hantro_drm_remove(struct platform_device *pdev)
 {
 	struct device_info *pdevinfo;
+	int i;
 
 	if (!pdev->dev.of_node)
 		return 0;
@@ -926,6 +967,11 @@ static int hantro_drm_remove(struct platform_device *pdev)
 	remove_sysfs(pdevinfo);
 
 	hantro_device_change_status(pdevinfo, false);
+
+	for (i = 0; i < pdevinfo->pd_count; i++) {
+		if (pdevinfo->pd_dev[i])
+			dev_pm_domain_detach(pdevinfo->pd_dev[i], true);
+	}
 
 	hantrodec_remove(pdevinfo);
 	hantroenc_remove(pdevinfo);
@@ -1078,6 +1124,10 @@ int __init hantro_init(void)
 	hantroenc_init();
 	hantrocache_init();
 	hantrodec400_init();
+
+	// Power domain turn on/off support not available on Keembay
+	if (hantro_drm.device_type == DEVICE_KEEMBAY)
+		power_save_mode = 0;
 
 	if (power_save_mode) {
 		hantro_drm.monitor_task =  kthread_create(power_monitor_thread,NULL,"power_monitor_thread");

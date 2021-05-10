@@ -1402,6 +1402,7 @@ static long hantro_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 static int hantro_device_open(struct inode *inode, struct file *filp)
 {
 	int ret;
+
 	ret = drm_open(inode, filp);
 	hantrodec_open(inode, filp);
 	cache_open(inode, filp);
