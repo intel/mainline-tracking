@@ -586,7 +586,11 @@ static void collect_all_aliases(struct perf_stat_config *config, struct evsel *c
 		    alias->cgrp != counter->cgrp ||
 		    strcmp(alias->unit, counter->unit) ||
 		    evsel__is_clock(alias) != evsel__is_clock(counter) ||
-		    !strcmp(alias->pmu_name, counter->pmu_name))
+		    !strcmp(alias->pmu_name, counter->pmu_name) ||
+		    (evsel__is_hybrid(alias) &&
+		     evsel__is_hybrid(counter) &&
+		     !config->hybrid_merge &&
+		     strcmp(alias->pmu_name, counter->pmu_name)))
 			break;
 		alias->merged_stat = true;
 		cb(config, alias, data, false);
@@ -603,7 +607,7 @@ static bool collect_data(struct perf_stat_config *config, struct evsel *counter,
 	cb(config, counter, data, true);
 	if (config->no_merge)
 		uniquify_event_name(counter);
-	else if (counter->auto_merge_stats)
+	else if (counter->auto_merge_stats || config->hybrid_merge)
 		collect_all_aliases(config, counter, cb, data);
 	return true;
 }
