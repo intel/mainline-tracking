@@ -11,9 +11,13 @@
 
 void __init tdx_early_init(void);
 
+bool tdx_protected_guest_has(unsigned long flag);
+
 #else
 
 static inline void tdx_early_init(void) { };
+
+static inline bool tdx_protected_guest_has(unsigned long flag) { return false; }
 
 #endif /* CONFIG_INTEL_TDX_GUEST */
 
