@@ -20,6 +20,8 @@
 #define PR_GUEST_HOST_MEM_ENCRYPT		0x1003
 /* Support for shared mapping initialization (after early init) */
 #define PR_GUEST_SHARED_MAPPING_INIT		0x1004
+/* Disable uncore frequency support */
+#define PR_GUEST_DISABLE_UNCORE_SUPPORT		0x1005
 
 #ifdef CONFIG_ARCH_HAS_PROTECTED_GUEST
 #include <asm/protected_guest.h>
