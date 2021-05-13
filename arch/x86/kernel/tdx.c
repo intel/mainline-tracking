@@ -122,6 +122,7 @@ bool tdx_protected_guest_has(unsigned long flag)
 	case PR_GUEST_MEM_ENCRYPT_ACTIVE:
 	case PR_GUEST_UNROLL_STRING_IO:
 	case PR_GUEST_SHARED_MAPPING_INIT:
+	case PR_GUEST_DISABLE_UNCORE_SUPPORT:
 	case PR_GUEST_TDX:
 		return static_cpu_has(X86_FEATURE_TDX_GUEST);
 	}
