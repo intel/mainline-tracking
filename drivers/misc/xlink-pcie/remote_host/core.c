@@ -255,8 +255,8 @@ static void intel_xpcie_rx_tasklet_func(unsigned long xpcie_ptr)
 	u32 head, tail, ndesc, length;
 	struct xpcie_interface *inf;
 	struct xpcie_dev *xdev;
-	u16 status, interface;
 	ktime_t free_rx_bd_tp;
+	u16 interface = 0;
 	int rc;
 
 	xdev = container_of(xpcie, struct xpcie_dev, xpcie);
@@ -292,28 +292,18 @@ static void intel_xpcie_rx_tasklet_func(unsigned long xpcie_ptr)
 			break;
 		}
 
-		status = intel_xpcie_get_td_status(td);
-		interface = intel_xpcie_get_td_interface(td);
 		length = intel_xpcie_get_td_length(td);
 		intel_xpcie_unmap_dma(xpcie, bd, DMA_FROM_DEVICE);
 
-		if (unlikely(status != XPCIE_DESC_STATUS_SUCCESS) ||
-		    unlikely(interface >= XPCIE_NUM_INTERFACES)) {
-			dev_err(xpcie_to_dev(xpcie),
-				"rx desc failure, status(%u), interface(%u)\n",
-			status, interface);
-			intel_xpcie_free_rx_bd(xpcie, bd);
-		} else {
-			bd->interface = interface;
-			bd->length = length;
-			bd->next = NULL;
+		bd->interface = interface;
+		bd->length = length;
+		bd->next = NULL;
 
-			intel_xpcie_add_bd_to_interface(xpcie, bd);
-			intel_xpcie_update_device_flwctl(xpcie,
-							 TO_DEVICE,
-							 RX_BD_COUNT,
+		intel_xpcie_add_bd_to_interface(xpcie, bd);
+		intel_xpcie_update_device_flwctl(xpcie,
+						 TO_DEVICE,
+						 RX_BD_COUNT,
 				atomic_read(&inf->available_bd_cnt));
-		}
 
 		rx->ddr[head] = replacement;
 		intel_xpcie_set_td_address(td, replacement->phys);
@@ -340,7 +330,6 @@ static void intel_xpcie_tx_event_handler(struct work_struct *work)
 	u32 head, tail, old, ndesc;
 	struct xpcie_buf_desc *bd;
 	size_t bytes, buffers;
-	u16 status;
 
 	if (intel_xpcie_get_device_status(xpcie) != XPCIE_STATUS_RUN)
 		return;
@@ -354,10 +343,6 @@ static void intel_xpcie_tx_event_handler(struct work_struct *work)
 	while (old != head) {
 		bd = tx->ddr[old];
 		td = tx->pipe.tdr + old;
-		status = intel_xpcie_get_td_status(td);
-		if (status != XPCIE_DESC_STATUS_SUCCESS)
-			dev_err(xpcie_to_dev(xpcie),
-				"detected tx desc failure (%u)\n", status);
 
 		intel_xpcie_unmap_dma(xpcie, bd, DMA_TO_DEVICE);
 		intel_xpcie_free_tx_bd(xpcie, bd);
@@ -553,7 +538,6 @@ int intel_xpcie_core_read(struct xpcie *xpcie, void *buffer, size_t *length,
 			}
 			if (ret < 0 || xpcie->stop_flag)
 				return -EINTR;
-
 		}
 
 		bd = (inf->partial_read) ? inf->partial_read :

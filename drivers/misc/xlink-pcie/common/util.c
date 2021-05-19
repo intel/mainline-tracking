@@ -265,13 +265,10 @@ bool intel_xpcie_list_empty(struct xpcie_list *list)
 int intel_xpcie_list_put(struct xpcie_list *list,
 			 struct xpcie_buf_desc *bd)
 {
-#ifdef XLINK_PCIE_REMOTE
-	unsigned long flags = 0;
-#endif
 	if (!bd)
 		return -EINVAL;
 #ifdef XLINK_PCIE_REMOTE
-	spin_lock_irqsave(&list->lock, flags);
+	spin_lock_bh(&list->lock);
 #else
 	spin_lock(&list->lock);
 #endif
@@ -287,7 +284,7 @@ int intel_xpcie_list_put(struct xpcie_list *list,
 		bd = bd->next;
 	}
 #ifdef XLINK_PCIE_REMOTE
-	spin_unlock_irqrestore(&list->lock, flags);
+	spin_unlock_bh(&list->lock);
 #else
 	spin_unlock(&list->lock);
 #endif
@@ -323,10 +320,9 @@ int intel_xpcie_list_put_head(struct xpcie_list *list,
 struct xpcie_buf_desc *intel_xpcie_list_get(struct xpcie_list *list)
 {
 	struct xpcie_buf_desc *bd;
-#ifdef XLINK_PCIE_REMOTE
-	unsigned long flags = 0;
 
-	spin_lock_irqsave(&list->lock, flags);
+#ifdef XLINK_PCIE_REMOTE
+	spin_lock_bh(&list->lock);
 #else
 	spin_lock(&list->lock);
 #endif
@@ -341,7 +337,7 @@ struct xpcie_buf_desc *intel_xpcie_list_get(struct xpcie_list *list)
 		list->buffers--;
 	}
 #ifdef XLINK_PCIE_REMOTE
-	spin_unlock_irqrestore(&list->lock, flags);
+	spin_unlock_bh(&list->lock);
 #else
 	spin_unlock(&list->lock);
 #endif

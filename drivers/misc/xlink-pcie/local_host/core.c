@@ -258,7 +258,7 @@ static void intel_xpcie_rx_event_handler(struct work_struct *work)
 	struct xpcie_dma_ll_desc *desc;
 	struct xpcie_transfer_desc *td;
 	bool reset_work = false;
-	u16 interface;
+	u16 interface = 0;
 	u64 address;
 
 	if (intel_xpcie_get_host_status(xpcie) != XPCIE_STATUS_RUN)
@@ -284,7 +284,6 @@ static void intel_xpcie_rx_event_handler(struct work_struct *work)
 			break;
 		}
 
-		interface = intel_xpcie_get_td_interface(td);
 		length = intel_xpcie_get_td_length(td);
 		address = intel_xpcie_get_td_address(td);
 
@@ -339,17 +338,7 @@ static void intel_xpcie_rx_event_handler(struct work_struct *work)
 		bd_head = bd_head->next;
 		bd->next = NULL;
 
-		if (likely(bd->interface < XPCIE_NUM_INTERFACES)) {
-			intel_xpcie_set_td_status(td,
-						  XPCIE_DESC_STATUS_SUCCESS);
-			intel_xpcie_add_bd_to_interface(xpcie, bd);
-		} else {
-			dev_err(xpcie_to_dev(xpcie),
-				"detected rx desc interface failure (%u)\n",
-				bd->interface);
-			intel_xpcie_set_td_status(td, XPCIE_DESC_STATUS_ERROR);
-			intel_xpcie_free_rx_bd(xpcie, bd);
-		}
+		intel_xpcie_add_bd_to_interface(xpcie, bd);
 
 		bd = bd_head;
 		head = XPCIE_CIRCULAR_INC(head, ndesc);
