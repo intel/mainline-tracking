@@ -164,7 +164,7 @@ static vm_fault_t sgx_vma_fault(struct vm_fault *vmf)
 	 * exceed the VMA permissions.
 	 */
 	vm_prot_bits = vma->vm_flags & (VM_READ | VM_WRITE | VM_EXEC);
-	page_prot_bits = entry->vm_max_prot_bits & vm_prot_bits;
+	page_prot_bits = entry->vm_run_prot_bits & vm_prot_bits;
 	/*
 	 * Add VM_SHARED so that PTE is made writable right away if VMA
 	 * and EPCM are writable (no COW in SGX).
@@ -217,7 +217,7 @@ static vm_fault_t sgx_vma_pfn_mkwrite(struct vm_fault *vmf)
 		goto out;
 	}
 
-	if (!(entry->vm_max_prot_bits & VM_WRITE))
+	if (!(entry->vm_run_prot_bits & VM_WRITE))
 		ret = VM_FAULT_SIGBUS;
 
 out:
@@ -280,7 +280,7 @@ int sgx_encl_may_map(struct sgx_encl *encl, unsigned long start,
 	mutex_lock(&encl->lock);
 	xas_lock(&xas);
 	xas_for_each(&xas, page, PFN_DOWN(end - 1)) {
-		if (~page->vm_max_prot_bits & vm_prot_bits) {
+		if (~page->vm_run_prot_bits & vm_prot_bits) {
 			ret = -EACCES;
 			break;
 		}
