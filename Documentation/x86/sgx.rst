@@ -99,6 +99,16 @@ The relationships between the different permission masks are:
 * PTEs are installed to match the EPCM permissions, without exceeding the
   VMA permissions.
 
+During runtime the EPCM permissions of enclave pages belonging to an
+initialized enclave can change on systems supporting SGX2. In support
+of these runtime changes the kernel maintains (for each enclave page)
+the most permissive EPCM permission mask allowed by policy as
+the ``vm_max_prot_bits`` of that page. EPCM permissions are not allowed
+to be relaxed beyond ``vm_max_prot_bits``.  The kernel also maintains
+the currently active EPCM permissions of an enclave page as its
+``vm_run_prot_bits`` to ensure PTEs and new VMAs respect the active
+EPCM permission values.
+
 On systems supporting SGX2 EPCM permissions may change while the
 enclave page belongs to a VMA without impacting the VMA permissions.
 This means that a running VMA may appear to allow access to an enclave
