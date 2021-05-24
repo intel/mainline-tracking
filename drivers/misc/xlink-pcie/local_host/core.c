@@ -76,9 +76,6 @@ static void intel_xpcie_set_cap_txrx(struct xpcie *xpcie)
 
 static void intel_xpcie_txrx_cleanup(struct xpcie *xpcie)
 {
-	struct xpcie_epf *xpcie_epf = container_of(xpcie,
-						   struct xpcie_epf, xpcie);
-	struct device *dma_dev = xpcie_epf->epf->epc->dev.parent;
 	struct xpcie_interface *inf = &xpcie->interfaces[0];
 	struct xpcie_stream *tx = &xpcie->tx;
 	struct xpcie_stream *rx = &xpcie->rx;
@@ -106,11 +103,6 @@ static void intel_xpcie_txrx_cleanup(struct xpcie *xpcie)
 
 	intel_xpcie_list_cleanup(&xpcie->tx_pool);
 	intel_xpcie_list_cleanup(&xpcie->rx_pool);
-
-	if (xpcie_epf->tx_virt) {
-		dma_free_coherent(dma_dev, xpcie_epf->tx_size,
-				  xpcie_epf->tx_virt, xpcie_epf->tx_phys);
-	}
 
 	mutex_unlock(&inf->rlock);
 	mutex_unlock(&xpcie->wlock);
@@ -177,13 +169,13 @@ static int intel_xpcie_txrx_init(struct xpcie *xpcie,
 	tx_pool_size = roundup(SZ_32M, xpcie->fragment_size);
 	ndesc = tx_pool_size / xpcie->fragment_size;
 
-	xpcie_epf->tx_size = tx_pool_size;
-	xpcie_epf->tx_virt = dma_alloc_coherent(dma_dev,
-						xpcie_epf->tx_size,
-						&xpcie_epf->tx_phys,
-						GFP_KERNEL);
-	if (!xpcie_epf->tx_virt)
-		goto error;
+	if (!xpcie_epf->tx_virt) {
+		xpcie_epf->tx_size = tx_pool_size;
+		xpcie_epf->tx_virt = dma_alloc_coherent(dma_dev,
+							xpcie_epf->tx_size,
+							&xpcie_epf->tx_phys,
+							GFP_KERNEL);
+	}
 
 	for (index = 0; index < ndesc; index++) {
 		bd = intel_xpcie_alloc_bd_reuse(xpcie->fragment_size,
@@ -346,7 +338,7 @@ static void intel_xpcie_rx_event_handler(struct work_struct *work)
 
 	if (head != initial_head) {
 		intel_xpcie_set_tdr_head(&rx->pipe, head);
-		intel_xpcie_raise_irq(xpcie, DATA_RECEIVED);
+		intel_xpcie_raise_irq(xpcie, DATA_RECEIVED, 1);
 	}
 
 task_exit:
@@ -445,7 +437,7 @@ static void intel_xpcie_tx_event_handler(struct work_struct *work)
 
 	if (intel_xpcie_get_tdr_tail(&tx->pipe) != tail) {
 		intel_xpcie_set_tdr_tail(&tx->pipe, tail);
-		intel_xpcie_raise_irq(xpcie, DATA_SENT);
+		intel_xpcie_raise_irq(xpcie, DATA_SENT, 1);
 	}
 
 task_exit:
@@ -483,7 +475,7 @@ static irqreturn_t intel_xpcie_core_irq_cb(int irq, void *args)
 		if (xpcie->tx_pending)
 			intel_xpcie_start_tx(xpcie, 0);
 		else
-			intel_xpcie_raise_irq(xpcie, DATA_SENT);
+			intel_xpcie_raise_irq(xpcie, DATA_SENT, 1);
 	}
 
 	return IRQ_HANDLED;

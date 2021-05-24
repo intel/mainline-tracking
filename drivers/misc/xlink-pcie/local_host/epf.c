@@ -7,6 +7,7 @@
  *
  ****************************************************************************/
 
+#include <linux/delay.h>
 #include <linux/of.h>
 #include <linux/platform_device.h>
 #include <linux/reboot.h>
@@ -144,13 +145,13 @@ void intel_xpcie_register_host_irq(struct xpcie *xpcie, irq_handler_t func)
 	xpcie_epf->core_irq_callback = func;
 }
 
-int intel_xpcie_raise_irq(struct xpcie *xpcie, enum xpcie_doorbell_type type)
+int intel_xpcie_raise_irq(struct xpcie *xpcie, enum xpcie_doorbell_type type, u8 value)
 {
 	struct xpcie_epf *xpcie_epf = container_of(xpcie,
 						   struct xpcie_epf, xpcie);
 	struct pci_epf *epf = xpcie_epf->epf;
 
-	intel_xpcie_set_doorbell(xpcie, FROM_DEVICE, type, 1);
+	intel_xpcie_set_doorbell(xpcie, FROM_DEVICE, type, value);
 
 	return pci_epc_raise_irq(epf->epc, epf->func_no, PCI_EPC_IRQ_MSI, 1);
 }
@@ -172,6 +173,16 @@ static irqreturn_t intel_xpcie_err_interrupt(int irq, void *args)
 	return IRQ_HANDLED;
 }
 #endif
+
+void intel_xpcie_pci_notify_event(struct xpcie_epf *xdev,
+				  enum xlink_device_event_type event_type)
+{
+	if (event_type >= NUM_EVENT_TYPE)
+		return;
+
+	if (xdev->event_fn)
+		xdev->event_fn(xdev->sw_devid, event_type);
+}
 
 static irqreturn_t intel_xpcie_host_interrupt(int irq, void *args)
 {
@@ -196,6 +207,12 @@ static irqreturn_t intel_xpcie_host_interrupt(int irq, void *args)
 		intel_xpcie_set_doorbell(xpcie, TO_DEVICE, DEV_EVENT, NO_OP);
 		if (event == REQUEST_RESET)
 			orderly_reboot();
+
+		if (event == PREP_FLR_RESET) {
+			writel(0x1, xpcie->doorbell_clear);
+			schedule_work(&xpcie_epf->flr_irq_event);
+		}
+
 		return IRQ_HANDLED;
 	}
 
@@ -206,7 +223,8 @@ static irqreturn_t intel_xpcie_host_interrupt(int irq, void *args)
 			phy_id = intel_xpcie_get_physical_device_id(xpcie);
 			max_functions = intel_xpcie_get_max_functions(xpcie);
 			xpcie_epf->sw_devid =
-				intel_xpcie_create_sw_device_id(xpcie_epf->epf->func_no, phy_id, max_functions);
+			intel_xpcie_create_sw_device_id(xpcie_epf->epf->func_no,
+							phy_id, max_functions);
 			xpcie_epf->sw_dev_id_updated = true;
 			dev_info(xpcie_to_dev(xpcie),
 				 "pcie: func_no=%x swid updated=%x phy_id=%x\n",
@@ -223,6 +241,59 @@ static irqreturn_t intel_xpcie_host_interrupt(int irq, void *args)
 #endif
 
 	return IRQ_HANDLED;
+}
+
+static void intel_xpcie_handle_flr_work(struct work_struct *work)
+{
+	struct xpcie_epf *xpcie_epf = container_of(work, struct xpcie_epf,
+						   flr_irq_event);
+	struct xpcie *xpcie = &xpcie_epf->xpcie;
+
+	intel_xpcie_pci_notify_event(xpcie_epf, NOTIFY_DEVICE_DISCONNECTED);
+	intel_xpcie_core_cleanup(&xpcie_epf->xpcie);
+	intel_xpcie_ep_stop_dma(xpcie_epf->epf);
+	intel_xpcie_set_device_status(&xpcie_epf->xpcie, XPCIE_STATUS_OFF);
+	intel_xpcie_raise_irq(xpcie, DEV_EVENT, PREP_FLR_RESET_ACK);
+	dev_info(&xpcie_epf->epf->dev, "FLR Initiated ..\n");
+}
+
+static irqreturn_t intel_xpcie_flr_interrupt(int irq_flr, void *args)
+{
+	struct xpcie *xpcie = args;
+	struct xpcie_epf *xpcie_epf = container_of(xpcie, struct xpcie_epf, xpcie);
+	struct pci_epf *epf = xpcie_epf->epf;
+
+	if (!xpcie_epf->apb_base)
+		return IRQ_HANDLED;
+
+	writel(1 << (epf->func_no), xpcie_epf->apb_base + 0x20);
+	readl(xpcie_epf->apb_base + 0x20);
+	schedule_work(&xpcie_epf->flr_irq_event);
+
+	return IRQ_HANDLED;
+}
+
+int intel_xpcie_pci_flr_reset(u32 id)
+{
+	return 0;
+}
+
+int intel_xpcie_pci_ack_flr_reset(u32 id)
+{
+	struct xpcie_epf *xpcie_epf = intel_xpcie_get_device_by_id(id);
+	struct xpcie *xpcie = &xpcie_epf->xpcie;
+
+	if (intel_xpcie_get_device_status(xpcie) == XPCIE_STATUS_OFF) {
+		msleep(1000);
+		intel_xpcie_ep_start_dma(xpcie_epf->epf);
+		intel_xpcie_core_init(xpcie);
+		intel_xpcie_set_device_status(xpcie, XPCIE_STATUS_RUN);
+		intel_xpcie_raise_irq(xpcie, DEV_EVENT, FLR_RESET_ACK);
+		intel_xpcie_pci_notify_event(xpcie_epf, NOTIFY_DEVICE_CONNECTED);
+		dev_info(&xpcie_epf->epf->dev, "FLR Reset Successful\n");
+	}
+
+	return 0;
 }
 
 static int intel_xpcie_check_bar(struct pci_epf *epf,
@@ -311,9 +382,6 @@ static int intel_xpcie_setup_bar(struct pci_epf *epf, enum pci_barno barno,
 	struct pci_epc *epc = epf->epc;
 	struct xpcie_epf *xpcie_epf = epf_get_drvdata(epf);
 	struct pci_epf_bar *bar = &epf->bar[barno];
-	//struct dw_pcie_ep *ep = epc_get_drvdata(epc);
-	//struct dw_pcie *pci = to_dw_pcie_from_ep(ep);
-	//struct thunderbay_pcie *thunderbay = to_thunderbay_pcie(pci);
 
 	bar->flags |= PCI_BASE_ADDRESS_MEM_TYPE_64;
 	bar->size = size;
@@ -565,13 +633,19 @@ static void intel_xpcie_enable_multi_functions(struct pci_epf *epf)
 				ioremap(doorbell_clr_addr, doorbell_clr_size);
 	intel_xpcie_set_max_functions(&xpcie_epf->xpcie, epc->max_functions);
 	list_add_tail(&xpcie_epf->list, &dev_list);
-	snprintf(xpcie_epf->name, MXLK_MAX_NAME_LEN, "%s_func%x", epf->name,
+	snprintf(xpcie_epf->name, XPCIE_MAX_NAME_LEN, "%s_func%x", epf->name,
 		 epf->func_no);
 	ret = request_irq(xpcie_epf->irq_doorbell,
 			  &intel_xpcie_host_interrupt, 0, XPCIE_DRIVER_NAME,
 			  &xpcie_epf->xpcie);
 	if (ret)
 		dev_err(&epf->dev, "failed to request irq\n");
+
+	ret = request_irq(xpcie_epf->irq_flr, &intel_xpcie_flr_interrupt, 0,
+			  XPCIE_DRIVER_NAME, &xpcie_epf->xpcie);
+	if (ret)
+		dev_err(&epf->dev, "failed to request FLR irq\n");
+	INIT_WORK(&xpcie_epf->flr_irq_event, intel_xpcie_handle_flr_work);
 }
 
 static int intel_xpcie_epf_get_platform_data(struct device *dev,
@@ -590,12 +664,20 @@ static int intel_xpcie_epf_get_platform_data(struct device *dev,
 	if (IS_ERR(xpcie_epf->dbi_base))
 		return PTR_ERR(xpcie_epf->dbi_base);
 
+	res = platform_get_resource_byname(pdev, IORESOURCE_MEM, "apb");
+	xpcie_epf->apb_base =
+		devm_ioremap(dev, res->start, resource_size(res));
+	if (IS_ERR(xpcie_epf->apb_base))
+		return PTR_ERR(xpcie_epf->apb_base);
+
 	xpcie_epf->irq_doorbell = irq_of_parse_and_map(pdev->dev.of_node,
 						       epf->func_no + 2);
 	xpcie_epf->irq_wdma = irq_of_parse_and_map(pdev->dev.of_node,
 						   epf->func_no + 10);
 	xpcie_epf->irq_rdma = irq_of_parse_and_map(pdev->dev.of_node,
 						   epf->func_no + 18);
+	xpcie_epf->irq_flr = irq_of_parse_and_map(pdev->dev.of_node,
+						  epf->func_no + 26);
 
 	xpcie_epf->doorbell_base = platform_get_resource_byname(pdev,
 								IORESOURCE_MEM,
@@ -620,7 +702,7 @@ static int intel_xpcie_epf_get_platform_data(struct device *dev,
 	else if (epc->max_functions == 4)
 		xpcie_epf->tbh_half = 1;
 
-	return 0;
+	return ret;
 }
 #else
 static int intel_xpcie_epf_get_platform_data(struct device *dev,
@@ -705,7 +787,6 @@ static ssize_t swdev_id_store(struct device *dev,
 {
 	return count;
 }
-
 static DEVICE_ATTR(swdev_id, S_IRWXU, swdev_id_show, swdev_id_store);
 
 void intel_xpcie_init_sysfs_swdev_id(struct xpcie *xpcie, struct device *dev)
@@ -790,7 +871,7 @@ static int intel_xpcie_epf_bind(struct pci_epf *epf)
 	}
 
 	ret = devm_request_irq(&epf->dev, xpcie_epf->irq_err,
-			       &(intel_xpcie_err_interrupt), 0,
+			       &intel_xpcie_err_interrupt, 0,
 			       XPCIE_DRIVER_NAME, &xpcie_epf->xpcie);
 	if (ret) {
 		dev_err(&epf->dev, "failed to request error irq\n");

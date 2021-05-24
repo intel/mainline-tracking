@@ -52,6 +52,7 @@ struct xpcie_dev {
 
 #if (IS_ENABLED(CONFIG_ARCH_THUNDERBAY))
 	struct work_struct irq_event;
+	struct work_struct flr_event;
 	bool boot_dev_link;
 	mxlk_pcie_boot_event boot_notif_fn;
 

@@ -30,7 +30,10 @@ enum xpcie_doorbell_type {
 enum xpcie_event_type {
 	NO_OP,
 	REQUEST_RESET,
-	DEV_SHUTDOWN
+	DEV_SHUTDOWN,
+	PREP_FLR_RESET,
+	PREP_FLR_RESET_ACK,
+	FLR_RESET_ACK
 };
 
 void intel_xpcie_set_doorbell(struct xpcie *xpcie,

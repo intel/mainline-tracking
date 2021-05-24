@@ -16,7 +16,7 @@
 #include "../common/xpcie.h"
 #include "../common/util.h"
 
-#define XPCIE_DRIVER_NAME "mxlk_pcie_epf"
+#define XPCIE_DRIVER_NAME "intel_xpcie_pcie_epf"
 #define XPCIE_DRIVER_DESC "Intel(R) xLink PCIe endpoint function driver"
 
 #define KEEMBAY_XPCIE_STEPPING_MAXLEN 8
@@ -73,6 +73,7 @@ struct xpcie_epf {
 	int                             irq_doorbell;
 	int                             irq_rdma;
 	int                             irq_wdma;
+	int				irq_flr;
 	wait_queue_head_t		dma_rd_wq;
 	bool				dma_rd_done;
 	wait_queue_head_t		dma_wr_wq;
@@ -109,6 +110,9 @@ struct xpcie_epf {
 	u32                             sw_devid;
 	bool                            sw_dev_id_updated;
 	struct list_head                list;
+	xlink_device_event event_fn;
+
+	struct work_struct flr_irq_event;
 #endif
 };
 
@@ -128,11 +132,14 @@ int intel_xpcie_ep_dma_uninit(struct pci_epf *epf);
 int intel_xpcie_ep_dma_reset(struct pci_epf *epf);
 int intel_xpcie_ep_dma_read_ll(struct pci_epf *epf, int chan, int descs_num);
 int intel_xpcie_ep_dma_write_ll(struct pci_epf *epf, int chan, int descs_num);
+void intel_xpcie_ep_stop_dma(struct pci_epf *epf);
+void intel_xpcie_ep_start_dma(struct pci_epf *epf);
 
 void intel_xpcie_register_host_irq(struct xpcie *xpcie,
 				   irq_handler_t func);
 int intel_xpcie_raise_irq(struct xpcie *xpcie,
-			  enum xpcie_doorbell_type type);
+			  enum xpcie_doorbell_type type,
+			  u8 value);
 int intel_xpcie_copy_from_host_ll(struct xpcie *xpcie,
 				  int chan, int descs_num);
 int intel_xpcie_copy_to_host_ll(struct xpcie *xpcie,
@@ -143,5 +150,8 @@ int intel_xpcie_copy_to_host_ll(struct xpcie *xpcie,
  */
 void intel_xpcie_init_sysfs_swdev_id(struct xpcie *xpcie, struct device *dev);
 void intel_xpcie_uninit_sysfs_swdev_id(struct xpcie *xpcie, struct device *dev);
+
+void intel_xpcie_pci_notify_event(struct xpcie_epf *xdev,
+				  enum xlink_device_event_type event_type);
 
 #endif /* XPCIE_EPF_HEADER_ */

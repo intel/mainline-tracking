@@ -85,4 +85,6 @@ int xlink_pcie_reset_device(u32 sw_device_id);
 int xlink_pcie_register_device_event(u32 sw_device_id,
 				     xlink_device_event event_notif_fn);
 int xlink_pcie_unregister_device_event(u32 sw_device_id);
+int xlink_pcie_flr_reset(u32 sw_device_id);
+int xlink_pcie_ack_flr_reset(u32 sw_device_id);
 #endif

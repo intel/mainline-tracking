@@ -196,6 +196,10 @@ static irqreturn_t intel_xpcie_core_interrupt(int irq, void *args)
 		schedule_delayed_work(&xdev->shutdown_event, 0);
 		return IRQ_HANDLED;
 	}
+	if (event == PREP_FLR_RESET_ACK || event == FLR_RESET_ACK) {
+		schedule_work(&xdev->flr_event);
+		return IRQ_HANDLED;
+	}
 
 	if (likely(xdev->core_irq_callback))
 		return xdev->core_irq_callback(irq, args);
@@ -291,7 +295,8 @@ static void xpcie_device_poll(struct work_struct *work)
 }
 
 static int intel_xpcie_pci_prepare_dev_reset(struct xpcie_dev *xdev,
-					     bool notify)
+					     bool notify,
+					     enum xpcie_event_type type)
 {
 	if (mutex_lock_interruptible(&xdev->lock))
 		return -EINTR;
@@ -302,7 +307,7 @@ static int intel_xpcie_pci_prepare_dev_reset(struct xpcie_dev *xdev,
 	}
 	xdev->xpcie.status = XPCIE_STATUS_OFF;
 	if (notify)
-		intel_xpcie_pci_raise_irq(xdev, DEV_EVENT, REQUEST_RESET);
+		intel_xpcie_pci_raise_irq(xdev, DEV_EVENT, type);
 
 	mutex_unlock(&xdev->lock);
 
@@ -314,7 +319,29 @@ static void xpcie_device_shutdown(struct work_struct *work)
 	struct xpcie_dev *xdev = container_of(work, struct xpcie_dev,
 					      shutdown_event.work);
 
-	intel_xpcie_pci_prepare_dev_reset(xdev, false);
+	intel_xpcie_pci_prepare_dev_reset(xdev, false, REQUEST_RESET);
+}
+
+static void intel_xpcie_handle_flr_work(struct work_struct *work)
+{
+	struct xpcie_dev *xdev = container_of(work, struct xpcie_dev,
+					      flr_event);
+	u8 event;
+
+	event = intel_xpcie_get_doorbell(&xdev->xpcie, FROM_DEVICE, DEV_EVENT);
+	if (event == PREP_FLR_RESET_ACK) {
+		pr_info("FLR Reset Initiated ...\n");
+		intel_xpcie_set_doorbell(&xdev->xpcie, FROM_DEVICE,
+					 DEV_EVENT, NO_OP);
+		pci_reset_function(xdev->pci);
+	}
+	if (event == FLR_RESET_ACK) {
+		intel_xpcie_set_doorbell(&xdev->xpcie, FROM_DEVICE,
+					 DEV_EVENT, NO_OP);
+		xdev->xpcie.status = XPCIE_STATUS_READY;
+		pr_info("FLR Reset Successful\n");
+		intel_xpcie_pci_notify_event(xdev, NOTIFY_DEVICE_CONNECTED);
+	}
 }
 
 static int xpcie_device_init(struct xpcie_dev *xdev)
@@ -325,6 +352,7 @@ static int xpcie_device_init(struct xpcie_dev *xdev)
 	INIT_DELAYED_WORK(&xdev->shutdown_event, xpcie_device_shutdown);
 #if (IS_ENABLED(CONFIG_ARCH_THUNDERBAY))
 	INIT_WORK(&xdev->irq_event, xpcie_device_irq);
+	INIT_WORK(&xdev->flr_event, intel_xpcie_handle_flr_work);
 #endif
 	rc = intel_xpcie_pci_irq_init(xdev);
 	if (rc)
@@ -584,7 +612,7 @@ int intel_xpcie_pci_reset_device(u32 id)
 	if (!xdev)
 		return -ENOMEM;
 
-	return intel_xpcie_pci_prepare_dev_reset(xdev, true);
+	return intel_xpcie_pci_prepare_dev_reset(xdev, true, REQUEST_RESET);
 }
 
 int intel_xpcie_pci_register_device_event(u32 sw_device_id,
@@ -628,6 +656,27 @@ void intel_xpcie_pci_notify_event(struct xpcie_dev *xdev,
 }
 
 #if (IS_ENABLED(CONFIG_ARCH_THUNDERBAY))
+
+int intel_xpcie_pci_flr_reset(u32 id)
+{
+	struct xpcie_dev *xdev = intel_xpcie_get_device_by_id(id);
+	int rc;
+
+	if (!xdev)
+		return -ENOMEM;
+
+	rc = intel_xpcie_pci_prepare_dev_reset(xdev, true, PREP_FLR_RESET);
+	if (!rc)
+		intel_xpcie_pci_notify_event(xdev, NOTIFY_DEVICE_DISCONNECTED);
+
+	return rc;
+}
+
+int intel_xpcie_pci_ack_flr_reset(u32 id)
+{
+	return 0;
+}
+
 struct xpcie_dev *intel_xpcie_get_device_by_name(const char *name)
 {
 	struct xpcie_dev *p;

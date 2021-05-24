@@ -124,3 +124,15 @@ int xlink_pcie_unregister_device_event(u32 sw_device_id)
 	return intel_xpcie_pci_unregister_device_event(sw_device_id);
 }
 EXPORT_SYMBOL(xlink_pcie_unregister_device_event);
+
+int xlink_pcie_flr_reset(uint32_t sw_device_id)
+{
+	return intel_xpcie_pci_flr_reset(sw_device_id);
+}
+EXPORT_SYMBOL(xlink_pcie_flr_reset);
+
+int xlink_pcie_ack_flr_reset(uint32_t sw_device_id)
+{
+	return intel_xpcie_pci_ack_flr_reset(sw_device_id);
+}
+EXPORT_SYMBOL(xlink_pcie_ack_flr_reset);

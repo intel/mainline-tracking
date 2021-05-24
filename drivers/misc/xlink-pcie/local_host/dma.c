@@ -545,27 +545,24 @@ static void intel_xpcie_ep_dma_free_ll_descs_mem(struct xpcie_epf *xpcie_epf)
 #else
 	struct device *dma_dev = xpcie_epf->epf->epc->dev.parent;
 #endif
-	int i;
 
-	for (i = 0; i < DMA_CHAN_NUM; i++) {
-		if (xpcie_epf->tx_desc_buf.virt) {
-			dma_free_coherent(dma_dev,
-					  xpcie_epf->tx_desc_buf.size,
-					  xpcie_epf->tx_desc_buf.virt,
-					  xpcie_epf->tx_desc_buf.phys);
-		}
-		if (xpcie_epf->rx_desc_buf.virt) {
-			dma_free_coherent(dma_dev,
-					  xpcie_epf->rx_desc_buf.size,
-					  xpcie_epf->rx_desc_buf.virt,
-					  xpcie_epf->rx_desc_buf.phys);
-		}
-
-		memset(&xpcie_epf->tx_desc_buf, 0,
-		       sizeof(struct xpcie_dma_ll_desc_buf));
-		memset(&xpcie_epf->rx_desc_buf, 0,
-		       sizeof(struct xpcie_dma_ll_desc_buf));
+	if (xpcie_epf->tx_desc_buf.virt) {
+		dma_free_coherent(dma_dev,
+				  xpcie_epf->tx_desc_buf.size,
+				  xpcie_epf->tx_desc_buf.virt,
+				  xpcie_epf->tx_desc_buf.phys);
 	}
+	if (xpcie_epf->rx_desc_buf.virt) {
+		dma_free_coherent(dma_dev,
+				  xpcie_epf->rx_desc_buf.size,
+				  xpcie_epf->rx_desc_buf.virt,
+				  xpcie_epf->rx_desc_buf.phys);
+	}
+
+	memset(&xpcie_epf->tx_desc_buf, 0,
+	       sizeof(struct xpcie_dma_ll_desc_buf));
+	memset(&xpcie_epf->rx_desc_buf, 0,
+	       sizeof(struct xpcie_dma_ll_desc_buf));
 }
 
 static int intel_xpcie_ep_dma_alloc_ll_descs_mem(struct xpcie_epf *xpcie_epf)
@@ -599,6 +596,28 @@ static int intel_xpcie_ep_dma_alloc_ll_descs_mem(struct xpcie_epf *xpcie_epf)
 	xpcie_epf->rx_desc_buf.size = rx_size;
 
 	return 0;
+}
+
+void intel_xpcie_ep_stop_dma(struct pci_epf *epf)
+{
+	struct xpcie_epf *xpcie_epf = epf_get_drvdata(epf);
+	void __iomem *dma_base = xpcie_epf->dma_base;
+	struct pcie_dma_reg *dma_reg = (struct pcie_dma_reg *)dma_base;
+	int chan;
+
+	chan = xpcie_epf->epf->func_no;
+	chan = chan | (1 << 31);
+	iowrite32((u32)chan, &dma_reg->dma_write_doorbell);
+	iowrite32((u32)chan, &dma_reg->dma_read_doorbell);
+
+	intel_xpcie_ep_dma_free_ll_descs_mem(xpcie_epf);
+}
+
+void intel_xpcie_ep_start_dma(struct pci_epf *epf)
+{
+	struct xpcie_epf *xpcie_epf = epf_get_drvdata(epf);
+
+	intel_xpcie_ep_dma_alloc_ll_descs_mem(xpcie_epf);
 }
 
 int intel_xpcie_ep_dma_reset(struct pci_epf *epf)

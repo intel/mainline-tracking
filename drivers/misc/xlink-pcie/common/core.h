@@ -254,4 +254,6 @@ int intel_xpcie_pci_reset_device(u32 id);
 int intel_xpcie_pci_register_device_event(u32 sw_device_id,
 					  xlink_device_event event_notif_fn);
 int intel_xpcie_pci_unregister_device_event(u32 sw_device_id);
+int intel_xpcie_pci_flr_reset(u32 id);
+int intel_xpcie_pci_ack_flr_reset(u32 id);
 #endif /* XPCIE_CORE_HEADER_ */
