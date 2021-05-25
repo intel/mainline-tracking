@@ -182,6 +182,12 @@ int arch_show_interrupts(struct seq_file *p, int prec)
 			   irq_stats(j)->kvm_posted_intr_wakeup_ipis);
 	seq_puts(p, "  Posted-interrupt wakeup event\n");
 #endif
+#ifdef CONFIG_X86_USER_INTERRUPTS
+	seq_printf(p, "%*s: ", prec, "UIS");
+	for_each_online_cpu(j)
+		seq_printf(p, "%10u ", irq_stats(j)->uintr_spurious_count);
+	seq_puts(p, "  User-interrupt spurious event\n");
+#endif
 	return 0;
 }
 
@@ -322,6 +328,33 @@ DEFINE_IDTENTRY_SYSVEC_SIMPLE(sysvec_kvm_posted_intr_nested_ipi)
 {
 	ack_APIC_irq();
 	inc_irq_stat(kvm_posted_intr_nested_ipis);
+}
+#endif
+
+#ifdef CONFIG_X86_USER_INTERRUPTS
+/*
+ * Handler for UINTR_NOTIFICATION_VECTOR.
+ *
+ * The notification vector is used by the cpu to detect a User Interrupt. In
+ * the typical usage, the cpu would handle this interrupt and clear the local
+ * apic.
+ *
+ * However, it is possible that the kernel might receive this vector. This can
+ * happen if the receiver thread was running when the interrupt was sent but it
+ * got scheduled out before the interrupt was delivered. The kernel doesn't
+ * need to do anything other than clearing the local APIC. A pending user
+ * interrupt is always saved in the receiver's UPID which can be referenced
+ * when the receiver gets scheduled back.
+ *
+ * If the kernel receives a storm of these, it could mean an issue with the
+ * kernel's saving and restoring of the User Interrupt MSR state; Specifically,
+ * the notification vector bits in the IA32_UINTR_MISC_MSR.
+ */
+DEFINE_IDTENTRY_SYSVEC_SIMPLE(sysvec_uintr_spurious_interrupt)
+{
+	/* TODO: Add entry-exit tracepoints */
+	ack_APIC_irq();
+	inc_irq_stat(uintr_spurious_count);
 }
 #endif
 
