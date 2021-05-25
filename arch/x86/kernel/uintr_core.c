@@ -278,3 +278,43 @@ void switch_uintr_return(void)
 			apic->send_IPI_self(UINTR_NOTIFICATION_VECTOR);
 	}
 }
+
+/*
+ * This should only be called from exit_thread().
+ * exit_thread() can happen in current context when the current thread is
+ * exiting or it can happen for a new thread that is being created.
+ * For new threads is_uintr_receiver() should fail.
+ */
+void uintr_free(struct task_struct *t)
+{
+	struct uintr_receiver *ui_recv;
+	void *xstate;
+
+	if (!static_cpu_has(X86_FEATURE_UINTR) || !is_uintr_receiver(t))
+		return;
+
+	if (WARN_ON_ONCE(t != current))
+		return;
+
+	xstate = start_update_xsave_msrs(XFEATURE_UINTR);
+
+	xsave_wrmsrl(xstate, MSR_IA32_UINTR_MISC, 0);
+	xsave_wrmsrl(xstate, MSR_IA32_UINTR_PD, 0);
+	xsave_wrmsrl(xstate, MSR_IA32_UINTR_RR, 0);
+	xsave_wrmsrl(xstate, MSR_IA32_UINTR_STACKADJUST, 0);
+	xsave_wrmsrl(xstate, MSR_IA32_UINTR_HANDLER, 0);
+
+	/* Check: Can a thread be context switched while it is exiting? */
+	ui_recv = t->thread.ui_recv;
+
+	/*
+	 * Suppress notifications so that no further interrupts are
+	 * generated based on this UPID.
+	 */
+	set_bit(UPID_SN, (unsigned long *)&ui_recv->upid_ctx->upid->nc.status);
+	put_upid_ref(ui_recv->upid_ctx);
+	kfree(ui_recv);
+	t->thread.ui_recv = NULL;
+
+	end_update_xsave_msrs();
+}
