@@ -1060,6 +1060,14 @@ asmlinkage long sys_memfd_secret(unsigned int flags);
 /* arch/x86/kernel/ioport.c */
 asmlinkage long sys_ioperm(unsigned long from, unsigned long num, int on);
 
+/* arch/x86/kernel/uintr_fd.c */
+asmlinkage long sys_uintr_register_handler(u64 __user *handler, unsigned int flags);
+asmlinkage long sys_uintr_unregister_handler(unsigned int flags);
+asmlinkage long sys_uintr_create_fd(u64 vector, unsigned int flags);
+asmlinkage long sys_uintr_register_sender(int uintr_fd, unsigned int flags);
+asmlinkage long sys_uintr_unregister_sender(int uintr_fd, unsigned int flags);
+asmlinkage long sys_uintr_wait(unsigned int flags);
+
 /* pciconfig: alpha, arm, arm64, ia64, sparc */
 asmlinkage long sys_pciconfig_read(unsigned long bus, unsigned long dfn,
 				unsigned long off, unsigned long len,
