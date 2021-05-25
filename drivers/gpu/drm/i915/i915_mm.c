@@ -88,7 +88,7 @@ int remap_io_sg(struct vm_area_struct *vma,
 		.sgt = __sgt_iter(sgl, use_dma(iobase)),
 		.iobase = iobase,
 	};
-	int err;
+	int err = 0;
 
 	/* We rely on prevalidation of the io-mapping to skip track_pfn(). */
 	GEM_BUG_ON((vma->vm_flags & EXPECTED_FLAGS) != EXPECTED_FLAGS);
