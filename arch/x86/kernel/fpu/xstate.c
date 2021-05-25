@@ -53,7 +53,7 @@ static const char *xfeature_names[] =
 	"unknown xstate feature"	,
 	"unknown xstate feature"	,
 	"unknown xstate feature"	,
-	"unknown xstate feature"	,
+	"User Interrupts registers"	,
 	"unknown xstate feature"	,
 	"unknown xstate feature"	,
 	"AMX Tile config"		,
@@ -75,6 +75,7 @@ static unsigned short xsave_cpuid_features[] __initdata = {
 	[XFEATURE_PASID]			= X86_FEATURE_ENQCMD,
 	[XFEATURE_XTILE_CFG]			= X86_FEATURE_AMX_TILE,
 	[XFEATURE_XTILE_DATA]			= X86_FEATURE_AMX_TILE,
+	[XFEATURE_UINTR]			= X86_FEATURE_UINTR,
 };
 
 static unsigned int xstate_offsets[XFEATURE_MAX] __ro_after_init =
@@ -252,6 +253,7 @@ static void __init print_xstate_features(void)
 	print_xstate_feature(XFEATURE_MASK_PASID);
 	print_xstate_feature(XFEATURE_MASK_XTILE_CFG);
 	print_xstate_feature(XFEATURE_MASK_XTILE_DATA);
+	print_xstate_feature(XFEATURE_MASK_UINTR);
 }
 
 /*
@@ -405,7 +407,8 @@ static __init void os_xrstor_booting(struct xregs_state *xstate)
 	 XFEATURE_MASK_BNDREGS |		\
 	 XFEATURE_MASK_BNDCSR |			\
 	 XFEATURE_MASK_PASID |			\
-	 XFEATURE_MASK_XTILE)
+	 XFEATURE_MASK_XTILE |			\
+	 XFEATURE_MASK_UINTR)
 
 /*
  * setup the xstate image representing the init state
@@ -621,6 +624,7 @@ static bool __init check_xstate_against_struct(int nr)
 	XCHECK_SZ(sz, nr, XFEATURE_PKRU,      struct pkru_state);
 	XCHECK_SZ(sz, nr, XFEATURE_PASID,     struct ia32_pasid_state);
 	XCHECK_SZ(sz, nr, XFEATURE_XTILE_CFG, struct xtile_cfg);
+	XCHECK_SZ(sz, nr, XFEATURE_UINTR,     struct uintr_state);
 
 	/* The tile data size varies between implementations. */
 	if (nr == XFEATURE_XTILE_DATA)
@@ -634,7 +638,11 @@ static bool __init check_xstate_against_struct(int nr)
 	if ((nr < XFEATURE_YMM) ||
 	    (nr >= XFEATURE_MAX) ||
 	    (nr == XFEATURE_PT_UNIMPLEMENTED_SO_FAR) ||
-	    ((nr >= XFEATURE_RSRVD_COMP_11) && (nr <= XFEATURE_RSRVD_COMP_16))) {
+	    (nr == XFEATURE_RSRVD_COMP_11) ||
+	    (nr == XFEATURE_RSRVD_COMP_12) ||
+	    (nr == XFEATURE_RSRVD_COMP_13) ||
+	    (nr == XFEATURE_LBR) ||
+	    (nr == XFEATURE_RSRVD_COMP_16)) {
 		WARN_ONCE(1, "no structure for xstate: %d\n", nr);
 		XSTATE_WARN_ON(1);
 		return false;
@@ -1819,6 +1827,18 @@ int proc_pid_arch_status(struct seq_file *m, struct pid_namespace *ns,
 static u64 *__get_xsave_member(void *xstate, u32 msr)
 {
 	switch (msr) {
+	case MSR_IA32_UINTR_RR:
+		return &((struct uintr_state *)xstate)->uirr;
+	case MSR_IA32_UINTR_HANDLER:
+		return &((struct uintr_state *)xstate)->handler;
+	case MSR_IA32_UINTR_STACKADJUST:
+		return &((struct uintr_state *)xstate)->stack_adjust;
+	case MSR_IA32_UINTR_MISC:
+		return (u64 *)&((struct uintr_state *)xstate)->misc;
+	case MSR_IA32_UINTR_PD:
+		return &((struct uintr_state *)xstate)->upid_addr;
+	case MSR_IA32_UINTR_TT:
+		return &((struct uintr_state *)xstate)->uitt_addr;
 	default:
 		WARN_ONCE(1, "x86/fpu: unsupported xstate msr (%u)\n", msr);
 		return NULL;
