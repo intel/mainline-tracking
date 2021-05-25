@@ -8,6 +8,7 @@
 #include <asm/nospec-branch.h>
 #include <asm/io_bitmap.h>
 #include <asm/fpu/api.h>
+#include <asm/uintr.h>
 
 /* Check that the stack and regs on entry from user mode are sane. */
 static __always_inline void arch_check_user_regs(struct pt_regs *regs)
@@ -56,6 +57,9 @@ static inline void arch_exit_to_user_mode_prepare(struct pt_regs *regs,
 	fpregs_assert_state_consistent();
 	if (unlikely(ti_work & _TIF_NEED_FPU_LOAD))
 		switch_fpu_return();
+
+	if (static_cpu_has(X86_FEATURE_UINTR))
+		switch_uintr_return();
 
 #ifdef CONFIG_COMPAT
 	/*
