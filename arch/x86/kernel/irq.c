@@ -22,6 +22,7 @@
 #include <asm/desc.h>
 #include <asm/traps.h>
 #include <asm/thermal.h>
+#include <asm/uintr.h>
 
 #define CREATE_TRACE_POINTS
 #include <asm/trace/irq_vectors.h>
@@ -187,6 +188,11 @@ int arch_show_interrupts(struct seq_file *p, int prec)
 	for_each_online_cpu(j)
 		seq_printf(p, "%10u ", irq_stats(j)->uintr_spurious_count);
 	seq_puts(p, "  User-interrupt spurious event\n");
+
+	seq_printf(p, "%*s: ", prec, "UKN");
+	for_each_online_cpu(j)
+		seq_printf(p, "%10u ", irq_stats(j)->uintr_kernel_notifications);
+	seq_puts(p, "  User-interrupt kernel notification event\n");
 #endif
 	return 0;
 }
@@ -355,6 +361,18 @@ DEFINE_IDTENTRY_SYSVEC_SIMPLE(sysvec_uintr_spurious_interrupt)
 	/* TODO: Add entry-exit tracepoints */
 	ack_APIC_irq();
 	inc_irq_stat(uintr_spurious_count);
+}
+
+/*
+ * Handler for UINTR_KERNEL_VECTOR.
+ */
+DEFINE_IDTENTRY_SYSVEC(sysvec_uintr_kernel_notification)
+{
+	/* TODO: Add entry-exit tracepoints */
+	ack_APIC_irq();
+	inc_irq_stat(uintr_kernel_notifications);
+
+	uintr_wake_up_process();
 }
 #endif
 
