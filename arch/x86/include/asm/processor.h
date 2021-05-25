@@ -10,6 +10,7 @@ struct mm_struct;
 struct io_bitmap;
 struct vm86;
 struct uintr_receiver;
+struct uintr_sender;
 
 #include <asm/math_emu.h>
 #include <asm/segment.h>
@@ -533,6 +534,7 @@ struct thread_struct {
 #ifdef CONFIG_X86_USER_INTERRUPTS
 	/* User Interrupt state*/
 	struct uintr_receiver	*ui_recv;
+	struct uintr_sender	*ui_send;
 #endif
 
 	/* Floating point and extended processor state */
