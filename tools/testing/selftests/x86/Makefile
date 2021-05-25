@@ -9,6 +9,7 @@ UNAME_M := $(shell uname -m)
 CAN_BUILD_I386 := $(shell ./check_cc.sh $(CC) trivial_32bit_program.c -m32)
 CAN_BUILD_X86_64 := $(shell ./check_cc.sh $(CC) trivial_64bit_program.c)
 CAN_BUILD_WITH_NOPIE := $(shell ./check_cc.sh $(CC) trivial_program.c -no-pie)
+CAN_BUILD_UINTR := $(shell ./check_cc.sh $(CC) trivial_64bit_program.c -muintr)
 
 TARGETS_C_BOTHBITS := single_step_syscall sysret_ss_attrs syscall_nt test_mremap_vdso \
 			check_initial_reg_state sigreturn iopl ioperm \
@@ -19,6 +20,11 @@ TARGETS_C_32BIT_ONLY := entry_from_vm86 test_syscall_vdso unwind_vdso \
 			vdso_restorer
 TARGETS_C_64BIT_ONLY := fsgsbase sysret_rip syscall_numbering \
 			corrupt_xstate_header
+
+ifeq ($(CAN_BUILD_UINTR),1)
+TARGETS_C_64BIT_ONLY := $(TARGETS_C_64BIT_ONLY) uintr
+endif
+
 # Some selftests require 32bit support enabled also on 64bit systems
 TARGETS_C_32BIT_NEEDED := ldt_gdt ptrace_syscall
 
@@ -39,6 +45,10 @@ CFLAGS := -O2 -g -std=gnu99 -pthread -Wall
 # call32_from_64 in thunks.S uses absolute addresses.
 ifeq ($(CAN_BUILD_WITH_NOPIE),1)
 CFLAGS += -no-pie
+endif
+
+ifeq ($(CAN_BUILD_UINTR),1)
+CFLAGS += -muintr
 endif
 
 define gen-target-rule-32
