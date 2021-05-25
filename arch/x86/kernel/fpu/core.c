@@ -95,6 +95,14 @@ EXPORT_SYMBOL(irq_fpu_usable);
  * over the place.
  *
  * FXSAVE and all XSAVE variants preserve the FPU register state.
+ *
+ * When XSAVES is called with XFEATURE_UINTR enabled it
+ * saves the FPU state and clears the interrupt notification
+ * vector byte of the MISC_MSR [bits 39:32]. This is required
+ * to stop detecting additional User Interrupts after we
+ * have saved the FPU state. Before going back to userspace
+ * we would correct this and only program the byte that was
+ * cleared.
  */
 void save_fpregs_to_fpstate(struct fpu *fpu)
 {
