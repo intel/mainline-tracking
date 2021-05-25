@@ -92,6 +92,7 @@ int arch_dup_task_struct(struct task_struct *dst, struct task_struct *src)
 #ifdef CONFIG_X86_USER_INTERRUPTS
 	/* User Interrupt state is unique for each task */
 	dst->thread.ui_recv = NULL;
+	dst->thread.ui_send = NULL;
 #endif
 
 	return fpu_clone(dst);

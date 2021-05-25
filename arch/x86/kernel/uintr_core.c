@@ -21,6 +21,11 @@
 #include <asm/msr-index.h>
 #include <asm/uintr.h>
 
+/*
+ * Each UITT entry is 16 bytes in size.
+ * Current UITT table size is set as 4KB (256 * 16 bytes)
+ */
+#define UINTR_MAX_UITT_NR 256
 #define UINTR_MAX_UVEC_NR 64
 
 /* User Posted Interrupt Descriptor (UPID) */
@@ -44,6 +49,27 @@ struct uintr_receiver {
 	u64 uvec_mask;	/* track active vector per bit */
 };
 
+/* User Interrupt Target Table Entry (UITTE) */
+struct uintr_uitt_entry {
+	u8	valid;			/* bit 0: valid, bit 1-7: reserved */
+	u8	user_vec;
+	u8	reserved[6];
+	u64	target_upid_addr;
+} __packed __aligned(16);
+
+struct uintr_uitt_ctx {
+	struct uintr_uitt_entry *uitt;
+	/* Protect UITT */
+	spinlock_t uitt_lock;
+	refcount_t refs;
+};
+
+struct uintr_sender {
+	struct uintr_uitt_ctx *uitt_ctx;
+	/* track active uitt entries per bit */
+	u64 uitt_mask[BITS_TO_U64(UINTR_MAX_UITT_NR)];
+};
+
 inline bool uintr_arch_enabled(void)
 {
 	return static_cpu_has(X86_FEATURE_UINTR);
@@ -52,6 +78,36 @@ inline bool uintr_arch_enabled(void)
 static inline bool is_uintr_receiver(struct task_struct *t)
 {
 	return !!t->thread.ui_recv;
+}
+
+static inline bool is_uintr_sender(struct task_struct *t)
+{
+	return !!t->thread.ui_send;
+}
+
+static inline bool is_uintr_task(struct task_struct *t)
+{
+	return(is_uintr_receiver(t) || is_uintr_sender(t));
+}
+
+static inline bool is_uitt_empty(struct task_struct *t)
+{
+	return !!bitmap_empty((unsigned long *)t->thread.ui_send->uitt_mask,
+			      UINTR_MAX_UITT_NR);
+}
+
+/*
+ * No lock is needed to read the active flag. Writes only happen from
+ * r_info->task that owns the UPID. Everyone else would just read this flag.
+ *
+ * This only provides a static check. The receiver may become inactive right
+ * after this check. The primary reason to have this check is to prevent future
+ * senders from connecting with this UPID, since the receiver task has already
+ * made this UPID inactive.
+ */
+static bool uintr_is_receiver_active(struct uintr_receiver_info *r_info)
+{
+	return r_info->upid_ctx->receiver_active;
 }
 
 static inline u32 cpu_to_ndst(int cpu)
@@ -94,6 +150,7 @@ static struct uintr_upid_ctx *alloc_upid(void)
 	upid_ctx->upid = upid;
 	refcount_set(&upid_ctx->refs, 1);
 	upid_ctx->task = get_task_struct(current);
+	upid_ctx->receiver_active = true;
 
 	return upid_ctx;
 }
@@ -108,6 +165,64 @@ static struct uintr_upid_ctx *get_upid_ref(struct uintr_upid_ctx *upid_ctx)
 {
 	refcount_inc(&upid_ctx->refs);
 	return upid_ctx;
+}
+
+static void free_uitt(struct uintr_uitt_ctx *uitt_ctx)
+{
+	unsigned long flags;
+
+	spin_lock_irqsave(&uitt_ctx->uitt_lock, flags);
+	kfree(uitt_ctx->uitt);
+	uitt_ctx->uitt = NULL;
+	spin_unlock_irqrestore(&uitt_ctx->uitt_lock, flags);
+
+	kfree(uitt_ctx);
+}
+
+/* TODO: Replace UITT allocation with KPTI compatible memory allocator */
+static struct uintr_uitt_ctx *alloc_uitt(void)
+{
+	struct uintr_uitt_ctx *uitt_ctx;
+	struct uintr_uitt_entry *uitt;
+
+	uitt_ctx = kzalloc(sizeof(*uitt_ctx), GFP_KERNEL);
+	if (!uitt_ctx)
+		return NULL;
+
+	uitt = kzalloc(sizeof(*uitt) * UINTR_MAX_UITT_NR, GFP_KERNEL);
+	if (!uitt) {
+		kfree(uitt_ctx);
+		return NULL;
+	}
+
+	uitt_ctx->uitt = uitt;
+	spin_lock_init(&uitt_ctx->uitt_lock);
+	refcount_set(&uitt_ctx->refs, 1);
+
+	return uitt_ctx;
+}
+
+static void put_uitt_ref(struct uintr_uitt_ctx *uitt_ctx)
+{
+	if (refcount_dec_and_test(&uitt_ctx->refs))
+		free_uitt(uitt_ctx);
+}
+
+static struct uintr_uitt_ctx *get_uitt_ref(struct uintr_uitt_ctx *uitt_ctx)
+{
+	refcount_inc(&uitt_ctx->refs);
+	return uitt_ctx;
+}
+
+static inline void mark_uitte_invalid(struct uintr_sender_info *s_info)
+{
+	struct uintr_uitt_entry *uitte;
+	unsigned long flags;
+
+	spin_lock_irqsave(&s_info->uitt_ctx->uitt_lock, flags);
+	uitte = &s_info->uitt_ctx->uitt[s_info->uitt_index];
+	uitte->valid = 0;
+	spin_unlock_irqrestore(&s_info->uitt_ctx->uitt_lock, flags);
 }
 
 static void __clear_vector_from_upid(u64 uvec, struct uintr_upid *upid)
@@ -175,6 +290,210 @@ out_free:
 	kfree(r_info);
 }
 
+static void teardown_uitt(void)
+{
+	struct task_struct *t = current;
+	struct fpu *fpu = &t->thread.fpu;
+	u64 msr64;
+
+	put_uitt_ref(t->thread.ui_send->uitt_ctx);
+	kfree(t->thread.ui_send);
+	t->thread.ui_send = NULL;
+
+	fpregs_lock();
+
+	if (fpregs_state_valid(fpu, smp_processor_id())) {
+		/* Modify only the relevant bits of the MISC MSR */
+		rdmsrl(MSR_IA32_UINTR_MISC, msr64);
+		msr64 &= GENMASK_ULL(63, 32);
+		wrmsrl(MSR_IA32_UINTR_MISC, msr64);
+		wrmsrl(MSR_IA32_UINTR_TT, 0ULL);
+	} else {
+		struct uintr_state *p;
+
+		p = get_xsave_addr(&fpu->state.xsave, XFEATURE_UINTR);
+		if (p) {
+			p->uitt_size = 0;
+			p->uitt_addr = 0;
+		}
+	}
+
+	fpregs_unlock();
+}
+
+static int init_uitt(void)
+{
+	struct task_struct *t = current;
+	struct fpu *fpu = &t->thread.fpu;
+	struct uintr_sender *ui_send;
+	u64 msr64;
+
+	ui_send = kzalloc(sizeof(*t->thread.ui_send), GFP_KERNEL);
+	if (!ui_send)
+		return -ENOMEM;
+
+	ui_send->uitt_ctx = alloc_uitt();
+	if (!ui_send->uitt_ctx) {
+		pr_debug("send: Alloc UITT failed for task=%d\n", t->pid);
+		kfree(ui_send);
+		return -ENOMEM;
+	}
+
+	fpregs_lock();
+
+	if (fpregs_state_valid(fpu, smp_processor_id())) {
+		wrmsrl(MSR_IA32_UINTR_TT, (u64)ui_send->uitt_ctx->uitt | 1);
+		/* Modify only the relevant bits of the MISC MSR */
+		rdmsrl(MSR_IA32_UINTR_MISC, msr64);
+		msr64 &= GENMASK_ULL(63, 32);
+		msr64 |= UINTR_MAX_UITT_NR;
+		wrmsrl(MSR_IA32_UINTR_MISC, msr64);
+	} else {
+		struct xregs_state *xsave;
+		struct uintr_state *p;
+
+		xsave = &fpu->state.xsave;
+		xsave->header.xfeatures |= XFEATURE_MASK_UINTR;
+		p = get_xsave_addr(&fpu->state.xsave, XFEATURE_UINTR);
+		if (p) {
+			p->uitt_size = UINTR_MAX_UITT_NR;
+			p->uitt_addr = (u64)ui_send->uitt_ctx->uitt | 1;
+		}
+	}
+
+	fpregs_unlock();
+
+	pr_debug("send: Setup a new UITT=%px for task=%d with size %d\n",
+		 ui_send->uitt_ctx->uitt, t->pid, UINTR_MAX_UITT_NR * 16);
+
+	t->thread.ui_send = ui_send;
+
+	return 0;
+}
+
+static void __free_uitt_entry(unsigned int entry)
+{
+	struct task_struct *t = current;
+	unsigned long flags;
+
+	if (entry >= UINTR_MAX_UITT_NR)
+		return;
+
+	if (!is_uintr_sender(t))
+		return;
+
+	pr_debug("send: Freeing UITTE entry %d for task=%d\n", entry, t->pid);
+
+	spin_lock_irqsave(&t->thread.ui_send->uitt_ctx->uitt_lock, flags);
+	memset(&t->thread.ui_send->uitt_ctx->uitt[entry], 0,
+	       sizeof(struct uintr_uitt_entry));
+	spin_unlock_irqrestore(&t->thread.ui_send->uitt_ctx->uitt_lock, flags);
+
+	clear_bit(entry, (unsigned long *)t->thread.ui_send->uitt_mask);
+
+	if (is_uitt_empty(t)) {
+		pr_debug("send: UITT mask is empty. Dereference and teardown UITT\n");
+		teardown_uitt();
+	}
+}
+
+static void sender_free_uitte(struct callback_head *head)
+{
+	struct uintr_sender_info *s_info;
+
+	s_info = container_of(head, struct uintr_sender_info, twork);
+
+	__free_uitt_entry(s_info->uitt_index);
+	put_uitt_ref(s_info->uitt_ctx);
+	put_upid_ref(s_info->r_upid_ctx);
+	put_task_struct(s_info->task);
+	kfree(s_info);
+}
+
+void do_uintr_unregister_sender(struct uintr_receiver_info *r_info,
+				struct uintr_sender_info *s_info)
+{
+	int ret;
+
+	/*
+	 * To make sure any new senduipi result in a #GP fault.
+	 * The task work might take non-zero time to kick the process out.
+	 */
+	mark_uitte_invalid(s_info);
+
+	pr_debug("send: Adding Free UITTE %d task work for task=%d\n",
+		 s_info->uitt_index, s_info->task->pid);
+
+	init_task_work(&s_info->twork, sender_free_uitte);
+	ret = task_work_add(s_info->task, &s_info->twork, true);
+	if (ret) {
+		/*
+		 * Dereferencing the UITT and UPID here since the task has
+		 * exited.
+		 */
+		pr_debug("send: Free UITTE %d task=%d has already exited\n",
+			 s_info->uitt_index, s_info->task->pid);
+		put_upid_ref(s_info->r_upid_ctx);
+		put_uitt_ref(s_info->uitt_ctx);
+		put_task_struct(s_info->task);
+		kfree(s_info);
+		return;
+	}
+}
+
+int do_uintr_register_sender(struct uintr_receiver_info *r_info,
+			     struct uintr_sender_info *s_info)
+{
+	struct uintr_uitt_entry *uitte = NULL;
+	struct uintr_sender *ui_send;
+	struct task_struct *t = current;
+	unsigned long flags;
+	int entry;
+	int ret;
+
+	/*
+	 * Only a static check. Receiver could exit anytime after this check.
+	 * This check only prevents connections using uintr_fd after the
+	 * receiver has already exited/unregistered.
+	 */
+	if (!uintr_is_receiver_active(r_info))
+		return -ESHUTDOWN;
+
+	if (is_uintr_sender(t)) {
+		entry = find_first_zero_bit((unsigned long *)t->thread.ui_send->uitt_mask,
+					    UINTR_MAX_UITT_NR);
+		if (entry >= UINTR_MAX_UITT_NR)
+			return -ENOSPC;
+	} else {
+		BUILD_BUG_ON(UINTR_MAX_UITT_NR < 1);
+		entry = 0;
+		ret = init_uitt();
+		if (ret)
+			return ret;
+	}
+
+	ui_send = t->thread.ui_send;
+
+	set_bit(entry, (unsigned long *)ui_send->uitt_mask);
+
+	spin_lock_irqsave(&ui_send->uitt_ctx->uitt_lock, flags);
+	uitte = &ui_send->uitt_ctx->uitt[entry];
+	pr_debug("send: sender=%d receiver=%d UITTE entry %d address %px\n",
+		 current->pid, r_info->upid_ctx->task->pid, entry, uitte);
+
+	uitte->user_vec = r_info->uvec;
+	uitte->target_upid_addr = (u64)r_info->upid_ctx->upid;
+	uitte->valid = 1;
+	spin_unlock_irqrestore(&ui_send->uitt_ctx->uitt_lock, flags);
+
+	s_info->r_upid_ctx = get_upid_ref(r_info->upid_ctx);
+	s_info->uitt_ctx = get_uitt_ref(ui_send->uitt_ctx);
+	s_info->task = get_task_struct(current);
+	s_info->uitt_index = entry;
+
+	return 0;
+}
+
 int do_uintr_unregister_handler(void)
 {
 	struct task_struct *t = current;
@@ -222,6 +541,8 @@ int do_uintr_unregister_handler(void)
 	}
 
 	ui_recv = t->thread.ui_recv;
+	ui_recv->upid_ctx->receiver_active = false;
+
 	/*
 	 * Suppress notifications so that no further interrupts are generated
 	 * based on this UPID.
@@ -437,14 +758,14 @@ void switch_uintr_return(void)
  * This should only be called from exit_thread().
  * exit_thread() can happen in current context when the current thread is
  * exiting or it can happen for a new thread that is being created.
- * For new threads is_uintr_receiver() should fail.
+ * For new threads is_uintr_task() should fail.
  */
 void uintr_free(struct task_struct *t)
 {
 	struct uintr_receiver *ui_recv;
 	struct fpu *fpu;
 
-	if (!static_cpu_has(X86_FEATURE_UINTR) || !is_uintr_receiver(t))
+	if (!static_cpu_has(X86_FEATURE_UINTR) || !is_uintr_task(t))
 		return;
 
 	if (WARN_ON_ONCE(t != current))
@@ -456,6 +777,7 @@ void uintr_free(struct task_struct *t)
 
 	if (fpregs_state_valid(fpu, smp_processor_id())) {
 		wrmsrl(MSR_IA32_UINTR_MISC, 0ULL);
+		wrmsrl(MSR_IA32_UINTR_TT, 0ULL);
 		wrmsrl(MSR_IA32_UINTR_PD, 0ULL);
 		wrmsrl(MSR_IA32_UINTR_RR, 0ULL);
 		wrmsrl(MSR_IA32_UINTR_STACKADJUST, 0ULL);
@@ -470,20 +792,31 @@ void uintr_free(struct task_struct *t)
 			p->upid_addr = 0;
 			p->stack_adjust = 0;
 			p->uinv = 0;
+			p->uitt_addr = 0;
+			p->uitt_size = 0;
 		}
 	}
 
 	/* Check: Can a thread be context switched while it is exiting? */
-	ui_recv = t->thread.ui_recv;
+	if (is_uintr_receiver(t)) {
+		ui_recv = t->thread.ui_recv;
 
-	/*
-	 * Suppress notifications so that no further interrupts are
-	 * generated based on this UPID.
-	 */
-	set_bit(UPID_SN, (unsigned long *)&ui_recv->upid_ctx->upid->nc.status);
-	put_upid_ref(ui_recv->upid_ctx);
-	kfree(ui_recv);
-	t->thread.ui_recv = NULL;
+		/*
+		 * Suppress notifications so that no further interrupts are
+		 * generated based on this UPID.
+		 */
+		set_bit(UPID_SN, (unsigned long *)&ui_recv->upid_ctx->upid->nc.status);
+		ui_recv->upid_ctx->receiver_active = false;
+		put_upid_ref(ui_recv->upid_ctx);
+		kfree(ui_recv);
+		t->thread.ui_recv = NULL;
+	}
 
 	fpregs_unlock();
+
+	if (is_uintr_sender(t)) {
+		put_uitt_ref(t->thread.ui_send->uitt_ctx);
+		kfree(t->thread.ui_send);
+		t->thread.ui_send = NULL;
+	}
 }
