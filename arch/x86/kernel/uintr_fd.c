@@ -283,3 +283,18 @@ out_fdput:
 	fdput(f);
 	return ret;
 }
+
+/*
+ * sys_uintr_wait - Wait for a user interrupt
+ */
+SYSCALL_DEFINE1(uintr_wait, unsigned int, flags)
+{
+	if (!uintr_arch_enabled())
+		return -EOPNOTSUPP;
+
+	if (flags)
+		return -EINVAL;
+
+	/* TODO: Add a timeout option */
+	return uintr_receiver_wait();
+}
