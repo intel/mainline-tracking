@@ -118,7 +118,7 @@ enum xfeature {
 	XFEATURE_CET_USER,
 	XFEATURE_CET_KERNEL,
 	XFEATURE_RSRVD_COMP_13,
-	XFEATURE_RSRVD_COMP_14,
+	XFEATURE_UINTR,
 	XFEATURE_LBR,
 
 	XFEATURE_MAX,
@@ -137,6 +137,7 @@ enum xfeature {
 #define XFEATURE_MASK_PASID		(1 << XFEATURE_PASID)
 #define XFEATURE_MASK_CET_USER		(1 << XFEATURE_CET_USER)
 #define XFEATURE_MASK_CET_KERNEL	(1 << XFEATURE_CET_KERNEL)
+#define XFEATURE_MASK_UINTR		(1 << XFEATURE_UINTR)
 #define XFEATURE_MASK_LBR		(1 << XFEATURE_LBR)
 
 #define XFEATURE_MASK_FPSSE		(XFEATURE_MASK_FP | XFEATURE_MASK_SSE)
@@ -255,6 +256,23 @@ struct cet_kernel_state {
 	u64 pl1_ssp;			/* privilege level 1 shadow stack */
 	u64 pl2_ssp;			/* privilege level 2 shadow stack */
 };
+
+/*
+ * State component 14 is supervisor state used for User Interrupts state.
+ * The size of this state is 48 bytes
+ */
+struct uintr_state {
+	u64 handler;
+	u64 stack_adjust;
+	u32 uitt_size;
+	u8  uinv;
+	u8  pad1;
+	u8  pad2;
+	u8  uif_pad3;		/* bit 7 - UIF, bits 6:0 - reserved */
+	u64 upid_addr;
+	u64 uirr;
+	u64 uitt_addr;
+} __packed;
 
 /*
  * State component 15: Architectural LBR configuration state.
