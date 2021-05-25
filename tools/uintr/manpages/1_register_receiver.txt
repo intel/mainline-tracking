@@ -1,0 +1,122 @@
+uintr_register_handler(2)     System Calls Manual    uintr_register_handler(2)
+
+
+
+NAME
+       uintr_register_handler - register a user interrupt handler
+
+
+SYNOPSIS
+        int uintr_register_handler(u64 handler_address, unsigned int flags);
+
+
+DESCRIPTION
+       uintr_register_handler()  registers  a  user  interrupt handler for the
+       calling process. In case of multi-threaded processes the user interrupt
+       handler is only registered for the thread that makes this system call.
+
+       The  handler_address  is  the  function  that would be invoked when the
+       process receives a user interrupt. The function should  be  defined  as
+       below:
+
+       void __attribute__ ((interrupt)) ui_handler(struct __uintr_frame *frame,
+                                                   unsigned long long vector)
+
+       For  more  details  and  an  example  for  the handler definition refer
+       uintr(7).
+
+       Providing an invalid handler_address could lead to  undefined  behavior
+       for the process.
+
+       The  flags  argument is reserved for future use.  Currently, it must be
+       specified as 0.
+
+       Each user thread can register only one interrupt handler.  Each  thread
+       that  would  like to be a receiver must register once. The registration
+       is not inherited across forks(2) or when additional threads are created
+       within the same process.
+
+       Each thread within a process gets its own interrupt vector space for 64
+       vectors. The vector number  is  pushed  onto  the  stack  when  a  user
+       interrupt  is  delivered.  Since  the  vector space is per-thread, each
+       receiver can receive up to 64 unique interrupt events.
+
+       For information on creating uintr_fd to register and  manage  interrupt
+       vectors, refer uintr_create_fd(2) system call.
+
+       Once an interrupt handler is registered it cannot be changed before the
+       handler  is  unregistered  via   uintr_unregister_handler(2).   Calling
+       uintr_unregister_handler(2)   would   however  invalidate  the  current
+       interrupt resources registered with the kernel.
+
+       The interrupt handler gets invoked only while the process  is  running.
+       If  the  process  is scheduled out or blocked in the kernel, interrupts
+       will be delivered when the process is scheduled again. <A mechanism  to
+       unblock a process as soon as a user interrupt is posted is being worked
+       upon.>
+
+
+   Interrupt handler restrictions
+       There are restrictions on what can be done in a user interrupt handler.
+
+       For example, the handler and the  functions  called  from  the  handler
+       should only use general purpose registers.
+
+       For    details    refer   the   Uintr   compiler   programming   guide.
+       https://github.com/intel/uintr-compiler-guide/blob/uintr-
+       gcc-11.1/UINTR-compiler-guide.pdf
+
+
+   Security implications
+       A  lot  of security issues that are applicable to signal handlers, also
+       apply to user interrupt handlers.
+
+       The user interrupt handler  by-itself  need  not  be  re-entrant  since
+       interrupts  are automatically disabled when the handler is invoked. But
+       this isn't valid if the handler is shared between multiple  threads  or
+       nested interrupts have been enabled.
+
+       Similar  to  signal handlers, the functions that are called from a user
+       interrupt should be async-signal-safe.  Refer  signal-safety(7)  for  a
+       discussion of async-signal-safe functions.
+
+       It  is  recommended  to  disable  interrupts  using _clui() instruction
+       before executing any privileged code. Doing so  would  prevent  a  user
+       interrupt handler from running at a higher privilege level.
+
+
+RETURN VALUE
+       On  success,  uintr_register_handler()  returns  0.   On  error,  -1 is
+       returned and errno is set to indicate the cause of the error.
+
+
+ERRORS
+       EOPNOTSUPP  Underlying hardware doesn't have support for Uintr.
+
+       EINVAL      flags is not 0.
+
+       EFAULT      handler address is not valid.
+
+       ENOMEM      The system is out of available memory.
+
+       EBUSY       An interrupt handler has already been registered.
+
+
+VERSIONS
+       uintr_register_handler() first appeared in Linux <tbd>.
+
+
+CONFORMING TO
+       uintr_register_handler() is Linux specific.
+
+
+NOTES
+       Currently, there is no glibc wrapper for  this  system  call;  call  it
+       using syscall(2).
+
+       The  user  interrupt  related  system  calls  need  hardware support to
+       generate and receive user interrupts. Refer uintr(7) for details.
+
+
+
+                                                     uintr_register_handler(2)
