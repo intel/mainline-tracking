@@ -40,6 +40,8 @@ static const char *xfeature_names[] =
 	"PASID state",
 	"Control-flow User registers"	,
 	"Control-flow Kernel registers"	,
+	"unknown xstate feature 13",
+	"User Interrupts registers",
 	"unknown xstate feature"	,
 };
 
@@ -57,6 +59,8 @@ static short xsave_cpuid_features[] __initdata = {
 	X86_FEATURE_ENQCMD,
 	X86_FEATURE_SHSTK, /* XFEATURE_CET_USER */
 	X86_FEATURE_SHSTK, /* XFEATURE_CET_KERNEL */
+	-1,			/* Unknown 13 */
+	X86_FEATURE_UINTR,
 };
 
 /*
@@ -242,6 +246,7 @@ static void __init print_xstate_features(void)
 	print_xstate_feature(XFEATURE_MASK_PASID);
 	print_xstate_feature(XFEATURE_MASK_CET_USER);
 	print_xstate_feature(XFEATURE_MASK_CET_KERNEL);
+	print_xstate_feature(XFEATURE_MASK_UINTR);
 }
 
 /*
@@ -379,7 +384,8 @@ static void __init print_xstate_offset_size(void)
 	 XFEATURE_MASK_BNDREGS |		\
 	 XFEATURE_MASK_BNDCSR |			\
 	 XFEATURE_MASK_CET_USER |		\
-	 XFEATURE_MASK_PASID)
+	 XFEATURE_MASK_PASID |			\
+	 XFEATURE_MASK_UINTR)
 
 /*
  * setup the xstate image representing the init state
@@ -541,6 +547,7 @@ static void check_xstate_against_struct(int nr)
 	XCHECK_SZ(sz, nr, XFEATURE_PASID,     struct ia32_pasid_state);
 	XCHECK_SZ(sz, nr, XFEATURE_CET_USER,   struct cet_user_state);
 	XCHECK_SZ(sz, nr, XFEATURE_CET_KERNEL, struct cet_kernel_state);
+	XCHECK_SZ(sz, nr, XFEATURE_UINTR,     struct uintr_state);
 
 	/*
 	 * Make *SURE* to add any feature numbers in below if
@@ -548,9 +555,10 @@ static void check_xstate_against_struct(int nr)
 	 * numbers.
 	 */
 	if ((nr < XFEATURE_YMM) ||
-	    (nr >= XFEATURE_MAX) ||
 	    (nr == XFEATURE_PT_UNIMPLEMENTED_SO_FAR) ||
-	    ((nr >= XFEATURE_RSRVD_COMP_13) && (nr <= XFEATURE_LBR))) {
+	    (nr == XFEATURE_RSRVD_COMP_13) ||
+	    (nr == XFEATURE_LBR) ||
+	    (nr >= XFEATURE_MAX)) {
 		WARN_ONCE(1, "no structure for xstate: %d\n", nr);
 		XSTATE_WARN_ON(1);
 	}
