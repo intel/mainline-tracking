@@ -238,3 +238,78 @@ int do_uintr_register_handler(u64 handler)
 
 	return 0;
 }
+
+/* Suppress notifications since this task is being context switched out */
+void switch_uintr_prepare(struct task_struct *prev)
+{
+	struct uintr_upid *upid;
+
+	if (is_uintr_receiver(prev)) {
+		upid = prev->thread.ui_recv->upid_ctx->upid;
+		set_bit(UPID_SN, (unsigned long *)&upid->nc.status);
+	}
+}
+
+/*
+ * Do this right before we are going back to userspace after the FPU has been
+ * reloaded i.e. TIF_NEED_FPU_LOAD is clear.
+ * Called from arch_exit_to_user_mode_prepare() with interrupts disabled.
+ */
+void switch_uintr_return(void)
+{
+	struct uintr_upid *upid;
+	u64 misc_msr;
+
+	if (is_uintr_receiver(current)) {
+		/*
+		 * The XSAVES instruction clears the UINTR notification
+		 * vector(UINV) in the UINT_MISC MSR when user context gets
+		 * saved. Before going back to userspace we need to restore the
+		 * notification vector. XRSTORS would automatically restore the
+		 * notification but we can't be sure that XRSTORS will always
+		 * be called when going back to userspace. Also if XSAVES gets
+		 * called twice the UINV stored in the Xstate buffer will be
+		 * overwritten. Threfore, before going back to userspace we
+		 * always check if the UINV is set and reprogram if needed.
+		 *
+		 * Alternatively, we could combine this with
+		 * switch_fpu_return() and program the MSR whenever we are
+		 * skipping the XRSTORS. We need special precaution to make
+		 * sure the UINV value in the XSTATE buffer doesn't get
+		 * overwritten by calling XSAVES twice.
+		 */
+		WARN_ON_ONCE(test_thread_flag(TIF_NEED_FPU_LOAD));
+
+		/* Modify only the relevant bits of the MISC MSR */
+		rdmsrl(MSR_IA32_UINTR_MISC, misc_msr);
+		if (!(misc_msr & GENMASK_ULL(39, 32))) {
+			misc_msr |= (u64)UINTR_NOTIFICATION_VECTOR << 32;
+			wrmsrl(MSR_IA32_UINTR_MISC, misc_msr);
+		}
+
+		/*
+		 * It is necessary to clear the SN bit after we set UINV and
+		 * NDST to avoid incorrect interrupt routing.
+		 */
+		upid = current->thread.ui_recv->upid_ctx->upid;
+		upid->nc.ndst = cpu_to_ndst(smp_processor_id());
+		clear_bit(UPID_SN, (unsigned long *)&upid->nc.status);
+
+		/*
+		 * Interrupts might have accumulated in the UPID while the
+		 * thread was preempted. In this case invoke the hardware
+		 * detection sequence manually by sending a self IPI with UINV.
+		 * Since UINV is set and SN is cleared, any new UINTR
+		 * notifications due to the self IPI or otherwise would result
+		 * in the hardware updating the UIRR directly.
+		 * No real interrupt would be generated as a result of this.
+		 *
+		 * The alternative is to atomically read and clear the UPID and
+		 * program the UIRR. In that case the kernel would need to
+		 * carefully manage the race with the hardware if the UPID gets
+		 * updated after the read.
+		 */
+		if (READ_ONCE(upid->puir))
+			apic->send_IPI_self(UINTR_NOTIFICATION_VECTOR);
+	}
+}
