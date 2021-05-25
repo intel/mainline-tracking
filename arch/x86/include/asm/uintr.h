@@ -4,9 +4,23 @@
 
 #ifdef CONFIG_X86_USER_INTERRUPTS
 
+struct uintr_upid_ctx {
+	struct task_struct *task;	/* Receiver task */
+	struct uintr_upid *upid;
+	refcount_t refs;
+};
+
+struct uintr_receiver_info {
+	struct uintr_upid_ctx *upid_ctx;	/* UPID context */
+	struct callback_head twork;		/* Task work head */
+	u64 uvec;				/* Vector number */
+};
+
 bool uintr_arch_enabled(void);
 int do_uintr_register_handler(u64 handler);
 int do_uintr_unregister_handler(void);
+int do_uintr_register_vector(struct uintr_receiver_info *r_info);
+void do_uintr_unregister_vector(struct uintr_receiver_info *r_info);
 
 void uintr_free(struct task_struct *task);
 
