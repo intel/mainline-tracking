@@ -28,22 +28,6 @@
 #define UINTR_MAX_UITT_NR 256
 #define UINTR_MAX_UVEC_NR 64
 
-/* User Posted Interrupt Descriptor (UPID) */
-struct uintr_upid {
-	struct {
-		u8 status;	/* bit 0: ON, bit 1: SN, bit 2-7: reserved */
-		u8 reserved1;	/* Reserved */
-		u8 nv;		/* Notification vector */
-		u8 reserved2;	/* Reserved */
-		u32 ndst;	/* Notification destination */
-	} nc __packed;		/* Notification control */
-	u64 puir;		/* Posted user interrupt requests */
-} __aligned(64);
-
-/* UPID Notification control status */
-#define UPID_ON		0x0	/* Outstanding notification */
-#define UPID_SN		0x1	/* Suppressed notification */
-
 struct uintr_receiver {
 	struct uintr_upid_ctx *upid_ctx;
 	u64 uvec_mask;	/* track active vector per bit */
@@ -70,6 +54,10 @@ struct uintr_sender {
 	u64 uitt_mask[BITS_TO_U64(UINTR_MAX_UITT_NR)];
 };
 
+/* TODO: To remove the global lock, move to a per-cpu wait list. */
+static DEFINE_SPINLOCK(uintr_wait_lock);
+static struct list_head uintr_wait_list = LIST_HEAD_INIT(uintr_wait_list);
+
 inline bool uintr_arch_enabled(void)
 {
 	return static_cpu_has(X86_FEATURE_UINTR);
@@ -78,6 +66,12 @@ inline bool uintr_arch_enabled(void)
 static inline bool is_uintr_receiver(struct task_struct *t)
 {
 	return !!t->thread.ui_recv;
+}
+
+/* Always make sure task is_uintr_receiver() before calling */
+static inline bool is_uintr_waiting(struct task_struct *t)
+{
+	return t->thread.ui_recv->upid_ctx->waiting;
 }
 
 static inline bool is_uintr_sender(struct task_struct *t)
@@ -151,6 +145,7 @@ static struct uintr_upid_ctx *alloc_upid(void)
 	refcount_set(&upid_ctx->refs, 1);
 	upid_ctx->task = get_task_struct(current);
 	upid_ctx->receiver_active = true;
+	upid_ctx->waiting = false;
 
 	return upid_ctx;
 }
@@ -494,6 +489,68 @@ int do_uintr_register_sender(struct uintr_receiver_info *r_info,
 	return 0;
 }
 
+int uintr_receiver_wait(void)
+{
+	struct uintr_upid_ctx *upid_ctx;
+	unsigned long flags;
+
+	if (!is_uintr_receiver(current))
+		return -EOPNOTSUPP;
+
+	upid_ctx = current->thread.ui_recv->upid_ctx;
+	upid_ctx->upid->nc.nv = UINTR_KERNEL_VECTOR;
+	upid_ctx->waiting = true;
+	spin_lock_irqsave(&uintr_wait_lock, flags);
+	list_add(&upid_ctx->node, &uintr_wait_list);
+	spin_unlock_irqrestore(&uintr_wait_lock, flags);
+
+	set_current_state(TASK_INTERRUPTIBLE);
+	schedule();
+
+	return -EINTR;
+}
+
+/*
+ * Runs in interrupt context.
+ * Scan through all UPIDs to check if any interrupt is on going.
+ */
+void uintr_wake_up_process(void)
+{
+	struct uintr_upid_ctx *upid_ctx, *tmp;
+	unsigned long flags;
+
+	spin_lock_irqsave(&uintr_wait_lock, flags);
+	list_for_each_entry_safe(upid_ctx, tmp, &uintr_wait_list, node) {
+		if (test_bit(UPID_ON, (unsigned long *)&upid_ctx->upid->nc.status)) {
+			set_bit(UPID_SN, (unsigned long *)&upid_ctx->upid->nc.status);
+			upid_ctx->upid->nc.nv = UINTR_NOTIFICATION_VECTOR;
+			upid_ctx->waiting = false;
+			wake_up_process(upid_ctx->task);
+			list_del(&upid_ctx->node);
+		}
+	}
+	spin_unlock_irqrestore(&uintr_wait_lock, flags);
+}
+
+/* Called when task is unregistering/exiting */
+static void uintr_remove_task_wait(struct task_struct *task)
+{
+	struct uintr_upid_ctx *upid_ctx, *tmp;
+	unsigned long flags;
+
+	spin_lock_irqsave(&uintr_wait_lock, flags);
+	list_for_each_entry_safe(upid_ctx, tmp, &uintr_wait_list, node) {
+		if (upid_ctx->task == task) {
+			pr_debug("wait: Removing task %d from wait\n",
+				 upid_ctx->task->pid);
+			upid_ctx->upid->nc.nv = UINTR_NOTIFICATION_VECTOR;
+			upid_ctx->waiting = false;
+			list_del(&upid_ctx->node);
+		}
+	}
+	spin_unlock_irqrestore(&uintr_wait_lock, flags);
+}
+
 int do_uintr_unregister_handler(void)
 {
 	struct task_struct *t = current;
@@ -548,7 +605,7 @@ int do_uintr_unregister_handler(void)
 	 * based on this UPID.
 	 */
 	set_bit(UPID_SN, (unsigned long *)&ui_recv->upid_ctx->upid->nc.status);
-
+	uintr_remove_task_wait(t);
 	put_upid_ref(ui_recv->upid_ctx);
 	kfree(ui_recv);
 	t->thread.ui_recv = NULL;
@@ -684,7 +741,7 @@ void switch_uintr_prepare(struct task_struct *prev)
 {
 	struct uintr_upid *upid;
 
-	if (is_uintr_receiver(prev)) {
+	if (is_uintr_receiver(prev) && !is_uintr_waiting(prev)) {
 		upid = prev->thread.ui_recv->upid_ctx->upid;
 		set_bit(UPID_SN, (unsigned long *)&upid->nc.status);
 	}
@@ -806,6 +863,7 @@ void uintr_free(struct task_struct *t)
 		 * generated based on this UPID.
 		 */
 		set_bit(UPID_SN, (unsigned long *)&ui_recv->upid_ctx->upid->nc.status);
+		uintr_remove_task_wait(t);
 		ui_recv->upid_ctx->receiver_active = false;
 		put_upid_ref(ui_recv->upid_ctx);
 		kfree(ui_recv);
