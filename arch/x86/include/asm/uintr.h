@@ -61,6 +61,10 @@ void uintr_free(struct task_struct *task);
 void switch_uintr_prepare(struct task_struct *prev);
 void switch_uintr_return(void);
 
+struct file *uintrfd_fget(int uintr_fd);
+int uintr_notify(struct file *uintr_f);
+int uintr_notify_receiver(struct uintr_receiver_info *r_info);
+
 int uintr_receiver_wait(void);
 void uintr_wake_up_process(void);
 

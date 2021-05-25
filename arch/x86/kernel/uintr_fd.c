@@ -284,6 +284,51 @@ out_fdput:
 	return ret;
 }
 
+/**
+ * uintr_notify - Notify a user interrupt receiver.
+ * @uintr_f: [in] File pertaining to the uintr_fd.
+ *
+ * Returns <tbd>
+ */
+int uintr_notify(struct file *uintr_f)
+{
+	struct uintrfd_ctx *uintrfd_ctx;
+
+	if (uintr_f->f_op != &uintrfd_fops)
+		return -EINVAL;
+
+	uintrfd_ctx = (struct uintrfd_ctx *)uintr_f->private_data;
+
+	return uintr_notify_receiver(uintrfd_ctx->r_info);
+}
+EXPORT_SYMBOL_GPL(uintr_notify);
+
+/**
+ * uintrfd_fget - Acquire a reference of an uintrfd file descriptor.
+ * @fd: [in] uintrfd file descriptor.
+ *
+ * Returns a pointer to the uintrfd file structure in case of success, or the
+ * following error pointer:
+ *
+ * -EBADF    : Invalid @fd file descriptor.
+ * -EINVAL   : The @fd file descriptor is not an uintrfd file.
+ */
+struct file *uintrfd_fget(int fd)
+{
+	struct file *file;
+
+	file = fget(fd);
+	if (!file)
+		return ERR_PTR(-EBADF);
+	if (file->f_op != &uintrfd_fops) {
+		fput(file);
+		return ERR_PTR(-EINVAL);
+	}
+
+	return file;
+}
+EXPORT_SYMBOL_GPL(uintrfd_fget);
+
 /*
  * sys_uintr_wait - Wait for a user interrupt
  */
