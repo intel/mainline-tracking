@@ -260,6 +260,7 @@ int fpu_clone(struct task_struct *dst)
 {
 	struct fpu *src_fpu = &current->thread.fpu;
 	struct fpu *dst_fpu = &dst->thread.fpu;
+	struct uintr_state *uintr_state;
 
 	/* The new task's FPU state cannot be valid in the hardware. */
 	dst_fpu->last_cpu = -1;
@@ -284,6 +285,14 @@ int fpu_clone(struct task_struct *dst)
 
 	else
 		save_fpregs_to_fpstate(dst_fpu);
+
+	/* UINTR state is not expected to be inherited (in the current design). */
+	if (static_cpu_has(X86_FEATURE_UINTR)) {
+		uintr_state = get_xsave_addr(&dst_fpu->state.xsave, XFEATURE_UINTR);
+		if (uintr_state)
+			memset(uintr_state, 0, sizeof(*uintr_state));
+	}
+
 	fpregs_unlock();
 
 	set_tsk_thread_flag(dst, TIF_NEED_FPU_LOAD);

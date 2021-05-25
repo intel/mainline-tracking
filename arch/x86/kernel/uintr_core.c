@@ -313,3 +313,58 @@ void switch_uintr_return(void)
 			apic->send_IPI_self(UINTR_NOTIFICATION_VECTOR);
 	}
 }
+
+/*
+ * This should only be called from exit_thread().
+ * exit_thread() can happen in current context when the current thread is
+ * exiting or it can happen for a new thread that is being created.
+ * For new threads is_uintr_receiver() should fail.
+ */
+void uintr_free(struct task_struct *t)
+{
+	struct uintr_receiver *ui_recv;
+	struct fpu *fpu;
+
+	if (!static_cpu_has(X86_FEATURE_UINTR) || !is_uintr_receiver(t))
+		return;
+
+	if (WARN_ON_ONCE(t != current))
+		return;
+
+	fpu = &t->thread.fpu;
+
+	fpregs_lock();
+
+	if (fpregs_state_valid(fpu, smp_processor_id())) {
+		wrmsrl(MSR_IA32_UINTR_MISC, 0ULL);
+		wrmsrl(MSR_IA32_UINTR_PD, 0ULL);
+		wrmsrl(MSR_IA32_UINTR_RR, 0ULL);
+		wrmsrl(MSR_IA32_UINTR_STACKADJUST, 0ULL);
+		wrmsrl(MSR_IA32_UINTR_HANDLER, 0ULL);
+	} else {
+		struct uintr_state *p;
+
+		p = get_xsave_addr(&fpu->state.xsave, XFEATURE_UINTR);
+		if (p) {
+			p->handler = 0;
+			p->uirr = 0;
+			p->upid_addr = 0;
+			p->stack_adjust = 0;
+			p->uinv = 0;
+		}
+	}
+
+	/* Check: Can a thread be context switched while it is exiting? */
+	ui_recv = t->thread.ui_recv;
+
+	/*
+	 * Suppress notifications so that no further interrupts are
+	 * generated based on this UPID.
+	 */
+	set_bit(UPID_SN, (unsigned long *)&ui_recv->upid_ctx->upid->nc.status);
+	put_upid_ref(ui_recv->upid_ctx);
+	kfree(ui_recv);
+	t->thread.ui_recv = NULL;
+
+	fpregs_unlock();
+}
