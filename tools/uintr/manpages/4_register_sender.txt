@@ -1,0 +1,121 @@
+uintr_register_sender(2)      System Calls Manual     uintr_register_sender(2)
+
+
+
+NAME
+       uintr_register_sender - Register a user inter-process interrupt sender
+
+
+SYNOPSIS
+        int uintr_register_sender(int uintr_fd, unsigned int flags);
+
+
+DESCRIPTION
+       uintr_register_sender() allows a sender process to connect with a Uintr
+       receiver  based  on  the  uintr_fd.  It  returns  a  user   IPI   index
+       (uipi_index)  that  the  sender process can use in conjunction with the
+       SENDUIPI instruction to generate a user IPI.
+
+       When a sender executes 'SENDUIPI  <uipi_index>',  a  user  IPI  can  be
+       delivered by the hardware to the receiver without any intervention from
+       the kernel. Upon IPI delivery, the handler is invoked with  the  vector
+       number,  associated  with  uintr_fd,  pushed  onto  the  stack  to help
+       identify the source of the interrupt.
+
+       If the receiver for the thread is running the hardware  would  directly
+       deliver the user IPI to the receiver. If the receiver is not running or
+       has disabled receiving  interrupts  using  the  STUI  instruction,  the
+       interrupt  will  be stored in memory and delivered when the receiver is
+       able to receive it.
+
+       If the sender tries to send multiple IPIs while  the  receiver  is  not
+       able  to  receive  them then all the IPIs with the same vector would be
+       coalesced.  Only a single IPI per vector would be delivered.
+
+       uintr_register_sender() can be used to connect with multiple uintr_fds.
+       uintr_register_sender()  would  return  a  unique  uipi_index  for each
+       uintr_fd the sender connects with.
+
+       In case of a multi-threaded process, the uipi_index is only  valid  for
+       the thread that registered itself. Other threads would need to register
+       themselves if they intend to be a user IPI sender.  Executing  SENDUIPI
+       on  different threads can have varying results based on the connections
+       that have been setup.
+
+       <We  are  also  considering  an  alternate  approach  where  the   same
+       uipi_index  would  be  valid  for all threads that are part of the same
+       process.  All threads would see consistent SENDUIPI behaviour  in  that
+       case.>
+
+       If    a    process    uses    SENDUIPI    without   registering   using
+       uintr_register_sender() it receives a SIGILL signal. If a process  uses
+       an  illegal  uipi_index, it receives a SIGSEGV signal. See sigaction(2)
+       for details of the information available with that signal.
+
+       The flags argument is reserved for future use.  Currently, it  must  be
+       specified as 0.
+
+       close(2)
+             When the file descriptor is no longer required it should be
+             closed.  When all file descriptors associated with the same
+             uintr_fd object have been closed, the resources for object are
+             freed by the kernel. Freeing the uintr_fd object would also
+             result in the associated uipi_index to be freed.
+
+       fork(2)
+             A copy of uintr_fd is inherited by the child produced by
+             fork(2). However the uipi_index would not get inherited by the
+             child. If the child wants to send a user IPI it would have to
+             explicitly register itself using the uintr_register_sender()
+             system call.
+
+       For    information    on    how    to   unregister   a   sender   refer
+       uintr_unregister_sender(2).
+
+
+RETURN VALUE
+       On success, uintr_register_sender() returns a  new  user  IPI  index  -
+       uipi_index.  On  error, -1 is returned and errno is set to indicate the
+       cause of the error.
+
+
+ERRORS
+       EOPNOTSUPP  Underlying hardware doesn't have support for uintr(7).
+
+       EOPNOTSUPP  uintr_fd does not refer to a Uintr instance.
+
+       EBADF       The uintr_fd passed to the kernel is invalid.
+
+       EINVAL      flags is not 0.
+
+       EISCONN     A connection to this uintr_fd has already been established.
+
+       ECONNRESET  The user interrupt receiver has disabled the connection.
+
+       ESHUTDOWN   The user interrupt receiver has exited the connection.
+
+       ENOSPC       No uipi_index can be allocated. The system has run out  of
+       the available user IPI indexes.
+
+       ENOMEM       The  system  is out of available memory to register a user
+       IPI sender.
+
+
+VERSIONS
+       uintr_register_sender() first appeared in Linux <tbd>.
+
+
+CONFORMING TO
+       uintr_register_sender() is Linux specific.
+
+
+NOTES
+       Currently, there is no glibc wrapper for  this  system  call;  call  it
+       using syscall(2).
+
+       The  user  interrupt  related  system  calls  need  hardware support to
+       generate and receive user interrupts. Refer uintr(7) for details.
+
+
+
+                                                      uintr_register_sender(2)
