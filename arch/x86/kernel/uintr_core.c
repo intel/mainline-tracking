@@ -116,6 +116,35 @@ static inline u32 cpu_to_ndst(int cpu)
 	return apicid;
 }
 
+/* TODO: Find a more efficient way rather than iterating over each cpu */
+static int convert_apicid_to_cpu(int apic_id)
+{
+	int i;
+
+	for_each_possible_cpu(i) {
+		if (per_cpu(x86_cpu_to_apicid, i) == apic_id)
+			return i;
+	}
+	return -1;
+}
+
+static inline int ndst_to_cpu(u32 ndst)
+{
+	int apic_id;
+	int cpu;
+
+	if (!x2apic_enabled())
+		apic_id = (ndst >> 8) & 0xFF;
+	else
+		apic_id = ndst;
+
+	cpu = convert_apicid_to_cpu(apic_id);
+
+	WARN_ON_ONCE(cpu == -1);
+
+	return cpu;
+}
+
 static void free_upid(struct uintr_upid_ctx *upid_ctx)
 {
 	put_task_struct(upid_ctx->task);
@@ -686,6 +715,27 @@ int do_uintr_register_handler(u64 handler)
 	pr_debug("recv: task=%d register handler=%llx upid %px\n",
 		 t->pid, handler, upid);
 
+	return 0;
+}
+
+int uintr_notify_receiver(struct uintr_receiver_info *r_info)
+{
+	struct uintr_upid_ctx *upid_ctx = r_info->upid_ctx;
+	struct uintr_upid *upid = upid_ctx->upid;
+
+	set_bit((unsigned long)r_info->uvec, (unsigned long *)&upid->puir);
+
+	test_bit(UPID_SN, (unsigned long *)&upid->nc.status);
+
+	/* TODO: Use atomics for UPID since we are doing read-modify-write */
+	if (!test_bit(UPID_SN, (unsigned long *)&upid->nc.status) &&
+	    !test_bit(UPID_ON, (unsigned long *)&upid->nc.status)) {
+
+		set_bit(UPID_ON, (unsigned long *)&upid->nc.status);
+
+		/* Check: If directly writing to the APIC is better? */
+		apic->send_IPI(ndst_to_cpu(upid->nc.ndst), upid->nc.nv);
+	}
 	return 0;
 }
 
