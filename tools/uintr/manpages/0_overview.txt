@@ -1,0 +1,265 @@
+UINTR(7)               Miscellaneous Information Manual               UINTR(7)
+
+
+
+NAME
+       Uintr - overview of User Interrupts
+
+DESCRIPTION
+       User Interrupts (Uintr) provides a low latency event delivery and inter
+       process communication mechanism. These events can be delivered directly
+       to userspace without a transition to the kernel.
+
+       In  the  User  Interrupts  hardware  architecture, a receiver is always
+       expected to be a user space task. However, a user interrupt can be sent
+       by  another  user  space  task,  kernel  or  an external source (like a
+       device). The feature that allows another  userspace  task  to  send  an
+       interrupt is referred to as User IPI.
+
+       Uintr  is  a  hardware  dependent,  opt-in  feature. Application aren't
+       expected or able to send or receive  interrupts  unless  they  register
+       themselves with the kernel using the syscall interface described below.
+       It is recommended that applications wanting to use User Interrupts call
+       uintr_register_handler(2) and test whether the call succeeds.
+
+       Hardware  support  for  User  interrupts  may  be  detected using other
+       mechanisms but they could be misleading and are generally not needed:
+        - Using the cpuid instruction (Refer  the  Intel  Software  Developers
+       Manual).
+        -  Checking  for the "uintr" string in /proc/cpuinfo under the "flags"
+       field.
+
+
+       Applications wanting to use Uintr  should  also  be  able  to  function
+       without  it  as well. Uintr support might be unavailable because of any
+       one of the following reasons:
+        - the kernel code does not contain support
+        - the kernel support has been disabled
+        - the hardware does not support it
+
+
+   Uintr syscall interface
+       Applications can use and manage Uintr using the system calls  described
+       here.   The  Uintr  system  calls  are  available only if the kernel is
+       configured with the CONFIG_X86_USER_INTERRUPTS option.
+
+       1)  A  user  application   registers   an   interrupt   handler   using
+       uintr_register_handler(2).  The  registered  interrupt  handler will be
+       invoked when a user interrupt is delivered to  that  thread.  Only  one
+       interrupt  handler  can  be  registered by a particular thread within a
+       process.
+
+       2) Each thread that registered a handler  has  its  own  unique  vector
+       space  of  64  vectors.  The  thread can then use uintr_create_fd(2) to
+       register a vector  and  create  a  user  interrupt  file  descriptor  -
+       uintr_fd.
+
+       3)  The  uintr_fd is only associated with only one Uintr vector.  A new
+       uintr_fd must be created for  each  of  the  64  vectors.  uintr_fd  is
+       automatically  inherited  by forked processes but the receiver can also
+       share the uintr_fd with potential senders using any of the existing  FD
+       sharing  mechanisms  (like pidfd_getfd(2) or socket sendmsg(2)). Access
+       to  uintr_fd  allows  a  sender  to  generate  an  interrupt  with  the
+       associated  vector.  Upon  interrupt delivery, the interrupt handler is
+       invoked with the vector number pushed onto the stack  to  identify  the
+       source of the interrupt.
+
+       4)  Each  thread has a local flag called User Interrupt flag (UIF). The
+       thread can set or clear this flag to enable or disable interrupts.  The
+       default value of UIF is always 0 (Interrupts disabled). A receiver must
+       execute the _stui() intrinsic instruction  at  some  point  (before  or
+       anytime  after  registration)  to  start  receiving user interrupts. To
+       disable interrupts during critical sections the  thread  can  call  the
+       _clui() instruction to clear UIF.
+
+       5a)  For  sending a user IPI, the sender task registers with the kernel
+       using uintr_register_sender(2). The  kernel  would  setup  the  routing
+       tables to connect the sender and receiver. The syscall returns an index
+       that can be used with the 'SENDUIPI <index>' instruction to send a user
+       IPI.   If  the receiver is running, the interrupt is delivered directly
+       to the receiver without any kernel intervention.
+
+       5b) If the sender is the kernel or an external source, the uintr_fd can
+       be  passed  onto the related kernel entity to allow them to connect and
+       generate the user interrupt.  <The exact details of this API are  still
+       being worked upon.>
+
+       6)  The  receiver  can block in the kernel while it is waiting for user
+       interrupts to get delivered using uintr_wait(2). If  the  receiver  has
+       been  context switched out due to other reasons the user interrupt will
+       be delivered when the receiver gets scheduled back in.
+
+       <The behavior when the receiver has made  some  other  blocking  system
+       call like sleep(2) or read(2) is still to be decided. We are evaluating
+       if a thread made another blocking syscall  should  be  interrupted  and
+       woken  up  when a user interrupt arrives for that thread. uintr_wait(2)
+       has been implemented as a placeholder in the meantime.>
+
+       7) The sender and receiver are expected to coordinate and then call the
+       teardown syscalls to terminate the connection:
+         a. A sender unregisters with uintr_unregister_sender(2)
+         b. A vector is unregistered using close(uintr_fd)
+         c. A receiver unregisters with uintr_unregister_handler(2)
+
+       If  the  sender  and  receiver  aren't  able to coordinate, some shared
+       kernel resources between them would  get  freed  later  when  the  file
+       descriptors get released automatically on process exit.
+
+
+       Multi-threaded  applications  need to be careful when using Uintr since
+       it is a thread specific feature. Actions by one thread don't reflect on
+       other threads of the same application.
+
+
+   Toolchain support
+       Support  has  added  to  GCC(11.1)  and Binutils(2.36.1) to enable user
+       interrupt intrinsic instructions and compiler flag (-muintr).
+
+       The "(interrupt)" attribute can be used to compile a function as a user
+       interrupt  handler. In conjunction with the 'muintr' flag, the compiler
+       would:
+         - Generate the entry  and  exit  sequences  for  the  User  interrupt
+       handler
+         - Handle the saving and restoring of registers
+         - Call uiret to return from a user interrupt handler
+
+       User    Interrupts    related   compiler   intrinsic   instructions   -
+       <x86gprintrin.h>:
+
+       _clui() - Disable user interrupts - clear UIF (User Interrupt Flag).
+
+       _stui() - enable user interrupts - set UIF.
+
+       _testui() - test current value of UIF.
+
+       _uiret() - return from a user interrupt handler.
+
+       _senduipi <uipi_index> -  send  a  user  IPI  to  a  target  task.  The
+       uipi_index is obtained using uintr_register_sender(2).
+
+
+   Interrupt handler restrictions
+       There are restrictions on what can be done in a user interrupt handler.
+
+       For  example,  the  handler  and  the functions called from the handler
+       should only use general purpose registers.
+
+       For   details   refer   the   Uintr   compiler    programming    guide.
+       https://github.com/intel/uintr-compiler-guide/blob/uintr-
+       gcc-11.1/UINTR-compiler-guide.pdf
+
+
+CONFORMING TO
+              Uintr related system calls are Linux specific.
+
+EXAMPLES
+   Build
+       To compile this sample an updated toolchain is needed.
+        - Use GCC release 11 or higher &
+        - Use Binutils release 2.36 or higher
+
+       gcc -muintr -mgeneral-regs-only -minline-all-stringops uipi_sample.c -lpthread -o uipi_sample
+
+
+   Run
+       $./uipi_sample
+       Receiver enabled interrupts
+       Sending IPI from sender thread
+            -- User Interrupt handler --
+       Success
+
+
+   Program source
+       #define _GNU_SOURCE
+       #include <pthread.h>
+       #include <stdio.h>
+       #include <stdlib.h>
+       #include <syscall.h>
+       #include <unistd.h>
+       #include <x86gprintrin.h>
+
+       #define __NR_uintr_register_handler     449
+       #define __NR_uintr_unregister_handler   450
+       #define __NR_uintr_create_fd       451
+       #define __NR_uintr_register_sender 452
+       #define __NR_uintr_unregister_sender    453
+
+       #define uintr_register_handler(handler, flags)    syscall(__NR_uintr_register_handler, handler, flags)
+       #define uintr_unregister_handler(flags)      syscall(__NR_uintr_unregister_handler, flags)
+       #define uintr_create_fd(vector, flags)       syscall(__NR_uintr_create_fd, vector, flags)
+       #define uintr_register_sender(fd, flags)     syscall(__NR_uintr_register_sender, fd, flags)
+       #define uintr_unregister_sender(fd, flags)   syscall(__NR_uintr_unregister_sender, fd, flags)
+
+       unsigned int uintr_received;
+       unsigned int uintr_fd;
+
+       void __attribute__ ((interrupt)) uintr_handler(struct __uintr_frame *ui_frame,
+                                    unsigned long long vector)
+       {
+            static const char print[] = "\t-- User Interrupt handler --\n";
+
+            write(STDOUT_FILENO, print, sizeof(print) - 1);
+            uintr_received = 1;
+       }
+
+       void *sender_thread(void *arg)
+       {
+            int uipi_index;
+
+            uipi_index = uintr_register_sender(uintr_fd, 0);
+            if (uipi_index < 0) {
+                 printf("Sender register error\n");
+                 exit(EXIT_FAILURE);
+            }
+
+            printf("Sending IPI from sender thread\n");
+            _senduipi(uipi_index);
+
+            uintr_unregister_sender(uintr_fd, 0);
+
+            return NULL;
+       }
+
+       int main(int argc, char *argv[])
+       {
+            pthread_t pt;
+
+            if (uintr_register_handler(uintr_handler, 0)) {
+                 printf("Interrupt handler register error\n");
+                 exit(EXIT_FAILURE);
+            }
+
+            uintr_fd = uintr_create_fd(0, 0);
+            if (uintr_fd < 0) {
+                 printf("Interrupt vector registration error\n");
+                 exit(EXIT_FAILURE);
+            }
+
+            _stui();
+            printf("Receiver enabled interrupts\n");
+
+            if (pthread_create(&pt, NULL, &sender_thread, NULL)) {
+                 printf("Error creating sender thread\n");
+                 exit(EXIT_FAILURE);
+            }
+
+            /* Do some other work */
+            while (!uintr_received)
+                 usleep(1);
+
+            pthread_join(pt, NULL);
+            close(uintr_fd);
+            uintr_unregister_handler(0);
+
+            printf("Success\n");
+            exit(EXIT_SUCCESS);
+       }
+
+
+NOTES
+       Currently, there is no glibc wrapper for the Uintr related system call;
+       call  the system calls using syscall(2).
+
+
+
+                                                                      UINTR(7)

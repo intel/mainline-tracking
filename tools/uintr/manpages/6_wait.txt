@@ -1,0 +1,59 @@
+uintr_wait(2)                 System Calls Manual                uintr_wait(2)
+
+
+
+NAME
+       uintr_wait - wait for user interrupts
+
+
+SYNOPSIS
+        int uintr_wait(unsigned int flags);
+
+
+DESCRIPTION
+       uintr_wait()  causes  the  calling process (or thread) to sleep until a
+       user interrupt is delivered.
+
+       uintr_wait() will block in the kernel only when a interrupt handler has
+       been registered using uintr_register_handler(2)
+
+       <uintr_wait() is a placeholder syscall while we decide on the behaviour
+       of blocking system calls like sleep(2) and read(2) being interrupted by
+       uintr(7).>
+
+
+RETURN VALUE
+       uintr_wait()  returns  only  when  a user interrupt is received and the
+       interrupt handler function returned.  In this case, -1 is returned  and
+       errno is set to EINTR.
+
+
+ERRORS
+       EOPNOTSUPP  Underlying hardware doesn't have support for Uintr.
+
+       EOPNOTSUPP  No interrupt handler registered.
+
+       EINVAL        flags is not 0.
+
+       EINTR        A  user  interrupt  was received and the interrupt handler
+       returned.
+
+
+VERSIONS
+       uintr_wait() first appeared in Linux <tbd>.
+
+
+CONFORMING TO
+       uintr_wait() is Linux specific.
+
+
+NOTES
+       Currently, there is no glibc wrapper for  this  system  call;  call  it
+       using syscall(2).
+
+       The  user  interrupt  related  system  calls  need  hardware support to
+       generate and receive user interrupts. Refer uintr(7) for details.
+
+
+
+                                                                 uintr_wait(2)
