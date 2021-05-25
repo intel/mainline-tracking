@@ -878,8 +878,21 @@ __SYSCALL(__NR_landlock_restrict_self, sys_landlock_restrict_self)
 __SYSCALL(__NR_memfd_secret, sys_memfd_secret)
 #endif
 
+#define __NR_uintr_register_handler 447
+__SYSCALL(__NR_uintr_register_handler, sys_uintr_register_handler)
+#define __NR_uintr_unregister_handler 448
+__SYSCALL(__NR_uintr_unregister_handler, sys_uintr_unregister_handler)
+#define __NR_uintr_create_fd 449
+__SYSCALL(__NR_uintr_create_fd, sys_uintr_create_fd)
+#define __NR_uintr_register_sender 450
+__SYSCALL(__NR_uintr_register_sender, sys_uintr_register_sender)
+#define __NR_uintr_unregister_sender 451
+__SYSCALL(__NR_uintr_unregister_sender, sys_uintr_unregister_sender)
+#define __NR_uintr_wait 452
+__SYSCALL(__NR_uintr_wait, sys_uintr_wait)
+
 #undef __NR_syscalls
-#define __NR_syscalls 448
+#define __NR_syscalls 454
 
 /*
  * 32 bit systems traditionally used different
