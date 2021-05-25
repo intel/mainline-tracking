@@ -1,0 +1,104 @@
+uintr_create_fd(2)            System Calls Manual           uintr_create_fd(2)
+
+
+
+NAME
+       uintr_create_fd - Create a user interrupt file descriptor - uintr_fd
+
+
+SYNOPSIS
+        int uintr_create_fd(u64 vector, unsigned int flags);
+
+
+DESCRIPTION
+       uintr_create_fd()  allocates  a  new  user  interrupt  file  descriptor
+       (uintr_fd) based on the vector registered by the calling  process.  The
+       uintr_fd  can  be  shared  with other processes and the kernel to allow
+       them to generate interrupts with the associated vector.
+
+       The caller must have registered a handler via uintr_register_handler(2)
+       before attempting to create uintr_fd. The interrupts generated based on
+       this uintr_fd will be delivered only to the thread  that  created  this
+       file  descriptor.  A  unique  uintr_fd  is  generated  for  each vector
+       registered using uintr_create_fd().
+
+       Each thread has a private vector space of 64 vectors ranging from 0-63.
+       Vector number 63 has the highest priority while vector number 0 has the
+       lowest.  If two or more interrupts are pending to be delivered then the
+       interrupt  with  the  higher  vector  number  will  be  delivered first
+       followed by the ones with lower vector numbers. Applications can choose
+       appropriate  vector  numbers  to  prioritize  certain  interrupts  over
+       others.
+
+       Upon interrupt delivery, the handler is invoked with the vector  number
+       pushed  onto  the  stack  to help identify the source of the interrupt.
+       Since the vector space is per-thread, each receiver can receive  up  to
+       64 unique interrupt events.
+
+       A receiver can choose to share the same uintr_fd with multiple senders.
+       Since an interrupt with the same vector number would be delivered,  the
+       receiver  would  need  to  use  other  mechanisms to identify the exact
+       source of the interrupt.
+
+       The flags argument is reserved for future use.  Currently, it  must  be
+       specified as 0.
+
+       close(2)
+             When the file descriptor is no longer required it should be
+             closed.  When all file descriptors associated with the same
+             uintr_fd object have been closed, the resources for object are
+             freed by the kernel.
+
+       fork(2)
+             A copy of the file descriptor created by uintr_create_fd() is
+             inherited by the child produced by fork(2).  The duplicate file
+             descriptor is associated with the same uintr_fd object. The
+             close-on-exec flag (FD_CLOEXEC; see fcntl(2)) is set on the
+             file descriptor returned by uintr_create_fd().
+
+       For  information  on  how  to  generate  interrupts with uintr_fd refer
+       uintr_register_sender(2).
+
+
+RETURN VALUE
+       On success, uintr_create_fd() returns a new uintr_fd  file  descriptor.
+       On  error, -1 is returned and errno is set to indicate the cause of the
+       error.
+
+
+ERRORS
+       EOPNOTSUPP  Underlying hardware doesn't have support for Uintr.
+
+       EINVAL      flags is not 0.
+
+       EFAULT      handler address is not valid.
+
+       EMFILE        The  per-process  limit  on  the  number  of  open   file
+       descriptors has been reached.
+
+       ENFILE        The  system-wide  limit on the total number of open files
+       has been reached.
+
+       ENODEV       Could not mount (internal) anonymous inode device.
+
+       ENOMEM      The system is out of available memory to allocate uintr_fd.
+
+
+VERSIONS
+       uintr_create_fd() first appeared in Linux <tbd>.
+
+
+CONFORMING TO
+       uintr_create_fd() is Linux specific.
+
+
+NOTES
+       Currently, there is no glibc wrapper for  this  system  call;  call  it
+       using syscall(2).
+
+       The  user  interrupt  related  system  calls  need  hardware support to
+       generate and receive user interrupts. Refer uintr(7) for details.
+
+
+
+                                                            uintr_create_fd(2)
