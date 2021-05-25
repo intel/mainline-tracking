@@ -1,0 +1,9 @@
+====Build====
+Need custom gcc and binutils with user interrupt support
+
+====Run====
+$./uipi_sample
+Receiver enabled interrupts
+Sending IPI from sender thread
+        -- User Interrupt handler --
+Success
