@@ -11,6 +11,7 @@
 #include <linux/sched.h>
 #include <linux/sched/task.h>
 #include <linux/slab.h>
+#include <linux/task_work.h>
 #include <linux/uaccess.h>
 
 #include <asm/apic.h>
@@ -19,6 +20,8 @@
 #include <asm/msr.h>
 #include <asm/msr-index.h>
 #include <asm/uintr.h>
+
+#define UINTR_MAX_UVEC_NR 64
 
 /* User Posted Interrupt Descriptor (UPID) */
 struct uintr_upid {
@@ -36,13 +39,9 @@ struct uintr_upid {
 #define UPID_ON		0x0	/* Outstanding notification */
 #define UPID_SN		0x1	/* Suppressed notification */
 
-struct uintr_upid_ctx {
-	struct uintr_upid *upid;
-	refcount_t refs;
-};
-
 struct uintr_receiver {
 	struct uintr_upid_ctx *upid_ctx;
+	u64 uvec_mask;	/* track active vector per bit */
 };
 
 inline bool uintr_arch_enabled(void)
@@ -69,6 +68,7 @@ static inline u32 cpu_to_ndst(int cpu)
 
 static void free_upid(struct uintr_upid_ctx *upid_ctx)
 {
+	put_task_struct(upid_ctx->task);
 	kfree(upid_ctx->upid);
 	upid_ctx->upid = NULL;
 	kfree(upid_ctx);
@@ -93,6 +93,7 @@ static struct uintr_upid_ctx *alloc_upid(void)
 
 	upid_ctx->upid = upid;
 	refcount_set(&upid_ctx->refs, 1);
+	upid_ctx->task = get_task_struct(current);
 
 	return upid_ctx;
 }
@@ -101,6 +102,77 @@ static void put_upid_ref(struct uintr_upid_ctx *upid_ctx)
 {
 	if (refcount_dec_and_test(&upid_ctx->refs))
 		free_upid(upid_ctx);
+}
+
+static struct uintr_upid_ctx *get_upid_ref(struct uintr_upid_ctx *upid_ctx)
+{
+	refcount_inc(&upid_ctx->refs);
+	return upid_ctx;
+}
+
+static void __clear_vector_from_upid(u64 uvec, struct uintr_upid *upid)
+{
+	clear_bit(uvec, (unsigned long *)&upid->puir);
+}
+
+static void __clear_vector_from_task(u64 uvec)
+{
+	struct task_struct *t = current;
+
+	pr_debug("recv: task=%d free vector %llu\n", t->pid, uvec);
+
+	if (!(BIT_ULL(uvec) & t->thread.ui_recv->uvec_mask))
+		return;
+
+	clear_bit(uvec, (unsigned long *)&t->thread.ui_recv->uvec_mask);
+
+	if (!t->thread.ui_recv->uvec_mask)
+		pr_debug("recv: task=%d unregistered all user vectors\n", t->pid);
+}
+
+/* Callback to clear the vector structures when a vector is unregistered. */
+static void receiver_clear_uvec(struct callback_head *head)
+{
+	struct uintr_receiver_info *r_info;
+	struct uintr_upid_ctx *upid_ctx;
+	struct task_struct *t = current;
+	u64 uvec;
+
+	r_info = container_of(head, struct uintr_receiver_info, twork);
+	uvec = r_info->uvec;
+	upid_ctx = r_info->upid_ctx;
+
+	/*
+	 * If a task has unregistered the interrupt handler the vector
+	 * structures would have already been cleared.
+	 */
+	if (is_uintr_receiver(t)) {
+		/*
+		 * The UPID context in the callback might differ from the one
+		 * on the task if the task unregistered its interrupt handler
+		 * and then registered itself again. The vector structures
+		 * related to the previous UPID would have already been cleared
+		 * in that case.
+		 */
+		if (t->thread.ui_recv->upid_ctx != upid_ctx) {
+			pr_debug("recv: task %d is now using a different UPID\n",
+				 t->pid);
+			goto out_free;
+		}
+
+		/*
+		 * If the vector has been recognized in the UIRR don't modify
+		 * it. We need to disable User Interrupts before modifying the
+		 * UIRR. It might be better to just let that interrupt get
+		 * delivered.
+		 */
+		__clear_vector_from_upid(uvec, upid_ctx->upid);
+		__clear_vector_from_task(uvec);
+	}
+
+out_free:
+	put_upid_ref(upid_ctx);
+	kfree(r_info);
 }
 
 int do_uintr_unregister_handler(void)
@@ -235,6 +307,53 @@ int do_uintr_register_handler(u64 handler)
 
 	pr_debug("recv: task=%d register handler=%llx upid %px\n",
 		 t->pid, handler, upid);
+
+	return 0;
+}
+
+void do_uintr_unregister_vector(struct uintr_receiver_info *r_info)
+{
+	int ret;
+
+	pr_debug("recv: Adding task work to clear vector %llu added for task=%d\n",
+		 r_info->uvec, r_info->upid_ctx->task->pid);
+
+	init_task_work(&r_info->twork, receiver_clear_uvec);
+	ret = task_work_add(r_info->upid_ctx->task, &r_info->twork, true);
+	if (ret) {
+		pr_debug("recv: Clear vector task=%d has already exited\n",
+			 r_info->upid_ctx->task->pid);
+		put_upid_ref(r_info->upid_ctx);
+		kfree(r_info);
+		return;
+	}
+}
+
+int do_uintr_register_vector(struct uintr_receiver_info *r_info)
+{
+	struct uintr_receiver *ui_recv;
+	struct task_struct *t = current;
+
+	/*
+	 * A vector should only be registered by a task that
+	 * has an interrupt handler registered.
+	 */
+	if (!is_uintr_receiver(t))
+		return -EINVAL;
+
+	if (r_info->uvec >= UINTR_MAX_UVEC_NR)
+		return -ENOSPC;
+
+	ui_recv = t->thread.ui_recv;
+
+	if (ui_recv->uvec_mask & BIT_ULL(r_info->uvec))
+		return -EBUSY;
+
+	ui_recv->uvec_mask |= BIT_ULL(r_info->uvec);
+	pr_debug("recv: task %d new uvec=%llu, new mask %llx\n",
+		 t->pid, r_info->uvec, ui_recv->uvec_mask);
+
+	r_info->upid_ctx = get_upid_ref(ui_recv->upid_ctx);
 
 	return 0;
 }
