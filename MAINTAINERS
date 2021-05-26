@@ -9294,6 +9294,11 @@ S:	Maintained
 F:	Documentation/devicetree/bindings/phy/intel,phy-thunderbay-emmc.yaml
 F:	drivers/phy/intel/phy-intel-thunderbay-emmc.c
 
+INTEL KEEM BAY TIMER SUPPORT
+M:	Shruthi Sanil <shruthi.sanil@intel.com>
+S:	Maintained
+F:	drivers/clocksource/timer-keembay.c
+
 INTEL MANAGEMENT ENGINE (mei)
 M:	Tomas Winkler <tomas.winkler@intel.com>
 L:	linux-kernel@vger.kernel.org
