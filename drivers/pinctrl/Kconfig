@@ -461,7 +461,7 @@ config PINCTRL_EQUILIBRIUM
 
 config PINCTRL_THUNDERBAY
 	tristate "Generic pinctrl and GPIO driver for Intel Thunderbay SoC"
-	depends on ARM64 && COMPILE_TEST
+	depends on ARM64 || COMPILE_TEST
 	depends on HAS_IOMEM
 	select PINMUX
 	select PINCONF
