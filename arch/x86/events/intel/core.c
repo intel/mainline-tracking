@@ -4500,13 +4500,13 @@ static int intel_pmu_filter_match(struct perf_event *event)
 	return cpumask_test_cpu(cpu, &pmu->supported_cpus);
 }
 
-#ifdef CONFIG_X86_CET
+#ifdef CONFIG_X86_SHADOW_STACK
 
 static int
 intel_pmu_store_shadow_stack_user(struct perf_callchain_entry_ctx *ctx_entry)
 {
 	unsigned long left, stack_base, stack_top, return_addr = 0;
-	struct cet_status *cet = &current->thread.cet;
+	struct thread_shstk *shstk = &current->thread.shstk;
 	int step = sizeof(unsigned long);
 	int nr = 0;
 
@@ -4515,15 +4515,15 @@ intel_pmu_store_shadow_stack_user(struct perf_callchain_entry_ctx *ctx_entry)
 		return 0;
 
 	/* The shadow stack is not available. */
-	if (!cet->shstk_base || !cet->shstk_size)
+	if (!shstk->base || !shstk->size)
 		return 0;
 
-	stack_base = cet->shstk_base + cet->shstk_size;
+	stack_base = shstk->base + shstk->size;
 	/* TODO: special edition */
 //	stack_top = __cet_get_shstk_addr();
 	rdmsrl(MSR_IA32_PL3_SSP, stack_top);
 
-	if ((stack_base <= stack_top) || ((stack_base - stack_top) > cet->shstk_size))
+	if ((stack_base <= stack_top) || ((stack_base - stack_top) > shstk->size))
 		return 0;
 
 #ifdef CONFIG_X86_64
@@ -5260,7 +5260,7 @@ default_is_visible(struct kobject *kobj, struct attribute *attr, int i)
 	if (attr == &dev_attr_allow_tsx_force_abort.attr)
 		return x86_pmu.flags & PMU_FL_TFA ? attr->mode : 0;
 
-#ifdef CONFIG_X86_CET
+#ifdef CONFIG_X86_SHADOW_STACK
 	if (attr == &dev_attr_cet_shadow_stack_call_chain.attr)
 		return boot_cpu_has(X86_FEATURE_SHSTK) ? attr->mode : 0;
 #else
@@ -6184,7 +6184,7 @@ __init int intel_pmu_init(void)
 		x86_pmu.num_topdown_events = 4;
 		x86_pmu.update_topdown_event = icl_update_topdown_event;
 		x86_pmu.set_topdown_event_period = icl_set_topdown_event_period;
-#ifdef CONFIG_X86_CET
+#ifdef CONFIG_X86_SHADOW_STACK
 		if (boot_cpu_has(X86_FEATURE_SHSTK))
 			x86_pmu.store_shadow_stack_user = intel_pmu_store_shadow_stack_user;
 #endif
