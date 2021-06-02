@@ -686,6 +686,11 @@ static int detach_buf_split(struct vring_virtqueue *vq, unsigned int head,
 		if (!inside_split_ring(vq, i))
 			return -EIO;
 		vq->vq.num_free++;
+		if (WARN_ONCE(vq->vq.num_free >
+				vq->split.queue_size_in_bytes /
+					sizeof(struct vring_desc),
+				"Virtio freelist corrupted"))
+			return -EIO;
 	}
 
 	vring_unmap_one_split(vq, &vq->split.vring.desc[i]);
