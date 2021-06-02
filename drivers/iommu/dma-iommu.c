@@ -491,7 +491,8 @@ static void __iommu_dma_unmap(struct device *dev, dma_addr_t dma_addr,
 	iommu_dma_free_iova(cookie, dma_addr, size, iotlb_gather.freelist);
 }
 
-static void __iommu_dma_unmap_swiotlb(struct device *dev, dma_addr_t dma_addr,
+static int __iommu_dma_unmap_swiotlb_check(struct device *dev,
+		dma_addr_t dma_addr,
 		size_t size, enum dma_data_direction dir,
 		unsigned long attrs)
 {
@@ -500,12 +501,15 @@ static void __iommu_dma_unmap_swiotlb(struct device *dev, dma_addr_t dma_addr,
 
 	phys = iommu_iova_to_phys(domain, dma_addr);
 	if (WARN_ON(!phys))
-		return;
+		return -EIO;
 
 	__iommu_dma_unmap(dev, dma_addr, size);
 
 	if (unlikely(is_swiotlb_buffer(phys, size)))
 		swiotlb_tbl_unmap_single(dev, phys, size, dir, attrs);
+	else if (swiotlb_force == SWIOTLB_FORCE)
+		return -EIO;
+	return 0;
 }
 
 static dma_addr_t __iommu_dma_map(struct device *dev, phys_addr_t phys,
@@ -856,12 +860,13 @@ static dma_addr_t iommu_dma_map_page(struct device *dev, struct page *page,
 	return dma_handle;
 }
 
-static void iommu_dma_unmap_page(struct device *dev, dma_addr_t dma_handle,
+static int iommu_dma_unmap_page_check(struct device *dev, dma_addr_t dma_handle,
 		size_t size, enum dma_data_direction dir, unsigned long attrs)
 {
 	if (!(attrs & DMA_ATTR_SKIP_CPU_SYNC))
 		iommu_dma_sync_single_for_cpu(dev, dma_handle, size, dir);
-	__iommu_dma_unmap_swiotlb(dev, dma_handle, size, dir, attrs);
+	return __iommu_dma_unmap_swiotlb_check(dev, dma_handle, size, dir,
+					       attrs);
 }
 
 /*
@@ -946,7 +951,7 @@ static void iommu_dma_unmap_sg_swiotlb(struct device *dev, struct scatterlist *s
 	int i;
 
 	for_each_sg(sg, s, nents, i)
-		__iommu_dma_unmap_swiotlb(dev, sg_dma_address(s),
+		__iommu_dma_unmap_swiotlb_check(dev, sg_dma_address(s),
 				sg_dma_len(s), dir, attrs);
 }
 
@@ -1291,7 +1296,7 @@ static const struct dma_map_ops iommu_dma_ops = {
 	.mmap			= iommu_dma_mmap,
 	.get_sgtable		= iommu_dma_get_sgtable,
 	.map_page		= iommu_dma_map_page,
-	.unmap_page		= iommu_dma_unmap_page,
+	.unmap_page_check	= iommu_dma_unmap_page_check,
 	.map_sg			= iommu_dma_map_sg,
 	.unmap_sg		= iommu_dma_unmap_sg,
 	.sync_single_for_cpu	= iommu_dma_sync_single_for_cpu,
