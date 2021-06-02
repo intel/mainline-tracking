@@ -365,29 +365,31 @@ static int vring_mapping_error(const struct vring_virtqueue *vq,
  * Split ring specific functions - *_split().
  */
 
-static void vring_unmap_one_split(const struct vring_virtqueue *vq,
+static int vring_unmap_one_split(const struct vring_virtqueue *vq,
 				  struct vring_desc *desc)
 {
 	u16 flags;
+	int ret;
 
 	if (!vq->use_dma_api)
-		return;
+		return 0;
 
 	flags = virtio16_to_cpu(vq->vq.vdev, desc->flags);
 
 	if (flags & VRING_DESC_F_INDIRECT) {
-		dma_unmap_single(vring_dma_dev(vq),
+		ret = dma_unmap_single(vring_dma_dev(vq),
 				 virtio64_to_cpu(vq->vq.vdev, desc->addr),
 				 virtio32_to_cpu(vq->vq.vdev, desc->len),
 				 (flags & VRING_DESC_F_WRITE) ?
 				 DMA_FROM_DEVICE : DMA_TO_DEVICE);
 	} else {
-		dma_unmap_page(vring_dma_dev(vq),
+		ret = dma_unmap_page(vring_dma_dev(vq),
 			       virtio64_to_cpu(vq->vq.vdev, desc->addr),
 			       virtio32_to_cpu(vq->vq.vdev, desc->len),
 			       (flags & VRING_DESC_F_WRITE) ?
 			       DMA_FROM_DEVICE : DMA_TO_DEVICE);
 	}
+	return ret;
 }
 
 static struct vring_desc *alloc_indirect_split(struct virtqueue *_vq,
@@ -609,6 +611,10 @@ unmap_release:
 			break;
 		if (!inside_split_ring(vq, i))
 			break;
+		/*
+		 * Ignore unmapping errors since
+		 * we're aborting anyways.
+		 */
 		vring_unmap_one_split(vq, &desc[i]);
 		i = virtio16_to_cpu(_vq->vdev, desc[i].next);
 	}
@@ -655,6 +661,8 @@ static int detach_buf_split(struct vring_virtqueue *vq, unsigned int head,
 			    void **ctx)
 {
 	unsigned int i, j;
+	int ret;
+
 	__virtio16 nextflag = cpu_to_virtio16(vq->vq.vdev, VRING_DESC_F_NEXT);
 
 	/* We'll leak DMA mappings when this happens, but nothing
@@ -671,7 +679,9 @@ static int detach_buf_split(struct vring_virtqueue *vq, unsigned int head,
 	i = head;
 
 	while (vq->split.vring.desc[i].flags & nextflag) {
-		vring_unmap_one_split(vq, &vq->split.vring.desc[i]);
+		ret = vring_unmap_one_split(vq, &vq->split.vring.desc[i]);
+		if (ret)
+			return ret;
 		i = virtio16_to_cpu(vq->vq.vdev, vq->split.vring.desc[i].next);
 		if (!inside_split_ring(vq, i))
 			return -EIO;
@@ -878,6 +888,7 @@ static void *virtqueue_detach_unused_buf_split(struct virtqueue *_vq)
 			continue;
 		/* detach_buf_split clears data, so grab it now. */
 		buf = vq->split.desc_state[i].data;
+		/* Ignore unmap errors because there is nothing to abort */
 		detach_buf_split(vq, i, NULL);
 		/* Don't need to check for error because nothing is returned */
 		vq->split.avail_idx_shadow--;
