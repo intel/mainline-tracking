@@ -716,12 +716,12 @@ size_t dma_max_mapping_size(struct device *dev)
 }
 EXPORT_SYMBOL_GPL(dma_max_mapping_size);
 
-bool dma_need_sync(struct device *dev, dma_addr_t dma_addr)
+bool dma_need_sync(struct device *dev, dma_addr_t dma_addr, size_t size)
 {
 	const struct dma_map_ops *ops = get_dma_ops(dev);
 
 	if (dma_map_direct(dev, ops))
-		return dma_direct_need_sync(dev, dma_addr);
+		return dma_direct_need_sync(dev, dma_addr, size);
 	return ops->sync_single_for_cpu || ops->sync_single_for_device;
 }
 EXPORT_SYMBOL_GPL(dma_need_sync);
