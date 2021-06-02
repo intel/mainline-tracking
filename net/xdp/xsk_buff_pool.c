@@ -399,7 +399,7 @@ int xp_dma_map(struct xsk_buff_pool *pool, struct device *dev,
 			__xp_dma_unmap(dma_map, attrs);
 			return -ENOMEM;
 		}
-		if (dma_need_sync(dev, dma))
+		if (dma_need_sync(dev, dma, PAGE_SIZE))
 			dma_map->dma_need_sync = true;
 		dma_map->dma_pages[i] = dma;
 	}

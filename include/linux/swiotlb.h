@@ -101,11 +101,13 @@ struct io_tlb_mem {
 };
 extern struct io_tlb_mem *io_tlb_default_mem;
 
-static inline bool is_swiotlb_buffer(phys_addr_t paddr)
+static inline bool is_swiotlb_buffer(phys_addr_t paddr, size_t size)
 {
 	struct io_tlb_mem *mem = io_tlb_default_mem;
 
-	return mem && paddr >= mem->start && paddr < mem->end;
+	if (paddr + size <= paddr) /* wrapping */
+		return false;
+	return mem && paddr >= mem->start && paddr + size <= mem->end;
 }
 
 void __init swiotlb_exit(void);
@@ -115,7 +117,7 @@ bool is_swiotlb_active(void);
 void __init swiotlb_adjust_size(unsigned long size);
 #else
 #define swiotlb_force SWIOTLB_NO_FORCE
-static inline bool is_swiotlb_buffer(phys_addr_t paddr)
+static inline bool is_swiotlb_buffer(phys_addr_t paddr, size_t size)
 {
 	return false;
 }
