@@ -147,10 +147,13 @@ extern void __init update_regset_xstate_info(unsigned int size,
  *				contains all the enabled state components.
  * @user_size:			The size of user-space buffer for signal and
  *				ptrace frames, in the non-compacted format.
+ * @user_minsig_size:		The non-compacted legacy xstate size for signal.
+ *				Legacy programs do not request to access dynamic
+ *				states.
  */
 struct fpu_xstate_buffer_config {
 	unsigned int min_size, max_size;
-	unsigned int user_size;
+	unsigned int user_size, user_minsig_size;
 };
 
 extern struct fpu_xstate_buffer_config fpu_buf_cfg;

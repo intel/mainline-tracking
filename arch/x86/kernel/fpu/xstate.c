@@ -835,6 +835,21 @@ static int __init init_xstate_size(void)
 	 * User space is always in standard format.
 	 */
 	fpu_buf_cfg.user_size = xsave_size;
+
+	/*
+	 * The minimum signal xstate size is for non-opt-in user threads
+	 * that do not access dynamic states.
+	 */
+	if (xfeatures_mask_user_dynamic) {
+		int nr = fls64(xfeatures_mask_uabi() & ~xfeatures_mask_user_dynamic) - 1;
+		unsigned int size, offset, ecx, edx;
+
+		cpuid_count(XSTATE_CPUID, nr, &size, &offset, &ecx, &edx);
+		fpu_buf_cfg.user_minsig_size = offset + size;
+	} else {
+		fpu_buf_cfg.user_minsig_size = xsave_size;
+	}
+
 	return 0;
 }
 

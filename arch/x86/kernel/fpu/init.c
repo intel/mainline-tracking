@@ -210,6 +210,7 @@ static void __init fpu__init_system_xstate_size_legacy(void)
 	fpu_buf_cfg.min_size = xstate_size;
 	fpu_buf_cfg.max_size = xstate_size;
 	fpu_buf_cfg.user_size = xstate_size;
+	fpu_buf_cfg.user_minsig_size = xstate_size;
 }
 
 /* Legacy code to initialize eager fpu mode. */
