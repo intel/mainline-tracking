@@ -102,10 +102,13 @@ static bool xstate_aligns[XFEATURE_MAX] __ro_after_init =
  *				contains all the enabled state components.
  * @user_size:			The size of user-space buffer for signal and
  *				ptrace frames, in the non-compacted format.
+ * @user_minsig_size:		The non-compacted legacy xstate size for signal.
+ *				Legacy programs do not request to access dynamic
+ *				states.
  */
 struct fpu_xstate_buffer_config {
 	unsigned int min_size, max_size;
-	unsigned int user_size;
+	unsigned int user_size, user_minsig_size;
 };
 
 static struct fpu_xstate_buffer_config buffer_config __ro_after_init;
@@ -119,6 +122,8 @@ unsigned int get_xstate_config(enum xstate_config cfg)
 		return buffer_config.max_size;
 	case XSTATE_USER_SIZE:
 		return buffer_config.user_size;
+	case XSTATE_USER_MINSIG_SIZE:
+		return buffer_config.user_minsig_size;
 	default:
 		return 0;
 	}
@@ -136,6 +141,9 @@ void set_xstate_config(enum xstate_config cfg, unsigned int value)
 		break;
 	case XSTATE_USER_SIZE:
 		buffer_config.user_size = value;
+		break;
+	case XSTATE_USER_MINSIG_SIZE:
+		buffer_config.user_minsig_size = value;
 	}
 }
 
@@ -876,6 +884,21 @@ static int __init init_xstate_size(void)
 	 * User space is always in standard format.
 	 */
 	set_xstate_config(XSTATE_USER_SIZE, xsave_size);
+
+	/*
+	 * The minimum signal xstate size is for non-opt-in user threads
+	 * that do not access dynamic states.
+	 */
+	if (xfeatures_mask_user_dynamic) {
+		int nr = fls64(xfeatures_mask_uabi() & ~xfeatures_mask_user_dynamic) - 1;
+		unsigned int size, offset, ecx, edx;
+
+		cpuid_count(XSTATE_CPUID, nr, &size, &offset, &ecx, &edx);
+		set_xstate_config(XSTATE_USER_MINSIG_SIZE, offset + size);
+	} else {
+		set_xstate_config(XSTATE_USER_MINSIG_SIZE, xsave_size);
+	}
+
 	return 0;
 }
 
