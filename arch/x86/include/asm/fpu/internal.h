@@ -337,15 +337,30 @@ static inline void os_xrstor(struct xregs_state *xstate, u64 mask)
  */
 static inline int xsave_to_user_sigframe(struct xregs_state __user *buf)
 {
+	u32 lmask, hmask;
+	u64 mask;
+	int err;
+
 	/*
 	 * Include the features which are not xsaved/rstored by the kernel
 	 * internally, e.g. PKRU. That's user space ABI and also required
 	 * to allow the signal handler to modify PKRU.
 	 */
-	u64 mask = xfeatures_mask_uabi();
-	u32 lmask = mask;
-	u32 hmask = mask >> 32;
-	int err;
+	mask = xfeatures_mask_uabi();
+
+	/*
+	 * Exclude dynamic user states for non-opt-in threads.
+	 */
+	if (xfeatures_mask_user_dynamic) {
+		struct fpu *fpu = &current->thread.fpu;
+
+		mask &= fpu->dynamic_state_perm ?
+			fpu->state_mask :
+			~xfeatures_mask_user_dynamic;
+	}
+
+	lmask = mask;
+	hmask = mask >> 32;
 
 	/*
 	 * Clear the xsave header first, so that reserved fields are

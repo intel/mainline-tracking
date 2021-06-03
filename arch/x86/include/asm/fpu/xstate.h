@@ -142,7 +142,8 @@ extern void __init update_regset_xstate_info(unsigned int size,
 enum xstate_config {
 	XSTATE_MIN_SIZE,
 	XSTATE_MAX_SIZE,
-	XSTATE_USER_SIZE
+	XSTATE_USER_SIZE,
+	XSTATE_USER_MINSIG_SIZE,
 };
 
 extern unsigned int get_xstate_config(enum xstate_config cfg);
