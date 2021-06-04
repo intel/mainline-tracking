@@ -56,9 +56,9 @@ bool power_save_mode = 1;
 module_param(power_save_mode, bool, 0);
 MODULE_PARM_DESC(power_save_mode, "Power saving mode (default 1 - enabled)");
 
-uint sleep_duration_ms = 10 * MSEC_PER_SEC;
+uint sleep_duration_ms = 30 * MSEC_PER_SEC;
 module_param(sleep_duration_ms, uint, 0);
-MODULE_PARM_DESC(sleep_duration_ms, "Power saving mdoe thread check time in ms (default 5000 ms)");
+MODULE_PARM_DESC(sleep_duration_ms, "Power saving mode thread check time in ms (default 30000 ms)");
 
 static int link_device_drm(struct device_info *pdevinfo)
 {
