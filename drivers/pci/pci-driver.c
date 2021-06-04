@@ -20,6 +20,7 @@
 #include <linux/of_device.h>
 #include <linux/acpi.h>
 #include <linux/dma-map-ops.h>
+#include <linux/device/filter.h>
 #include "pci.h"
 #include "pcie/portdrv.h"
 
@@ -27,6 +28,47 @@ struct pci_dynid {
 	struct list_head node;
 	struct pci_device_id id;
 };
+
+/* pci_is_device_allowed() - Used to check whether given PCI
+ *			     device registration is allowed or
+ *			     not.
+ *
+ * This function will be called by device filter framework to
+ * check whether given device in PCI bus is allowed or blocked.
+ *
+ * Return true to allow device registration or false for
+ * blocking it.
+ */
+static bool pci_is_device_allowed(struct device *dev, void *data)
+{
+	struct pci_dev *pdev = to_pci_dev(dev);
+	struct pci_dev_filter_data *pdata = data;
+	bool status = false;
+	struct pci_filter_node *allow_list;
+	int i;
+
+	/* If PCI filter allow list does not exit, just return */
+	if (!pdata)
+		goto done;
+
+	allow_list = pdata->allow_list;
+
+	for (i = 0; i < pdata->len; i++) {
+		if ((allow_list[i].vendor == pdev->vendor ||
+		     allow_list[i].vendor == PCI_ANY_ID) &&
+		    (allow_list[i].device == pdev->device ||
+		     allow_list[i].device == PCI_ANY_ID)) {
+			status = true;
+			break;
+		}
+	}
+
+done:
+	pr_debug("PCI vendor:%x device:%x %s\n", pdev->vendor,
+		 pdev->device, status ? "allowed" : "blocked");
+
+	return status;
+}
 
 /**
  * pci_add_dynid - add a new PCI device ID to this driver and re-probe devices
@@ -1609,6 +1651,7 @@ struct bus_type pci_bus_type = {
 	.pm		= PCI_PM_OPS_PTR,
 	.num_vf		= pci_bus_num_vf,
 	.dma_configure	= pci_dma_configure,
+	.device_filter  = pci_is_device_allowed,
 };
 EXPORT_SYMBOL(pci_bus_type);
 
