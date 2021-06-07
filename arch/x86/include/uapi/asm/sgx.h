@@ -31,6 +31,8 @@ enum sgx_page_flags {
 	_IO(SGX_MAGIC, 0x04)
 #define SGX_IOC_ENCLAVE_RELAX_PERMISSIONS \
 	_IOWR(SGX_MAGIC, 0x05, struct sgx_enclave_relax_perm)
+#define SGX_IOC_ENCLAVE_RESTRICT_PERMISSIONS \
+	_IOWR(SGX_MAGIC, 0x06, struct sgx_enclave_restrict_perm)
 
 /**
  * struct sgx_enclave_create - parameter structure for the
@@ -92,6 +94,25 @@ struct sgx_enclave_relax_perm {
 	__u64 offset;
 	__u64 length;
 	__u64 secinfo;
+	__u64 count;
+};
+
+/**
+ * struct sgx_enclave_restrict_perm - parameters for ioctl
+ *                                    %SGX_IOC_ENCLAVE_RESTRICT_PERMISSIONS
+ * @offset:	starting page offset (page aligned relative to enclave base
+ *		address defined in SECS)
+ * @length:	length of memory (multiple of the page size)
+ * @secinfo:	address for the SECINFO data containing the new permission bits
+ *		for pages in range described by @offset and @length
+ * @result:	(output) SGX result code of ENCLS[EMODPR] function
+ * @count:	(output) bytes successfully changed (multiple of page size)
+ */
+struct sgx_enclave_restrict_perm {
+	__u64 offset;
+	__u64 length;
+	__u64 secinfo;
+	__u64 result;
 	__u64 count;
 };
 
