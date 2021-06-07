@@ -698,6 +698,202 @@ static long sgx_ioc_enclave_provision(struct sgx_encl *encl, void __user *arg)
 	return sgx_set_attribute(&encl->attributes_mask, params.fd);
 }
 
+static unsigned long vm_prot_from_secinfo(u64 secinfo_perm)
+{
+	unsigned long vm_prot;
+
+	vm_prot = _calc_vm_trans(secinfo_perm, SGX_SECINFO_R, PROT_READ)  |
+		  _calc_vm_trans(secinfo_perm, SGX_SECINFO_W, PROT_WRITE) |
+		  _calc_vm_trans(secinfo_perm, SGX_SECINFO_X, PROT_EXEC);
+	vm_prot = calc_vm_prot_bits(vm_prot, 0);
+
+	return vm_prot;
+}
+
+/**
+ * sgx_enclave_relax_perm() - Update OS after permissions relaxed by enclave
+ * @encl:	Enclave to which the pages belong.
+ * @modp:	Checked parameters from user on which pages need modifying.
+ * @secinfo_perm: New validated permission bits.
+ *
+ * Return:
+ * - 0:		Success.
+ * - -errno:	Otherwise.
+ */
+static long sgx_enclave_relax_perm(struct sgx_encl *encl,
+				   struct sgx_enclave_relax_perm *modp,
+				   u64 secinfo_perm)
+{
+	struct sgx_encl_page *entry;
+	unsigned long vm_prot;
+	unsigned long addr;
+	unsigned long c;
+	int ret;
+
+	vm_prot = vm_prot_from_secinfo(secinfo_perm);
+
+	for (c = 0 ; c < modp->length; c += PAGE_SIZE) {
+		addr = encl->base + modp->offset + c;
+
+		mutex_lock(&encl->lock);
+
+		entry = xa_load(&encl->page_array, PFN_DOWN(addr));
+		if (!entry) {
+			ret = -EFAULT;
+			goto out_unlock;
+		}
+
+		/*
+		 * Changing EPCM permissions is only supported on regular
+		 * SGX pages.
+		 */
+		if (entry->type != SGX_PAGE_TYPE_REG) {
+			ret = -EINVAL;
+			goto out_unlock;
+		}
+
+		/*
+		 * Do not accept permissions that are more relaxed
+		 * than vetted permissions.
+		 * If this check fails then EPCM permissions may be more
+		 * relaxed that what would be allowed by the kernel via
+		 * PTEs.
+		 */
+		if ((entry->vm_max_prot_bits & vm_prot) != vm_prot) {
+			ret = -EPERM;
+			goto out_unlock;
+		}
+
+		/*
+		 * Change runtime protection before zapping PTEs to ensure
+		 * any new #PF uses new permissions.
+		 */
+		entry->vm_run_prot_bits = vm_prot;
+
+		mutex_unlock(&encl->lock);
+		/*
+		 * Do not keep encl->lock because of dependency on
+		 * mmap_lock acquired in sgx_zap_enclave_ptes().
+		 */
+		sgx_zap_enclave_ptes(encl, addr);
+	}
+
+	ret = 0;
+	goto out;
+
+out_unlock:
+	mutex_unlock(&encl->lock);
+out:
+	modp->count = c;
+
+	return ret;
+}
+
+/*
+ * Ensure enclave is ready for SGX2 functions. Readiness is checked
+ * by ensuring the hardware supports SGX2 and the enclave is initialized
+ * and thus able to handle requests to modify pages within it.
+ */
+static int sgx_ioc_sgx2_ready(struct sgx_encl *encl)
+{
+	if (!(cpu_feature_enabled(X86_FEATURE_SGX2)))
+		return -ENODEV;
+
+	if (!test_bit(SGX_ENCL_INITIALIZED, &encl->flags))
+		return -EINVAL;
+
+	return 0;
+}
+
+/*
+ * Return valid permission fields from a secinfo structure provided by
+ * user space. The secinfo structure is required to only have bits in
+ * the permission fields set.
+ */
+static int sgx_perm_from_user_secinfo(void __user *_secinfo, u64 *secinfo_perm)
+{
+	struct sgx_secinfo secinfo;
+	u64 perm;
+
+	if (copy_from_user(&secinfo, (void __user *)_secinfo,
+			   sizeof(secinfo)))
+		return -EFAULT;
+
+	if (secinfo.flags & ~SGX_SECINFO_PERMISSION_MASK)
+		return -EINVAL;
+
+	if (memchr_inv(secinfo.reserved, 0, sizeof(secinfo.reserved)))
+		return -EINVAL;
+
+	perm = secinfo.flags & SGX_SECINFO_PERMISSION_MASK;
+
+	if ((perm & SGX_SECINFO_W) && !(perm & SGX_SECINFO_R))
+		return -EINVAL;
+
+	*secinfo_perm = perm;
+
+	return 0;
+}
+
+/**
+ * sgx_ioc_enclave_relax_perm() - handler for
+ *                                %SGX_IOC_ENCLAVE_RELAX_PERMISSIONS
+ * @encl:	an enclave pointer
+ * @arg:	userspace pointer to a &struct sgx_enclave_relax_perm instance
+ *
+ * SGX2 distinguishes between relaxing and restricting the enclave page
+ * permissions maintained by the hardware (EPCM permissions) of pages
+ * belonging to an initialized enclave (after %SGX_IOC_ENCLAVE_INIT).
+ *
+ * EPCM permissions can be relaxed anytime directly from within the enclave
+ * with no visibility from the kernel. This is accomplished with
+ * ENCLU[EMODPE] run from within the enclave. Accessing pages with
+ * the new, relaxed permissions requires the kernel to update the PTE
+ * to handle the subsequent #PF correctly.
+ *
+ * Enclave page permissions are not allowed to exceed the
+ * maximum vetted permissions maintained in
+ * &struct sgx_encl_page->vm_max_prot_bits. If the enclave
+ * exceeds these permissions by running ENCLU[EMODPE] from within the enclave
+ * the kernel will prevent access to the pages via PTE and
+ * VMA permissions.
+ *
+ * Return:
+ * - 0:		Success
+ * - -errno:	Otherwise
+ */
+static long sgx_ioc_enclave_relax_perm(struct sgx_encl *encl, void __user *arg)
+{
+	struct sgx_enclave_relax_perm params;
+	u64 secinfo_perm;
+	long ret;
+
+	ret = sgx_ioc_sgx2_ready(encl);
+	if (ret)
+		return ret;
+
+	if (copy_from_user(&params, arg, sizeof(params)))
+		return -EFAULT;
+
+	if (sgx_validate_offset_length(encl, params.offset, params.length))
+		return -EINVAL;
+
+	ret = sgx_perm_from_user_secinfo((void __user *)params.secinfo,
+					 &secinfo_perm);
+	if (ret)
+		return ret;
+
+	if (params.count)
+		return -EINVAL;
+
+	ret = sgx_enclave_relax_perm(encl, &params, secinfo_perm);
+
+	if (copy_to_user(arg, &params, sizeof(params)))
+		return -EFAULT;
+
+	return ret;
+}
+
 long sgx_ioctl(struct file *filep, unsigned int cmd, unsigned long arg)
 {
 	struct sgx_encl *encl = filep->private_data;
@@ -718,6 +914,9 @@ long sgx_ioctl(struct file *filep, unsigned int cmd, unsigned long arg)
 		break;
 	case SGX_IOC_ENCLAVE_PROVISION:
 		ret = sgx_ioc_enclave_provision(encl, (void __user *)arg);
+		break;
+	case SGX_IOC_ENCLAVE_RELAX_PERMISSIONS:
+		ret = sgx_ioc_enclave_relax_perm(encl, (void __user *)arg);
 		break;
 	default:
 		ret = -ENOIOCTLCMD;
