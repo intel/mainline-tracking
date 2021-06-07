@@ -344,6 +344,28 @@ static void intel_xpcie_handle_flr_work(struct work_struct *work)
 	}
 }
 
+static ssize_t flr_store(struct device *dev,
+			 struct device_attribute *mattr,
+			 const char *data, size_t count)
+{
+	struct pci_dev *pdev = container_of(dev, struct pci_dev, dev);
+	struct xpcie_dev *xdev = pci_get_drvdata(pdev);
+
+	intel_xpcie_pci_flr_reset(xdev->sw_devid);
+
+	return count;
+}
+static DEVICE_ATTR_WO(flr);
+
+static const struct attribute *xpcie_sysfs_attrs[] = {
+	&dev_attr_flr.attr,
+	NULL,
+};
+
+static const struct attribute_group xpcie_dev_sysfs_attrs = {
+	.attrs = (struct attribute **)xpcie_sysfs_attrs,
+};
+
 static int xpcie_device_init(struct xpcie_dev *xdev)
 {
 	int rc;
@@ -357,6 +379,12 @@ static int xpcie_device_init(struct xpcie_dev *xdev)
 	rc = intel_xpcie_pci_irq_init(xdev);
 	if (rc)
 		return rc;
+
+	rc = sysfs_create_group(&xdev->pci->dev.kobj, &xpcie_dev_sysfs_attrs);
+	if (rc) {
+		dev_err(&xdev->pci->dev, "Failed to create sysfs entries\n");
+		return rc;
+	}
 
 	pci_set_master(xdev->pci);
 
@@ -442,6 +470,7 @@ int intel_xpcie_pci_cleanup(struct xpcie_dev *xdev)
 	if (mutex_lock_interruptible(&xdev->lock))
 		return -EINTR;
 
+	sysfs_remove_group(&xdev->pci->dev.kobj, &xpcie_dev_sysfs_attrs);
 	cancel_delayed_work(&xdev->wait_event);
 	cancel_delayed_work(&xdev->shutdown_event);
 #if (IS_ENABLED(CONFIG_ARCH_THUNDERBAY))

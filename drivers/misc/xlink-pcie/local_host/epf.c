@@ -268,7 +268,6 @@ static irqreturn_t intel_xpcie_flr_interrupt(int irq_flr, void *args)
 
 	writel(1 << (epf->func_no), xpcie_epf->apb_base + 0x20);
 	readl(xpcie_epf->apb_base + 0x20);
-	schedule_work(&xpcie_epf->flr_irq_event);
 
 	return IRQ_HANDLED;
 }
@@ -289,7 +288,8 @@ int intel_xpcie_pci_ack_flr_reset(u32 id)
 		intel_xpcie_core_init(xpcie);
 		intel_xpcie_set_device_status(xpcie, XPCIE_STATUS_RUN);
 		intel_xpcie_raise_irq(xpcie, DEV_EVENT, FLR_RESET_ACK);
-		intel_xpcie_pci_notify_event(xpcie_epf, NOTIFY_DEVICE_CONNECTED);
+		intel_xpcie_pci_notify_event(xpcie_epf,
+					     NOTIFY_DEVICE_CONNECTED);
 		dev_info(&xpcie_epf->epf->dev, "FLR Reset Successful\n");
 	}
 
@@ -780,30 +780,30 @@ static ssize_t swdev_id_show(struct device *dev,
 
 	return strlen(buf);
 }
+static DEVICE_ATTR_RO(swdev_id);
 
-static ssize_t swdev_id_store(struct device *dev,
-			      struct device_attribute *attr,
-			      const char *buf, size_t count)
+static ssize_t ack_flr_store(struct device *dev,
+			     struct device_attribute *mattr,
+			     const char *data, size_t count)
 {
+	struct pci_epf *epf = container_of(dev, struct pci_epf, dev);
+	struct xpcie_epf *xpcie_epf = epf_get_drvdata(epf);
+
+	intel_xpcie_pci_ack_flr_reset(xpcie_epf->sw_devid);
+
 	return count;
 }
-static DEVICE_ATTR(swdev_id, S_IRWXU, swdev_id_show, swdev_id_store);
+static DEVICE_ATTR_WO(ack_flr);
 
-void intel_xpcie_init_sysfs_swdev_id(struct xpcie *xpcie, struct device *dev)
-{
-	xpcie->swdev_id = dev_attr_swdev_id;
-	xpcie->swdev_avail = false;
+static const struct attribute *xpcie_sysfs_attrs[] = {
+	&dev_attr_swdev_id.attr,
+	&dev_attr_ack_flr.attr,
+	NULL,
+};
 
-	device_create_file(dev, &xpcie->swdev_id);
-}
-
-void intel_xpcie_uninit_sysfs_swdev_id(struct xpcie *xpcie, struct device *dev)
-{
-	if (xpcie->swdev_avail) {
-		device_remove_file(dev, &xpcie->swdev_id);
-		xpcie->swdev_avail = false;
-	}
-}
+static const struct attribute_group xpcie_epf_sysfs_attrs = {
+	.attrs = (struct attribute **)xpcie_sysfs_attrs,
+};
 
 static int intel_xpcie_epf_bind(struct pci_epf *epf)
 {
@@ -916,8 +916,11 @@ static int intel_xpcie_epf_bind(struct pci_epf *epf)
 	memcpy(xpcie_epf->xpcie.io_comm + XPCIE_IO_COMM_MAGIC_OFF,
 	       XPCIE_BOOT_MAGIC_YOCTO, strlen(XPCIE_BOOT_MAGIC_YOCTO));
 
-	intel_xpcie_init_sysfs_swdev_id(&xpcie_epf->xpcie,
-					&xpcie_epf->epf->dev);
+	ret = sysfs_create_group(&epf->dev.kobj, &xpcie_epf_sysfs_attrs);
+	if (ret) {
+		dev_err(&epf->dev, "Failed to create sysfs entries\n");
+		goto err_uninit_dma;
+	}
 
 	return 0;
 
@@ -942,8 +945,7 @@ static void intel_xpcie_epf_unbind(struct pci_epf *epf)
 	intel_xpcie_core_cleanup(&xpcie_epf->xpcie);
 	intel_xpcie_set_device_status(&xpcie_epf->xpcie, XPCIE_STATUS_READY);
 
-	intel_xpcie_uninit_sysfs_swdev_id(&xpcie_epf->xpcie,
-					  &xpcie_epf->epf->dev);
+	sysfs_remove_group(&epf->dev.kobj, &xpcie_epf_sysfs_attrs);
 	intel_xpcie_ep_dma_uninit(epf);
 
 	pci_epc_stop(epc);
