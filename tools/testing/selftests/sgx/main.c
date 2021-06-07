@@ -23,6 +23,18 @@
 static const uint64_t MAGIC = 0x1122334455667788ULL;
 vdso_sgx_enter_enclave_t vdso_sgx_enter_enclave;
 
+/*
+ * Security Information (SECINFO) data structure needed by a few SGX
+ * instructions (eg. ENCLU[EACCEPT] and ENCLU[EMODPE]) holds meta-data
+ * about an enclave page. &enum sgx_secinfo_page_state specifies the
+ * secinfo flags used for page state.
+ */
+enum sgx_secinfo_page_state {
+	SGX_SECINFO_PENDING = (1 << 3),
+	SGX_SECINFO_MODIFIED = (1 << 4),
+	SGX_SECINFO_PR = (1 << 5),
+};
+
 struct vdso_symtab {
 	Elf64_Sym *elf_symtab;
 	const char *elf_symstrtab;
@@ -300,6 +312,258 @@ TEST_F(enclave, clobbered_vdso_and_user_function)
 	EXPECT_EQ(op.buffer, MAGIC);
 	EXPECT_EEXIT(&self->run);
 	EXPECT_EQ(self->run.user_data, 0);
+}
+
+/*
+ * Enclave page permission test.
+ *
+ * Modify and restore enclave page's EPCM (enclave) permissions from
+ * outside enclave (ENCLS[EMODPR] via OS) as well as from within enclave (via
+ * ENCLU[EMODPE]). Kernel should ensure PTE permissions are the same as
+ * the EPCM permissions so check for page fault if VMA allows access but
+ * EPCM and PTE does not.
+ */
+TEST_F(enclave, epcm_permissions)
+{
+	struct encl_op_get_from_addr get_addr_op;
+	struct encl_op_put_to_addr put_addr_op;
+	struct encl_op_eaccept eaccept_op;
+	struct encl_op_emodpe emodpe_op;
+	unsigned long data_start;
+	struct sgx_page_modp ioc;
+	int ret, errno_save;
+
+	ASSERT_TRUE(setup_test_encl(ENCL_HEAP_SIZE_DEFAULT, &self->encl, _metadata));
+
+	memset(&self->run, 0, sizeof(self->run));
+	self->run.tcs = self->encl.encl_base;
+
+	/*
+	 * Ensure kernel supports needed ioctl and system supports needed
+	 * commands.
+	 */
+	memset(&ioc, 0, sizeof(ioc));
+
+	ret = ioctl(self->encl.fd, SGX_IOC_PAGE_MODP, &ioc);
+
+	if (ret == -1) {
+		if (errno == ENOTTY)
+			SKIP(return, "Kernel does not support test SGX_IOC_PAGE_MODP ioctl");
+		else if (errno == ENODEV)
+			SKIP(return, "System does not support SGX2");
+	}
+
+	/*
+	 * Invalid parameters were provided during sanity check,
+	 * expect command to fail.
+	 */
+	EXPECT_EQ(ret, -1);
+
+	/*
+	 * Page that will have its permissions changed is the second data
+	 * page in the .data segment. This forms part of the local encl_buffer
+	 * within the enclave.
+	 *
+	 * At start of test @data_start should have EPCM as well as PTE
+	 * permissions of RW.
+	 */
+
+	data_start = self->encl.encl_base +
+		     encl_get_data_offset(&self->encl) + PAGE_SIZE;
+
+	/*
+	 * Sanity check that page at @data_start is writable before making
+	 * any changes to page permissions.
+	 *
+	 * Start by writing MAGIC to test page.
+	 */
+	put_addr_op.value = MAGIC;
+	put_addr_op.addr = data_start;
+	put_addr_op.header.type = ENCL_OP_PUT_TO_ADDRESS;
+
+	EXPECT_EQ(ENCL_CALL(&put_addr_op, &self->run, true), 0);
+
+	EXPECT_EEXIT(&self->run);
+	EXPECT_EQ(self->run.exception_vector, 0);
+	EXPECT_EQ(self->run.exception_error_code, 0);
+	EXPECT_EQ(self->run.exception_addr, 0);
+
+	/*
+	 * Read memory that was just written to, confirming that
+	 * page is writable.
+	 */
+	get_addr_op.value = 0;
+	get_addr_op.addr = data_start;
+	get_addr_op.header.type = ENCL_OP_GET_FROM_ADDRESS;
+
+	EXPECT_EQ(ENCL_CALL(&get_addr_op, &self->run, true), 0);
+
+	EXPECT_EQ(get_addr_op.value, MAGIC);
+	EXPECT_EEXIT(&self->run);
+	EXPECT_EQ(self->run.exception_vector, 0);
+	EXPECT_EQ(self->run.exception_error_code, 0);
+	EXPECT_EQ(self->run.exception_addr, 0);
+
+	/*
+	 * Change EPCM permissions to read-only, PTE entry flushed by OS in
+	 * the process.
+	 */
+	memset(&ioc, 0, sizeof(ioc));
+
+	ioc.offset = encl_get_data_offset(&self->encl) + PAGE_SIZE;
+	ioc.length = PAGE_SIZE;
+	ioc.prot = PROT_READ;
+
+	ret = ioctl(self->encl.fd, SGX_IOC_PAGE_MODP, &ioc);
+	errno_save = ret == -1 ? errno : 0;
+
+	EXPECT_EQ(ret, 0);
+	EXPECT_EQ(errno_save, 0);
+	EXPECT_EQ(ioc.result, 0);
+	EXPECT_EQ(ioc.count, 4096);
+
+	/*
+	 * EPCM permissions changed from OS, need to EACCEPT from enclave.
+	 */
+	eaccept_op.epc_addr = data_start;
+	eaccept_op.flags = PROT_READ | SGX_SECINFO_REG | SGX_SECINFO_PR;
+	eaccept_op.ret = 0;
+	eaccept_op.header.type = ENCL_OP_EACCEPT;
+
+	EXPECT_EQ(ENCL_CALL(&eaccept_op, &self->run, true), 0);
+
+	EXPECT_EEXIT(&self->run);
+	EXPECT_EQ(self->run.exception_vector, 0);
+	EXPECT_EQ(self->run.exception_error_code, 0);
+	EXPECT_EQ(self->run.exception_addr, 0);
+	EXPECT_EQ(eaccept_op.ret, 0);
+
+	/*
+	 * EPCM permissions of page is now read-only, expect #PF
+	 * on PTE (not EPCM) when attempting to write to page from
+	 * within enclave.
+	 */
+	put_addr_op.value = MAGIC2;
+
+	EXPECT_EQ(ENCL_CALL(&put_addr_op, &self->run, true), 0);
+
+	EXPECT_EQ(self->run.function, ERESUME);
+	EXPECT_EQ(self->run.exception_vector, 14);
+	EXPECT_EQ(self->run.exception_error_code, 0x7);
+	EXPECT_EQ(self->run.exception_addr, data_start);
+
+	self->run.exception_vector = 0;
+	self->run.exception_error_code = 0;
+	self->run.exception_addr = 0;
+
+	/*
+	 * Received AEX but cannot return to enclave at same entrypoint,
+	 * need different TCS from where EPCM permission can be made writable
+	 * again.
+	 */
+	self->run.tcs = self->encl.encl_base + PAGE_SIZE;
+
+	/*
+	 * Enter enclave at new TCS to change EPCM permissions to be
+	 * writable again and thus fix the page fault that triggered the
+	 * AEX.
+	 */
+
+	emodpe_op.epc_addr = data_start;
+	emodpe_op.flags = PROT_READ | PROT_WRITE;
+	emodpe_op.header.type = ENCL_OP_EMODPE;
+
+	EXPECT_EQ(ENCL_CALL(&emodpe_op, &self->run, true), 0);
+
+	EXPECT_EEXIT(&self->run);
+	EXPECT_EQ(self->run.exception_vector, 0);
+	EXPECT_EQ(self->run.exception_error_code, 0);
+	EXPECT_EQ(self->run.exception_addr, 0);
+
+	/*
+	 * Attempt to return to main TCS to resume execution at faulting
+	 * instruction, but PTE should still prevent writing to the page.
+	 */
+	self->run.tcs = self->encl.encl_base;
+
+	EXPECT_EQ(vdso_sgx_enter_enclave((unsigned long)&put_addr_op, 0, 0,
+					 ERESUME, 0, 0,
+					 &self->run),
+		  0);
+
+	EXPECT_EQ(self->run.function, ERESUME);
+	EXPECT_EQ(self->run.exception_vector, 14);
+	EXPECT_EQ(self->run.exception_error_code, 0x7);
+	EXPECT_EQ(self->run.exception_addr, data_start);
+
+	self->run.exception_vector = 0;
+	self->run.exception_error_code = 0;
+	self->run.exception_addr = 0;
+	/*
+	 * Inform OS about new permissions to have PTEs match EPCM.
+	 */
+	memset(&ioc, 0, sizeof(ioc));
+
+	ioc.offset = encl_get_data_offset(&self->encl) + PAGE_SIZE;
+	ioc.length = PAGE_SIZE;
+	ioc.prot = PROT_READ | PROT_WRITE;
+
+	ret = ioctl(self->encl.fd, SGX_IOC_PAGE_MODP, &ioc);
+	errno_save = ret == -1 ? errno : 0;
+
+	EXPECT_EQ(ret, 0);
+	EXPECT_EQ(errno_save, 0);
+	EXPECT_EQ(ioc.result, 0);
+	EXPECT_EQ(ioc.count, 4096);
+
+	/*
+	 * Wrong page permissions that caused original fault has
+	 * now been fixed via EPCM permissions as well as PTE.
+	 * Resume execution in main TCS to re-attempt the memory access.
+	 */
+	self->run.tcs = self->encl.encl_base;
+
+	EXPECT_EQ(vdso_sgx_enter_enclave((unsigned long)&put_addr_op, 0, 0,
+					 ERESUME, 0, 0,
+					 &self->run),
+		  0);
+
+	EXPECT_EEXIT(&self->run);
+	EXPECT_EQ(self->run.exception_vector, 0);
+	EXPECT_EQ(self->run.exception_error_code, 0);
+	EXPECT_EQ(self->run.exception_addr, 0);
+
+	get_addr_op.value = 0;
+
+	EXPECT_EQ(ENCL_CALL(&get_addr_op, &self->run, true), 0);
+
+	EXPECT_EQ(get_addr_op.value, MAGIC2);
+	EXPECT_EEXIT(&self->run);
+	EXPECT_EQ(self->run.user_data, 0);
+	EXPECT_EQ(self->run.exception_vector, 0);
+	EXPECT_EQ(self->run.exception_error_code, 0);
+	EXPECT_EQ(self->run.exception_addr, 0);
+
+	/*
+	 * The SGX_IOC_PAGE_MODP runs ENCLS[EMODPR] that sets EPCM.PR even
+	 * if permissions are not actually restricted. The previous memory
+	 * access succeeding shows that the PR flag does not prevent
+	 * access. Even so, include an ENCLU[EACCEPT] as reference
+	 * implementation to ensure EPCM does not have a dangling PR bit set.
+	 */
+
+	eaccept_op.epc_addr = data_start;
+	eaccept_op.flags = PROT_READ | PROT_WRITE | SGX_SECINFO_REG | SGX_SECINFO_PR;
+	eaccept_op.ret = 0;
+	eaccept_op.header.type = ENCL_OP_EACCEPT;
+
+	EXPECT_EQ(ENCL_CALL(&eaccept_op, &self->run, true), 0);
+
+	EXPECT_EEXIT(&self->run);
+	EXPECT_EQ(self->run.exception_vector, 0);
+	EXPECT_EQ(self->run.exception_error_code, 0);
+	EXPECT_EQ(self->run.exception_addr, 0);
+	EXPECT_EQ(eaccept_op.ret, 0);
 }
 
 TEST_HARNESS_MAIN
