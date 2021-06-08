@@ -30,4 +30,6 @@ static inline int perf_pmu__hybrid_pmu_num(void)
 	return num;
 }
 
+bool perf_pmu__is_invalid_hybrid(const char *name);
+
 #endif /* __PMU_HYBRID_H */

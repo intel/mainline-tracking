@@ -1617,6 +1617,9 @@ void print_pmu_events(const char *event_glob, bool name_only, bool quiet_flag,
 			continue;
 		}
 
+		if (perf_pmu__is_invalid_hybrid(pmu->name))
+			continue;
+
 		list_for_each_entry(alias, &pmu->aliases, list) {
 			char *name = alias->desc ? alias->name :
 				format_alias(buf, sizeof(buf), pmu, alias);
