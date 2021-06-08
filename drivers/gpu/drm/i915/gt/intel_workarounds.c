@@ -611,15 +611,16 @@ static void gen12_ctx_workarounds_init(struct intel_engine_cs *engine,
 				       struct i915_wa_list *wal)
 {
 	/*
-	 * Wa_1409142259:tgl
-	 * Wa_1409347922:tgl
-	 * Wa_1409252684:tgl
-	 * Wa_1409217633:tgl
-	 * Wa_1409207793:tgl
-	 * Wa_1409178076:tgl
-	 * Wa_1408979724:tgl
-	 * Wa_14010443199:rkl
-	 * Wa_14010698770:rkl
+	 * Wa_1409142259:tgl, adl_p
+	 * Wa_1409347922:tgl, adl_p
+	 * Wa_1409252684:tgl, adl_p
+	 * Wa_1409217633:tgl, adl_p
+	 * Wa_1409207793:tgl, adl_p
+	 * Wa_1409178076:tgl, adl_p
+	 * Wa_1408979724:tgl, adl_p
+	 * Wa_14010443199:rkl, adl_p
+	 * Wa_14010698770:rkl, adl_p
+	 * Wa_1409342910: adl_p
 	 */
 	wa_masked_en(wal, GEN11_COMMON_SLICE_CHICKEN3,
 		     GEN12_DISABLE_CPS_AWARE_COLOR_PIPE);
@@ -1605,31 +1606,32 @@ rcs_engine_wa_init(struct intel_engine_cs *engine, struct i915_wa_list *wal)
 	    IS_ROCKETLAKE(i915) || IS_TIGERLAKE(i915)) {
 		/* Wa_1606931601:tgl,rkl,dg1,adl-s */
 		wa_masked_en(wal, GEN7_ROW_CHICKEN2, GEN12_DISABLE_EARLY_READ);
+	}
+
+	if (IS_ALDERLAKE_P(i915) || IS_ALDERLAKE_S(i915) || IS_DG1(i915) ||
+	    IS_ROCKETLAKE(i915) || IS_TIGERLAKE(i915)) {
+		/*
+		 * Wa_1606700617:tgl,dg1,adlp
+		 * Wa_22010271021:tgl,rkl,dg1,adls,adlp
+		 * Wa_14010826681: tgl,dg1
+		 */
+		wa_masked_en(wal,
+			     GEN9_CS_DEBUG_MODE1,
+			     FF_DOP_CLOCK_GATE_DISABLE);
 
 		/*
 		 * Wa_1407928979:tgl A*
 		 * Wa_18011464164:tgl[B0+],dg1[B0+]
 		 * Wa_22010931296:tgl[B0+],dg1[B0+]
-		 * Wa_14010919138:rkl,dg1,adl-s
+		 * Wa_14010919138:rkl,dg1,adl-s,adl-p
 		 */
 		wa_write_or(wal, GEN7_FF_THREAD_MODE,
 			    GEN12_FF_TESSELATION_DOP_GATE_DISABLE);
-
-		/*
-		 * Wa_1606700617:tgl,dg1
-		 * Wa_22010271021:tgl,rkl,dg1, adl-s
-		 */
-		wa_masked_en(wal,
-			     GEN9_CS_DEBUG_MODE1,
-			     FF_DOP_CLOCK_GATE_DISABLE);
 	}
 
-	if (IS_ALDERLAKE_S(i915) || IS_DG1_REVID(i915, DG1_REVID_A0, DG1_REVID_A0) ||
+	if (IS_ALDERLAKE_P(i915) || IS_ALDERLAKE_S(i915) ||
+	    IS_DG1_REVID(i915, DG1_REVID_A0, DG1_REVID_A0) ||
 	    IS_ROCKETLAKE(i915) || IS_TIGERLAKE(i915)) {
-		/* Wa_1409804808:tgl,rkl,dg1[a0],adl-s */
-		wa_masked_en(wal, GEN7_ROW_CHICKEN2,
-			     GEN12_PUSH_CONST_DEREF_HOLD_DIS);
-
 		/*
 		 * Wa_1409085225:tgl
 		 * Wa_14010229206:tgl,rkl,dg1[a0],adl-s
@@ -1643,7 +1645,7 @@ rcs_engine_wa_init(struct intel_engine_cs *engine, struct i915_wa_list *wal)
 		/*
 		 * Wa_1607030317:tgl
 		 * Wa_1607186500:tgl
-		 * Wa_1607297627:tgl,rkl,dg1[a0]
+		 * Wa_1607297627:tgl,rkl,dg1[a0],adl-p
 		 *
 		 * On TGL and RKL there are multiple entries for this WA in the
 		 * BSpec; some indicate this is an A0-only WA, others indicate
@@ -1656,11 +1658,20 @@ rcs_engine_wa_init(struct intel_engine_cs *engine, struct i915_wa_list *wal)
 			     GEN8_RC_SEMA_IDLE_MSG_DISABLE);
 	}
 
+
 	if (IS_DG1(i915) || IS_ROCKETLAKE(i915) || IS_TIGERLAKE(i915)) {
 		/* Wa_1406941453:tgl,rkl,dg1 */
 		wa_masked_en(wal,
 			     GEN10_SAMPLER_MODE,
 			     ENABLE_SMALLPL);
+	}
+
+	if (IS_ALDERLAKE_P(i915) || IS_ALDERLAKE_S(i915) ||
+	    IS_DG1_REVID(i915, DG1_REVID_A0, DG1_REVID_A0) ||
+	    IS_ROCKETLAKE(i915) || IS_TIGERLAKE(i915)) {
+		/* Wa_1409804808:tgl,rkl,dg1[a0],adl-s,adl-p */
+		wa_masked_en(wal, GEN7_ROW_CHICKEN2,
+			     GEN12_PUSH_CONST_DEREF_HOLD_DIS);
 	}
 
 	if (IS_GEN(i915, 11)) {
