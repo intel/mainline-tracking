@@ -91,23 +91,13 @@ static struct sgx_epc_page *sgx_encl_eldu(struct sgx_encl_page *encl_page,
 }
 
 static struct sgx_encl_page *sgx_encl_load_page(struct sgx_encl *encl,
-						unsigned long addr,
-						unsigned long vm_flags)
+						unsigned long addr)
 {
-	unsigned long vm_prot_bits = vm_flags & (VM_READ | VM_WRITE | VM_EXEC);
 	struct sgx_epc_page *epc_page;
 	struct sgx_encl_page *entry;
 
 	entry = xa_load(&encl->page_array, PFN_DOWN(addr));
 	if (!entry)
-		return ERR_PTR(-EFAULT);
-
-	/*
-	 * Verify that the faulted page has equal or higher build time
-	 * permissions than the VMA permissions (i.e. the subset of {VM_READ,
-	 * VM_WRITE, VM_EXECUTE} in vma->vm_flags).
-	 */
-	if ((entry->vm_max_prot_bits & vm_prot_bits) != vm_prot_bits)
 		return ERR_PTR(-EFAULT);
 
 	/* Entry successfully located. */
@@ -138,7 +128,9 @@ static vm_fault_t sgx_vma_fault(struct vm_fault *vmf)
 {
 	unsigned long addr = (unsigned long)vmf->address;
 	struct vm_area_struct *vma = vmf->vma;
+	unsigned long page_prot_bits;
 	struct sgx_encl_page *entry;
+	unsigned long vm_prot_bits;
 	unsigned long phys_addr;
 	struct sgx_encl *encl;
 	vm_fault_t ret;
@@ -155,7 +147,7 @@ static vm_fault_t sgx_vma_fault(struct vm_fault *vmf)
 
 	mutex_lock(&encl->lock);
 
-	entry = sgx_encl_load_page(encl, addr, vma->vm_flags);
+	entry = sgx_encl_load_page(encl, addr);
 	if (IS_ERR(entry)) {
 		mutex_unlock(&encl->lock);
 
@@ -167,7 +159,19 @@ static vm_fault_t sgx_vma_fault(struct vm_fault *vmf)
 
 	phys_addr = sgx_get_epc_phys_addr(entry->epc_page);
 
-	ret = vmf_insert_pfn(vma, addr, PFN_DOWN(phys_addr));
+	/*
+	 * Insert PTE to match the EPCM page permissions ensured to not
+	 * exceed the VMA permissions.
+	 */
+	vm_prot_bits = vma->vm_flags & (VM_READ | VM_WRITE | VM_EXEC);
+	page_prot_bits = entry->vm_max_prot_bits & vm_prot_bits;
+	/*
+	 * Add VM_SHARED so that PTE is made writable right away if VMA
+	 * and EPCM are writable (no COW in SGX).
+	 */
+	page_prot_bits |= (vma->vm_flags & VM_SHARED);
+	ret = vmf_insert_pfn_prot(vma, addr, PFN_DOWN(phys_addr),
+				  vm_get_page_prot(page_prot_bits));
 	if (ret != VM_FAULT_NOPAGE) {
 		mutex_unlock(&encl->lock);
 
@@ -295,15 +299,14 @@ static int sgx_encl_debug_write(struct sgx_encl *encl, struct sgx_encl_page *pag
  * Load an enclave page to EPC if required, and take encl->lock.
  */
 static struct sgx_encl_page *sgx_encl_reserve_page(struct sgx_encl *encl,
-						   unsigned long addr,
-						   unsigned long vm_flags)
+						   unsigned long addr)
 {
 	struct sgx_encl_page *entry;
 
 	for ( ; ; ) {
 		mutex_lock(&encl->lock);
 
-		entry = sgx_encl_load_page(encl, addr, vm_flags);
+		entry = sgx_encl_load_page(encl, addr);
 		if (PTR_ERR(entry) != -EBUSY)
 			break;
 
@@ -339,8 +342,7 @@ static int sgx_vma_access(struct vm_area_struct *vma, unsigned long addr,
 		return -EFAULT;
 
 	for (i = 0; i < len; i += cnt) {
-		entry = sgx_encl_reserve_page(encl, (addr + i) & PAGE_MASK,
-					      vma->vm_flags);
+		entry = sgx_encl_reserve_page(encl, (addr + i) & PAGE_MASK);
 		if (IS_ERR(entry)) {
 			ret = PTR_ERR(entry);
 			break;
