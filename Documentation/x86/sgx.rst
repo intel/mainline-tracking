@@ -99,6 +99,16 @@ The relationships between the different permission masks are:
 * PTEs are installed to match the EPCM permissions, without exceeding the
   VMA permissions.
 
+On systems supporting SGX2 EPCM permissions may change while the
+enclave page belongs to a VMA without impacting the VMA permissions.
+This means that a running VMA may appear to allow access to an enclave
+page that is not allowed by its EPCM permissions. For example, when an
+enclave page with RW EPCM permissions is mapped by a RW VMA but is
+subsequently changed to have read-only EPCM permissions. The kernel
+continues to maintain correct access to the enclave page through the
+PTE that will ensure that only access allowed by both the VMA
+and EPCM permissions are permitted.
+
 Application interface
 =====================
 
