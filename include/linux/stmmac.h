@@ -294,5 +294,6 @@ struct plat_stmmacenet_data {
 	bool serdes_up_after_phy_linkup;
 	const struct dwmac4_addrs *dwmac4_addrs;
 	bool has_integrated_pcs;
+	bool skip_reset;
 };
 #endif
