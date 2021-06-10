@@ -42,7 +42,7 @@ config INTEL_KEEMBAY_IPC_MBOX
 	tristate "Intel Keem Bay IPC Mailbox"
 	depends on HAS_IOMEM
 	depends on OF || COMPILE_TEST
-	depends on ARCH_KEEMBAY || COMPILE_TEST
+	depends on ARCH_KEEMBAY || ARCH_THUNDERBAY || COMPILE_TEST
 	help
 	  Mailbox implementation for enabling inter-processor communication
 	  between the application processor and the VPU on the Intel Keem Bay

@@ -8,7 +8,7 @@ menu "Intel SoC drivers"
 config KEEMBAY_VPU_IPC
 	tristate "Intel Keem Bay VPU IPC Driver"
 	depends on INTEL_KEEMBAY_IPC_MBOX
-	depends on ARCH_KEEMBAY || (ARM64 && COMPILE_TEST)
+	depends on ARCH_KEEMBAY || ARCH_THUNDERBAY || (ARM64 && COMPILE_TEST)
 	depends on HAVE_ARM_SMCCC
 	help
 	  This option enables support for loading and communicating with
