@@ -790,6 +790,7 @@ void igc_ptp_clear_xsk_tx_tstamp_queue(struct igc_adapter *adapter,
 				       u16 queue_id);
 void igc_ptp_read(struct igc_adapter *adapter, struct timespec64 *ts);
 void igc_ptp_tx_tstamp_event(struct igc_adapter *adapter);
+ktime_t igc_tx_dma_hw_tstamp(struct igc_adapter *adapter, u64 tstamp);
 
 int igc_led_setup(struct igc_adapter *adapter);
 void igc_led_free(struct igc_adapter *adapter);
