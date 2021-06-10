@@ -185,9 +185,14 @@ static irqreturn_t intel_xpcie_core_interrupt(int irq, void *args)
 	u8 event;
 
 #if (IS_ENABLED(CONFIG_ARCH_THUNDERBAY))
-	stage = intel_xpcie_check_magic(xdev);
-	if (stage == STAGE_ROM || stage == STAGE_UBOOT || stage == STAGE_RECOV)
-		schedule_work(&xdev->irq_event);
+	if (xdev->xpcie.status != XPCIE_STATUS_READY &&
+	    xdev->xpcie.status != XPCIE_STATUS_RUN) {
+		stage = intel_xpcie_check_magic(xdev);
+		if (stage == STAGE_ROM ||
+		    stage == STAGE_UBOOT ||
+		    stage == STAGE_RECOV)
+			schedule_work(&xdev->irq_event);
+	}
 #endif
 
 	event = intel_xpcie_get_doorbell(&xdev->xpcie, FROM_DEVICE, DEV_EVENT);
