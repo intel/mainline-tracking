@@ -6820,6 +6820,64 @@ fail:
 }
 
 /*
+ * find_asym_packing_idle_cpu: find highest priority idle CPU (or sched_idle CPU)
+ *
+ * Return the highest priority idle CPU.
+ * Return prev_cpu if a tie.
+ * Return -1 if no idle CPU found
+ *
+ * If no idle CPUs, return as above, but for sched_idle CPUs.
+ */
+static int find_asym_packing_idle_cpu(struct task_struct *p, int prev_cpu)
+{
+	struct sched_domain *sd;
+	int new_idle_cpu = -1;
+	int new_sched_idle_cpu = -1;
+	int i;
+
+	rcu_read_lock();
+	sd = rcu_dereference(per_cpu(sd_asym_packing, prev_cpu));
+	if (!sd) {
+		rcu_read_unlock();
+		return -1;
+	}
+
+	if (available_idle_cpu(prev_cpu))
+		new_idle_cpu = prev_cpu;
+	else if (sched_idle_cpu(prev_cpu))
+		new_sched_idle_cpu = prev_cpu;
+
+	for_each_cpu(i, sched_domain_span(sd)) {
+		if (!cpumask_test_cpu(i, p->cpus_ptr))
+			continue;
+		if (!available_idle_cpu(i)) {
+			if (sched_idle_cpu(i)) {
+				if (new_sched_idle_cpu == -1)
+					new_sched_idle_cpu = i;
+				else if (sched_asym_prefer(i, new_sched_idle_cpu))
+					new_sched_idle_cpu = i;
+			}
+			continue;
+		}
+		if (new_idle_cpu == -1)
+			new_idle_cpu = i;
+		else if (sched_asym_prefer(i, new_idle_cpu)) {
+			new_idle_cpu = i;
+			/*
+			 * Assume that finding a preference between two idle cpus
+			 * (including idle prev_cpu) is sufficent searching.
+			 */
+			break;
+		}
+	}
+	rcu_read_unlock();
+
+	if (new_idle_cpu == -1)
+		return new_sched_idle_cpu;
+	return new_idle_cpu;
+}
+
+/*
  * select_task_rq_fair: Select target runqueue for the waking task in domains
  * that have the relevant SD flag set. In practice, this is SD_BALANCE_WAKE,
  * SD_BALANCE_FORK, or SD_BALANCE_EXEC.
@@ -6849,8 +6907,13 @@ select_task_rq_fair(struct task_struct *p, int prev_cpu, int wake_flags)
 			new_cpu = find_energy_efficient_cpu(p, prev_cpu);
 			if (new_cpu >= 0)
 				return new_cpu;
-			new_cpu = prev_cpu;
 		}
+
+		new_cpu = find_asym_packing_idle_cpu(p, prev_cpu);
+		if (new_cpu >= 0)
+			return new_cpu;
+
+		new_cpu = prev_cpu;
 
 		want_affine = !wake_wide(p) && cpumask_test_cpu(cpu, p->cpus_ptr);
 	}
