@@ -292,7 +292,18 @@ static struct platform_driver vpu_cooling_driver = {
 	},
 };
 
-module_platform_driver(vpu_cooling_driver);
+static int __init vpu_cd_init(void)
+{
+	return platform_driver_register(&vpu_cooling_driver);
+}
+
+static void __exit vpu_cd_exit(void)
+{
+	platform_driver_unregister(&vpu_cooling_driver);
+}
+
+late_initcall(vpu_cd_init);
+module_exit(vpu_cd_exit);
 
 MODULE_AUTHOR("Demakkanavar, Kenchappa <kenchappa.demakkanavar@intel.com>");
 MODULE_AUTHOR("S,Kiran Kumar <Kiran.Kumar1.S@intel.com>");
