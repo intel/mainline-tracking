@@ -186,14 +186,14 @@ u8 intel_xpcie_get_max_functions(struct xpcie *xpcie)
 	return intel_xpcie_ioread8(xpcie->mmio + XPCIE_MMIO_MAX_FUNCTIONS);
 }
 
-void intel_xpcie_set_physical_device_id(struct xpcie *xpcie, u16 phys_id)
+void intel_xpcie_set_sw_device_id(struct xpcie *xpcie, u32 sw_devid)
 {
-	intel_xpcie_iowrite16(phys_id, xpcie->mmio + XPCIE_MMIO_PHY_DEV_ID);
+	intel_xpcie_iowrite32(sw_devid, xpcie->mmio + XPCIE_MMIO_SW_DEVID);
 }
 
-u16 intel_xpcie_get_physical_device_id(struct xpcie *xpcie)
+u32 intel_xpcie_get_sw_device_id(struct xpcie *xpcie)
 {
-	return intel_xpcie_ioread16(xpcie->mmio + XPCIE_MMIO_PHY_DEV_ID);
+	return intel_xpcie_ioread32(xpcie->mmio + XPCIE_MMIO_SW_DEVID);
 }
 #endif
 

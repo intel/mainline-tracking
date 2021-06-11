@@ -49,7 +49,7 @@ struct xpcie_mmio {
 	u32 device_status;
 	u32 host_status;
 #if (IS_ENABLED(CONFIG_ARCH_THUNDERBAY))
-	u16 phy_dev_id;
+	u32 sw_devid;
 	u8 max_functions;
 #endif
 	u8 legacy_a0;
@@ -62,10 +62,10 @@ struct xpcie_mmio {
 	u8 dtoh_event_doorbell;
 #if (IS_ENABLED(CONFIG_ARCH_THUNDERBAY))
 	u8 htod_phy_id_doorbell_status;
+	u8 rsvd[2];
 #endif
 	u32 cap_offset;
 	u32 htod_rx_bd_list_count;
-	u32 dummy;
 } __packed;
 
 #define XPCIE_MMIO_LEGACY_A0	(offsetof(struct xpcie_mmio, legacy_a0))
@@ -94,7 +94,7 @@ struct xpcie_mmio {
 
 #if (IS_ENABLED(CONFIG_ARCH_THUNDERBAY))
 
-#define XPCIE_MMIO_PHY_DEV_ID	(offsetof(struct xpcie_mmio, phy_dev_id))
+#define XPCIE_MMIO_SW_DEVID	(offsetof(struct xpcie_mmio, sw_devid))
 #define XPCIE_MMIO_MAX_FUNCTIONS \
 	(offsetof(struct xpcie_mmio, max_functions))
 #define XPCIE_MMIO_HTOD_PHY_ID_DOORBELL_STATUS \

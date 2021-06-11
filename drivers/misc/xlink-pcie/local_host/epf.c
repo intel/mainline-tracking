@@ -190,10 +190,7 @@ static irqreturn_t intel_xpcie_host_interrupt(int irq, void *args)
 	struct xpcie_epf *xpcie_epf = container_of(xpcie,
 						   struct xpcie_epf, xpcie);
 	u8 event;
-#if (IS_ENABLED(CONFIG_ARCH_THUNDERBAY))
-	u16 phy_id = 0;
-	u8 max_functions = 0;
-#else
+#if (!IS_ENABLED(CONFIG_ARCH_THUNDERBAY))
 	u32 val;
 
 	val = ioread32(xpcie_epf->apb_base + PCIE_REGS_PCIE_INTR_FLAGS);
@@ -220,16 +217,16 @@ static irqreturn_t intel_xpcie_host_interrupt(int irq, void *args)
 	if (intel_xpcie_get_doorbell(xpcie, TO_DEVICE, PHY_ID_UPDATED)) {
 		intel_xpcie_set_doorbell(xpcie, TO_DEVICE, PHY_ID_UPDATED, 0);
 		if (!xpcie_epf->sw_dev_id_updated) {
-			phy_id = intel_xpcie_get_physical_device_id(xpcie);
-			max_functions = intel_xpcie_get_max_functions(xpcie);
 			xpcie_epf->sw_devid =
-			intel_xpcie_create_sw_device_id(xpcie_epf->epf->func_no,
-							phy_id, max_functions);
+				intel_xpcie_get_sw_device_id(xpcie);
 			xpcie_epf->sw_dev_id_updated = true;
 			dev_info(xpcie_to_dev(xpcie),
-				 "pcie: func_no=%x swid updated=%x phy_id=%x\n",
+				 "pcie: func_no=%x swid updated=%x\n",
 				 xpcie_epf->epf->func_no,
-				 xpcie_epf->sw_devid, phy_id);
+				 xpcie_epf->sw_devid);
+
+			intel_xpcie_set_doorbell(xpcie, FROM_DEVICE, DEV_EVENT,
+						 PHY_ID_RECIEVED_ACK);
 		}
 	}
 #endif
@@ -771,9 +768,8 @@ static ssize_t swdev_id_show(struct device *dev,
 {
 	struct pci_epf *epf = container_of(dev, struct pci_epf, dev);
 	struct xpcie_epf *xpcie_epf = epf_get_drvdata(epf);
-	struct xpcie *xpcie = &xpcie_epf->xpcie;
 
-	if (xpcie->swdev_avail)
+	if (xpcie_epf->sw_dev_id_updated)
 		snprintf(buf, 4096, "%s\n", "okay");
 	else
 		snprintf(buf, 4096, "%s\n", "disabled");

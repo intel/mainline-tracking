@@ -21,6 +21,8 @@
 #include "../common/core.h"
 #include "../common/util.h"
 
+#define MAX_SW_DEVID_RETRIES 10
+
 static int aspm_enable;
 module_param(aspm_enable, int, 0664);
 MODULE_PARM_DESC(aspm_enable, "enable ASPM");
@@ -271,32 +273,60 @@ static void xpcie_device_poll(struct work_struct *work)
 					      wait_event.work);
 	enum xpcie_stage stage = intel_xpcie_check_magic(xdev);
 #if (IS_ENABLED(CONFIG_ARCH_THUNDERBAY))
-	u8 max_functions;
+	u8 max_functions, event, fn_no;
+	static u8 sw_devid_retries;
+	bool poll_again = true;
 	u32 devid;
 #endif
 	if (stage == STAGE_RECOV) {
 		if (xdev->xpcie.status != XPCIE_STATUS_RECOVERY)
 			xdev->xpcie.status = XPCIE_STATUS_RECOVERY;
 	} else if (stage == STAGE_OS) {
-		xdev->xpcie.status = XPCIE_STATUS_READY;
 #if (IS_ENABLED(CONFIG_ARCH_THUNDERBAY))
-		devid = (PCI_BUS_NUM(xdev->devid) << 8) |
-			 PCI_SLOT(xdev->pci->devfn);
-		intel_xpcie_set_physical_device_id(&xdev->xpcie, devid);
-		max_functions = intel_xpcie_get_max_functions(&xdev->xpcie);
-		xdev->sw_devid =
-			intel_xpcie_create_sw_device_id
-			(PCI_FUNC(xdev->pci->devfn), devid, max_functions);
-		dev_info(&xdev->pci->dev,
-			 "sw_devid=%x, function idx=%d, max_functions=%d\n",
-			 xdev->sw_devid,
-			 PCI_FUNC(xdev->pci->devfn), max_functions);
-		intel_xpcie_pci_raise_irq(xdev, PHY_ID_UPDATED, 1);
+		event = intel_xpcie_get_doorbell(&xdev->xpcie,
+						 FROM_DEVICE, DEV_EVENT);
+		if (event == PHY_ID_RECIEVED_ACK) {
+			intel_xpcie_set_doorbell(&xdev->xpcie, FROM_DEVICE,
+						 DEV_EVENT, NO_OP);
+			xdev->xpcie.status = XPCIE_STATUS_READY;
+			intel_xpcie_pci_notify_event(xdev,
+						     NOTIFY_DEVICE_CONNECTED);
+			sw_devid_retries = 0;
+			poll_again = false;
+		} else {
+			if (sw_devid_retries++ == MAX_SW_DEVID_RETRIES) {
+				sw_devid_retries = 0;
+				dev_err(&xdev->pci->dev,
+					"ACK for sw_devid %x not rx'ed\n",
+					xdev->sw_devid);
+				poll_again = false;
+			}
 
-		return;
+			fn_no = PCI_FUNC(xdev->pci->devfn);
+			devid = PCI_BUS_NUM(xdev->devid) << 8 |
+				PCI_SLOT(xdev->pci->devfn);
+			max_functions =
+				intel_xpcie_get_max_functions(&xdev->xpcie);
+			xdev->sw_devid =
+				intel_xpcie_create_sw_device_id(fn_no,
+								devid,
+								max_functions);
+			dev_info(&xdev->pci->dev,
+				 "sw_devid=%x, fn=%d, max_functions=%d\n",
+				 xdev->sw_devid, fn_no, max_functions);
+			intel_xpcie_set_sw_device_id(&xdev->xpcie,
+						     xdev->sw_devid);
+			intel_xpcie_pci_raise_irq(xdev, PHY_ID_UPDATED, 1);
+		}
+#else
+		xdev->xpcie.status = XPCIE_STATUS_READY;
+		poll_again = false;
 #endif
 	}
-	schedule_delayed_work(&xdev->wait_event, msecs_to_jiffies(2000));
+
+	if (poll_again)
+		schedule_delayed_work(&xdev->wait_event,
+				      msecs_to_jiffies(2000));
 }
 
 static int intel_xpcie_pci_prepare_dev_reset(struct xpcie_dev *xdev,

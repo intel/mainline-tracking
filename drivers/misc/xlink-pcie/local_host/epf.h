@@ -106,13 +106,13 @@ struct xpcie_epf {
 
 #if (IS_ENABLED(CONFIG_ARCH_THUNDERBAY))
 #define MXLK_MAX_NAME_LEN (32)
-	char                            name[MXLK_MAX_NAME_LEN];
-	u32                             sw_devid;
-	bool                            sw_dev_id_updated;
-	struct list_head                list;
-	xlink_device_event event_fn;
+	char				name[MXLK_MAX_NAME_LEN];
+	u32				sw_devid;
+	bool				sw_dev_id_updated;
+	struct list_head		list;
+	xlink_device_event		event_fn;
 
-	struct work_struct flr_irq_event;
+	struct work_struct		flr_irq_event;
 #endif
 };
 

@@ -33,7 +33,8 @@ enum xpcie_event_type {
 	DEV_SHUTDOWN,
 	PREP_FLR_RESET,
 	PREP_FLR_RESET_ACK,
-	FLR_RESET_ACK
+	FLR_RESET_ACK,
+	PHY_ID_RECIEVED_ACK
 };
 
 void intel_xpcie_set_doorbell(struct xpcie *xpcie,
@@ -61,8 +62,8 @@ void intel_xpcie_set_host_status(struct xpcie *xpcie, u32 status);
 void intel_xpcie_set_max_functions(struct xpcie *xpcie, u8 max_functions);
 u8 intel_xpcie_get_max_functions(struct xpcie *xpcie);
 u32 intel_xpcie_create_sw_device_id(u8 func_no, u16 phy_id, u8 max_functions);
-void intel_xpcie_set_physical_device_id(struct xpcie *xpcie, u16 phys_id);
-u16 intel_xpcie_get_physical_device_id(struct xpcie *xpcie);
+void intel_xpcie_set_sw_device_id(struct xpcie *xpcie, u32 sw_devid);
+u32 intel_xpcie_get_sw_device_id(struct xpcie *xpcie);
 #endif
 
 struct xpcie_buf_desc *intel_xpcie_alloc_bd(size_t length);
