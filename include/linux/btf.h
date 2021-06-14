@@ -604,6 +604,8 @@ static inline bool btf_type_is_struct_ptr(struct btf *btf, const struct btf_type
 
 	return btf_type_is_struct(t);
 }
+struct btf *btf_register(const char *name, void *btf_data, u32 btf_data_size);
+void btf_unregister(struct btf *btf);
 #else
 static inline const struct btf_type *btf_type_by_id(const struct btf *btf,
 						    u32 type_id)
@@ -682,5 +684,11 @@ static inline int btf_check_iter_arg(struct btf *btf, const struct btf_type *fun
 {
 	return -EOPNOTSUPP;
 }
+static inline struct btf *
+btf_register(const char *name, void *btf_data, u32 btf_data_size)
+{
+	return NULL;
+}
+static inline void btf_unregister(struct btf *btf) { }
 #endif
 #endif
