@@ -598,11 +598,12 @@ static const struct pmc_reg_map tgl_reg_map = {
 	.etr3_offset = ETR3_OFFSET,
 };
 
-static void pmc_core_get_tgl_lpm_reqs(struct platform_device *pdev)
+static void pmc_core_get_lpm_reqs(struct platform_device *pdev)
 {
 	struct pmc_dev *pmcdev = platform_get_drvdata(pdev);
 	const int num_maps = pmcdev->map->lpm_num_maps;
-	u32 lpm_size = LPM_MAX_NUM_MODES * num_maps * 4;
+	const int num_modes = pmcdev->map->lpm_num_modes;
+	u32 lpm_size = num_modes * num_maps * 4;
 	union acpi_object *out_obj;
 	struct acpi_device *adev;
 	guid_t s0ix_dsm_guid;
@@ -619,7 +620,7 @@ static void pmc_core_get_tgl_lpm_reqs(struct platform_device *pdev)
 	if (out_obj && out_obj->type == ACPI_TYPE_BUFFER) {
 		u32 size = out_obj->buffer.length;
 
-		if (size != lpm_size) {
+		if (size < lpm_size) {
 			acpi_handle_debug(adev->handle,
 				"_DSM returned unexpected buffer size, have %u, expect %u\n",
 				size, lpm_size);
@@ -1266,6 +1267,10 @@ static int pmc_core_substate_req_regs_show(struct seq_file *s, void *unused)
 	u32 *lpm_req_regs = pmcdev->lpm_req_regs;
 	int mp;
 
+	/* Check if lpm_req_regs is NULL */
+	if (!lpm_req_regs)
+		return -1;
+
 	/* Display the header */
 	pmc_core_substate_req_header_show(s);
 
@@ -1678,8 +1683,8 @@ static int pmc_core_probe(struct platform_device *pdev)
 	pmc_core_get_low_power_modes(pmcdev);
 	pmc_core_do_dmi_quirks(pmcdev);
 
-	if (pmcdev->map == &tgl_reg_map)
-		pmc_core_get_tgl_lpm_reqs(pdev);
+	if (pmcdev->map->lpm_sts)
+		pmc_core_get_lpm_reqs(pdev);
 
 	/*
 	 * On TGL, due to a hardware limitation, the GBE LTR blocks PC10 when

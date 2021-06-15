@@ -209,6 +209,7 @@ enum ppfear_regs {
 #define TGL_LPM_LIVE_STATUS_OFFSET		0x1C5C
 #define TGL_LPM_PRI_OFFSET			0x1C7C
 #define TGL_LPM_NUM_MAPS			6
+#define TGL_LPM_NUM_MODES			8
 
 /* Extended Test Mode Register 3 (CNL and later) */
 #define ETR3_OFFSET				0x1048
@@ -277,6 +278,7 @@ struct pmc_reg_map {
 	const u32 pm_vric1_offset;
 	/* Low Power Mode registers */
 	const int lpm_num_maps;
+	const int lpm_num_modes;
 	const int lpm_res_counter_step_x2;
 	const u32 lpm_sts_latch_en_offset;
 	const u32 lpm_en_offset;
