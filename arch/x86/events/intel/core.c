@@ -6274,7 +6274,8 @@ __init int intel_pmu_init(void)
 
 		td_attr = adl_hybrid_events_attrs;
 		mem_attr = adl_hybrid_mem_attrs;
-		tsx_attr = adl_hybrid_tsx_attrs;
+		if (!cpu_feature_enabled(X86_FEATURE_HYBRID_CPU))
+			tsx_attr = adl_hybrid_tsx_attrs;
 		extra_attr = boot_cpu_has(X86_FEATURE_RTM) ?
 			adl_hybrid_extra_attr_rtm : adl_hybrid_extra_attr;
 
