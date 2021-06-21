@@ -104,6 +104,18 @@ struct xpcie_epf {
 	struct xpcie_dma_ll_desc_buf     tx_desc_buf;
 	struct xpcie_dma_ll_desc_buf     rx_desc_buf;
 
+	struct hrtimer			free_tx_dma_timer;
+	struct hrtimer			free_rx_dma_timer;
+	atomic_t			dma_wr_eng_reset_cnt;
+	u32				dma_wr_int_status;
+	u32				dma_wr_err_status;
+	int				dma_wr_rc;
+	atomic_t			dma_rd_eng_reset_cnt;
+	u32				dma_rd_int_status;
+	u32				dma_rd_err_status_low;
+	u32				dma_rd_err_status_high;
+	int				dma_rd_rc;
+
 #if (IS_ENABLED(CONFIG_ARCH_THUNDERBAY))
 #define MXLK_MAX_NAME_LEN (32)
 	char				name[MXLK_MAX_NAME_LEN];
