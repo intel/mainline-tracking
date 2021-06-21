@@ -116,6 +116,29 @@ static void intel_xpcie_pci_set_aspm(struct xpcie_dev *xdev, int aspm)
 			      link_control);
 }
 
+#ifdef XLINK_PCIE_RH_DRV_AER
+static int intel_xpcie_mask_surprise_link_down(struct xpcie_dev *xdev,
+					       bool mask)
+{
+	struct pci_dev *pdev = xdev->pci;
+	u32 reg32;
+	int pos;
+
+	pos = pdev->aer_cap;
+	if (!pos)
+		return -ENODEV;
+
+	pci_read_config_dword(pdev, pos + PCI_ERR_UNCOR_MASK, &reg32);
+	if (mask)
+		reg32 |= PCI_ERR_UNC_SURPDN;
+	else
+		reg32 &= ~PCI_ERR_UNC_SURPDN;
+	pci_write_config_dword(pdev, pos + PCI_ERR_UNCOR_MASK, reg32);
+
+	return 0;
+}
+#endif
+
 static void intel_xpcie_pci_unmap_bar(struct xpcie_dev *xdev)
 {
 	if (xdev->xpcie.bar0) {
@@ -470,6 +493,8 @@ int intel_xpcie_pci_init(struct xpcie_dev *xdev, struct pci_dev *pdev)
 		goto init_exit;
 
 #ifdef XLINK_PCIE_RH_DRV_AER
+	intel_xpcie_mask_surprise_link_down(xdev, true);
+
 	rc = pci_enable_pcie_error_reporting(xdev->pci);
 	if (rc)
 		dev_warn(&pdev->dev,
@@ -526,6 +551,7 @@ int intel_xpcie_pci_cleanup(struct xpcie_dev *xdev)
 
 #ifdef XLINK_PCIE_RH_DRV_AER
 	pci_disable_pcie_error_reporting(xdev->pci);
+	intel_xpcie_mask_surprise_link_down(xdev, false);
 #endif
 	intel_xpcie_pci_unmap_bar(xdev);
 	pci_release_regions(xdev->pci);
