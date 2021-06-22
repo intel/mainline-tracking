@@ -222,6 +222,15 @@ static int dw_spi_keembay_init(struct platform_device *pdev,
 	return 0;
 }
 
+static int dw_spi_thunderbay_init(struct platform_device *pdev,
+				  struct dw_spi_mmio *dwsmmio)
+{
+	dwsmmio->dws.caps = DW_SPI_CAP_THUNDERBAY_MST | DW_SPI_CAP_THUNDERBAY_RST |
+			    DW_SPI_CAP_THUNDERBAY_SSTE | DW_SPI_CAP_DWC_SSI;
+
+	return 0;
+}
+
 static int dw_spi_canaan_k210_init(struct platform_device *pdev,
 				   struct dw_spi_mmio *dwsmmio)
 {
@@ -243,6 +252,7 @@ static int dw_spi_mmio_probe(struct platform_device *pdev)
 			 struct dw_spi_mmio *dwsmmio);
 	struct dw_spi_mmio *dwsmmio;
 	struct resource *mem;
+	struct reset_control *rst;
 	struct dw_spi *dws;
 	int ret;
 	int num_cs;
@@ -309,6 +319,15 @@ static int dw_spi_mmio_probe(struct platform_device *pdev)
 			goto out;
 	}
 
+	if (dws->caps & DW_SPI_CAP_THUNDERBAY_RST) {
+		rst = devm_reset_control_get_exclusive(&pdev->dev, NULL);
+		if (!IS_ERR(rst)) {
+			reset_control_assert(rst);
+			udelay(2);
+			reset_control_deassert(rst);
+		}
+	}
+
 	pm_runtime_enable(&pdev->dev);
 
 	ret = dw_spi_add_host(&pdev->dev, dws);
@@ -349,6 +368,7 @@ static const struct of_device_id dw_spi_mmio_of_match[] = {
 	{ .compatible = "renesas,rzn1-spi", .data = dw_spi_dw_apb_init},
 	{ .compatible = "snps,dwc-ssi-1.01a", .data = dw_spi_dwc_ssi_init},
 	{ .compatible = "intel,keembay-ssi", .data = dw_spi_keembay_init},
+	{ .compatible = "intel,thunderbay-ssi", .data = dw_spi_thunderbay_init},
 	{ .compatible = "microchip,sparx5-spi", dw_spi_mscc_sparx5_init},
 	{ .compatible = "canaan,k210-spi", dw_spi_canaan_k210_init},
 	{ /* end of table */}

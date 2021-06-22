@@ -11,6 +11,8 @@ obj-$(CONFIG_ARM_MHU_V2)	+= arm_mhuv2.o
 
 obj-$(CONFIG_IMX_MBOX)	+= imx-mailbox.o
 
+obj-$(CONFIG_THUNDERBAY_SCMI_MBOX)	+= thunderbay-scmi-mailbox.o
+
 obj-$(CONFIG_ARMADA_37XX_RWTM_MBOX)	+= armada-37xx-rwtm-mailbox.o
 
 obj-$(CONFIG_PLATFORM_MHU)	+= platform_mhu.o
@@ -56,3 +58,5 @@ obj-$(CONFIG_SUN6I_MSGBOX)	+= sun6i-msgbox.o
 obj-$(CONFIG_SPRD_MBOX)		+= sprd-mailbox.o
 
 obj-$(CONFIG_QCOM_IPCC)		+= qcom-ipcc.o
+
+obj-$(CONFIG_INTEL_KEEMBAY_IPC_MBOX)	+= keembay-ipc-mailbox.o

@@ -302,6 +302,12 @@ static u32 dw_spi_prepare_cr0(struct dw_spi *dws, struct spi_device *spi)
 
 		if (dws->caps & DW_SPI_CAP_KEEMBAY_MST)
 			cr0 |= DWC_SSI_CTRLR0_KEEMBAY_MST;
+
+		if (dws->caps & DW_SPI_CAP_THUNDERBAY_MST)
+			cr0 |= DWC_SSI_CTRLR0_THUNDERBAY_MST;
+
+		if (dws->caps & DW_SPI_CAP_THUNDERBAY_SSTE)
+			cr0 |= DWC_SSI_CTRLR0_THUNDERBAY_SSTE;
 	}
 
 	return cr0;
