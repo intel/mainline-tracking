@@ -36,8 +36,7 @@
 
 #include <drm/drm_print.h>
 
-#include "display/intel_atomic.h"
-#include "display/intel_csr.h"
+#include "display/intel_dmc.h"
 #include "display/intel_overlay.h"
 
 #include "gem/i915_gem_context.h"
@@ -789,14 +788,14 @@ static void __err_print_to_sgl(struct drm_i915_error_state_buf *m,
 
 	err_printf(m, "IOMMU enabled?: %d\n", error->iommu);
 
-	if (HAS_CSR(m->i915)) {
-		struct intel_csr *csr = &m->i915->csr;
+	if (HAS_DMC(m->i915)) {
+		struct intel_dmc *dmc = &m->i915->dmc;
 
 		err_printf(m, "DMC loaded: %s\n",
-			   yesno(csr->dmc_payload != NULL));
+			   yesno(dmc->dmc_payload));
 		err_printf(m, "DMC fw version: %d.%d\n",
-			   CSR_VERSION_MAJOR(csr->version),
-			   CSR_VERSION_MINOR(csr->version));
+			   DMC_VERSION_MAJOR(dmc->version),
+			   DMC_VERSION_MINOR(dmc->version));
 	}
 
 	err_printf(m, "RPM wakelock: %s\n", yesno(error->wakelock));
@@ -807,9 +806,6 @@ static void __err_print_to_sgl(struct drm_i915_error_state_buf *m,
 
 	if (error->overlay)
 		intel_overlay_print_error_state(m, error->overlay);
-
-	if (error->display)
-		intel_display_print_error_state(m, error->display);
 
 	err_print_capabilities(m, error);
 	err_print_params(m, &error->params);
@@ -974,7 +970,6 @@ void __i915_gpu_coredump_free(struct kref *error_ref)
 	}
 
 	kfree(error->overlay);
-	kfree(error->display);
 
 	cleanup_params(error);
 
@@ -1826,7 +1821,6 @@ i915_gpu_coredump(struct intel_gt *gt, intel_engine_mask_t engine_mask)
 	}
 
 	error->overlay = intel_overlay_capture_error_state(i915);
-	error->display = intel_display_capture_error_state(i915);
 
 	return error;
 }
