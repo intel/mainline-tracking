@@ -1607,6 +1607,14 @@ const struct intel_pinctrl_soc_data *intel_pinctrl_get_soc_data(struct platform_
 	if (adev) {
 		const void *match = device_get_match_data(&pdev->dev);
 
+		if (!adev->pnp.unique_id) {
+			dev_WARN(&pdev->dev, FW_BUG
+				 "This firmware doesn't support new GPIO controller enumeration\n"
+				 "See HSD 1806454291 for the details\n"
+				 "Firmware has to be updated to make this driver work!\n");
+			return ERR_PTR(-ENODEV);
+		}
+
 		table = (const struct intel_pinctrl_soc_data **)match;
 		for (i = 0; table[i]; i++) {
 			if (!strcmp(adev->pnp.unique_id, table[i]->uid)) {
