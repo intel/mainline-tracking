@@ -4,6 +4,7 @@
 
 #include <asm/processor.h>
 #include <asm/alternative.h>
+#include <asm/tdx.h>
 #include <linux/interrupt.h>
 #include <linux/protected_guest.h>
 #include <uapi/asm/kvm_para.h>
