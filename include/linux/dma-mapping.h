@@ -103,7 +103,7 @@ static inline int dma_mapping_error(struct device *dev, dma_addr_t dma_addr)
 dma_addr_t dma_map_page_attrs(struct device *dev, struct page *page,
 		size_t offset, size_t size, enum dma_data_direction dir,
 		unsigned long attrs);
-void dma_unmap_page_attrs(struct device *dev, dma_addr_t addr, size_t size,
+int dma_unmap_page_attrs(struct device *dev, dma_addr_t addr, size_t size,
 		enum dma_data_direction dir, unsigned long attrs);
 int dma_map_sg_attrs(struct device *dev, struct scatterlist *sg, int nents,
 		enum dma_data_direction dir, unsigned long attrs);
@@ -142,7 +142,7 @@ int dma_set_mask(struct device *dev, u64 mask);
 int dma_set_coherent_mask(struct device *dev, u64 mask);
 u64 dma_get_required_mask(struct device *dev);
 size_t dma_max_mapping_size(struct device *dev);
-bool dma_need_sync(struct device *dev, dma_addr_t dma_addr);
+bool dma_need_sync(struct device *dev, dma_addr_t dma_addr, size_t size);
 unsigned long dma_get_merge_boundary(struct device *dev);
 struct sg_table *dma_alloc_noncontiguous(struct device *dev, size_t size,
 		enum dma_data_direction dir, gfp_t gfp, unsigned long attrs);
@@ -160,9 +160,10 @@ static inline dma_addr_t dma_map_page_attrs(struct device *dev,
 {
 	return DMA_MAPPING_ERROR;
 }
-static inline void dma_unmap_page_attrs(struct device *dev, dma_addr_t addr,
+static inline int dma_unmap_page_attrs(struct device *dev, dma_addr_t addr,
 		size_t size, enum dma_data_direction dir, unsigned long attrs)
 {
+	return 0;
 }
 static inline int dma_map_sg_attrs(struct device *dev, struct scatterlist *sg,
 		int nents, enum dma_data_direction dir, unsigned long attrs)
@@ -258,7 +259,8 @@ static inline size_t dma_max_mapping_size(struct device *dev)
 {
 	return 0;
 }
-static inline bool dma_need_sync(struct device *dev, dma_addr_t dma_addr)
+static inline bool dma_need_sync(struct device *dev, dma_addr_t dma_addr,
+				 size_t size)
 {
 	return false;
 }
@@ -323,7 +325,7 @@ static inline dma_addr_t dma_map_single_attrs(struct device *dev, void *ptr,
 			size, dir, attrs);
 }
 
-static inline void dma_unmap_single_attrs(struct device *dev, dma_addr_t addr,
+static inline int dma_unmap_single_attrs(struct device *dev, dma_addr_t addr,
 		size_t size, enum dma_data_direction dir, unsigned long attrs)
 {
 	return dma_unmap_page_attrs(dev, addr, size, dir, attrs);

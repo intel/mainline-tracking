@@ -30,6 +30,7 @@
 #include <asm/processor-flags.h>
 #include <asm/msr.h>
 #include <asm/cmdline.h>
+#include <asm/mem_encrypt_common.h>
 
 #include "mm_internal.h"
 
@@ -389,8 +390,8 @@ bool noinstr sev_es_active(void)
 	return sev_status & MSR_AMD64_SEV_ES_ENABLED;
 }
 
-/* Override for DMA direct allocation check - ARCH_HAS_FORCE_DMA_UNENCRYPTED */
-bool force_dma_unencrypted(struct device *dev)
+/* Override for DMA direct allocation check - AMD specific initialization */
+bool amd_force_dma_unencrypted(struct device *dev)
 {
 	/*
 	 * For SEV, all DMA must be to unencrypted addresses.
@@ -465,13 +466,10 @@ static void print_mem_encrypt_feature_info(void)
 }
 
 /* Architecture __weak replacement functions */
-void __init mem_encrypt_init(void)
+void __init amd_mem_encrypt_init(void)
 {
 	if (!sme_me_mask)
 		return;
-
-	/* Call into SWIOTLB to update the SWIOTLB DMA buffers */
-	swiotlb_update_mem_attributes();
 
 	/*
 	 * With SEV, we need to unroll the rep string I/O instructions,
@@ -482,9 +480,3 @@ void __init mem_encrypt_init(void)
 
 	print_mem_encrypt_feature_info();
 }
-
-int arch_has_restricted_virtio_memory_access(void)
-{
-	return sev_active();
-}
-EXPORT_SYMBOL_GPL(arch_has_restricted_virtio_memory_access);

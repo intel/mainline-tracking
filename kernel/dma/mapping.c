@@ -162,18 +162,22 @@ dma_addr_t dma_map_page_attrs(struct device *dev, struct page *page,
 }
 EXPORT_SYMBOL(dma_map_page_attrs);
 
-void dma_unmap_page_attrs(struct device *dev, dma_addr_t addr, size_t size,
+int dma_unmap_page_attrs(struct device *dev, dma_addr_t addr, size_t size,
 		enum dma_data_direction dir, unsigned long attrs)
 {
 	const struct dma_map_ops *ops = get_dma_ops(dev);
+	int ret = 0;
 
 	BUG_ON(!valid_dma_direction(dir));
 	if (dma_map_direct(dev, ops) ||
 	    arch_dma_unmap_page_direct(dev, addr + size))
 		dma_direct_unmap_page(dev, addr, size, dir, attrs);
+	else if (ops->unmap_page_check)
+		ret = ops->unmap_page_check(dev, addr, size, dir, attrs);
 	else if (ops->unmap_page)
 		ops->unmap_page(dev, addr, size, dir, attrs);
 	debug_dma_unmap_page(dev, addr, size, dir);
+	return ret;
 }
 EXPORT_SYMBOL(dma_unmap_page_attrs);
 
@@ -716,12 +720,12 @@ size_t dma_max_mapping_size(struct device *dev)
 }
 EXPORT_SYMBOL_GPL(dma_max_mapping_size);
 
-bool dma_need_sync(struct device *dev, dma_addr_t dma_addr)
+bool dma_need_sync(struct device *dev, dma_addr_t dma_addr, size_t size)
 {
 	const struct dma_map_ops *ops = get_dma_ops(dev);
 
 	if (dma_map_direct(dev, ops))
-		return dma_direct_need_sync(dev, dma_addr);
+		return dma_direct_need_sync(dev, dma_addr, size);
 	return ops->sync_single_for_cpu || ops->sync_single_for_device;
 }
 EXPORT_SYMBOL_GPL(dma_need_sync);

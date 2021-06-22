@@ -1380,6 +1380,9 @@
 			Warning: use of this parameter will taint the kernel
 			and may cause unknown problems.
 
+	force_tdx_guest [x86]
+			Force enable TDX guest mode.
+
 	ftrace=[tracer]
 			[FTRACE] will set and start the specified tracer
 			as early as possible in order to facilitate early
@@ -5497,6 +5500,13 @@
 			"tcp_no_metrics_save" section for more details.
 
 	tdfx=		[HW,DRM]
+
+	tdx_disable_lockdown
+			Disable automatic kernel lockdown for TD guest.
+			Only allowed for debug TD.
+
+	tdx_disable_filter [x86]
+			Disable TDX guest filter support.
 
 	test_suspend=	[SUSPEND][,N]
 			Specify "mem" (for Suspend-to-RAM) or "standby" (for
