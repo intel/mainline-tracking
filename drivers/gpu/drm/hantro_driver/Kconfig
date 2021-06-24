@@ -1,7 +1,6 @@
 config DRM_HANTRO
         tristate "Hantro Driver"
         depends on DRM
-        default m
         select DRM_PANEL
         select DRM_KMS_HELPER
         help
