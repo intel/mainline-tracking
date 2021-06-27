@@ -15,6 +15,8 @@
 #include <linux/net_tstamp.h>
 #include <linux/bitfield.h>
 #include <linux/hrtimer.h>
+#include <linux/leds.h>
+#include <linux/timekeeping.h>
 
 #include "igc_hw.h"
 
@@ -286,7 +288,16 @@ struct igc_adapter {
 	unsigned int fp_verify_cnt;
 	enum frame_preemption_state fp_tx_state;
 	bool fp_disable_verify;
+
+	/* LEDs */
+	struct mutex led_mutex;
+	struct led_classdev led0;
+	struct led_classdev led1;
+	struct led_classdev led2;
 };
+
+#define led_to_igc(ldev, led)	\
+	container_of(ldev, struct igc_adapter, led)
 
 void igc_up(struct igc_adapter *adapter);
 void igc_down(struct igc_adapter *adapter);
