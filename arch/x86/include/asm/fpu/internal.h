@@ -568,6 +568,26 @@ static inline void switch_fpu_prepare(struct fpu *old_fpu, int cpu)
  * Misc helper functions:
  */
 
+#ifdef CONFIG_X86_DEBUG_FPU
+DECLARE_PER_CPU(u64, xfd_shadow);
+static inline u64 xfd_debug_shadow(void)
+{
+	return this_cpu_read(xfd_shadow);
+}
+
+static inline void xfd_write(u64 value)
+{
+	wrmsrl_safe(MSR_IA32_XFD, value);
+	this_cpu_write(xfd_shadow, value);
+}
+#else
+#define xfd_debug_shadow()	0
+static inline void xfd_write(u64 value)
+{
+	wrmsrl_safe(MSR_IA32_XFD, value);
+}
+#endif
+
 /**
  * xfd_switch - Switches the MSR IA32_XFD context if needed.
  * @prev:	The previous task's struct fpu pointer
@@ -584,7 +604,7 @@ static inline void xfd_switch(struct fpu *prev, struct fpu *next)
 	next_xfd_mask = next->state_mask & xfeatures_mask_user_dynamic;
 
 	if (unlikely(prev_xfd_mask != next_xfd_mask))
-		wrmsrl_safe(MSR_IA32_XFD, xfeatures_mask_user_dynamic ^ next_xfd_mask);
+		xfd_write(xfeatures_mask_user_dynamic ^ next_xfd_mask);
 }
 
 /*

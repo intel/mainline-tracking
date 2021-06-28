@@ -270,7 +270,7 @@ void fpu__init_cpu_xstate(void)
 	}
 
 	if (boot_cpu_has(X86_FEATURE_XFD))
-		wrmsrl(MSR_IA32_XFD, xfeatures_mask_user_dynamic);
+		xfd_write(xfeatures_mask_user_dynamic);
 }
 
 static bool xfeature_enabled(enum xfeature xfeature)
@@ -1102,9 +1102,8 @@ void fpu__resume_cpu(void)
 	}
 
 	if (cpu_feature_enabled(X86_FEATURE_XFD))
-		wrmsrl_safe(MSR_IA32_XFD, (current->thread.fpu.state_mask &
-					   xfeatures_mask_user_dynamic) ^
-					  xfeatures_mask_user_dynamic);
+		xfd_write((current->thread.fpu.state_mask & xfeatures_mask_user_dynamic) ^
+			  xfeatures_mask_user_dynamic);
 }
 
 /**
@@ -1349,9 +1348,8 @@ void reset_dynamic_state_perm(struct task_struct *tsk)
 	if (cpu_feature_enabled(X86_FEATURE_XSAVES))
 		fpstate_init_xstate(&fpu->state->xsave, fpu->state_mask);
 
-	wrmsrl_safe(MSR_IA32_XFD,
-		    (fpu->state_mask & xfeatures_mask_user_dynamic) ^
-		    xfeatures_mask_user_dynamic);
+	xfd_write((fpu->state_mask & xfeatures_mask_user_dynamic) ^
+		  xfeatures_mask_user_dynamic);
 
 	fpu->dynamic_state_perm = 0;
 }

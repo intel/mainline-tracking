@@ -1129,7 +1129,7 @@ static __always_inline bool handle_xfd_event(struct fpu *fpu, struct pt_regs *re
 			 * unblock the task.
 			 */
 			rdmsrl_safe(MSR_IA32_XFD, &value);
-			wrmsrl_safe(MSR_IA32_XFD, value & ~xfd_err);
+			xfd_write(value & ~xfd_err);
 		} else {
 			struct fpu *fpu = &current->thread.fpu;
 			int err = -1;
@@ -1148,10 +1148,9 @@ static __always_inline bool handle_xfd_event(struct fpu *fpu, struct pt_regs *re
 				if (!WARN_ON(in_interrupt())) {
 					err = realloc_xstate_buffer(fpu, xfd_event);
 					if (!err)
-						wrmsrl_safe(MSR_IA32_XFD,
-							    (fpu->state_mask &
-							     xfeatures_mask_user_dynamic) ^
-							    xfeatures_mask_user_dynamic);
+						xfd_write((fpu->state_mask &
+							  xfeatures_mask_user_dynamic) ^
+							  xfeatures_mask_user_dynamic);
 				}
 
 				if (err)
