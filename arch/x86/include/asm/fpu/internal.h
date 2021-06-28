@@ -570,10 +570,25 @@ static inline void switch_fpu_prepare(struct fpu *old_fpu, int cpu)
 
 /* The Extended Feature Disable (XFD) helpers: */
 
+#ifdef CONFIG_X86_DEBUG_FPU
+DECLARE_PER_CPU(u64, xfd_shadow);
+static inline u64 xfd_debug_shadow(void)
+{
+	return this_cpu_read(xfd_shadow);
+}
+
+static inline void xfd_write(u64 value)
+{
+	wrmsrl_safe(MSR_IA32_XFD, value);
+	this_cpu_write(xfd_shadow, value);
+}
+#else
+#define xfd_debug_shadow()	0
 static inline void xfd_write(u64 value)
 {
 	wrmsrl_safe(MSR_IA32_XFD, value);
 }
+#endif
 
 static inline u64 xfd_read(void)
 {
