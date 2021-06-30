@@ -940,7 +940,7 @@ static int hantro_test(struct drm_device *dev, void *data,
 	if (!obj)
 		return -EINVAL;
 
-	pfence = dma_resv_get_excl(obj->dma_buf->resv);
+	pfence = dma_resv_excl_fence(obj->dma_buf->resv);
 	while (ret > 0)
 		ret = schedule_timeout(ret);
 
