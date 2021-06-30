@@ -174,7 +174,7 @@ int hantro_acquirebuf(struct drm_device *dev, void *data,
 	}
 
 	/* Check for a stalled fence */
-	if (!dma_resv_wait_timeout_rcu(resv, arg->flags & HANTRO_FENCE_WRITE, 1,
+	if (!dma_resv_wait_timeout(resv, arg->flags & HANTRO_FENCE_WRITE, 1,
 				       timeout)) {
 		ret = -EBUSY;
 		goto err;
@@ -262,7 +262,7 @@ int hantro_testbufvalid(struct drm_device *dev, void *data,
 	}
 
 	/* Check for a stalled fence */
-	if (dma_resv_wait_timeout_rcu(resv, 1, 1, 0) <= 0)
+	if (dma_resv_wait_timeout(resv, 1, 1, 0) <= 0)
 		arg->ready = 0;
 	else
 		arg->ready = 1;
