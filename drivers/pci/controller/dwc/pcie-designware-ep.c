@@ -230,7 +230,17 @@ static int dw_pcie_ep_set_bar(struct pci_epc *epc, u8 func_no,
 	u32 reg;
 	unsigned int func_offset = 0;
 
+#ifdef CONFIG_ARCH_THUNDERBAY
+	/*
+	 * FIXME:
+	 * For THB, even if the func offset is not considered
+	 * the writes to BARx of different functions are proper.
+	 * Adding this offset doesn't seem to work.
+	 */
+	//func_offset = dw_pcie_ep_func_select(ep, func_no);
+#else
 	func_offset = dw_pcie_ep_func_select(ep, func_no);
+#endif
 
 	reg = PCI_BASE_ADDRESS_0 + (4 * bar) + func_offset;
 

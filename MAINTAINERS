@@ -1985,6 +1985,24 @@ F:	Documentation/devicetree/bindings/arm/intel,keembay.yaml
 F:	arch/arm64/boot/dts/intel/keembay-evm.dts
 F:	arch/arm64/boot/dts/intel/keembay-soc.dtsi
 
+ARM/INTEL TSENS SUPPORT
+M:	Udhayakumar C <udhayakumar.c@intel.com>
+S:	Supported
+F:	drivers/misc/hddl_device/
+F:	drivers/misc/intel_tsens/
+
+ARM/INTEL XLINK CORE SUPPORT
+M:     Seamus Kelly <seamus.kelly@intel.com>
+M:     Mark Gross <mgross@linux.intel.com>
+S:     Supported
+F:     drivers/misc/xlink-core/
+
+ARM/INTEL XLINK IPC SUPPORT
+M:	Seamus Kelly <seamus.kelly@intel.com>
+M:	Mark Gross <mgross@linux.intel.com>
+S:	Supported
+F:	drivers/misc/xlink-ipc/
+
 ARM/INTEL RESEARCH IMOTE/STARGATE 2 MACHINE SUPPORT
 M:	Jonathan Cameron <jic23@cam.ac.uk>
 L:	linux-arm-kernel@lists.infradead.org (moderated for non-subscribers)
@@ -9286,6 +9304,13 @@ S:	Maintained
 F:	Documentation/devicetree/bindings/display/intel,kmb_display.yaml
 F:	drivers/gpu/drm/kmb/
 
+INTEL KEEM BAY IPC MAILBOX
+M:	Daniele Alessandrelli <daniele.alessandrelli@intel.com>
+M:	Mark Gross <mgross@linux.intel.com>
+S:	Supported
+F:	Documentation/devicetree/bindings/mailbox/intel,keembay-ipc-mailbox.yaml
+F:	drivers/mailbox/vpu-ipc-mailbox.c
+
 INTEL KEEM BAY OCS AES/SM4 CRYPTO DRIVER
 M:	Daniele Alessandrelli <daniele.alessandrelli@intel.com>
 S:	Maintained
@@ -9306,6 +9331,29 @@ F:	drivers/crypto/keembay/Makefile
 F:	drivers/crypto/keembay/keembay-ocs-hcu-core.c
 F:	drivers/crypto/keembay/ocs-hcu.c
 F:	drivers/crypto/keembay/ocs-hcu.h
+
+INTEL THUNDER BAY EMMC PHY DRIVER
+M:	Nandhini Srikandan <nandhini.srikandan@intel.com>
+M:	Rashmi A <rashmi.a@intel.com>
+S:	Maintained
+F:	Documentation/devicetree/bindings/phy/intel,phy-thunderbay-emmc.yaml
+F:	drivers/phy/intel/phy-intel-thunderbay-emmc.c
+
+INTEL KEEM BAY TIMER SUPPORT
+M:	Shruthi Sanil <shruthi.sanil@intel.com>
+S:	Maintained
+F:	drivers/clocksource/timer-keembay.c
+
+INTEL KEEM BAY VPU IPC DRIVER
+M:	Daniele Alessandrelli <daniele.alessandrelli@intel.com>
+M:	Paul J Murphy <paul.j.murphy@intel.com>
+M:	Mark Gross <mgross@linux.intel.com>
+S:	Supported
+F:	Documentation/devicetree/bindings/soc/intel/intel,keembay-vpu-ipc.yaml
+F:	drivers/soc/intel/keembay-ipc.c
+F:	drivers/soc/intel/keembay-ipc.h
+F:	drivers/soc/intel/keembay-vpu-ipc.c
+F:	include/linux/soc/intel/keembay-vpu-ipc.h
 
 INTEL MANAGEMENT ENGINE (mei)
 M:	Tomas Winkler <tomas.winkler@intel.com>
@@ -9438,6 +9486,19 @@ L:	platform-driver-x86@vger.kernel.org
 S:	Maintained
 F:	arch/x86/include/asm/intel_telemetry.h
 F:	drivers/platform/x86/intel_telemetry*
+
+INTEL THUNDER BAY RESET DRIVER
+M:	MP Sureshkumar <sureshkumar.mp@intel.com>
+M:	Shruthi Sanil <shruthi.sanil@intel.com>
+L:	linux-kernel@vger.kernel.org
+S:	Maintained
+F:	Documentation/devicetree/bindings/reset/intel,thunderbay-reset.yaml
+F:	drivers/reset/Kconfig
+F:	drivers/reset/Makefile
+F:	drivers/reset/reset-thunderbay.c
+F:	include/dt-bindings/reset/thunderbay-reset.h
+F:	include/linux/reset/reset-thunderbay-ss.h
+F:	include/linux/reset/reset-thunderbay.h
 
 INTEL UNCORE FREQUENCY CONTROL
 M:	Srinivas Pandruvada <srinivas.pandruvada@linux.intel.com>
@@ -14277,6 +14338,13 @@ S:	Maintained
 F:	Documentation/devicetree/bindings/pci/hisilicon-histb-pcie.txt
 F:	drivers/pci/controller/dwc/pcie-histb.c
 
+PCIE DRIVER FOR INTEL KEEM BAY
+M:	Srikanth Thokala <srikanth.thokala@intel.com>
+L:	linux-pci@vger.kernel.org
+S:	Supported
+F:	Documentation/devicetree/bindings/pci/intel,keembay-pcie*
+F:	drivers/pci/controller/dwc/pcie-keembay.c
+
 PCIE DRIVER FOR MEDIATEK
 M:	Ryder Lee <ryder.lee@mediatek.com>
 M:	Jianjun Wang <jianjun.wang@mediatek.com>
@@ -14548,6 +14616,11 @@ L:	linux-arm-kernel@lists.infradead.org (moderated for non-subscribers)
 S:	Maintained
 W:	http://www.st.com/spear
 F:	drivers/pinctrl/spear/
+
+PIN CONTROLLER - THUNDERBAY
+M:	Lakshmi Sowjanya D <lakshmi.sowjanya.d@intel.com>
+S:	Supported
+F:	drivers/pinctrl/pinctrl-thunderbay*
 
 PISTACHIO SOC SUPPORT
 M:	James Hartley <james.hartley@sondrel.com>

@@ -1,0 +1,21 @@
+# SPDX-License-Identifier: GPL-2.0-only
+#
+# Keem Bay SoC drivers
+#
+
+menu "Intel SoC drivers"
+
+config KEEMBAY_VPU_IPC
+	tristate "Intel Keem Bay VPU IPC Driver"
+	depends on INTEL_KEEMBAY_IPC_MBOX
+	depends on ARCH_KEEMBAY || ARCH_THUNDERBAY || (ARM64 && COMPILE_TEST)
+	depends on HAVE_ARM_SMCCC
+	help
+	  This option enables support for loading and communicating with
+	  the firmware on the Vision Processing Unit (VPU) of the Keem Bay
+	  SoC.
+
+	  Select this if you are compiling the Kernel for an Intel SoC that
+	  includes the Intel Vision Processing Unit (VPU) such as Keem Bay.
+
+endmenu
