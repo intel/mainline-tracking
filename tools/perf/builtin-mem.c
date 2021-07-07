@@ -62,9 +62,10 @@ static const char * const *record_mem_usage = __usage;
 
 static int __cmd_record(int argc, const char **argv, struct perf_mem *mem)
 {
-	int rec_argc, i = 0, j;
+	int rec_argc, i = 0, j, rec_tmp_nr = 0;
 	const char **rec_argv;
-	int ret;
+	char **rec_tmp;
+	int ret = -1;
 	bool all_user = false, all_kernel = false;
 	struct perf_mem_event *e;
 	struct option options[] = {
@@ -87,10 +88,16 @@ static int __cmd_record(int argc, const char **argv, struct perf_mem *mem)
 	argc = parse_options(argc, argv, options, record_mem_usage,
 			     PARSE_OPT_KEEP_UNKNOWN);
 
-	rec_argc = argc + 9; /* max number of arguments */
+	rec_argc = argc + 18; /* max number of arguments */
 	rec_argv = calloc(rec_argc + 1, sizeof(char *));
 	if (!rec_argv)
 		return -1;
+
+	rec_tmp = calloc(rec_argc + 1, sizeof(char *));
+	if (!rec_tmp) {
+		free(rec_argv);
+		return -1;
+	}
 
 	rec_argv[i++] = "record";
 
@@ -128,21 +135,9 @@ static int __cmd_record(int argc, const char **argv, struct perf_mem *mem)
 	if (mem->data_page_size)
 		rec_argv[i++] = "--data-page-size";
 
-	for (j = 0; j < PERF_MEM_EVENTS__MAX; j++) {
-		e = perf_mem_events__ptr(j);
-		if (!e->record)
-			continue;
-
-		if (!e->supported) {
-			pr_err("failed: event '%s' not supported\n",
-			       perf_mem_events__name(j));
-			free(rec_argv);
-			return -1;
-		}
-
-		rec_argv[i++] = "-e";
-		rec_argv[i++] = perf_mem_events__name(j);
-	}
+	ret = perf_mem_events__rec_args(rec_argv, &i, rec_tmp, &rec_tmp_nr);
+	if (ret)
+		goto out;
 
 	if (all_user)
 		rec_argv[i++] = "--all-user";
@@ -164,6 +159,13 @@ static int __cmd_record(int argc, const char **argv, struct perf_mem *mem)
 	}
 
 	ret = cmd_record(i, rec_argv);
+out:
+	for (i = 0; i < rec_tmp_nr; i++) {
+		if (rec_tmp[i])
+			free(rec_tmp[i]);
+	}
+
+	free(rec_tmp);
 	free(rec_argv);
 	return ret;
 }

@@ -65,6 +65,7 @@ struct evlist {
 	struct evsel *selected;
 	struct events_stats stats;
 	struct perf_env	*env;
+	const char *hybrid_pmu_name;
 	void (*trace_event_sample_raw)(struct evlist *evlist,
 				       union perf_event *event,
 				       struct perf_sample *sample);
@@ -367,4 +368,5 @@ int evlist__ctlfd_ack(struct evlist *evlist);
 struct evsel *evlist__find_evsel(struct evlist *evlist, int idx);
 
 int evlist__scnprintf_evsels(struct evlist *evlist, size_t size, char *bf);
+void evlist__check_mem_load_aux(struct evlist *evlist);
 #endif /* __PERF_EVLIST_H */

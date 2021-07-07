@@ -4500,6 +4500,118 @@ static int intel_pmu_filter_match(struct perf_event *event)
 	return cpumask_test_cpu(cpu, &pmu->supported_cpus);
 }
 
+#ifdef CONFIG_X86_SHADOW_STACK
+
+static int
+intel_pmu_store_shadow_stack_user(struct perf_callchain_entry_ctx *ctx_entry)
+{
+	unsigned long left, stack_base, stack_top, return_addr = 0;
+	struct thread_shstk *shstk = &current->thread.shstk;
+	int step = sizeof(unsigned long);
+	int nr = 0;
+
+	/* The callchain space is full */
+	if (ctx_entry->contexts_maxed)
+		return 0;
+
+	/* The shadow stack is not available. */
+	if (!shstk->base || !shstk->size)
+		return 0;
+
+	stack_base = shstk->base + shstk->size;
+	/* TODO: special edition */
+//	stack_top = __cet_get_shstk_addr();
+	rdmsrl(MSR_IA32_PL3_SSP, stack_top);
+
+	if ((stack_base <= stack_top) || ((stack_base - stack_top) > shstk->size))
+		return 0;
+
+#ifdef CONFIG_X86_64
+	if (!any_64bit_mode(current_pt_regs()))
+		step = sizeof(u32);
+#endif
+
+	/*
+	 * Optimization for 64 bit process.
+	 * Copy the whole stack in one operation
+	 */
+	if (step == sizeof(u64)) {
+		struct perf_callchain_entry *entry = ctx_entry->entry;
+		u64 max_nr = (stack_base - stack_top) / sizeof(u64);
+		u64 max_size;
+
+		max_nr = min(max_nr, (u64)(ctx_entry->max_stack - ctx_entry->nr));
+		max_size = max_nr * sizeof(u64);
+
+		if (!access_ok((void __user *)stack_top, max_size))
+			return 0;
+
+		left = __copy_from_user_inatomic(&entry->ip[entry->nr],
+						 (void __user *)stack_top, max_size);
+		max_size -= left;
+		nr = max_size / sizeof(u64);
+		entry->nr += nr;
+		ctx_entry->nr += nr;
+	} else {
+		while ((ctx_entry->nr < ctx_entry->max_stack) && (stack_top < stack_base)) {
+
+			if (!access_ok((void __user *)stack_top, step))
+				break;
+
+			left = __copy_from_user_inatomic(&return_addr, (void __user *)stack_top, step);
+			stack_top += step;
+			if (left != 0)
+				break;
+
+			if (perf_callchain_store(ctx_entry, return_addr))
+				break;
+			nr++;
+		}
+	}
+
+	return nr;
+}
+
+#else
+
+static int
+intel_pmu_store_shadow_stack_user(struct perf_callchain_entry_ctx *ctx_entry)
+{
+	return 0;
+}
+
+#endif
+
+static ssize_t cet_shadow_stack_call_chain_show(struct device *cdev,
+						struct device_attribute *attr,
+						char *buf)
+{
+	return sprintf(buf, "%d\n", x86_pmu.store_shadow_stack_user ? 1 : 0);
+}
+
+static ssize_t cet_shadow_stack_call_chain_store(struct device *cdev,
+						 struct device_attribute *attr,
+						 const char *buf, size_t count)
+{
+	void *fun = NULL;
+	ssize_t ret;
+	bool val;
+
+
+	ret = kstrtobool(buf, &val);
+	if (ret)
+		return ret;
+
+	if (val)
+		fun = intel_pmu_store_shadow_stack_user;
+
+	xchg(&x86_pmu.store_shadow_stack_user, fun);
+
+	return count;
+}
+
+static DEVICE_ATTR_RW(cet_shadow_stack_call_chain);
+
 PMU_FORMAT_ATTR(offcore_rsp, "config1:0-63");
 
 PMU_FORMAT_ATTR(ldlat, "config1:0-15");
@@ -5114,6 +5226,7 @@ static DEVICE_ATTR(allow_tsx_force_abort, 0644,
 static struct attribute *intel_pmu_attrs[] = {
 	&dev_attr_freeze_on_smi.attr,
 	&dev_attr_allow_tsx_force_abort.attr,
+	&dev_attr_cet_shadow_stack_call_chain.attr,
 	NULL,
 };
 
@@ -5146,6 +5259,14 @@ default_is_visible(struct kobject *kobj, struct attribute *attr, int i)
 {
 	if (attr == &dev_attr_allow_tsx_force_abort.attr)
 		return x86_pmu.flags & PMU_FL_TFA ? attr->mode : 0;
+
+#ifdef CONFIG_X86_SHADOW_STACK
+	if (attr == &dev_attr_cet_shadow_stack_call_chain.attr)
+		return boot_cpu_has(X86_FEATURE_SHSTK) ? attr->mode : 0;
+#else
+	if (attr == &dev_attr_cet_shadow_stack_call_chain.attr)
+		return 0;
+#endif
 
 	return attr->mode;
 }
@@ -6063,6 +6184,10 @@ __init int intel_pmu_init(void)
 		x86_pmu.num_topdown_events = 4;
 		x86_pmu.update_topdown_event = icl_update_topdown_event;
 		x86_pmu.set_topdown_event_period = icl_set_topdown_event_period;
+#ifdef CONFIG_X86_SHADOW_STACK
+		if (boot_cpu_has(X86_FEATURE_SHSTK))
+			x86_pmu.store_shadow_stack_user = intel_pmu_store_shadow_stack_user;
+#endif
 		pr_cont("Icelake events, ");
 		name = "icelake";
 		break;
@@ -6149,7 +6274,8 @@ __init int intel_pmu_init(void)
 
 		td_attr = adl_hybrid_events_attrs;
 		mem_attr = adl_hybrid_mem_attrs;
-		tsx_attr = adl_hybrid_tsx_attrs;
+		if (!cpu_feature_enabled(X86_FEATURE_HYBRID_CPU))
+			tsx_attr = adl_hybrid_tsx_attrs;
 		extra_attr = boot_cpu_has(X86_FEATURE_RTM) ?
 			adl_hybrid_extra_attr_rtm : adl_hybrid_extra_attr;
 
@@ -6157,8 +6283,13 @@ __init int intel_pmu_init(void)
 		pmu = &x86_pmu.hybrid_pmu[X86_HYBRID_PMU_CORE_IDX];
 		pmu->name = "cpu_core";
 		pmu->cpu_type = hybrid_big;
-		pmu->num_counters = x86_pmu.num_counters + 2;
-		pmu->num_counters_fixed = x86_pmu.num_counters_fixed + 1;
+		if (cpu_feature_enabled(X86_FEATURE_HYBRID_CPU)) {
+			pmu->num_counters = x86_pmu.num_counters + 2;
+			pmu->num_counters_fixed = x86_pmu.num_counters_fixed + 1;
+		} else {
+			pmu->num_counters = x86_pmu.num_counters;
+			pmu->num_counters_fixed = x86_pmu.num_counters_fixed;
+		}
 		pmu->max_pebs_events = min_t(unsigned, MAX_PEBS_EVENTS, pmu->num_counters);
 		pmu->unconstrained = (struct event_constraint)
 					__EVENT_CONSTRAINT(0, (1ULL << pmu->num_counters) - 1,
