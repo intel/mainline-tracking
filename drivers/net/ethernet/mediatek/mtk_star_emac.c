@@ -405,8 +405,8 @@ static void mtk_star_dma_unmap_tx(struct mtk_star_priv *priv,
 {
 	struct device *dev = mtk_star_get_dev(priv);
 
-	return dma_unmap_single(dev, desc_data->dma_addr,
-				skb_headlen(desc_data->skb), DMA_TO_DEVICE);
+	dma_unmap_single(dev, desc_data->dma_addr,
+	 		skb_headlen(desc_data->skb), DMA_TO_DEVICE);
 }
 
 static void mtk_star_nic_disable_pd(struct mtk_star_priv *priv)

@@ -11,6 +11,7 @@
 #include <linux/module.h>
 #include <linux/hrtimer.h>
 #include <linux/dma-mapping.h>
+#include <linux/protected_guest.h>
 #include <xen/xen.h>
 
 #ifdef DEBUG
@@ -364,29 +365,31 @@ static int vring_mapping_error(const struct vring_virtqueue *vq,
  * Split ring specific functions - *_split().
  */
 
-static void vring_unmap_one_split(const struct vring_virtqueue *vq,
+static int vring_unmap_one_split(const struct vring_virtqueue *vq,
 				  struct vring_desc *desc)
 {
 	u16 flags;
+	int ret;
 
 	if (!vq->use_dma_api)
-		return;
+		return 0;
 
 	flags = virtio16_to_cpu(vq->vq.vdev, desc->flags);
 
 	if (flags & VRING_DESC_F_INDIRECT) {
-		dma_unmap_single(vring_dma_dev(vq),
+		ret = dma_unmap_single(vring_dma_dev(vq),
 				 virtio64_to_cpu(vq->vq.vdev, desc->addr),
 				 virtio32_to_cpu(vq->vq.vdev, desc->len),
 				 (flags & VRING_DESC_F_WRITE) ?
 				 DMA_FROM_DEVICE : DMA_TO_DEVICE);
 	} else {
-		dma_unmap_page(vring_dma_dev(vq),
+		ret = dma_unmap_page(vring_dma_dev(vq),
 			       virtio64_to_cpu(vq->vq.vdev, desc->addr),
 			       virtio32_to_cpu(vq->vq.vdev, desc->len),
 			       (flags & VRING_DESC_F_WRITE) ?
 			       DMA_FROM_DEVICE : DMA_TO_DEVICE);
 	}
+	return ret;
 }
 
 static struct vring_desc *alloc_indirect_split(struct virtqueue *_vq,
@@ -412,6 +415,15 @@ static struct vring_desc *alloc_indirect_split(struct virtqueue *_vq,
 	return desc;
 }
 
+/* assumes no indirect mode */
+static inline bool inside_split_ring(struct vring_virtqueue *vq,
+				     unsigned int index)
+{
+	return !WARN(index >= vq->split.vring.num,
+		    "desc index %u out of bounds (%u)\n",
+		    index, vq->split.vring.num);
+}
+
 static inline int virtqueue_add_split(struct virtqueue *_vq,
 				      struct scatterlist *sgs[],
 				      unsigned int total_sg,
@@ -427,6 +439,7 @@ static inline int virtqueue_add_split(struct virtqueue *_vq,
 	unsigned int i, n, avail, descs_used, prev, err_idx;
 	int head;
 	bool indirect;
+	int io_err;
 
 	START_USE(vq);
 
@@ -480,7 +493,13 @@ static inline int virtqueue_add_split(struct virtqueue *_vq,
 
 	for (n = 0; n < out_sgs; n++) {
 		for (sg = sgs[n]; sg; sg = sg_next(sg)) {
-			dma_addr_t addr = vring_map_one_sg(vq, sg, DMA_TO_DEVICE);
+			dma_addr_t addr;
+
+			io_err = -EIO;
+			if (!inside_split_ring(vq, i))
+				goto unmap_release;
+			io_err = -ENOMEM;
+			addr = vring_map_one_sg(vq, sg, DMA_TO_DEVICE);
 			if (vring_mapping_error(vq, addr))
 				goto unmap_release;
 
@@ -493,7 +512,13 @@ static inline int virtqueue_add_split(struct virtqueue *_vq,
 	}
 	for (; n < (out_sgs + in_sgs); n++) {
 		for (sg = sgs[n]; sg; sg = sg_next(sg)) {
-			dma_addr_t addr = vring_map_one_sg(vq, sg, DMA_FROM_DEVICE);
+			dma_addr_t addr;
+
+			io_err = -EIO;
+			if (!inside_split_ring(vq, i))
+				goto unmap_release;
+			io_err = -ENOMEM;
+			addr = vring_map_one_sg(vq, sg, DMA_FROM_DEVICE);
 			if (vring_mapping_error(vq, addr))
 				goto unmap_release;
 
@@ -512,6 +537,7 @@ static inline int virtqueue_add_split(struct virtqueue *_vq,
 		dma_addr_t addr = vring_map_single(
 			vq, desc, total_sg * sizeof(struct vring_desc),
 			DMA_TO_DEVICE);
+		io_err = -ENOMEM;
 		if (vring_mapping_error(vq, addr))
 			goto unmap_release;
 
@@ -526,6 +552,10 @@ static inline int virtqueue_add_split(struct virtqueue *_vq,
 
 	/* We're using some buffers from the free list. */
 	vq->vq.num_free -= descs_used;
+
+	io_err = -EIO;
+	if (!inside_split_ring(vq, head))
+		goto unmap_release;
 
 	/* Update free pointer */
 	if (indirect)
@@ -544,6 +574,10 @@ static inline int virtqueue_add_split(struct virtqueue *_vq,
 	/* Put entry in available array (but don't update avail->idx until they
 	 * do sync). */
 	avail = vq->split.avail_idx_shadow & (vq->split.vring.num - 1);
+
+	if (avail >= vq->split.vring.num)
+		goto unmap_release;
+
 	vq->split.vring.avail->ring[avail] = cpu_to_virtio16(_vq->vdev, head);
 
 	/* Descriptors and available array need to be set before we expose the
@@ -575,6 +609,12 @@ unmap_release:
 	for (n = 0; n < total_sg; n++) {
 		if (i == err_idx)
 			break;
+		if (!inside_split_ring(vq, i))
+			break;
+		/*
+		 * Ignore unmapping errors since
+		 * we're aborting anyways.
+		 */
 		vring_unmap_one_split(vq, &desc[i]);
 		i = virtio16_to_cpu(_vq->vdev, desc[i].next);
 	}
@@ -583,7 +623,7 @@ unmap_release:
 		kfree(desc);
 
 	END_USE(vq);
-	return -ENOMEM;
+	return io_err;
 }
 
 static bool virtqueue_kick_prepare_split(struct virtqueue *_vq)
@@ -617,11 +657,20 @@ static bool virtqueue_kick_prepare_split(struct virtqueue *_vq)
 	return needs_kick;
 }
 
-static void detach_buf_split(struct vring_virtqueue *vq, unsigned int head,
-			     void **ctx)
+static int detach_buf_split(struct vring_virtqueue *vq, unsigned int head,
+			    void **ctx)
 {
 	unsigned int i, j;
+	int ret;
+
 	__virtio16 nextflag = cpu_to_virtio16(vq->vq.vdev, VRING_DESC_F_NEXT);
+
+	/* We'll leak DMA mappings when this happens, but nothing
+	 * can be done about that. In the worst case the host
+	 * could DOS us, but it can of course do that anyways.
+	 */
+	if (!inside_split_ring(vq, head))
+		return -EIO;
 
 	/* Clear data ptr. */
 	vq->split.desc_state[head].data = NULL;
@@ -630,9 +679,18 @@ static void detach_buf_split(struct vring_virtqueue *vq, unsigned int head,
 	i = head;
 
 	while (vq->split.vring.desc[i].flags & nextflag) {
-		vring_unmap_one_split(vq, &vq->split.vring.desc[i]);
+		ret = vring_unmap_one_split(vq, &vq->split.vring.desc[i]);
+		if (ret)
+			return ret;
 		i = virtio16_to_cpu(vq->vq.vdev, vq->split.vring.desc[i].next);
+		if (!inside_split_ring(vq, i))
+			return -EIO;
 		vq->vq.num_free++;
+		if (WARN_ONCE(vq->vq.num_free >
+				vq->split.queue_size_in_bytes /
+					sizeof(struct vring_desc),
+				"Virtio freelist corrupted"))
+			return -EIO;
 	}
 
 	vring_unmap_one_split(vq, &vq->split.vring.desc[i]);
@@ -650,7 +708,7 @@ static void detach_buf_split(struct vring_virtqueue *vq, unsigned int head,
 
 		/* Free the indirect table, if any, now that it's unmapped. */
 		if (!indir_desc)
-			return;
+			return 0;
 
 		len = virtio32_to_cpu(vq->vq.vdev,
 				vq->split.vring.desc[head].len);
@@ -667,6 +725,7 @@ static void detach_buf_split(struct vring_virtqueue *vq, unsigned int head,
 	} else if (ctx) {
 		*ctx = vq->split.desc_state[head].indir_desc;
 	}
+	return 0;
 }
 
 static inline bool more_used_split(const struct vring_virtqueue *vq)
@@ -683,6 +742,7 @@ static void *virtqueue_get_buf_ctx_split(struct virtqueue *_vq,
 	void *ret;
 	unsigned int i;
 	u16 last_used;
+	int err;
 
 	START_USE(vq);
 
@@ -717,7 +777,12 @@ static void *virtqueue_get_buf_ctx_split(struct virtqueue *_vq,
 
 	/* detach_buf_split clears data, so grab it now. */
 	ret = vq->split.desc_state[i].data;
-	detach_buf_split(vq, i, ctx);
+	err = detach_buf_split(vq, i, ctx);
+	if (err) {
+		END_USE(vq);
+		return NULL;
+	}
+
 	vq->last_used_idx++;
 	/* If we expect an interrupt for the next entry, tell host
 	 * by writing event index and flush out the write before
@@ -828,7 +893,9 @@ static void *virtqueue_detach_unused_buf_split(struct virtqueue *_vq)
 			continue;
 		/* detach_buf_split clears data, so grab it now. */
 		buf = vq->split.desc_state[i].data;
+		/* Ignore unmap errors because there is nothing to abort */
 		detach_buf_split(vq, i, NULL);
+		/* Don't need to check for error because nothing is returned */
 		vq->split.avail_idx_shadow--;
 		vq->split.vring.avail->idx = cpu_to_virtio16(_vq->vdev,
 				vq->split.avail_idx_shadow);
@@ -1145,7 +1212,12 @@ static inline int virtqueue_add_packed(struct virtqueue *_vq,
 	c = 0;
 	for (n = 0; n < out_sgs + in_sgs; n++) {
 		for (sg = sgs[n]; sg; sg = sg_next(sg)) {
-			dma_addr_t addr = vring_map_one_sg(vq, sg, n < out_sgs ?
+			dma_addr_t addr;
+
+			if (curr >= vq->packed.vring.num)
+				goto unmap_release;
+
+			addr = vring_map_one_sg(vq, sg, n < out_sgs ?
 					DMA_TO_DEVICE : DMA_FROM_DEVICE);
 			if (vring_mapping_error(vq, addr))
 				goto unmap_release;
@@ -2221,8 +2293,15 @@ void vring_transport_features(struct virtio_device *vdev)
 	unsigned int i;
 
 	for (i = VIRTIO_TRANSPORT_F_START; i < VIRTIO_TRANSPORT_F_END; i++) {
+		/*
+		 * In protected guest mode disallow packed or indirect
+		 * because they ain't hardened.
+		 */
+
 		switch (i) {
 		case VIRTIO_RING_F_INDIRECT_DESC:
+			if (prot_guest_has(PR_GUEST_MEM_ENCRYPT))
+				goto clear;
 			break;
 		case VIRTIO_RING_F_EVENT_IDX:
 			break;
@@ -2231,14 +2310,22 @@ void vring_transport_features(struct virtio_device *vdev)
 		case VIRTIO_F_ACCESS_PLATFORM:
 			break;
 		case VIRTIO_F_RING_PACKED:
+			if (prot_guest_has(PR_GUEST_MEM_ENCRYPT))
+				goto clear;
 			break;
 		case VIRTIO_F_ORDER_PLATFORM:
 			break;
+clear:
 		default:
 			/* We don't understand this bit. */
 			__virtio_clear_bit(vdev, i);
 		}
 	}
+#ifdef CONFIG_INTEL_TDX_KVM_SDV
+	/* For now until all qemus are fixed */
+	if (prot_guest_has(PR_GUEST_MEM_ENCRYPT))
+		__virtio_set_bit(vdev, VIRTIO_F_ACCESS_PLATFORM);
+#endif
 }
 EXPORT_SYMBOL_GPL(vring_transport_features);
 

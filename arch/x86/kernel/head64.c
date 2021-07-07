@@ -40,6 +40,7 @@
 #include <asm/extable.h>
 #include <asm/trapnr.h>
 #include <asm/sev.h>
+#include <asm/tdx.h>
 
 /*
  * Manage page tables very early on.
@@ -409,6 +410,9 @@ void __init do_early_exception(struct pt_regs *regs, int trapnr)
 	    trapnr == X86_TRAP_VC && handle_vc_boot_ghcb(regs))
 		return;
 
+	if (trapnr == X86_TRAP_VE && tdg_early_handle_ve(regs))
+		return;
+
 	early_fixup_exception(regs, trapnr);
 }
 
@@ -494,6 +498,8 @@ asmlinkage __visible void __init x86_64_start_kernel(char * real_mode_data)
 	idt_setup_early_handler();
 
 	copy_bootdata(__va(real_mode_data));
+
+	tdx_early_init();
 
 	/*
 	 * Load microcode early on BSP.

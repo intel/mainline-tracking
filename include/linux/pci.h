@@ -972,6 +972,26 @@ enum {
 #define PCI_IRQ_MSIX		(1 << 2) /* Allow MSI-X interrupts */
 #define PCI_IRQ_AFFINITY	(1 << 3) /* Auto-assign affinity */
 
+/*
+ * struct pci_filter_node - PCI driver filter structure
+ * @vendor:	Device vendor ID
+ * @device:	Device ID
+ */
+struct pci_filter_node {
+	unsigned short vendor;
+	unsigned short device;
+};
+
+/*
+ * struct pci_dev_filter_data - PCI device filter data
+ * @allow_list: List of allowed PCI devices.
+ * @len: Length of allowed list.
+ */
+struct pci_dev_filter_data {
+	struct pci_filter_node *allow_list;
+	unsigned int len;
+};
+
 /* These external functions are only available when PCI support is enabled */
 #ifdef CONFIG_PCI
 
