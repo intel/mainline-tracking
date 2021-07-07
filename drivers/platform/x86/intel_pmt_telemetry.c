@@ -17,7 +17,7 @@
 
 #include "intel_pmt_class.h"
 
-#define TELEM_DEV_NAME		"pmt_telemetry"
+#define TELEM_DEV_NAME		"intel-dvsec-2"
 
 #define TELEM_SIZE_OFFSET	0x0
 #define TELEM_GUID_OFFSET	0x4

@@ -17,7 +17,7 @@
 
 #include "intel_pmt_class.h"
 
-#define DRV_NAME		"pmt_crashlog"
+#define DRV_NAME		"intel-dvsec-4"
 
 /* Crashlog discovery header types */
 #define CRASH_TYPE_OOBMSM	1
