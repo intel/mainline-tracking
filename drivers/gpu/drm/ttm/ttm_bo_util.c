@@ -176,15 +176,16 @@ int ttm_bo_move_memcpy(struct ttm_buffer_object *bo,
 		       struct ttm_operation_ctx *ctx,
 		       struct ttm_resource *new_mem)
 {
+	struct ttm_resource *old_mem = bo->resource;
 	struct ttm_device *bdev = bo->bdev;
-	struct ttm_resource_manager *man = ttm_manager_type(bdev, new_mem->mem_type);
+	struct ttm_resource_manager *man;
 	struct ttm_tt *ttm = bo->ttm;
-	struct ttm_resource *old_mem = &bo->mem;
-	struct ttm_resource old_copy = *old_mem;
 	void *old_iomap;
 	void *new_iomap;
 	int ret;
 	unsigned long i;
+
+	man = ttm_manager_type(bdev, new_mem->mem_type);
 
 	ret = ttm_bo_wait_ctx(bo, ctx);
 	if (ret)
@@ -201,7 +202,7 @@ int ttm_bo_move_memcpy(struct ttm_buffer_object *bo,
 	 * Single TTM move. NOP.
 	 */
 	if (old_iomap == NULL && new_iomap == NULL)
-		goto out2;
+		goto out1;
 
 	/*
 	 * Don't move nonexistent data. Clear destination instead.
@@ -210,7 +211,7 @@ int ttm_bo_move_memcpy(struct ttm_buffer_object *bo,
 	    (ttm == NULL || (!ttm_tt_is_populated(ttm) &&
 			     !(ttm->page_flags & TTM_PAGE_FLAG_SWAPPED)))) {
 		memset_io(new_iomap, 0, new_mem->num_pages*PAGE_SIZE);
-		goto out2;
+		goto out1;
 	}
 
 	/*
@@ -235,27 +236,25 @@ int ttm_bo_move_memcpy(struct ttm_buffer_object *bo,
 			ret = ttm_copy_io_page(new_iomap, old_iomap, i);
 		}
 		if (ret)
-			goto out1;
+			break;
 	}
 	mb();
-out2:
-	old_copy = *old_mem;
+out1:
+	ttm_resource_iounmap(bdev, new_mem, new_iomap);
+out:
+	ttm_resource_iounmap(bdev, old_mem, old_iomap);
 
+	if (ret) {
+		ttm_resource_free(bo, &new_mem);
+		return ret;
+	}
+
+	ttm_resource_free(bo, &bo->resource);
 	ttm_bo_assign_mem(bo, new_mem);
 
 	if (!man->use_tt)
 		ttm_bo_tt_destroy(bo);
 
-out1:
-	ttm_resource_iounmap(bdev, old_mem, new_iomap);
-out:
-	ttm_resource_iounmap(bdev, &old_copy, old_iomap);
-
-	/*
-	 * On error, keep the mm node!
-	 */
-	if (!ret)
-		ttm_resource_free(bo, &old_copy);
 	return ret;
 }
 EXPORT_SYMBOL(ttm_bo_move_memcpy);
@@ -365,24 +364,23 @@ static int ttm_bo_ioremap(struct ttm_buffer_object *bo,
 			  unsigned long size,
 			  struct ttm_bo_kmap_obj *map)
 {
-	struct ttm_resource *mem = &bo->mem;
+	struct ttm_resource *mem = bo->resource;
 
-	if (bo->mem.bus.addr) {
+	if (bo->resource->bus.addr) {
 		map->bo_kmap_type = ttm_bo_map_premapped;
-		map->virtual = (void *)(((u8 *)bo->mem.bus.addr) + offset);
+		map->virtual = ((u8 *)bo->resource->bus.addr) + offset;
 	} else {
+		resource_size_t res = bo->resource->bus.offset + offset;
+
 		map->bo_kmap_type = ttm_bo_map_iomap;
 		if (mem->bus.caching == ttm_write_combined)
-			map->virtual = ioremap_wc(bo->mem.bus.offset + offset,
-						  size);
+			map->virtual = ioremap_wc(res, size);
 #ifdef CONFIG_X86
 		else if (mem->bus.caching == ttm_cached)
-			map->virtual = ioremap_cache(bo->mem.bus.offset + offset,
-						  size);
+			map->virtual = ioremap_cache(res, size);
 #endif
 		else
-			map->virtual = ioremap(bo->mem.bus.offset + offset,
-					       size);
+			map->virtual = ioremap(res, size);
 	}
 	return (!map->virtual) ? -ENOMEM : 0;
 }
@@ -392,7 +390,7 @@ static int ttm_bo_kmap_ttm(struct ttm_buffer_object *bo,
 			   unsigned long num_pages,
 			   struct ttm_bo_kmap_obj *map)
 {
-	struct ttm_resource *mem = &bo->mem;
+	struct ttm_resource *mem = bo->resource;
 	struct ttm_operation_ctx ctx = {
 		.interruptible = false,
 		.no_wait_gpu = false
@@ -438,15 +436,15 @@ int ttm_bo_kmap(struct ttm_buffer_object *bo,
 
 	map->virtual = NULL;
 	map->bo = bo;
-	if (num_pages > bo->mem.num_pages)
+	if (num_pages > bo->resource->num_pages)
 		return -EINVAL;
-	if ((start_page + num_pages) > bo->mem.num_pages)
+	if ((start_page + num_pages) > bo->resource->num_pages)
 		return -EINVAL;
 
-	ret = ttm_mem_io_reserve(bo->bdev, &bo->mem);
+	ret = ttm_mem_io_reserve(bo->bdev, bo->resource);
 	if (ret)
 		return ret;
-	if (!bo->mem.bus.is_iomem) {
+	if (!bo->resource->bus.is_iomem) {
 		return ttm_bo_kmap_ttm(bo, start_page, num_pages, map);
 	} else {
 		offset = start_page << PAGE_SHIFT;
@@ -475,7 +473,7 @@ void ttm_bo_kunmap(struct ttm_bo_kmap_obj *map)
 	default:
 		BUG();
 	}
-	ttm_mem_io_free(map->bo->bdev, &map->bo->mem);
+	ttm_mem_io_free(map->bo->bdev, map->bo->resource);
 	map->virtual = NULL;
 	map->page = NULL;
 }
@@ -483,7 +481,7 @@ EXPORT_SYMBOL(ttm_bo_kunmap);
 
 int ttm_bo_vmap(struct ttm_buffer_object *bo, struct dma_buf_map *map)
 {
-	struct ttm_resource *mem = &bo->mem;
+	struct ttm_resource *mem = bo->resource;
 	int ret;
 
 	ret = ttm_mem_io_reserve(bo->bdev, mem);
@@ -542,7 +540,7 @@ EXPORT_SYMBOL(ttm_bo_vmap);
 
 void ttm_bo_vunmap(struct ttm_buffer_object *bo, struct dma_buf_map *map)
 {
-	struct ttm_resource *mem = &bo->mem;
+	struct ttm_resource *mem = bo->resource;
 
 	if (dma_buf_map_is_null(map))
 		return;
@@ -553,7 +551,7 @@ void ttm_bo_vunmap(struct ttm_buffer_object *bo, struct dma_buf_map *map)
 		iounmap(map->vaddr_iomem);
 	dma_buf_map_clear(map);
 
-	ttm_mem_io_free(bo->bdev, &bo->mem);
+	ttm_mem_io_free(bo->bdev, bo->resource);
 }
 EXPORT_SYMBOL(ttm_bo_vunmap);
 
@@ -567,7 +565,7 @@ static int ttm_bo_wait_free_node(struct ttm_buffer_object *bo,
 
 	if (!dst_use_tt)
 		ttm_bo_tt_destroy(bo);
-	ttm_resource_free(bo, &bo->mem);
+	ttm_resource_free(bo, &bo->resource);
 	return 0;
 }
 
@@ -605,6 +603,7 @@ static int ttm_bo_move_to_ghost(struct ttm_buffer_object *bo,
 		ghost_obj->ttm = NULL;
 	else
 		bo->ttm = NULL;
+	bo->resource = NULL;
 
 	dma_resv_unlock(&ghost_obj->base._resv);
 	ttm_bo_put(ghost_obj);
@@ -615,7 +614,9 @@ static void ttm_bo_move_pipeline_evict(struct ttm_buffer_object *bo,
 				       struct dma_fence *fence)
 {
 	struct ttm_device *bdev = bo->bdev;
-	struct ttm_resource_manager *from = ttm_manager_type(bdev, bo->mem.mem_type);
+	struct ttm_resource_manager *from;
+
+	from = ttm_manager_type(bdev, bo->resource->mem_type);
 
 	/**
 	 * BO doesn't have a TTM we need to bind/unbind. Just remember
@@ -628,7 +629,7 @@ static void ttm_bo_move_pipeline_evict(struct ttm_buffer_object *bo,
 	}
 	spin_unlock(&from->move_lock);
 
-	ttm_resource_free(bo, &bo->mem);
+	ttm_resource_free(bo, &bo->resource);
 
 	dma_fence_put(bo->moving);
 	bo->moving = dma_fence_get(fence);
@@ -641,7 +642,7 @@ int ttm_bo_move_accel_cleanup(struct ttm_buffer_object *bo,
 			      struct ttm_resource *new_mem)
 {
 	struct ttm_device *bdev = bo->bdev;
-	struct ttm_resource_manager *from = ttm_manager_type(bdev, bo->mem.mem_type);
+	struct ttm_resource_manager *from = ttm_manager_type(bdev, bo->resource->mem_type);
 	struct ttm_resource_manager *man = ttm_manager_type(bdev, new_mem->mem_type);
 	int ret = 0;
 
@@ -664,6 +665,7 @@ EXPORT_SYMBOL(ttm_bo_move_accel_cleanup);
 
 int ttm_bo_pipeline_gutting(struct ttm_buffer_object *bo)
 {
+	static const struct ttm_place sys_mem = { .mem_type = TTM_PL_SYSTEM };
 	struct ttm_buffer_object *ghost;
 	int ret;
 
@@ -676,12 +678,11 @@ int ttm_bo_pipeline_gutting(struct ttm_buffer_object *bo)
 	if (ret)
 		ttm_bo_wait(bo, false, false);
 
-	memset(&bo->mem, 0, sizeof(bo->mem));
-	bo->mem.mem_type = TTM_PL_SYSTEM;
+	ret = ttm_resource_alloc(bo, &sys_mem, &bo->resource);
 	bo->ttm = NULL;
 
 	dma_resv_unlock(&ghost->base._resv);
 	ttm_bo_put(ghost);
 
-	return 0;
+	return ret;
 }
