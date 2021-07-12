@@ -67,9 +67,6 @@ static void idma32_initialize_chan_xbar(struct dw_dma_chan *dwc)
 	value &= ~CTL_CH_TRANSFER_MODE_MASK;
 
 	switch (dwc->direction) {
-	case DMA_MEM_TO_MEM:
-		value |= CTL_CH_TRANSFER_MODE_D2D;
-		break;
 	case DMA_MEM_TO_DEV:
 		value |= CTL_CH_TRANSFER_MODE_D2S;
 		value |= CTL_CH_WR_NON_SNOOP_BIT;
@@ -78,11 +75,13 @@ static void idma32_initialize_chan_xbar(struct dw_dma_chan *dwc)
 		value |= CTL_CH_TRANSFER_MODE_S2D;
 		value |= CTL_CH_RD_NON_SNOOP_BIT;
 		break;
-	case DMA_DEV_TO_DEV:
-		value |= CTL_CH_WR_NON_SNOOP_BIT | CTL_CH_RD_NON_SNOOP_BIT;
-		value |= CTL_CH_TRANSFER_MODE_S2S;
-		break;
 	default:
+		/*
+		 * Memory-to-Memory and Device-to-Device are ignored for now.
+		 *
+		 * For Memory-to-Memory transfers we would need to set mode
+		 * and disable snooping on both sides.
+		 */
 		return;
 	}
 
@@ -96,17 +95,14 @@ static void idma32_initialize_chan_xbar(struct dw_dma_chan *dwc)
 	value |= idma32_get_slave_devfn(dwc);
 
 	switch (dwc->direction) {
-	case DMA_MEM_TO_MEM:
-		break;
 	case DMA_MEM_TO_DEV:
 		value |= XBAR_SEL_RX_TX_BIT;
 		break;
 	case DMA_DEV_TO_MEM:
 		value &= ~XBAR_SEL_RX_TX_BIT;
 		break;
-	case DMA_DEV_TO_DEV:
-		break;
 	default:
+		/* Memory-to-Memory and Device-to-Device are ignored for now */
 		return;
 	}
 
@@ -114,10 +110,6 @@ static void idma32_initialize_chan_xbar(struct dw_dma_chan *dwc)
 
 	/* Configure DMA channel low and high registers */
 	switch (dwc->direction) {
-	case DMA_MEM_TO_MEM:
-		dst_id = dwc->chan.chan_id;
-		src_id = dwc->chan.chan_id;
-		break;
 	case DMA_MEM_TO_DEV:
 		dst_id = dwc->chan.chan_id;
 		src_id = dwc->dws.src_id;
@@ -126,11 +118,8 @@ static void idma32_initialize_chan_xbar(struct dw_dma_chan *dwc)
 		dst_id = dwc->dws.dst_id;
 		src_id = dwc->chan.chan_id;
 		break;
-	case DMA_DEV_TO_DEV:
-		dst_id = dwc->dws.src_id;
-		src_id = dwc->dws.dst_id;
-		break;
 	default:
+		/* Memory-to-Memory and Device-to-Device are ignored for now */
 		return;
 	}
 
