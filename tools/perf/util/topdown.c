@@ -3,7 +3,8 @@
 #include "pmu.h"
 #include "topdown.h"
 
-int topdown_filter_events(const char **attr, char **str, bool use_group)
+int topdown_filter_events(const char **attr, char **str, bool use_group,
+			  const char *pmu_name)
 {
 	int off = 0;
 	int i;
@@ -11,7 +12,7 @@ int topdown_filter_events(const char **attr, char **str, bool use_group)
 	char *s;
 
 	for (i = 0; attr[i]; i++) {
-		if (pmu_have_event("cpu", attr[i])) {
+		if (pmu_have_event(pmu_name, attr[i])) {
 			len += strlen(attr[i]) + 1;
 			attr[i - off] = attr[i];
 		} else

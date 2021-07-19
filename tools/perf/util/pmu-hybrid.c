@@ -87,3 +87,14 @@ char *perf_pmu__hybrid_type_to_pmu(const char *type)
 	free(pmu_name);
 	return NULL;
 }
+
+bool perf_pmu__is_invalid_hybrid(const char *name)
+{
+	if (strncmp(name, "cpu_", 4))
+		return false;
+
+	if (perf_pmu__hybrid_mounted(name))
+		return false;
+
+	return true;
+}

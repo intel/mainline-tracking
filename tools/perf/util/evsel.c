@@ -1582,6 +1582,15 @@ int __evsel__read_on_cpu(struct evsel *evsel, int cpu, int thread, bool scale)
 	return 0;
 }
 
+static int evsel_cpuid_match(struct evsel *evsel1, struct evsel *evsel2,
+			     int cpu)
+{
+	int cpuid;
+
+	cpuid = perf_cpu_map__cpu(evsel1->core.cpus, cpu);
+	return perf_cpu_map__idx(evsel2->core.cpus, cpuid);
+}
+
 static int get_group_fd(struct evsel *evsel, int cpu, int thread)
 {
 	struct evsel *leader = evsel->leader;
@@ -1595,6 +1604,26 @@ static int get_group_fd(struct evsel *evsel, int cpu, int thread)
 	 * if not it's a bug.
 	 */
 	BUG_ON(!leader->core.fd);
+
+	/*
+	 * If leader is global event (e.g. 'intel_pt//'), but member is
+	 * hybrid event. Need to get the leader's fd from correct cpu.
+	 */
+	if (evsel__is_hybrid(evsel) &&
+	    !evsel__is_hybrid(leader)) {
+		cpu = evsel_cpuid_match(evsel, leader, cpu);
+		BUG_ON(cpu == -1);
+	}
+
+	/*
+	 * Leader is hybrid event but member is global event.
+	 */
+	if (!evsel__is_hybrid(evsel) &&
+	    evsel__is_hybrid(leader)) {
+		cpu = evsel_cpuid_match(evsel, leader, cpu);
+		if (cpu == -1)
+			return -1;
+	}
 
 	fd = FD(leader, cpu, thread);
 	BUG_ON(fd == -1);
