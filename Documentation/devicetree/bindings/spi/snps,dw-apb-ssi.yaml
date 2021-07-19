@@ -67,6 +67,9 @@ properties:
         const: baikal,bt1-sys-ssi
       - description: Canaan Kendryte K210 SoS SPI Controller
         const: canaan,k210-spi
+      - description: Intel Thunder Bay SPI Controller
+        const: intel,thunderbay-ssi
+
 
   reg:
     minItems: 1

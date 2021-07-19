@@ -1,0 +1,21 @@
+config XLINK_NET
+	tristate "Support for XLINKNET"
+	default m
+	depends on XLINK_CORE
+	help
+		XLINK_NET enables the network interface over xlink pcie module.
+		Choose M here to compile this driver as a module,
+		name is xlink_net.
+		Choose Y here to compile this driver as a default module in build.
+
+
+config XLINKNET_REMOTEHOST
+	tristate "Support for XLINKNET for remote host"
+	depends on XLINK_CORE && XLINK_NET=n
+	help
+		XLINKNET_REMOTEHOST enables the network interface over
+		xlink pcie in the host side.
+
+		Choose M here to compile this driver as a module.
+		Choose Y here to compile this driver
+		as a default module in build.
