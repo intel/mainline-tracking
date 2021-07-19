@@ -6820,6 +6820,64 @@ fail:
 }
 
 /*
+ * find_asym_packing_idle_cpu: find highest priority idle CPU (or sched_idle CPU)
+ *
+ * Return the highest priority idle CPU.
+ * Return prev_cpu if a tie.
+ * Return -1 if no idle CPU found
+ *
+ * If no idle CPUs, return as above, but for sched_idle CPUs.
+ */
+static int find_asym_packing_idle_cpu(struct task_struct *p, int prev_cpu)
+{
+	struct sched_domain *sd;
+	int new_idle_cpu = -1;
+	int new_sched_idle_cpu = -1;
+	int i;
+
+	rcu_read_lock();
+	sd = rcu_dereference(per_cpu(sd_asym_packing, prev_cpu));
+	if (!sd) {
+		rcu_read_unlock();
+		return -1;
+	}
+
+	if (available_idle_cpu(prev_cpu))
+		new_idle_cpu = prev_cpu;
+	else if (sched_idle_cpu(prev_cpu))
+		new_sched_idle_cpu = prev_cpu;
+
+	for_each_cpu(i, sched_domain_span(sd)) {
+		if (!cpumask_test_cpu(i, p->cpus_ptr))
+			continue;
+		if (!available_idle_cpu(i)) {
+			if (sched_idle_cpu(i)) {
+				if (new_sched_idle_cpu == -1)
+					new_sched_idle_cpu = i;
+				else if (sched_asym_prefer(i, new_sched_idle_cpu))
+					new_sched_idle_cpu = i;
+			}
+			continue;
+		}
+		if (new_idle_cpu == -1)
+			new_idle_cpu = i;
+		else if (sched_asym_prefer(i, new_idle_cpu)) {
+			new_idle_cpu = i;
+			/*
+			 * Assume that finding a preference between two idle cpus
+			 * (including idle prev_cpu) is sufficent searching.
+			 */
+			break;
+		}
+	}
+	rcu_read_unlock();
+
+	if (new_idle_cpu == -1)
+		return new_sched_idle_cpu;
+	return new_idle_cpu;
+}
+
+/*
  * select_task_rq_fair: Select target runqueue for the waking task in domains
  * that have the relevant SD flag set. In practice, this is SD_BALANCE_WAKE,
  * SD_BALANCE_FORK, or SD_BALANCE_EXEC.
@@ -6849,8 +6907,13 @@ select_task_rq_fair(struct task_struct *p, int prev_cpu, int wake_flags)
 			new_cpu = find_energy_efficient_cpu(p, prev_cpu);
 			if (new_cpu >= 0)
 				return new_cpu;
-			new_cpu = prev_cpu;
 		}
+
+		new_cpu = find_asym_packing_idle_cpu(p, prev_cpu);
+		if (new_cpu >= 0)
+			return new_cpu;
+
+		new_cpu = prev_cpu;
 
 		want_affine = !wake_wide(p) && cpumask_test_cpu(cpu, p->cpus_ptr);
 	}
@@ -8471,6 +8534,100 @@ group_type group_classify(unsigned int imbalance_pct,
 }
 
 /**
+ * asym_can_pull_tasks - Check whether the load balancing CPU can pull tasks
+ * @dst_cpu:	Destination CPU of the load balancing
+ * @sds:	Load-balancing data with statistics of the local group
+ * @sgs:	Load-balancing statistics of the candidate busiest group
+ * @sg:		The candidate busiet group
+ *
+ * Check the state of the SMT siblings of both @sds::local and @sg and decide
+ * if @dst_cpu can pull tasks. If @dst_cpu does not have SMT siblings, it can
+ * pull tasks if two or more of the SMT siblings of @sg are busy. If only one
+ * CPU in @sg is busy, pull tasks only if @dst_cpu has higher priority.
+ *
+ * If both @dst_cpu and @sg have SMT siblings. Even the number of idle CPUs
+ * between @sds::local and @sg. Thus, pull tasks from @sg if the difference
+ * between the number of busy CPUs is 2 or more. If the difference is of 1,
+ * only pull if @dst_cpu has higher priority. If @sg does not have SMT siblings
+ * only pull tasks if all of the SMT siblings of @dst_cpu are idle and @sg
+ * has lower priority.
+ */
+static bool asym_can_pull_tasks(int dst_cpu, struct sd_lb_stats *sds,
+				struct sg_lb_stats *sgs, struct sched_group *sg)
+{
+#ifdef CONFIG_SCHED_SMT
+	bool local_is_smt, sg_is_smt;
+	int sg_busy_cpus;
+
+	local_is_smt = sds->local->flags & SD_SHARE_CPUCAPACITY;
+	sg_is_smt = sg->flags & SD_SHARE_CPUCAPACITY;
+
+	sg_busy_cpus = sgs->group_weight - sgs->idle_cpus;
+
+	if (!local_is_smt) {
+		/*
+		 * If we are here, @dst_cpu is idle and does not have SMT
+		 * siblings. Pull tasks if candidate group has two or more
+		 * busy CPUs.
+		 */
+		if (sg_is_smt && sg_busy_cpus >= 2)
+			return true;
+
+		/*
+		 * @dst_cpu does not have SMT siblings. @sg may have SMT
+		 * siblings and only one is busy. In such case, @dst_cpu
+		 * can help if it has higher priority and is idle.
+		 */
+		return !sds->local_stat.group_util &&
+		       sched_asym_prefer(dst_cpu, sg->asym_prefer_cpu);
+	}
+
+	/* @dst_cpu has SMT siblings. */
+
+	if (sg_is_smt) {
+		int local_busy_cpus = sds->local->group_weight -
+				      sds->local_stat.idle_cpus;
+		int busy_cpus_delta = sg_busy_cpus - local_busy_cpus;
+
+		/* Local can always help to even the number busy CPUs. */
+		if (busy_cpus_delta >= 2)
+			return true;
+
+		if (busy_cpus_delta == 1)
+			return sched_asym_prefer(dst_cpu,
+						 sg->asym_prefer_cpu);
+
+		return false;
+	}
+
+	/*
+	 * @sg does not have SMT siblings. Ensure that @sds::local does not end
+	 * up with more than one busy SMT sibling and only pull tasks if there
+	 * are not busy CPUs. As CPUs move in and out of idle state frequently,
+	 * also check the group utilization to smoother the decision.
+	 */
+	if (!sds->local_stat.group_util)
+		return sched_asym_prefer(dst_cpu, sg->asym_prefer_cpu);
+
+	return false;
+#else
+	return true;
+#endif
+}
+
+static inline bool
+sched_asym(struct lb_env *env, struct sd_lb_stats *sds,  struct sg_lb_stats *sgs,
+	   struct sched_group *group)
+{
+	/* Only do SMT checks if either local or candidate have SMT siblings */
+	if ((sds->local->flags & SD_SHARE_CPUCAPACITY) ||
+	    (group->flags & SD_SHARE_CPUCAPACITY))
+		return asym_can_pull_tasks(env->dst_cpu, sds, sgs, group);
+
+	return sched_asym_prefer(env->dst_cpu, group->asym_prefer_cpu);
+}
+
+/**
  * update_sg_lb_stats - Update sched_group's statistics for load balancing.
  * @env: The load balancing environment.
  * @group: sched_group whose statistics are to be updated.
@@ -8478,6 +8635,7 @@ group_type group_classify(unsigned int imbalance_pct,
  * @sg_status: Holds flag indicating the status of the sched_group
  */
 static inline void update_sg_lb_stats(struct lb_env *env,
+				      struct sd_lb_stats *sds,
 				      struct sched_group *group,
 				      struct sg_lb_stats *sgs,
 				      int *sg_status)
@@ -8486,7 +8644,7 @@ static inline void update_sg_lb_stats(struct lb_env *env,
 
 	memset(sgs, 0, sizeof(*sgs));
 
-	local_group = cpumask_test_cpu(env->dst_cpu, sched_group_span(group));
+	local_group = group == sds->local;
 
 	for_each_cpu_and(i, sched_group_span(group), env->cpus) {
 		struct rq *rq = cpu_rq(i);
@@ -8529,17 +8687,16 @@ static inline void update_sg_lb_stats(struct lb_env *env,
 		}
 	}
 
-	/* Check if dst CPU is idle and preferred to this group */
-	if (env->sd->flags & SD_ASYM_PACKING &&
-	    env->idle != CPU_NOT_IDLE &&
-	    sgs->sum_h_nr_running &&
-	    sched_asym_prefer(env->dst_cpu, group->asym_prefer_cpu)) {
-		sgs->group_asym_packing = 1;
-	}
-
 	sgs->group_capacity = group->sgc->capacity;
 
 	sgs->group_weight = group->group_weight;
+
+	/* Check if dst CPU is idle and preferred to this group */
+	if (!local_group && env->sd->flags & SD_ASYM_PACKING &&
+	    env->idle != CPU_NOT_IDLE && sgs->sum_h_nr_running &&
+	    sched_asym(env, sds, sgs, group)) {
+		sgs->group_asym_packing = 1;
+	}
 
 	sgs->group_type = group_classify(env->sd->imbalance_pct, group, sgs);
 
@@ -9045,7 +9202,7 @@ static inline void update_sd_lb_stats(struct lb_env *env, struct sd_lb_stats *sd
 				update_group_capacity(env->sd, env->dst_cpu);
 		}
 
-		update_sg_lb_stats(env, sg, sgs, &sg_status);
+		update_sg_lb_stats(env, sds, sg, sgs, &sg_status);
 
 		if (local_group)
 			goto next_group;
@@ -9465,6 +9622,12 @@ static struct rq *find_busiest_queue(struct lb_env *env,
 		 */
 		if (env->sd->flags & SD_ASYM_CPUCAPACITY &&
 		    !capacity_greater(capacity_of(env->dst_cpu), capacity) &&
+		    nr_running == 1)
+			continue;
+
+		/* Make sure we only pull tasks from a CPU of lower priority */
+		if ((env->sd->flags & SD_ASYM_PACKING) &&
+		    sched_asym_prefer(i, env->dst_cpu) &&
 		    nr_running == 1)
 			continue;
 
