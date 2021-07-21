@@ -1769,8 +1769,10 @@ static void pmc_core_get_low_power_modes(struct pmc_dev *pmcdev)
 		int pri0 = GENMASK(3, 0) & priority;
 		int pri1 = (GENMASK(7, 4) & priority) >> 4;
 
-		lpm_priority[pri0] = mode;
-		lpm_priority[pri1] = mode + 1;
+		if (pri0 < LPM_MAX_NUM_MODES && pri1 < LPM_MAX_NUM_MODES) {
+			lpm_priority[pri0] = mode;
+			lpm_priority[pri1] = mode + 1;
+		}
 	}
 
 	/*
