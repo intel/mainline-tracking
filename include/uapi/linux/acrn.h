@@ -418,6 +418,58 @@ struct acrn_pcidev {
 };
 
 /**
+ * struct acrn_mmiodev - Info for assigning or de-assigning a MMIO device
+ * @user_vm_pa:		Physical address of User VM of the MMIO device.
+ * @service_vm_pa:	Physical address of Service VM of the MMIO device.
+ * @size:		Size of the memory mapping of the MMIO device.
+ *
+ * This structure will be passed to hypervisor directly.
+ */
+struct acrn_mmiodev {
+	__u64	user_vm_pa;
+	__u64	service_vm_pa;
+	__u64	size;
+};
+
+/**
+ * struct acrn_vdev - Info for creating or destroying a virtual device
+ * @id:				Union of identifier of the virtual device
+ * @id.value:			Raw data of the identifier
+ * @id.fields.vendor:		Vendor id of the virtual PCI device
+ * @id.fields.device:		Device id of the virtual PCI device
+ * @id.fields.legacy_id:	ID of the virtual device if not a PCI device
+ * @slot:			Virtual Bus/Device/Function of the virtual
+ *				device
+ * @io_base:			IO resource base address of the virtual device
+ * @io_size:			IO resource size of the virtual device
+ * @args:			Arguments for the virtual device creation
+ *
+ * The created virtual device can be a PCI device or a legacy device (e.g.
+ * a virtual UART controller) and it is emulated by the hypervisor. This
+ * structure will be passed to hypervisor directly.
+ */
+struct acrn_vdev {
+	/*
+	 * the identifier of the device, the low 32 bits represent the vendor
+	 * id and device id of PCI device and the high 32 bits represent the
+	 * device number of the legacy device
+	 */
+	union {
+		__u64 value;
+		struct {
+			__u16 vendor;
+			__u16 device;
+			__u32 legacy_id;
+		} fields;
+	} id;
+
+	__u64	slot;
+	__u32	io_addr[ACRN_PCI_NUM_BARS];
+	__u32	io_size[ACRN_PCI_NUM_BARS];
+	__u8	args[128];
+};
+
+/**
  * struct acrn_msi_entry - Info for injecting a MSI interrupt to a VM
  * @msi_addr:	MSI addr[19:12] with dest vCPU ID
  * @msi_data:	MSI data[7:0] with vector
@@ -518,12 +570,62 @@ struct acrn_irqfd {
 	struct acrn_msi_entry	msi;
 };
 
+#define ACRN_PLATFORM_LAPIC_IDS_MAX	64
+/**
+ * struct acrn_platform_info - Information of a platform from hypervisor
+ * @hw.cpu_num:			Physical CPU number of the platform
+ * @hw.version:			Version of this structure
+ * @hw.l2_cat_shift:		Order of the number of threads sharing L2 cache
+ * @hw.l3_cat_shift:		Order of the number of threads sharing L3 cache
+ * @hw.lapic_ids:		IDs of LAPICs of all threads
+ * @hw.reserved:		Reserved for alignment and should be 0
+ * @sw.max_vcpus_per_vm:	Maximum number of vCPU of a VM
+ * @sw.max_vms:			Maximum number of VM
+ * @sw.vm_config_size:		Size of configuration of a VM
+ * @sw.vm_configss_addr:	Memory address which user space provided to
+ *				store the VM configurations
+ * @sw.max_kata_containers:	Maximum number of VM for Kata containers
+ * @sw.reserved:		Reserved for alignment and should be 0
+ *
+ * If vm_configs_addr is provided, the driver uses a bounce buffer (kmalloced
+ * for continuous memory region) to fetch VM configurations data from the
+ * hypervisor.
+ */
+struct acrn_platform_info {
+	struct {
+		__u16	cpu_num;
+		__u16	version;
+		__u32	l2_cat_shift;
+		__u32	l3_cat_shift;
+		__u8	lapic_ids[ACRN_PLATFORM_LAPIC_IDS_MAX];
+		__u8	reserved[52];
+	} hw;
+
+	struct {
+		__u16	max_vcpus_per_vm;
+		__u16	max_vms;
+		__u32	vm_config_size;
+		void	__user *vm_configs_addr;
+		__u64	max_kata_containers;
+		__u8	reserved[104];
+	} sw;
+};
+
+struct sbuf_setup_param {
+	__u32	pcpu_id;
+	__u32	sbuf_id;
+	__u64	gpa;
+};
+
 /* The ioctl type, documented in ioctl-number.rst */
 #define ACRN_IOCTL_TYPE			0xA2
 
 /*
  * Common IOCTL IDs definition for ACRN userspace
  */
+#define ACRN_IOCTL_GET_PLATFORM_INFO	\
+	_IOR(ACRN_IOCTL_TYPE, 0x03, struct acrn_platform_info)
+
 #define ACRN_IOCTL_CREATE_VM		\
 	_IOWR(ACRN_IOCTL_TYPE, 0x10, struct acrn_vm_creation)
 #define ACRN_IOCTL_DESTROY_VM		\
@@ -568,6 +670,14 @@ struct acrn_irqfd {
 	_IOW(ACRN_IOCTL_TYPE, 0x55, struct acrn_pcidev)
 #define ACRN_IOCTL_DEASSIGN_PCIDEV	\
 	_IOW(ACRN_IOCTL_TYPE, 0x56, struct acrn_pcidev)
+#define ACRN_IOCTL_ASSIGN_MMIODEV	\
+	_IOW(ACRN_IOCTL_TYPE, 0x57, struct acrn_mmiodev)
+#define ACRN_IOCTL_DEASSIGN_MMIODEV	\
+	_IOW(ACRN_IOCTL_TYPE, 0x58, struct acrn_mmiodev)
+#define ACRN_IOCTL_CREATE_VDEV	\
+	_IOW(ACRN_IOCTL_TYPE, 0x59, struct acrn_vdev)
+#define ACRN_IOCTL_DESTROY_VDEV	\
+	_IOW(ACRN_IOCTL_TYPE, 0x5A, struct acrn_vdev)
 
 #define ACRN_IOCTL_PM_GET_CPU_STATE	\
 	_IOWR(ACRN_IOCTL_TYPE, 0x60, __u64)
