@@ -2161,3 +2161,13 @@ int evlist__scnprintf_evsels(struct evlist *evlist, size_t size, char *bf)
 
 	return printed;
 }
+
+void evlist__check_mem_load_aux(struct evlist *evlist)
+{
+	struct evsel *evsel = evlist__first(evlist);
+
+	if (evsel__is_group_event(evsel) && evsel->name &&
+	    strstr(evsel->name, "mem-loads-aux")) {
+		symbol_conf.event_group = false;
+	}
+}
