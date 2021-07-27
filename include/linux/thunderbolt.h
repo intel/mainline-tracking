@@ -70,6 +70,7 @@ enum tb_security_level {
  * @index: Linux assigned domain number
  * @security_level: Current security level
  * @nboot_acl: Number of boot ACLs the domain supports
+ * @ndpin: Number of usable DP IN adapters in the domain (SW CM only)
  * @privdata: Private connection manager specific data
  */
 struct tb {
@@ -83,6 +84,7 @@ struct tb {
 	int index;
 	enum tb_security_level security_level;
 	size_t nboot_acl;
+	size_t ndpin;
 	unsigned long privdata[];
 };
 
