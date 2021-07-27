@@ -6,6 +6,7 @@
  * ELF register definitions..
  */
 #include <linux/thread_info.h>
+#include <uapi/linux/elf.h>
 
 #include <asm/ptrace.h>
 #include <asm/user.h>
@@ -389,6 +390,27 @@ extern int compat_arch_setup_additional_pages(struct linux_binprm *bprm,
 					   (ex->e_machine == EM_X86_64))
 
 extern bool arch_syscall_is_vdso_sigreturn(struct pt_regs *regs);
+
+struct arch_elf_state {
+	unsigned int gnu_property;
+};
+
+#define INIT_ARCH_ELF_STATE {	\
+	.gnu_property = 0,	\
+}
+
+#define arch_elf_pt_proc(ehdr, phdr, elf, interp, state) (0)
+static inline int arch_check_elf(void *ehdr, bool interp,
+				 void *interp_ehdr,
+				 struct arch_elf_state *state)
+{
+	/*
+	 * Disable IBT for ia32
+	 */
+	if (elf_check_arch_ia32((struct elf32_hdr *)ehdr))
+		state->gnu_property &= ~GNU_PROPERTY_X86_FEATURE_1_IBT;
+	return 0;
+}
 
 /* Do not change the values. See get_align_mask() */
 enum align_flags {
