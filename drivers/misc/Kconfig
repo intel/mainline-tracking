@@ -447,6 +447,17 @@ config HISI_HIKEY_USB
 	  switching between the dual-role USB-C port and the USB-A host ports
 	  using only one USB controller.
 
+config XBAY_RAS
+	bool "xBAY RAS Collector Driver"
+	depends on HAS_IOMEM
+	depends on ARM64
+	help
+	  This option enables support for XBay RAS Collector driver. This
+	  enables a sysfs interface to read the RAS EDAC information from
+	  various RAS components that are available in the XBAY platforms.
+
+	  If unsure, say N.
+
 source "drivers/misc/c2port/Kconfig"
 source "drivers/misc/eeprom/Kconfig"
 source "drivers/misc/cb710/Kconfig"
@@ -464,4 +475,15 @@ source "drivers/misc/cardreader/Kconfig"
 source "drivers/misc/habanalabs/Kconfig"
 source "drivers/misc/uacce/Kconfig"
 source "drivers/misc/pvpanic/Kconfig"
+source "drivers/misc/Gpio-asm28xx/Kconfig"
+source "drivers/misc/intel_tsens/Kconfig"
+source "drivers/misc/xlink-smbus/Kconfig"
+source "drivers/misc/hddl_device/Kconfig"
+source "drivers/misc/emc2103/Kconfig"
+source "drivers/misc/vpu/Kconfig"
+source "drivers/misc/vpumgr/Kconfig"
+source "drivers/misc/xlink-pcie/Kconfig"
+source "drivers/misc/xlink-core/Kconfig"
+source "drivers/misc/xlink-ipc/Kconfig"
+source "drivers/misc/xlink-net/Kconfig"
 endmenu

@@ -1,0 +1,42 @@
+# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
+%YAML 1.2
+---
+$id: http://devicetree.org/schemas/arm/intel,vpu.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
+
+title: Intel Thunder Bay VPU memory mapping
+
+maintainers:
+  - Demakkanavar, Kenchappa <kenchappa.demakkanavar@intel.com>
+
+description: |+
+  Intel Thunder Bay VPU memory mapping device tree binding. This mapping
+  enables VPU to access DDR.
+
+properties:
+  compatible:
+    enum:
+      - const: intel,vpu
+
+  intel,smmu_params:
+    items:
+      - description: vpu address space mapping start(1 cell),
+		      ddr address space start(2 cells),
+		      size(1 cell) and
+		      memory access properties(1 cell)
+
+required:
+  - compatible
+  - intel,smmu_params
+
+additionalProperties: false
+
++examples:
+  - |
+    vpu0_mm@0 {
+	compatible = "intel,vpu";
+
+	/* 2-GB SOC level memory - DDR */
+	intel,smmu_params = <0x80000000 0x8 0x80000000 0x80000000 (IOMMU_READ|IOMMU_WRITE)>;
+	iommus = <&vpu_smmu0 47>;
+    };

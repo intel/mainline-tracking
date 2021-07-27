@@ -1,0 +1,4 @@
+config VPU
+	tristate "Support for VPU memory mapping driver"
+	help
+	  This driver enables VPU to access DDR memory.

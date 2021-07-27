@@ -1,0 +1,9 @@
+config DRM_HANTRO
+        tristate "Hantro Driver"
+        depends on DRM
+        select DRM_PANEL
+        select DRM_KMS_HELPER
+        help
+          Choose this option if your system supports Hantro Driver
+          for TBH ARM Media. This driver supports video and JPEG
+          encode/decode.
