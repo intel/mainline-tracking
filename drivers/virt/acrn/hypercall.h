@@ -15,6 +15,7 @@
 
 #define HC_ID_GEN_BASE			0x0UL
 #define HC_SOS_REMOVE_CPU		_HC_ID(HC_ID, HC_ID_GEN_BASE + 0x01)
+#define HC_GET_PLATFORM_INFO		_HC_ID(HC_ID, HC_ID_GEN_BASE + 0x03)
 
 #define HC_ID_VM_BASE			0x10UL
 #define HC_CREATE_VM			_HC_ID(HC_ID, HC_ID_VM_BASE + 0x00)
@@ -41,6 +42,13 @@
 #define HC_RESET_PTDEV_INTR		_HC_ID(HC_ID, HC_ID_PCI_BASE + 0x04)
 #define HC_ASSIGN_PCIDEV		_HC_ID(HC_ID, HC_ID_PCI_BASE + 0x05)
 #define HC_DEASSIGN_PCIDEV		_HC_ID(HC_ID, HC_ID_PCI_BASE + 0x06)
+#define HC_ASSIGN_MMIODEV		_HC_ID(HC_ID, HC_ID_PCI_BASE + 0x07)
+#define HC_DEASSIGN_MMIODEV		_HC_ID(HC_ID, HC_ID_PCI_BASE + 0x08)
+#define HC_CREATE_VDEV			_HC_ID(HC_ID, HC_ID_PCI_BASE + 0x09)
+#define HC_DESTROY_VDEV			_HC_ID(HC_ID, HC_ID_PCI_BASE + 0x0A)
+
+#define HC_ID_DBG_BASE              0x60UL
+#define HC_SETUP_SBUF               _HC_ID(HC_ID, HC_ID_DBG_BASE + 0x00)
 
 #define HC_ID_PM_BASE			0x80UL
 #define HC_PM_GET_CPU_STATE		_HC_ID(HC_ID, HC_ID_PM_BASE + 0x00)
@@ -54,6 +62,17 @@
 static inline long hcall_sos_remove_cpu(u64 cpu)
 {
 	return acrn_hypercall1(HC_SOS_REMOVE_CPU, cpu);
+}
+
+/**
+ * hcall_get_platform_info() - Get platform information from the hypervisor
+ * @platform_info: Service VM GPA of the &struct acrn_platform_info
+ *
+ * Return: 0 on success, <0 on failure
+ */
+static inline long hcall_get_platform_info(u64 platform_info)
+{
+	return acrn_hypercall1(HC_GET_PLATFORM_INFO, platform_info);
 }
 
 /**
@@ -195,6 +214,54 @@ static inline long hcall_set_memory_regions(u64 regions_pa)
 }
 
 /**
+ * hcall_create_vdev() - Create a virtual device for a User VM
+ * @vmid:	User VM ID
+ * @addr:	Service VM GPA of the &struct acrn_vdev
+ *
+ * Return: 0 on success, <0 on failure
+ */
+static inline long hcall_create_vdev(u64 vmid, u64 addr)
+{
+	return acrn_hypercall2(HC_CREATE_VDEV, vmid, addr);
+}
+
+/**
+ * hcall_destroy_vdev() - Destroy a virtual device of a User VM
+ * @vmid:	User VM ID
+ * @addr:	Service VM GPA of the &struct acrn_vdev
+ *
+ * Return: 0 on success, <0 on failure
+ */
+static inline long hcall_destroy_vdev(u64 vmid, u64 addr)
+{
+	return acrn_hypercall2(HC_DESTROY_VDEV, vmid, addr);
+}
+
+/**
+ * hcall_assign_mmiodev() - Assign a MMIO device to a User VM
+ * @vmid:	User VM ID
+ * @addr:	Service VM GPA of the &struct acrn_mmiodev
+ *
+ * Return: 0 on success, <0 on failure
+ */
+static inline long hcall_assign_mmiodev(u64 vmid, u64 addr)
+{
+	return acrn_hypercall2(HC_ASSIGN_MMIODEV, vmid, addr);
+}
+
+/**
+ * hcall_deassign_mmiodev() - De-assign a PCI device from a User VM
+ * @vmid:	User VM ID
+ * @addr:	Service VM GPA of the &struct acrn_mmiodev
+ *
+ * Return: 0 on success, <0 on failure
+ */
+static inline long hcall_deassign_mmiodev(u64 vmid, u64 addr)
+{
+	return acrn_hypercall2(HC_DEASSIGN_MMIODEV, vmid, addr);
+}
+
+/**
  * hcall_assign_pcidev() - Assign a PCI device to a User VM
  * @vmid:	User VM ID
  * @addr:	Service VM GPA of the &struct acrn_pcidev
@@ -249,6 +316,11 @@ static inline long hcall_reset_ptdev_intr(u64 vmid, u64 irq)
 static inline long hcall_get_cpu_state(u64 cmd, u64 state)
 {
 	return acrn_hypercall2(HC_PM_GET_CPU_STATE, cmd, state);
+}
+
+static inline long hcall_setup_sbuf(unsigned long sbuf_head)
+{
+	return acrn_hypercall1(HC_SETUP_SBUF, sbuf_head);
 }
 
 #endif /* __ACRN_HSM_HYPERCALL_H */

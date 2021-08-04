@@ -108,15 +108,21 @@ static long acrn_dev_ioctl(struct file *filp, unsigned int cmd,
 			   unsigned long ioctl_param)
 {
 	struct acrn_vm *vm = filp->private_data;
+	struct acrn_platform_info *plat_info;
 	struct acrn_vm_creation *vm_param;
 	struct acrn_vcpu_regs *cpu_regs;
 	struct acrn_ioreq_notify notify;
 	struct acrn_ptdev_irq *irq_info;
 	struct acrn_ioeventfd ioeventfd;
 	struct acrn_vm_memmap memmap;
+	struct acrn_mmiodev *mmiodev;
+	void __user *vm_configs_user;
 	struct acrn_msi_entry *msi;
 	struct acrn_pcidev *pcidev;
 	struct acrn_irqfd irqfd;
+	void *vm_configs = NULL;
+	size_t vm_configs_size;
+	struct acrn_vdev *vdev;
 	struct page *page;
 	u64 cstate_cmd;
 	int i, ret = 0;
@@ -128,6 +134,55 @@ static long acrn_dev_ioctl(struct file *filp, unsigned int cmd,
 	}
 
 	switch (cmd) {
+	case ACRN_IOCTL_GET_PLATFORM_INFO:
+		plat_info = memdup_user((void __user *)ioctl_param,
+					sizeof(struct acrn_platform_info));
+		if (IS_ERR(plat_info))
+			return PTR_ERR(plat_info);
+
+		for (i = 0; i < ARRAY_SIZE(plat_info->sw.reserved); i++)
+			if (plat_info->sw.reserved[i])
+				return -EINVAL;
+
+		for (i = 0; i < ARRAY_SIZE(plat_info->hw.reserved); i++)
+			if (plat_info->hw.reserved[i])
+				return -EINVAL;
+
+		vm_configs_size = plat_info->sw.vm_config_size *
+						plat_info->sw.max_vms;
+		if (plat_info->sw.vm_configs_addr && vm_configs_size) {
+			vm_configs_user = plat_info->sw.vm_configs_addr;
+			vm_configs = kzalloc(vm_configs_size, GFP_KERNEL);
+			if (IS_ERR(vm_configs)) {
+				kfree(plat_info);
+				return PTR_ERR(vm_configs);
+			}
+			plat_info->sw.vm_configs_addr =
+					(void __user *)virt_to_phys(vm_configs);
+		}
+
+		ret = hcall_get_platform_info(virt_to_phys(plat_info));
+		if (ret < 0) {
+			kfree(vm_configs);
+			kfree(plat_info);
+			dev_dbg(acrn_dev.this_device,
+				"Failed to get info of VM %u!\n", vm->vmid);
+			break;
+		}
+
+		if (vm_configs) {
+			if (copy_to_user(vm_configs_user, vm_configs,
+					 vm_configs_size))
+				ret = -EFAULT;
+			plat_info->sw.vm_configs_addr = vm_configs_user;
+		}
+		if (!ret && copy_to_user((void __user *)ioctl_param, plat_info,
+					 sizeof(*plat_info)))
+			ret = -EFAULT;
+
+		kfree(vm_configs);
+		kfree(plat_info);
+		break;
 	case ACRN_IOCTL_CREATE_VM:
 		vm_param = memdup_user((void __user *)ioctl_param,
 				       sizeof(struct acrn_vm_creation));
@@ -217,6 +272,30 @@ static long acrn_dev_ioctl(struct file *filp, unsigned int cmd,
 
 		ret = acrn_vm_memseg_unmap(vm, &memmap);
 		break;
+	case ACRN_IOCTL_ASSIGN_MMIODEV:
+		mmiodev = memdup_user((void __user *)ioctl_param,
+				      sizeof(struct acrn_mmiodev));
+		if (IS_ERR(mmiodev))
+			return PTR_ERR(mmiodev);
+
+		ret = hcall_assign_mmiodev(vm->vmid, virt_to_phys(mmiodev));
+		if (ret < 0)
+			dev_dbg(acrn_dev.this_device,
+				"Failed to assign MMIO device!\n");
+		kfree(mmiodev);
+		break;
+	case ACRN_IOCTL_DEASSIGN_MMIODEV:
+		mmiodev = memdup_user((void __user *)ioctl_param,
+				      sizeof(struct acrn_mmiodev));
+		if (IS_ERR(mmiodev))
+			return PTR_ERR(mmiodev);
+
+		ret = hcall_deassign_mmiodev(vm->vmid, virt_to_phys(mmiodev));
+		if (ret < 0)
+			dev_dbg(acrn_dev.this_device,
+				"Failed to deassign MMIO device!\n");
+		kfree(mmiodev);
+		break;
 	case ACRN_IOCTL_ASSIGN_PCIDEV:
 		pcidev = memdup_user((void __user *)ioctl_param,
 				     sizeof(struct acrn_pcidev));
@@ -240,6 +319,29 @@ static long acrn_dev_ioctl(struct file *filp, unsigned int cmd,
 			dev_dbg(acrn_dev.this_device,
 				"Failed to deassign pci device!\n");
 		kfree(pcidev);
+		break;
+	case ACRN_IOCTL_CREATE_VDEV:
+		vdev = memdup_user((void __user *)ioctl_param,
+				   sizeof(struct acrn_vdev));
+		if (IS_ERR(vdev))
+			return PTR_ERR(vdev);
+
+		ret = hcall_create_vdev(vm->vmid, virt_to_phys(vdev));
+		if (ret < 0)
+			dev_dbg(acrn_dev.this_device,
+				"Failed to create virtual device!\n");
+		kfree(vdev);
+		break;
+	case ACRN_IOCTL_DESTROY_VDEV:
+		vdev = memdup_user((void __user *)ioctl_param,
+				   sizeof(struct acrn_vdev));
+		if (IS_ERR(vdev))
+			return PTR_ERR(vdev);
+		ret = hcall_destroy_vdev(vm->vmid, virt_to_phys(vdev));
+		if (ret < 0)
+			dev_dbg(acrn_dev.this_device,
+				"Failed to destroy virtual device!\n");
+		kfree(vdev);
 		break;
 	case ACRN_IOCTL_SET_PTDEV_INTR:
 		irq_info = memdup_user((void __user *)ioctl_param,
@@ -463,6 +565,7 @@ static int __init hsm_init(void)
 		misc_deregister(&acrn_dev);
 		return ret;
 	}
+	acrn_trace_init();
 	return 0;
 }
 
@@ -470,6 +573,7 @@ static void __exit hsm_exit(void)
 {
 	acrn_ioreq_intr_remove();
 	misc_deregister(&acrn_dev);
+	acrn_trace_exit();
 }
 module_init(hsm_init);
 module_exit(hsm_exit);
