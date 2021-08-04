@@ -21,6 +21,7 @@ x86-specific Documentation
    tlb
    mtrr
    pat
+   intel_cet
    intel-iommu
    intel_txt
    amd-memory-encryption
@@ -31,6 +32,7 @@ x86-specific Documentation
    tsx_async_abort
    buslock
    usb-legacy-support
+   user-interrupts
    i386/index
    x86_64/index
    sva

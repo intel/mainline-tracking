@@ -325,6 +325,17 @@
 			Format: <a>,<b>
 			See also Documentation/input/joydev/joystick.rst
 
+	amx=		[X86-64]
+			disable     - for admin to be able to permanently
+			              diable AMX on a booted kernel.
+			on          - a debug option to allow all processes
+			              to access AMX state without invoking
+			              the system call.
+			off         - the default -- AMX is enabled, but it
+			              is of by default for all processes,
+			              until they successfully invoke the
+			              system call.
+
 	analog.map=	[HW,JOY] Analog joystick and gamepad support
 			Specifies type or capabilities of an analog joystick
 			connected to one of 16 gameports
@@ -3257,6 +3268,8 @@
 
 	nofsgsbase	[X86] Disables FSGSBASE instructions.
 
+	nouintr		[X86-64] Disables User Interrupts support.
+
 	no_console_suspend
 			[HW] Never suspend the console
 			Disable suspending of consoles during suspend and
@@ -3318,6 +3331,12 @@
 			On X86-32 available only on PAE configured kernels.
 			noexec=on: enable non-executable mappings (default)
 			noexec=off: disable non-executable mappings
+
+	no_user_shstk	[X86-64] Disable Shadow Stack for user-mode
+			applications
+
+	no_user_ibt	[X86-64] Disable Indirect Branch Tracking for user-mode
+			applications
 
 	nosmap		[X86,PPC]
 			Disable SMAP (Supervisor Mode Access Prevention)

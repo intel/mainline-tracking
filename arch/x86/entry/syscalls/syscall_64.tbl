@@ -369,6 +369,12 @@
 445	common	landlock_add_rule	sys_landlock_add_rule
 446	common	landlock_restrict_self	sys_landlock_restrict_self
 447	common	memfd_secret		sys_memfd_secret
+448	common	uintr_register_handler	sys_uintr_register_handler
+449	common	uintr_unregister_handler sys_uintr_unregister_handler
+450	common	uintr_create_fd		sys_uintr_create_fd
+451	common	uintr_register_sender	sys_uintr_register_sender
+452	common	uintr_unregister_sender	sys_uintr_unregister_sender
+453	common	uintr_wait		sys_uintr_wait
 
 #
 # Due to a historical design error, certain syscalls are numbered differently
