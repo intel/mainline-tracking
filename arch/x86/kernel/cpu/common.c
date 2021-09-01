@@ -302,6 +302,56 @@ static __always_inline void setup_smep(struct cpuinfo_x86 *c)
 		cr4_set_bits(X86_CR4_SMEP);
 }
 
+static __init int setup_disable_uintr(char *arg)
+{
+	/* No additional arguments expected */
+	if (strlen(arg))
+		return 0;
+
+	/* Do not emit a message if the feature is not present. */
+	if (!boot_cpu_has(X86_FEATURE_UINTR))
+		return 1;
+
+	setup_clear_cpu_cap(X86_FEATURE_UINTR);
+	pr_info_once("x86: 'nouintr' specified, User Interrupts support disabled\n");
+	return 1;
+}
+__setup("nouintr", setup_disable_uintr);
+
+static __always_inline void setup_uintr(struct cpuinfo_x86 *c)
+{
+	/* check the boot processor, plus compile options for UINTR. */
+	if (!cpu_feature_enabled(X86_FEATURE_UINTR))
+		goto disable_uintr;
+
+	/* checks the current processor's cpuid bits: */
+	if (!cpu_has(c, X86_FEATURE_UINTR))
+		goto disable_uintr;
+
+	/*
+	 * User Interrupts currently doesn't support PTI. For processors that
+	 * support User interrupts PTI in auto mode will default to off.  Need
+	 * this check only for users who have force enabled PTI.
+	 */
+	if (boot_cpu_has(X86_FEATURE_PTI)) {
+		pr_info_once("x86: User Interrupts (UINTR) not enabled. Please disable PTI using 'nopti' kernel parameter\n");
+		setup_clear_cpu_cap(X86_FEATURE_UINTR);
+		goto disable_uintr;
+	}
+
+	cr4_set_bits(X86_CR4_UINTR);
+	pr_info_once("x86: User Interrupts (UINTR) enabled\n");
+
+	return;
+
+disable_uintr:
+	/*
+	 * Make sure UINTR is disabled in case it was enabled in a
+	 * previous boot (e.g., via kexec).
+	 */
+	cr4_clear_bits(X86_CR4_UINTR);
+}
+
 static __init int setup_disable_smap(char *arg)
 {
 	setup_clear_cpu_cap(X86_FEATURE_SMAP);
@@ -504,6 +554,14 @@ static __init int setup_disable_pku(char *arg)
 }
 __setup("nopku", setup_disable_pku);
 #endif /* CONFIG_X86_64 */
+
+static __always_inline void setup_cet(struct cpuinfo_x86 *c)
+{
+	if (!cpu_feature_enabled(X86_FEATURE_SHSTK))
+		return;
+
+	cr4_set_bits(X86_CR4_CET);
+}
 
 /*
  * Some CPU features depend on higher CPUID levels, which may not always
@@ -1249,6 +1307,11 @@ static void __init cpu_parse_early_param(void)
 	if (cmdline_find_option_bool(boot_command_line, "noxsaves"))
 		setup_clear_cpu_cap(X86_FEATURE_XSAVES);
 
+	if (cmdline_find_option_bool(boot_command_line, "no_user_shstk"))
+		setup_clear_cpu_cap(X86_FEATURE_SHSTK);
+	if (cmdline_find_option_bool(boot_command_line, "no_user_ibt"))
+		setup_clear_cpu_cap(X86_FEATURE_IBT);
+
 	arglen = cmdline_find_option(boot_command_line, "clearcpuid", arg, sizeof(arg));
 	if (arglen <= 0)
 		return;
@@ -1558,6 +1621,9 @@ static void identify_cpu(struct cpuinfo_x86 *c)
 	setup_smap(c);
 	setup_umip(c);
 
+	/* Set up User Interrupts */
+	setup_uintr(c);
+
 	/* Enable FSGSBASE instructions if available. */
 	if (cpu_has(c, X86_FEATURE_FSGSBASE)) {
 		cr4_set_bits(X86_CR4_FSGSBASE);
@@ -1590,6 +1656,7 @@ static void identify_cpu(struct cpuinfo_x86 *c)
 
 	x86_init_rdrand(c);
 	setup_pku(c);
+	setup_cet(c);
 
 	/*
 	 * Clear/Set all flags overridden by options, need do it

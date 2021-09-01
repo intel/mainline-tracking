@@ -80,13 +80,22 @@ static __always_inline __pure bool use_fxsr(void)
 
 extern union fpregs_state init_fpstate;
 
-extern void fpstate_init(union fpregs_state *state);
+extern void fpstate_init(struct fpu *fpu);
 #ifdef CONFIG_MATH_EMULATION
 extern void fpstate_init_soft(struct swregs_state *soft);
 #else
 static inline void fpstate_init_soft(struct swregs_state *soft) {}
 #endif
 extern void save_fpregs_to_fpstate(struct fpu *fpu);
+
+static inline void fpstate_init_xstate(struct xregs_state *xsave, u64 mask)
+{
+	/*
+	 * XRSTORS requires these bits set in xcomp_bv, or it will
+	 * trigger #GP:
+	 */
+	xsave->header.xcomp_bv = XCOMP_BV_COMPACTED_FORMAT | mask;
+}
 
 /* Returns 0 or the negated trap number, which results in -EFAULT for #PF */
 #define user_insn(insn, output, input...)				\
@@ -289,9 +298,8 @@ static inline void os_xrstor_booting(struct xregs_state *xstate)
  * Uses either XSAVE or XSAVEOPT or XSAVES depending on the CPU features
  * and command line options. The choice is permanent until the next reboot.
  */
-static inline void os_xsave(struct xregs_state *xstate)
+static inline void os_xsave(struct xregs_state *xstate, u64 mask)
 {
-	u64 mask = xfeatures_mask_all;
 	u32 lmask = mask;
 	u32 hmask = mask >> 32;
 	int err;
@@ -329,15 +337,48 @@ static inline void os_xrstor(struct xregs_state *xstate, u64 mask)
  */
 static inline int xsave_to_user_sigframe(struct xregs_state __user *buf)
 {
+	struct fpu *fpu = &current->thread.fpu;
+	u32 lmask, hmask;
+	u64 state_mask;
+	int err;
+
 	/*
 	 * Include the features which are not xsaved/rstored by the kernel
 	 * internally, e.g. PKRU. That's user space ABI and also required
 	 * to allow the signal handler to modify PKRU.
 	 */
-	u64 mask = xfeatures_mask_uabi();
-	u32 lmask = mask;
-	u32 hmask = mask >> 32;
-	int err;
+	state_mask = xfeatures_mask_uabi();
+
+	if (!xfeatures_mask_user_dynamic)
+		goto mask_ready;
+
+	/*
+	 * Exclude dynamic user states for non-opt-in threads.
+	 */
+	if (!fpu->dynamic_state_perm) {
+		state_mask &= ~xfeatures_mask_user_dynamic;
+	} else {
+		u64 dynamic_state_mask;
+
+		state_mask &= fpu->state_mask;
+
+		dynamic_state_mask = state_mask & xfeatures_mask_user_dynamic;
+		if (dynamic_state_mask && boot_cpu_has(X86_FEATURE_XGETBV1)) {
+			u64 dynamic_xinuse, dynamic_init;
+			u64 xinuse = xgetbv(1);
+
+			dynamic_xinuse = xinuse & dynamic_state_mask;
+			dynamic_init = ~xinuse & dynamic_state_mask;
+			if (dynamic_init) {
+				state_mask &= ~xfeatures_mask_user_dynamic;
+				state_mask |= dynamic_xinuse;
+			}
+		}
+	}
+
+mask_ready:
+	lmask = state_mask;
+	hmask = state_mask >> 32;
 
 	/*
 	 * Clear the xsave header first, so that reserved fields are
@@ -475,7 +516,7 @@ static inline void fpregs_restore_userregs(void)
 		 */
 		mask = xfeatures_mask_restore_user() |
 			xfeatures_mask_supervisor();
-		__restore_fpregs_from_fpstate(&fpu->state, mask);
+		__restore_fpregs_from_fpstate(fpu->state, mask);
 
 		fpregs_activate(fpu);
 		fpu->last_cpu = cpu;
@@ -527,14 +568,70 @@ static inline void switch_fpu_prepare(struct fpu *old_fpu, int cpu)
  * Misc helper functions:
  */
 
+/* The Extended Feature Disable (XFD) helpers: */
+
+#ifdef CONFIG_X86_DEBUG_FPU
+DECLARE_PER_CPU(u64, xfd_shadow);
+static inline u64 xfd_debug_shadow(void)
+{
+	return this_cpu_read(xfd_shadow);
+}
+
+static inline void xfd_write(u64 value)
+{
+	wrmsrl_safe(MSR_IA32_XFD, value);
+	this_cpu_write(xfd_shadow, value);
+}
+#else
+#define xfd_debug_shadow()	0
+static inline void xfd_write(u64 value)
+{
+	wrmsrl_safe(MSR_IA32_XFD, value);
+}
+#endif
+
+static inline u64 xfd_read(void)
+{
+	u64 value;
+
+	rdmsrl_safe(MSR_IA32_XFD, &value);
+	return value;
+}
+
+static inline u64 xfd_capable(void)
+{
+	return xfeatures_mask_user_dynamic;
+}
+
+/**
+ * xfd_switch - Switches the MSR IA32_XFD context if needed.
+ * @prev:	The previous task's struct fpu pointer
+ * @next:	The next task's struct fpu pointer
+ */
+static inline void xfd_switch(struct fpu *prev, struct fpu *next)
+{
+	u64 prev_xfd_mask, next_xfd_mask;
+
+	if (!static_cpu_has(X86_FEATURE_XFD) || !xfd_capable())
+		return;
+
+	prev_xfd_mask = prev->state_mask & xfd_capable();
+	next_xfd_mask = next->state_mask & xfd_capable();
+
+	if (unlikely(prev_xfd_mask != next_xfd_mask))
+		xfd_write(xfd_capable() ^ next_xfd_mask);
+}
+
 /*
  * Delay loading of the complete FPU state until the return to userland.
  * PKRU is handled separately.
  */
-static inline void switch_fpu_finish(struct fpu *new_fpu)
+static inline void switch_fpu_finish(struct fpu *old_fpu, struct fpu *new_fpu)
 {
-	if (cpu_feature_enabled(X86_FEATURE_FPU))
+	if (cpu_feature_enabled(X86_FEATURE_FPU)) {
 		set_thread_flag(TIF_NEED_FPU_LOAD);
+		xfd_switch(old_fpu, new_fpu);
+	}
 }
 
 #endif /* _ASM_X86_FPU_INTERNAL_H */

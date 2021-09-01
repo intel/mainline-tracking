@@ -53,6 +53,7 @@
 #include <asm/xen/hypervisor.h>
 #include <asm/vdso.h>
 #include <asm/resctrl.h>
+#include <asm/uintr.h>
 #include <asm/unistd.h>
 #include <asm/fsgsbase.h>
 #ifdef CONFIG_IA32_EMULATION
@@ -565,6 +566,9 @@ __switch_to(struct task_struct *prev_p, struct task_struct *next_p)
 	WARN_ON_ONCE(IS_ENABLED(CONFIG_DEBUG_ENTRY) &&
 		     this_cpu_read(hardirq_stack_inuse));
 
+	if (static_cpu_has(X86_FEATURE_UINTR))
+		switch_uintr_prepare(prev_p);
+
 	if (!test_thread_flag(TIF_NEED_FPU_LOAD))
 		switch_fpu_prepare(prev_fpu, cpu);
 
@@ -620,7 +624,7 @@ __switch_to(struct task_struct *prev_p, struct task_struct *next_p)
 	this_cpu_write(current_task, next_p);
 	this_cpu_write(cpu_current_top_of_stack, task_top_of_stack(next_p));
 
-	switch_fpu_finish(next_fpu);
+	switch_fpu_finish(prev_fpu, next_fpu);
 
 	/* Reload sp0. */
 	update_task_stack(next_p);
@@ -678,6 +682,9 @@ void set_personality_64bit(void)
 	   so it's not too bad. The main problem is just that
 	   32bit children are affected again. */
 	current->personality &= ~READ_IMPLIES_EXEC;
+
+	/* Make sure to reset the dynamic state permission. */
+	reset_task_xstate_perm(current);
 }
 
 static void __set_personality_x32(void)
@@ -722,6 +729,9 @@ void set_personality_ia32(bool x32)
 {
 	/* Make sure to be in 32bit mode */
 	set_thread_flag(TIF_ADDR32);
+
+	/* Make sure to reset the dynamic state permission. */
+	reset_task_xstate_perm(current);
 
 	if (x32)
 		__set_personality_x32();
@@ -860,4 +870,41 @@ COMPAT_SYSCALL_DEFINE2(arch_prctl, int, option, unsigned long, arg2)
 unsigned long KSTK_ESP(struct task_struct *task)
 {
 	return task_pt_regs(task)->sp;
+}
+
+int arch_parse_elf_property(u32 type, const void *data, size_t datasz,
+			    bool compat, struct arch_elf_state *state)
+{
+	if (type != GNU_PROPERTY_X86_FEATURE_1_AND)
+		return 0;
+
+	if (datasz != sizeof(unsigned int))
+		return -ENOEXEC;
+
+	state->gnu_property = *(unsigned int *)data;
+	return 0;
+}
+
+int arch_setup_elf_property(struct arch_elf_state *state)
+{
+	int r = 0;
+
+#ifdef CONFIG_X86_SHADOW_STACK
+	memset(&current->thread.shstk, 0, sizeof(struct thread_shstk));
+
+	if (cpu_feature_enabled(X86_FEATURE_SHSTK)) {
+		if (state->gnu_property & GNU_PROPERTY_X86_FEATURE_1_SHSTK)
+			r = shstk_setup();
+	}
+
+	if (r < 0)
+		return r;
+
+	if (cpu_feature_enabled(X86_FEATURE_IBT)) {
+		if (state->gnu_property & GNU_PROPERTY_X86_FEATURE_1_IBT)
+			r = ibt_setup();
+	}
+#endif
+
+	return r;
 }

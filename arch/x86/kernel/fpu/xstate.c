@@ -10,6 +10,7 @@
 #include <linux/pkeys.h>
 #include <linux/seq_file.h>
 #include <linux/proc_fs.h>
+#include <linux/vmalloc.h>
 
 #include <asm/fpu/api.h>
 #include <asm/fpu/internal.h>
@@ -19,6 +20,7 @@
 
 #include <asm/tlbflush.h>
 #include <asm/cpufeature.h>
+#include <asm/trace/fpu.h>
 
 /*
  * Although we spell it out in here, the Processor Trace
@@ -38,21 +40,33 @@ static const char *xfeature_names[] =
 	"Processor Trace (unused)"	,
 	"Protection Keys User registers",
 	"PASID state",
+	"Control-flow User registers"	,
+	"Control-flow Kernel registers"	,
+	"unknown xstate feature 13",
+	"User Interrupts registers",
+	"unknown xstate feature"	,
+	"unknown xstate feature"	,
+	"AMX Tile config"		,
+	"AMX Tile data"			,
 	"unknown xstate feature"	,
 };
 
-static short xsave_cpuid_features[] __initdata = {
-	X86_FEATURE_FPU,
-	X86_FEATURE_XMM,
-	X86_FEATURE_AVX,
-	X86_FEATURE_MPX,
-	X86_FEATURE_MPX,
-	X86_FEATURE_AVX512F,
-	X86_FEATURE_AVX512F,
-	X86_FEATURE_AVX512F,
-	X86_FEATURE_INTEL_PT,
-	X86_FEATURE_PKU,
-	X86_FEATURE_ENQCMD,
+static unsigned short xsave_cpuid_features[] __initdata = {
+	[XFEATURE_SSE]				= X86_FEATURE_XMM,
+	[XFEATURE_YMM]				= X86_FEATURE_AVX,
+	[XFEATURE_BNDREGS]			= X86_FEATURE_MPX,
+	[XFEATURE_BNDCSR]			= X86_FEATURE_MPX,
+	[XFEATURE_OPMASK]			= X86_FEATURE_AVX512F,
+	[XFEATURE_ZMM_Hi256]			= X86_FEATURE_AVX512F,
+	[XFEATURE_Hi16_ZMM]			= X86_FEATURE_AVX512F,
+	[XFEATURE_PT_UNIMPLEMENTED_SO_FAR]	= X86_FEATURE_INTEL_PT,
+	[XFEATURE_PKRU]				= X86_FEATURE_PKU,
+	[XFEATURE_PASID]			= X86_FEATURE_ENQCMD,
+	[XFEATURE_CET_USER]			= X86_FEATURE_SHSTK,
+	[XFEATURE_CET_KERNEL]			= X86_FEATURE_SHSTK,
+	[XFEATURE_UINTR]			= X86_FEATURE_UINTR,
+	[XFEATURE_XTILE_CFG]			= X86_FEATURE_AMX_TILE,
+	[XFEATURE_XTILE_DATA]			= X86_FEATURE_AMX_TILE,
 };
 
 /*
@@ -62,6 +76,12 @@ static short xsave_cpuid_features[] __initdata = {
 u64 xfeatures_mask_all __ro_after_init;
 EXPORT_SYMBOL_GPL(xfeatures_mask_all);
 
+/*
+ * This represents user xstates, a subset of xfeatures_mask_all, saved in a
+ * dynamic kernel XSAVE buffer.
+ */
+u64 xfeatures_mask_user_dynamic __ro_after_init;
+
 static unsigned int xstate_offsets[XFEATURE_MAX] __ro_after_init =
 	{ [ 0 ... XFEATURE_MAX - 1] = -1};
 static unsigned int xstate_sizes[XFEATURE_MAX] __ro_after_init =
@@ -70,13 +90,66 @@ static unsigned int xstate_comp_offsets[XFEATURE_MAX] __ro_after_init =
 	{ [ 0 ... XFEATURE_MAX - 1] = -1};
 static unsigned int xstate_supervisor_only_offsets[XFEATURE_MAX] __ro_after_init =
 	{ [ 0 ... XFEATURE_MAX - 1] = -1};
-
 /*
- * The XSAVE area of kernel can be in standard or compacted format;
- * it is always in standard format for user mode. This is the user
- * mode standard format size used for signal and ptrace frames.
+ * True if the buffer of the corresponding XFEATURE is located on the next 64
+ * byte boundary. Otherwise, it follows the preceding component immediately.
  */
-unsigned int fpu_user_xstate_size __ro_after_init;
+static bool xstate_aligns[XFEATURE_MAX] __ro_after_init =
+	{ [ 0 ... XFEATURE_MAX - 1] = false};
+
+/**
+ * struct fpu_xstate_buffer_config - xstate buffer configuration
+ * @max_size:			The CPUID-enumerated all-feature "maximum" size
+ *				for xstate per-task buffer.
+ * @min_size:			The size to fit into the statically-allocated
+ *				buffer. With dynamic states, this buffer no longer
+ *				contains all the enabled state components.
+ * @user_size:			The size of user-space buffer for signal and
+ *				ptrace frames, in the non-compacted format.
+ * @user_minsig_size:		The non-compacted legacy xstate size for signal.
+ *				Legacy programs do not request to access dynamic
+ *				states.
+ */
+struct fpu_xstate_buffer_config {
+	unsigned int min_size, max_size;
+	unsigned int user_size, user_minsig_size;
+};
+
+static struct fpu_xstate_buffer_config buffer_config __ro_after_init;
+
+unsigned int get_xstate_config(enum xstate_config cfg)
+{
+	switch (cfg) {
+	case XSTATE_MIN_SIZE:
+		return buffer_config.min_size;
+	case XSTATE_MAX_SIZE:
+		return buffer_config.max_size;
+	case XSTATE_USER_SIZE:
+		return buffer_config.user_size;
+	case XSTATE_USER_MINSIG_SIZE:
+		return buffer_config.user_minsig_size;
+	default:
+		return 0;
+	}
+}
+EXPORT_SYMBOL_GPL(get_xstate_config);
+
+void set_xstate_config(enum xstate_config cfg, unsigned int value)
+{
+	switch (cfg) {
+	case XSTATE_MIN_SIZE:
+		buffer_config.min_size = value;
+		break;
+	case XSTATE_MAX_SIZE:
+		buffer_config.max_size = value;
+		break;
+	case XSTATE_USER_SIZE:
+		buffer_config.user_size = value;
+		break;
+	case XSTATE_USER_MINSIG_SIZE:
+		buffer_config.user_minsig_size = value;
+	}
+}
 
 /*
  * Return whether the system supports a given xfeature.
@@ -129,6 +202,93 @@ static bool xfeature_is_supervisor(int xfeature_nr)
 	return ecx & 1;
 }
 
+/**
+ * xfd_supported - Check if the feature supports Extended Feature Disable (XFD).
+ * @feature_nr:	The feature number.
+ *
+ * Returns:	True if supported; otherwise, false.
+ */
+static bool xfd_supported(int feature_nr)
+{
+	u32 eax, ebx, ecx, edx;
+
+	if (!boot_cpu_has(X86_FEATURE_XFD))
+		return false;
+
+	/*
+	 * If state component 'i' supports it, ECX[2] return 1; otherwise, 0.
+	 */
+	cpuid_count(XSTATE_CPUID, feature_nr, &eax, &ebx, &ecx, &edx);
+	return ecx & 4;
+}
+
+/**
+ * get_xstate_comp_offset - Find the feature's offset in the compacted
+ *			    format.
+ * @mask:	This bitmap tells which components reserved in the format.
+ * @feature_nr:	The feature number
+ *
+ * Returns:	The offset value
+ */
+static unsigned int get_xstate_comp_offset(u64 mask, int feature_nr)
+{
+	u64 xmask = BIT_ULL(feature_nr + 1) - 1;
+	unsigned int next_offset, offset = 0;
+	int i;
+
+	if ((xfeatures_mask_all & xmask) == (mask & xmask))
+		return xstate_comp_offsets[feature_nr];
+
+	/*
+	 * With the given mask, no relevant size is found. Calculate it by
+	 * summing up each state size.
+	 */
+	for (next_offset = FXSAVE_SIZE + XSAVE_HDR_SIZE, i = FIRST_EXTENDED_XFEATURE;
+	     i <= feature_nr; i++) {
+		if (!(mask & BIT_ULL(i)))
+			continue;
+
+		offset = xstate_aligns[i] ? ALIGN(next_offset, 64) : next_offset;
+		next_offset += xstate_sizes[i];
+	}
+	return offset;
+}
+
+/**
+ * get_xstate_size - Calculate an xstate buffer size
+ * @mask:	This bitmap tells which components reserved in the buffer.
+ *
+ * Available once those arrays for the offset, size, and alignment info are
+ * set up, by setup_xstate_features().
+ *
+ * Returns:	The buffer size
+ */
+unsigned int get_xstate_size(u64 mask)
+{
+	unsigned int offset;
+	int nr;
+
+	if (!mask)
+		return 0;
+
+	/*
+	 * The minimum buffer size excludes the dynamic user state. When a
+	 * task uses the state, the buffer can grow up to the max size.
+	 */
+	if (mask == (xfeatures_mask_all & ~xfeatures_mask_user_dynamic))
+		return get_xstate_config(XSTATE_MIN_SIZE);
+	else if (mask == xfeatures_mask_all)
+		return get_xstate_config(XSTATE_MAX_SIZE);
+
+	nr = fls64(mask) - 1;
+
+	if (!boot_cpu_has(X86_FEATURE_XSAVES))
+		return xstate_offsets[nr] + xstate_sizes[nr];
+
+	offset = get_xstate_comp_offset(mask, nr);
+	return offset + xstate_sizes[nr];
+}
+
 /*
  * Enable the extended processor state save/restore feature.
  * Called once per CPU onlining.
@@ -154,6 +314,9 @@ void fpu__init_cpu_xstate(void)
 		wrmsrl(MSR_IA32_XSS, xfeatures_mask_supervisor() |
 				     xfeatures_mask_independent());
 	}
+
+	if (boot_cpu_has(X86_FEATURE_XFD))
+		xfd_write(xfd_capable());
 }
 
 static bool xfeature_enabled(enum xfeature xfeature)
@@ -179,10 +342,12 @@ static void __init setup_xstate_features(void)
 	xstate_offsets[XFEATURE_FP]	= 0;
 	xstate_sizes[XFEATURE_FP]	= offsetof(struct fxregs_state,
 						   xmm_space);
+	xstate_aligns[XFEATURE_FP]	= true;
 
 	xstate_offsets[XFEATURE_SSE]	= xstate_sizes[XFEATURE_FP];
 	xstate_sizes[XFEATURE_SSE]	= sizeof_field(struct fxregs_state,
 						       xmm_space);
+	xstate_aligns[XFEATURE_SSE]	= true;
 
 	for (i = FIRST_EXTENDED_XFEATURE; i < XFEATURE_MAX; i++) {
 		if (!xfeature_enabled(i))
@@ -200,6 +365,7 @@ static void __init setup_xstate_features(void)
 			continue;
 
 		xstate_offsets[i] = ebx;
+		xstate_aligns[i] = (ecx & 2) ? true : false;
 
 		/*
 		 * In our xstate size checks, we assume that the highest-numbered
@@ -236,6 +402,11 @@ static void __init print_xstate_features(void)
 	print_xstate_feature(XFEATURE_MASK_Hi16_ZMM);
 	print_xstate_feature(XFEATURE_MASK_PKRU);
 	print_xstate_feature(XFEATURE_MASK_PASID);
+	print_xstate_feature(XFEATURE_MASK_CET_USER);
+	print_xstate_feature(XFEATURE_MASK_CET_KERNEL);
+	print_xstate_feature(XFEATURE_MASK_UINTR);
+	print_xstate_feature(XFEATURE_MASK_XTILE_CFG);
+	print_xstate_feature(XFEATURE_MASK_XTILE_DATA);
 }
 
 /*
@@ -350,8 +521,9 @@ static void __init print_xstate_offset_size(void)
 	for (i = FIRST_EXTENDED_XFEATURE; i < XFEATURE_MAX; i++) {
 		if (!xfeature_enabled(i))
 			continue;
-		pr_info("x86/fpu: xstate_offset[%d]: %4d, xstate_sizes[%d]: %4d\n",
-			 i, xstate_comp_offsets[i], i, xstate_sizes[i]);
+		pr_info("x86/fpu: xstate_offset[%d]: %4d, xstate_sizes[%d]: %4d (%s)\n",
+			i, xstate_comp_offsets[i], i, xstate_sizes[i],
+			(xfeatures_mask_user_dynamic & BIT_ULL(i)) ? "dynamic" : "default");
 	}
 }
 
@@ -372,7 +544,10 @@ static void __init print_xstate_offset_size(void)
 	 XFEATURE_MASK_PKRU |			\
 	 XFEATURE_MASK_BNDREGS |		\
 	 XFEATURE_MASK_BNDCSR |			\
-	 XFEATURE_MASK_PASID)
+	 XFEATURE_MASK_CET_USER |		\
+	 XFEATURE_MASK_PASID |			\
+	 XFEATURE_MASK_UINTR |			\
+	 XFEATURE_MASK_XTILE)
 
 /*
  * setup the xstate image representing the init state
@@ -395,8 +570,7 @@ static void __init setup_init_fpu_buf(void)
 	print_xstate_features();
 
 	if (boot_cpu_has(X86_FEATURE_XSAVES))
-		init_fpstate.xsave.header.xcomp_bv = XCOMP_BV_COMPACTED_FORMAT |
-						     xfeatures_mask_all;
+		fpstate_init_xstate(&init_fpstate.xsave, xfeatures_mask_all);
 
 	/*
 	 * Init all the features state with header.xfeatures being 0x0
@@ -501,20 +675,81 @@ static void __xstate_dump_leaves(void)
 } while (0)
 
 #define XCHECK_SZ(sz, nr, nr_macro, __struct) do {			\
-	if ((nr == nr_macro) &&						\
-	    WARN_ONCE(sz != sizeof(__struct),				\
-		"%s: struct is %zu bytes, cpu state %d bytes\n",	\
-		__stringify(nr_macro), sizeof(__struct), sz)) {		\
+	if ((nr == nr_macro) &&	(sz != sizeof(__struct))) {		\
+		pr_err("%s: struct is %zu bytes, cpu state %d bytes\n",	\
+		       __stringify(nr_macro), sizeof(__struct), sz);	\
 		__xstate_dump_leaves();					\
+		return -EINVAL;						\
 	}								\
 } while (0)
+
+/**
+ * check_xtile_data_against_struct - Check tile data state size.
+ *
+ * Calculate the state size by multiplying the single tile size which is
+ * recorded in a C struct, and the number of tiles that the CPU informs.
+ * Compare the provided size with the calculation.
+ *
+ * @size:	The tile data state size
+ *
+ * Returns:	0 on success, -EINVAL on mismatch.
+ */
+static int check_xtile_data_against_struct(int size)
+{
+	u32 max_palid, palid, state_size;
+	u32 eax, ebx, ecx, edx;
+	u16 max_tile;
+
+	/*
+	 * Check the maximum palette id:
+	 *   eax: the highest numbered palette subleaf.
+	 */
+	cpuid_count(TILE_CPUID, 0, &max_palid, &ebx, &ecx, &edx);
+
+	/*
+	 * Cross-check each tile size and find the maximum number of
+	 * supported tiles.
+	 */
+	for (palid = 1, max_tile = 0; palid <= max_palid; palid++) {
+		u16 tile_size, max;
+
+		/*
+		 * Check the tile size info:
+		 *   eax[31:16]:  bytes per title
+		 *   ebx[31:16]:  the max names (or max number of tiles)
+		 */
+		cpuid_count(TILE_CPUID, palid, &eax, &ebx, &edx, &edx);
+		tile_size = eax >> 16;
+		max = ebx >> 16;
+
+		if (tile_size != sizeof(struct xtile_data)) {
+			pr_err("%s: struct is %zu bytes, cpu xtile %d bytes\n",
+			       __stringify(XFEATURE_XTILE_DATA),
+			       sizeof(struct xtile_data), tile_size);
+			__xstate_dump_leaves();
+			return -EINVAL;
+		}
+
+		if (max > max_tile)
+			max_tile = max;
+	}
+
+	state_size = sizeof(struct xtile_data) * max_tile;
+	if (size != state_size) {
+		pr_err("%s: calculated size is %u bytes, cpu state %d bytes\n",
+		       __stringify(XFEATURE_XTILE_DATA), state_size, size);
+		__xstate_dump_leaves();
+		return -EINVAL;
+	}
+	return 0;
+}
 
 /*
  * We have a C struct for each 'xstate'.  We need to ensure
  * that our software representation matches what the CPU
  * tells us about the state's size.
  */
-static void check_xstate_against_struct(int nr)
+static int check_xstate_against_struct(int nr)
 {
 	/*
 	 * Ask the CPU for the size of the state.
@@ -532,6 +767,14 @@ static void check_xstate_against_struct(int nr)
 	XCHECK_SZ(sz, nr, XFEATURE_Hi16_ZMM,  struct avx_512_hi16_state);
 	XCHECK_SZ(sz, nr, XFEATURE_PKRU,      struct pkru_state);
 	XCHECK_SZ(sz, nr, XFEATURE_PASID,     struct ia32_pasid_state);
+	XCHECK_SZ(sz, nr, XFEATURE_CET_USER,   struct cet_user_state);
+	XCHECK_SZ(sz, nr, XFEATURE_CET_KERNEL, struct cet_kernel_state);
+	XCHECK_SZ(sz, nr, XFEATURE_UINTR,     struct uintr_state);
+	XCHECK_SZ(sz, nr, XFEATURE_XTILE_CFG, struct xtile_cfg);
+
+	/* The tile data size varies between implementations. */
+	if (nr == XFEATURE_XTILE_DATA)
+		check_xtile_data_against_struct(sz);
 
 	/*
 	 * Make *SURE* to add any feature numbers in below if
@@ -539,33 +782,46 @@ static void check_xstate_against_struct(int nr)
 	 * numbers.
 	 */
 	if ((nr < XFEATURE_YMM) ||
-	    (nr >= XFEATURE_MAX) ||
 	    (nr == XFEATURE_PT_UNIMPLEMENTED_SO_FAR) ||
-	    ((nr >= XFEATURE_RSRVD_COMP_11) && (nr <= XFEATURE_LBR))) {
-		WARN_ONCE(1, "no structure for xstate: %d\n", nr);
+	    (nr == XFEATURE_RSRVD_COMP_13) ||
+	    (nr == XFEATURE_LBR) ||
+	    (nr == XFEATURE_RSRVD_COMP_16) ||
+	    (nr >= XFEATURE_MAX)) {
+		pr_err("no structure for xstate: %d\n", nr);
 		XSTATE_WARN_ON(1);
+		return -EINVAL;
 	}
+
+	return 0;
 }
 
-/*
- * This essentially double-checks what the cpu told us about
- * how large the XSAVE buffer needs to be.  We are recalculating
- * it to be safe.
+/**
+ * calculate_xstate_size - Calculate the xstate per-task buffer size.
  *
- * Independent XSAVE features allocate their own buffers and are not
- * covered by these checks. Only the size of the buffer for task->fpu
- * is checked here.
+ * Independent XSAVE features allocate their own buffers and are always
+ * excluded. Only the size of the buffer for task->fpu is checked here.
+ *
+ * @include_dynamic_states:	A knob to include dynamic states or not.
+ * @size:			A pointer to record the size.
+ *
+ * Return:			0 if successful; otherwise, error code.
  */
-static void do_extra_xstate_size_checks(void)
+static int calculate_xstate_size(bool include_dynamic_states, unsigned int *size)
 {
-	int paranoid_xstate_size = FXSAVE_SIZE + XSAVE_HDR_SIZE;
-	int i;
+	unsigned int xstate_size = FXSAVE_SIZE + XSAVE_HDR_SIZE;
+	int i, err;
 
 	for (i = FIRST_EXTENDED_XFEATURE; i < XFEATURE_MAX; i++) {
 		if (!xfeature_enabled(i))
 			continue;
 
-		check_xstate_against_struct(i);
+		if (!include_dynamic_states && (xfeatures_mask_user_dynamic & BIT_ULL(i)))
+			continue;
+
+		err = check_xstate_against_struct(i);
+		if (err)
+			return err;
+
 		/*
 		 * Supervisor state components can be managed only by
 		 * XSAVES.
@@ -575,7 +831,7 @@ static void do_extra_xstate_size_checks(void)
 
 		/* Align from the end of the previous feature */
 		if (xfeature_is_aligned(i))
-			paranoid_xstate_size = ALIGN(paranoid_xstate_size, 64);
+			xstate_size = ALIGN(xstate_size, 64);
 		/*
 		 * The offset of a given state in the non-compacted
 		 * format is given to us in a CPUID leaf.  We check
@@ -583,14 +839,17 @@ static void do_extra_xstate_size_checks(void)
 		 * setup_xstate_features(). XSAVES uses compacted format.
 		 */
 		if (!cpu_feature_enabled(X86_FEATURE_XSAVES))
-			paranoid_xstate_size = xfeature_uncompacted_offset(i);
+			xstate_size = xfeature_uncompacted_offset(i);
 		/*
 		 * The compacted-format offset always depends on where
 		 * the previous state ended.
 		 */
-		paranoid_xstate_size += xfeature_size(i);
+		xstate_size += xfeature_size(i);
 	}
-	XSTATE_WARN_ON(paranoid_xstate_size != fpu_kernel_xstate_size);
+
+	if (size)
+		*size = xstate_size;
+	return 0;
 }
 
 
@@ -675,8 +934,9 @@ static bool is_supported_xstate_size(unsigned int test_xstate_size)
 static int __init init_xstate_size(void)
 {
 	/* Recompute the context size for enabled features: */
-	unsigned int possible_xstate_size;
+	unsigned int possible_xstate_size, xstate_size;
 	unsigned int xsave_size;
+	int err;
 
 	xsave_size = get_xsave_size();
 
@@ -685,21 +945,48 @@ static int __init init_xstate_size(void)
 	else
 		possible_xstate_size = xsave_size;
 
-	/* Ensure we have the space to store all enabled: */
-	if (!is_supported_xstate_size(possible_xstate_size))
-		return -EINVAL;
+	/*
+	 * Calculate xstate size for all the possible states by setting
+	 * 'true' to include dynamic states. Cross-check with the CPUID-
+	 * provided size and record it.
+	 */
+	err = calculate_xstate_size(true, &xstate_size);
+	if (err)
+		return err;
+	XSTATE_WARN_ON(possible_xstate_size != xstate_size);
+	set_xstate_config(XSTATE_MAX_SIZE, possible_xstate_size);
 
 	/*
-	 * The size is OK, we are definitely going to use xsave,
-	 * make it known to the world that we need more space.
+	 * Calculate the xstate size without dynamic states by setting
+	 * 'false' to exclude dynamic states. Ensure the size fits in
+	 * the statically-allocated buffer and record it.
 	 */
-	fpu_kernel_xstate_size = possible_xstate_size;
-	do_extra_xstate_size_checks();
+	err = calculate_xstate_size(false, &xstate_size);
+	if (err)
+		return err;
+	if (!is_supported_xstate_size(xstate_size))
+		return -EINVAL;
+	set_xstate_config(XSTATE_MIN_SIZE, xstate_size);
 
 	/*
 	 * User space is always in standard format.
 	 */
-	fpu_user_xstate_size = xsave_size;
+	set_xstate_config(XSTATE_USER_SIZE, xsave_size);
+
+	/*
+	 * The minimum signal xstate size is for non-opt-in user threads
+	 * that do not access dynamic states.
+	 */
+	if (xfeatures_mask_user_dynamic) {
+		int nr = fls64(xfeatures_mask_uabi() & ~xfeatures_mask_user_dynamic) - 1;
+		unsigned int size, offset, ecx, edx;
+
+		cpuid_count(XSTATE_CPUID, nr, &size, &offset, &ecx, &edx);
+		set_xstate_config(XSTATE_USER_MINSIG_SIZE, offset + size);
+	} else {
+		set_xstate_config(XSTATE_USER_MINSIG_SIZE, xsave_size);
+	}
+
 	return 0;
 }
 
@@ -710,6 +997,7 @@ static int __init init_xstate_size(void)
 static void fpu__init_disable_system_xstate(void)
 {
 	xfeatures_mask_all = 0;
+	xfeatures_mask_user_dynamic = 0;
 	cr4_clear_bits(X86_CR4_OSXSAVE);
 	setup_clear_cpu_cap(X86_FEATURE_XSAVE);
 }
@@ -772,15 +1060,31 @@ void __init fpu__init_system_xstate(void)
 	 * Clear XSAVE features that are disabled in the normal CPUID.
 	 */
 	for (i = 0; i < ARRAY_SIZE(xsave_cpuid_features); i++) {
-		if (!boot_cpu_has(xsave_cpuid_features[i]))
+		if (((i == 0) || xsave_cpuid_features[i]) &&
+		    !boot_cpu_has(xsave_cpuid_features[i]))
 			xfeatures_mask_all &= ~BIT_ULL(i);
 	}
 
 	xfeatures_mask_all &= XFEATURE_MASK_USER_SUPPORTED |
 			      XFEATURE_MASK_SUPERVISOR_SUPPORTED;
 
+	if (!IS_ENABLED(CONFIG_X86_64))
+		xfeatures_mask_all &= ~XFEATURE_MASK_XTILE;
+
 	/* Store it for paranoia check at the end */
 	xfeatures = xfeatures_mask_all;
+	/* Do not support the dynamically allocated buffer yet. */
+	xfeatures_mask_user_dynamic = 0;
+
+	for (i = FIRST_EXTENDED_XFEATURE; i < XFEATURE_MAX; i++) {
+		u64 feature_mask = BIT_ULL(i);
+
+		if (!(xfeatures_mask_uabi() & feature_mask))
+			continue;
+
+		if (xfd_supported(i))
+			xfeatures_mask_user_dynamic |= feature_mask;
+	}
 
 	/* Enable xstate instructions to be able to continue with initialization: */
 	fpu__init_cpu_xstate();
@@ -788,11 +1092,15 @@ void __init fpu__init_system_xstate(void)
 	if (err)
 		goto out_disable;
 
+	/* Make sure init_task does not include the dynamic user states. */
+	current->thread.fpu.dynamic_state_perm = 0;
+	current->thread.fpu.state_mask = (xfeatures_mask_all & ~xfeatures_mask_user_dynamic);
+
 	/*
 	 * Update info used for ptrace frames; use standard-format size and no
 	 * supervisor xstates:
 	 */
-	update_regset_xstate_info(fpu_user_xstate_size, xfeatures_mask_uabi());
+	update_regset_xstate_info(get_xstate_config(XSTATE_USER_SIZE), xfeatures_mask_uabi());
 
 	fpu__init_prepare_fx_sw_frame();
 	setup_init_fpu_buf();
@@ -812,7 +1120,7 @@ void __init fpu__init_system_xstate(void)
 	print_xstate_offset_size();
 	pr_info("x86/fpu: Enabled xstate features 0x%llx, context size is %d bytes, using '%s' format.\n",
 		xfeatures_mask_all,
-		fpu_kernel_xstate_size,
+		get_xstate_config(XSTATE_MAX_SIZE),
 		boot_cpu_has(X86_FEATURE_XSAVES) ? "compacted" : "standard");
 	return;
 
@@ -840,21 +1148,52 @@ void fpu__resume_cpu(void)
 		wrmsrl(MSR_IA32_XSS, xfeatures_mask_supervisor()  |
 				     xfeatures_mask_independent());
 	}
+
+	if (boot_cpu_has(X86_FEATURE_XFD)) {
+		u64 fpu_xfd_mask = current->thread.fpu.state_mask & xfd_capable();
+
+		xfd_write(xfd_capable() ^ fpu_xfd_mask);
+	}
 }
 
-/*
+/**
+ * __raw_xsave_addr - Find the address where the feature state is saved.
+ *
  * Given an xstate feature nr, calculate where in the xsave
  * buffer the state is.  Callers should ensure that the buffer
  * is valid.
+ *
+ * If @fpu is NULL, use init_fpstate.
+ *
+ * @fpu:	A struct fpu * pointer
+ *
+ * Return:	An address of the feature state in the buffer
  */
-static void *__raw_xsave_addr(struct xregs_state *xsave, int xfeature_nr)
+static void *__raw_xsave_addr(struct fpu *fpu, int xfeature_nr)
 {
+	unsigned int offset;
+	void *xsave;
+
 	if (!xfeature_enabled(xfeature_nr)) {
-		WARN_ON_FPU(1);
-		return NULL;
+		goto not_found;
+	} else if (!fpu) {
+		xsave = &init_fpstate.xsave;
+
+		offset = get_xstate_comp_offset(xfeatures_mask_all, xfeature_nr);
+		if (offset > sizeof(init_fpstate))
+			goto not_found;
+	} else if (!(fpu->state_mask & BIT_ULL(xfeature_nr))) {
+		goto not_found;
+	} else {
+		xsave = &fpu->state->xsave;
+		offset = get_xstate_comp_offset(fpu->state_mask, xfeature_nr);
 	}
 
-	return (void *)xsave + xstate_comp_offsets[xfeature_nr];
+	return xsave + offset;
+
+not_found:
+	WARN_ON_FPU(1);
+	return NULL;
 }
 /*
  * Given the xsave area and a state inside, this function returns the
@@ -867,15 +1206,18 @@ static void *__raw_xsave_addr(struct xregs_state *xsave, int xfeature_nr)
  * this will return NULL.
  *
  * Inputs:
- *	xstate: the thread's storage area for all FPU data
+ *	fpu: the thread's FPU data to reference xstate buffer(s).
+ *	     (A null pointer parameter indicates init_fpstate.)
  *	xfeature_nr: state which is defined in xsave.h (e.g. XFEATURE_FP,
  *	XFEATURE_SSE, etc...)
  * Output:
  *	address of the state in the xsave area, or NULL if the
  *	field is not present in the xsave buffer.
  */
-void *get_xsave_addr(struct xregs_state *xsave, int xfeature_nr)
+void *get_xsave_addr(struct fpu *fpu, int xfeature_nr)
 {
+	struct xregs_state *xsave;
+
 	/*
 	 * Do we even *have* xsave state?
 	 */
@@ -888,6 +1230,12 @@ void *get_xsave_addr(struct xregs_state *xsave, int xfeature_nr)
 	 */
 	WARN_ONCE(!(xfeatures_mask_all & BIT_ULL(xfeature_nr)),
 		  "get of unsupported state");
+
+	if (fpu)
+		xsave = &fpu->state->xsave;
+	else
+		xsave = &init_fpstate.xsave;
+
 	/*
 	 * This assumes the last 'xsave*' instruction to
 	 * have requested that 'xfeature_nr' be saved.
@@ -902,7 +1250,7 @@ void *get_xsave_addr(struct xregs_state *xsave, int xfeature_nr)
 	if (!(xsave->header.xfeatures & BIT_ULL(xfeature_nr)))
 		return NULL;
 
-	return __raw_xsave_addr(xsave, xfeature_nr);
+	return __raw_xsave_addr(fpu, xfeature_nr);
 }
 EXPORT_SYMBOL_GPL(get_xsave_addr);
 
@@ -954,6 +1302,165 @@ int arch_set_user_pkey_access(struct task_struct *tsk, int pkey,
 }
 #endif /* ! CONFIG_ARCH_HAS_PKEYS */
 
+void free_xstate_buffer(struct fpu *fpu)
+{
+	/* Free up only the dynamically-allocated memory. */
+	if (fpu->state != &fpu->__default_state)
+		vfree(fpu->state);
+}
+
+/**
+ * alloc_xstate_buffer - Allocate a buffer with the size calculated from
+ *			 @mask.
+ *
+ * @fpu:	A struct fpu * pointer
+ * @mask:	The bitmap tells which components to be reserved in the new
+ *		buffer.
+ *
+ * Use vmalloc() simply here. If the task with a vmalloc()-allocated buffer
+ * tends to terminate quickly, vfree()-induced IPIs may be a concern.
+ * Caching may be helpful for this. But the task with large state is likely
+ * to live longer.
+ *
+ * Also, this method does not shrink or reclaim the buffer.
+ *
+ * Returns 0 on success, -ENOMEM on allocation error.
+ */
+int alloc_xstate_buffer(struct fpu *fpu, u64 mask)
+{
+	union fpregs_state *state;
+	unsigned int oldsz, newsz;
+	u64 state_mask;
+
+	state_mask = fpu->state_mask | mask;
+
+	oldsz = get_xstate_size(fpu->state_mask);
+	newsz = get_xstate_size(state_mask);
+
+	if (oldsz >= newsz)
+		return 0;
+
+	state = vzalloc(newsz);
+	if (!state) {
+		/*
+		 * When allocation requested from #NM, the error code may
+		 * not be populated well. Then, this tracepoint is useful
+		 * for providing the failure context.
+		 */
+		trace_x86_fpu_xstate_alloc_failed(fpu);
+		return -ENOMEM;
+	}
+
+	if (boot_cpu_has(X86_FEATURE_XSAVES))
+		fpstate_init_xstate(&state->xsave, state_mask);
+
+	/*
+	 * As long as the register state is intact, save the xstate in the
+	 * new buffer at the next context copy/switch or potentially
+	 * ptrace-driven xstate writing.
+	 */
+
+	free_xstate_buffer(fpu);
+	fpu->state = state;
+	fpu->state_mask = state_mask;
+	return 0;
+}
+
+/**
+ * set_process_xstate_perm - Set a per-process permission to use dynamic
+ *			     user xstates.
+ * @tsk:	A struct task_struct * pointer
+ * @state_perm:	A bitmap to indicate which state's permission to be set.
+ * Return:	0 if successful; otherwise, error code.
+ */
+long set_process_xstate_perm(struct task_struct *tsk, u64 state_perm)
+{
+	u64 req_dynstate_perm, old_dynstate_perm;
+	struct task_struct *t;
+	int nr_threads = 0;
+	u64 features_mask;
+
+	if (!boot_cpu_has(X86_FEATURE_FPU))
+		features_mask = 0;
+	else if (use_xsave())
+		features_mask = xfeatures_mask_uabi();
+	else if (use_fxsr())
+		features_mask = XFEATURE_MASK_FPSSE;
+	else
+		features_mask = XFEATURE_MASK_FP;
+
+	if (state_perm & ~features_mask)
+		return -EINVAL;
+
+	req_dynstate_perm = state_perm & xfeatures_mask_user_dynamic;
+	if (!req_dynstate_perm)
+		return 0;
+
+	old_dynstate_perm = tsk->thread.fpu.dynamic_state_perm;
+
+	for_each_thread(tsk, t) {
+		t->thread.fpu.dynamic_state_perm |= req_dynstate_perm;
+		nr_threads++;
+	}
+
+	if (nr_threads != tsk->signal->nr_threads) {
+		for_each_thread(tsk, t)
+			t->thread.fpu.dynamic_state_perm = old_dynstate_perm;
+		pr_err("x86/fpu: ARCH_XSTATE_PERM failed as thread number mismatched.\n");
+		return -EBUSY;
+	}
+	return 0;
+}
+
+/**
+ * reset_task_xstate_perm - Reset a task's permission to use dynamic user
+ *			    xstates.
+ *
+ * It is expected to call at exec in which one task runs in a process.
+ *
+ * @task:	A struct task_struct * pointer
+ */
+void reset_task_xstate_perm(struct task_struct *tsk)
+{
+	struct fpu *fpu = &tsk->thread.fpu;
+
+	if (!xfeatures_mask_user_dynamic ||
+	    !(fpu->state_mask & xfeatures_mask_user_dynamic))
+		return;
+
+	WARN_ON(tsk->signal->nr_threads > 1);
+
+	fpu->state_mask = (xfeatures_mask_all & ~xfeatures_mask_user_dynamic);
+	free_xstate_buffer(fpu);
+	fpu->state = &fpu->__default_state;
+	if (boot_cpu_has(X86_FEATURE_XSAVES))
+		fpstate_init_xstate(&fpu->state->xsave, fpu->state_mask);
+
+	xfd_write(xfd_capable() ^ (fpu->state_mask & xfd_capable()));
+
+	fpu->dynamic_state_perm = 0;
+}
+
+/**
+ * get_task_state_perm - get the state permission bitmap
+ * @tsk:	A struct task_struct * pointer
+ * Return:	A bitmap to indicate which state's permission is set.
+ */
+long get_task_state_perm(struct task_struct *tsk)
+{
+	if (!boot_cpu_has(X86_FEATURE_FPU))
+		return 0;
+
+	if (use_xsave())
+		return (xfeatures_mask_uabi() & ~xfeatures_mask_user_dynamic) |
+		       tsk->thread.fpu.dynamic_state_perm;
+
+	if (use_fxsr())
+		return XFEATURE_MASK_FPSSE;
+
+	return XFEATURE_MASK_FP;
+}
+
 static void copy_feature(bool from_xstate, struct membuf *to, void *xstate,
 			 void *init_xstate, unsigned int size)
 {
@@ -976,7 +1483,7 @@ void copy_xstate_to_uabi_buf(struct membuf to, struct task_struct *tsk,
 			     enum xstate_copy_mode copy_mode)
 {
 	const unsigned int off_mxcsr = offsetof(struct fxregs_state, mxcsr);
-	struct xregs_state *xsave = &tsk->thread.fpu.state.xsave;
+	struct xregs_state *xsave = &tsk->thread.fpu.state->xsave;
 	struct xregs_state *xinit = &init_fpstate.xsave;
 	struct xstate_header header;
 	unsigned int zerofrom;
@@ -1034,6 +1541,7 @@ void copy_xstate_to_uabi_buf(struct membuf to, struct task_struct *tsk,
 	zerofrom = offsetof(struct xregs_state, extended_state_area);
 
 	for (i = FIRST_EXTENDED_XFEATURE; i < XFEATURE_MAX; i++) {
+		u64 mask = BIT_ULL(i);
 		/*
 		 * The ptrace buffer is in non-compacted XSAVE format.
 		 * In non-compacted format disabled features still occupy
@@ -1041,7 +1549,7 @@ void copy_xstate_to_uabi_buf(struct membuf to, struct task_struct *tsk,
 		 * compacted init_fpstate. The gap tracking will zero this
 		 * later.
 		 */
-		if (!(xfeatures_mask_uabi() & BIT_ULL(i)))
+		if (!(xfeatures_mask_uabi() & mask))
 			continue;
 
 		/*
@@ -1061,10 +1569,24 @@ void copy_xstate_to_uabi_buf(struct membuf to, struct task_struct *tsk,
 			pkru.pkru = tsk->thread.pkru;
 			membuf_write(&to, &pkru, sizeof(pkru));
 		} else {
-			copy_feature(header.xfeatures & BIT_ULL(i), &to,
-				     __raw_xsave_addr(xsave, i),
-				     __raw_xsave_addr(xinit, i),
-				     xstate_sizes[i]);
+			unsigned int size = xstate_sizes[i];
+			void *from = NULL;
+
+			/*
+			 * Copy the xstate if available. Otherwise, copy the
+			 * non-zero init states for legacy states (FP and
+			 * SSE) or fill zeros.
+			 */
+
+			if (header.xfeatures & mask)
+				from = __raw_xsave_addr(&tsk->thread.fpu, i);
+			else if (XFEATURE_MASK_FPSSE & mask)
+				from = __raw_xsave_addr(NULL, i);
+
+			if (from)
+				membuf_write(&to, from, size);
+			else
+				membuf_zero(&to, size);
 		}
 		/*
 		 * Keep track of the last copied state in the non-compacted
@@ -1090,10 +1612,10 @@ static int copy_from_buffer(void *dst, unsigned int offset, unsigned int size,
 	return 0;
 }
 
-
-static int copy_uabi_to_xstate(struct xregs_state *xsave, const void *kbuf,
+static int copy_uabi_to_xstate(struct fpu *fpu, const void *kbuf,
 			       const void __user *ubuf)
 {
+	struct xregs_state *xsave = &fpu->state->xsave;
 	unsigned int offset, size;
 	struct xstate_header hdr;
 	u64 mask;
@@ -1105,6 +1627,8 @@ static int copy_uabi_to_xstate(struct xregs_state *xsave, const void *kbuf,
 
 	if (validate_user_xstate_header(&hdr))
 		return -EINVAL;
+
+	hdr.xfeatures &= fpu->state_mask;
 
 	/* Validate MXCSR when any of the related features is in use */
 	mask = XFEATURE_MASK_FP | XFEATURE_MASK_SSE | XFEATURE_MASK_YMM;
@@ -1130,7 +1654,10 @@ static int copy_uabi_to_xstate(struct xregs_state *xsave, const void *kbuf,
 		u64 mask = ((u64)1 << i);
 
 		if (hdr.xfeatures & mask) {
-			void *dst = __raw_xsave_addr(xsave, i);
+			void *dst = __raw_xsave_addr(fpu, i);
+
+			if (!dst)
+				continue;
 
 			offset = xstate_offsets[i];
 			size = xstate_sizes[i];
@@ -1159,9 +1686,9 @@ static int copy_uabi_to_xstate(struct xregs_state *xsave, const void *kbuf,
  * format and copy to the target thread. This is called from
  * xstateregs_set().
  */
-int copy_uabi_from_kernel_to_xstate(struct xregs_state *xsave, const void *kbuf)
+int copy_uabi_from_kernel_to_xstate(struct fpu *fpu, const void *kbuf)
 {
-	return copy_uabi_to_xstate(xsave, kbuf, NULL);
+	return copy_uabi_to_xstate(fpu, kbuf, NULL);
 }
 
 /*
@@ -1169,10 +1696,10 @@ int copy_uabi_from_kernel_to_xstate(struct xregs_state *xsave, const void *kbuf)
  * XSAVE[S] format and copy to the target thread. This is called from the
  * sigreturn() and rt_sigreturn() system calls.
  */
-int copy_sigframe_from_user_to_xstate(struct xregs_state *xsave,
+int copy_sigframe_from_user_to_xstate(struct fpu *fpu,
 				      const void __user *ubuf)
 {
-	return copy_uabi_to_xstate(xsave, NULL, ubuf);
+	return copy_uabi_to_xstate(fpu, NULL, ubuf);
 }
 
 static bool validate_xsaves_xrstors(u64 mask)
