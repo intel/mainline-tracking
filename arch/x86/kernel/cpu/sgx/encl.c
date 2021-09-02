@@ -225,6 +225,47 @@ static vm_fault_t sgx_vma_fault(struct vm_fault *vmf)
 	return VM_FAULT_NOPAGE;
 }
 
+/*
+ * A fault occurred while writing to a present enclave PTE. Since PTE is
+ * present this will not be handled by sgx_vma_fault(). VMA may allow
+ * writing to the page while enclave (as based on EPCM permissions) does
+ * not. Do not follow the default of inheriting VMA permissions in this
+ * regard, ensure enclave also allows writing to the page.
+ */
+static vm_fault_t sgx_vma_pfn_mkwrite(struct vm_fault *vmf)
+{
+	unsigned long addr = (unsigned long)vmf->address;
+	struct vm_area_struct *vma = vmf->vma;
+	struct sgx_encl_page *entry;
+	struct sgx_encl *encl;
+	vm_fault_t ret = 0;
+
+	encl = vma->vm_private_data;
+
+	/*
+	 * It's very unlikely but possible that allocating memory for the
+	 * mm_list entry of a forked process failed in sgx_vma_open(). When
+	 * this happens, vm_private_data is set to NULL.
+	 */
+	if (unlikely(!encl))
+		return VM_FAULT_SIGBUS;
+
+	mutex_lock(&encl->lock);
+
+	entry = xa_load(&encl->page_array, PFN_DOWN(addr));
+	if (!entry) {
+		ret = VM_FAULT_SIGBUS;
+		goto out;
+	}
+
+	if (!(entry->vm_max_prot_bits & VM_WRITE))
+		ret = VM_FAULT_SIGBUS;
+
+out:
+	mutex_unlock(&encl->lock);
+	return ret;
+}
+
 static void sgx_vma_open(struct vm_area_struct *vma)
 {
 	struct sgx_encl *encl = vma->vm_private_data;
@@ -422,6 +463,7 @@ const struct vm_operations_struct sgx_vm_ops = {
 	.mprotect = sgx_vma_mprotect,
 	.open = sgx_vma_open,
 	.access = sgx_vma_access,
+	.pfn_mkwrite = sgx_vma_pfn_mkwrite,
 };
 
 /**
