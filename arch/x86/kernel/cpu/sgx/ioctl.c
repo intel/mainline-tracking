@@ -1146,6 +1146,162 @@ static long sgx_ioc_page_modt(struct sgx_encl *encl, void __user *arg)
 	return ret;
 }
 
+/**
+ * sgx_page_remove - Remove trimmed pages from SGX enclave
+ * @encl:	Enclave to which the pages belong
+ * @params:	Checked parameters from user on which pages need to be removed
+ *
+ * Final step of the flow removing pages from an initialized enclave. The
+ * complete flow is:
+ * 1) User changes the type of the pages to be removed to %SGX_PAGE_TYPE_TRIM
+ *    using the %SGX_IOC_PAGE_MODT ioctl.
+ * 2) User approves the page removal by running ENCLU[EACCEPT] from within
+ *    the enclave.
+ * 3) User initiates actual page removal using the %SGX_IOC_PAGE_REMOVE
+ *    ioctl that is handled here.
+ *
+ * First remove any page table entries pointing to the page and then proceed
+ * with the actual removal of the enclave page and data in support of it.
+ *
+ * VA pages are not affected by this removal. It is thus possible that the
+ * enclave may end up with more VA pages than needed to support all its
+ * pages.
+ *
+ * Return:
+ * - 0:		Success.
+ * - -errno:	Otherwise.
+ */
+static long sgx_page_remove(struct sgx_encl *encl,
+			    struct sgx_page_remove *params)
+{
+	struct sgx_encl_page *entry;
+	struct sgx_secinfo secinfo;
+	unsigned long addr;
+	unsigned long c;
+	void *epc_virt;
+	int ret;
+
+	memset(&secinfo, 0, sizeof(secinfo));
+	secinfo.flags = SGX_SECINFO_R | SGX_SECINFO_W | SGX_SECINFO_X;
+
+	for (c = 0 ; c < params->length; c += PAGE_SIZE) {
+		addr = encl->base + params->offset + c;
+
+		mutex_lock(&encl->lock);
+
+		entry = sgx_encl_load_page(encl, addr);
+		if (IS_ERR(entry)) {
+			ret = -EFAULT;
+			goto out_unlock;
+		}
+
+		if (entry->type != SGX_PAGE_TYPE_TRIM) {
+			ret = -EPERM;
+			goto out_unlock;
+		}
+
+		/*
+		 * ENCLS[EMODPR] is a no-op instruction used to inform if
+		 * ENCLU[EACCEPT] was run from within the enclave. If
+		 * ENCLS[EMODPR] is run with RWX on a trimmed page that is
+		 * not yet accepted then it will return
+		 * %SGX_PAGE_NOT_MODIFIABLE, after the trimmed page is
+		 * accepted the instruction will encounter a page fault.
+		 */
+		epc_virt = sgx_get_epc_virt_addr(entry->epc_page);
+		ret = __emodpr(&secinfo, epc_virt);
+		if (!encls_faulted(ret) || ENCLS_TRAPNR(ret) != X86_TRAP_PF) {
+			ret = -EPERM;
+			goto out_unlock;
+		}
+
+		if (sgx_unmark_page_reclaimable(entry->epc_page)) {
+			ret = -EBUSY;
+			goto out_unlock;
+		}
+
+		/*
+		 * Do not keep encl->lock because of dependency on
+		 * mmap_lock acquired in sgx_zap_enclave_ptes().
+		 */
+		mutex_unlock(&encl->lock);
+
+		sgx_zap_enclave_ptes(encl, addr);
+
+		mutex_lock(&encl->lock);
+
+		sgx_encl_free_epc_page(entry->epc_page);
+		encl->secs_child_cnt--;
+		entry->epc_page = NULL;
+		xa_erase(&encl->page_array, PFN_DOWN(entry->desc));
+		sgx_encl_shrink(encl, NULL);
+		kfree(entry);
+
+		mutex_unlock(&encl->lock);
+	}
+
+	ret = 0;
+	goto out;
+
+out_unlock:
+	mutex_unlock(&encl->lock);
+out:
+	params->count = c;
+
+	return ret;
+}
+
+/**
+ * sgx_ioc_page_remove() - handler for %SGX_IOC_PAGE_REMOVE
+ * @encl:	an enclave pointer
+ * @arg:	userspace pointer to a struct sgx_page_remove instance
+ *
+ * Return:
+ * - 0:		Success
+ * - -errno:	Otherwise
+ */
+static long sgx_ioc_page_remove(struct sgx_encl *encl, void __user *arg)
+{
+	struct sgx_page_remove params;
+	long ret;
+
+	/*
+	 * Ensure that there is a chance the request could succeed:
+	 * (1) SGX2 is required
+	 * (2) Pages can only be removed from an initialized enclave
+	 */
+	if (!(cpu_feature_enabled(X86_FEATURE_SGX2)))
+		return -ENODEV;
+
+	if (!test_bit(SGX_ENCL_INITIALIZED, &encl->flags))
+		return -EINVAL;
+
+	/*
+	 * Obtain parameters from user and perform sanity checks.
+	 */
+	if (copy_from_user(&params, arg, sizeof(params)))
+		return -EFAULT;
+
+	if (!IS_ALIGNED(params.offset, PAGE_SIZE))
+		return -EINVAL;
+
+	if (!params.length || params.length & (PAGE_SIZE - 1))
+		return -EINVAL;
+
+	if (params.offset + params.length - PAGE_SIZE >= encl->size)
+		return -EINVAL;
+
+	if (params.count)
+		return -EINVAL;
+
+	ret = sgx_page_remove(encl, &params);
+
+	if (copy_to_user(arg, &params, sizeof(params)))
+		return -EFAULT;
+
+	return ret;
+}
+
 long sgx_ioctl(struct file *filep, unsigned int cmd, unsigned long arg)
 {
 	struct sgx_encl *encl = filep->private_data;
@@ -1172,6 +1328,9 @@ long sgx_ioctl(struct file *filep, unsigned int cmd, unsigned long arg)
 		break;
 	case SGX_IOC_PAGE_MODT:
 		ret = sgx_ioc_page_modt(encl, (void __user *)arg);
+		break;
+	case SGX_IOC_PAGE_REMOVE:
+		ret = sgx_ioc_page_remove(encl, (void __user *)arg);
 		break;
 	default:
 		ret = -ENOIOCTLCMD;
