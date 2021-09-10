@@ -498,7 +498,7 @@ int igc_setup_rx_resources(struct igc_ring *rx_ring)
 	u8 index = rx_ring->queue_index;
 	int size, desc_len, res;
 
-	res = xdp_rxq_info_reg(&rx_ring->xdp_rxq, ndev, index);
+	res = xdp_rxq_info_reg(&rx_ring->xdp_rxq, ndev, index, 0);
 	if (res < 0) {
 		netdev_err(ndev, "Failed to register xdp_rxq index %u\n",
 			   index);
@@ -2238,20 +2238,15 @@ static int __igc_xdp_run_prog(struct igc_adapter *adapter,
 	case XDP_PASS:
 		return IGC_XDP_PASS;
 	case XDP_TX:
-		if (igc_xdp_xmit_back(adapter, xdp) < 0)
-			goto out_failure;
-		res = IGC_XDP_TX;
-		break;
+		return (igc_xdp_xmit_back(adapter, xdp) < 0)?
+			IGC_XDP_CONSUMED : IGC_XDP_TX;
 	case XDP_REDIRECT:
-		if (xdp_do_redirect(adapter->netdev, xdp, prog) < 0)
-			goto out_failure;
-		res = IGC_XDP_REDIRECT;
-		break;
+		return (xdp_do_redirect(adapter->netdev, xdp, prog) < 0)?
+			IGC_XDP_CONSUMED : IGC_XDP_REDIRECT;
 	default:
 		bpf_warn_invalid_xdp_action(act);
 		fallthrough;
 	case XDP_ABORTED:
-out_failure:
 		trace_xdp_exception(adapter->netdev, prog, act);
 		fallthrough;
 	case XDP_DROP:
@@ -5777,17 +5772,6 @@ static int igc_save_launchtime_params(struct igc_adapter *adapter, int queue,
 
 	ring = adapter->tx_ring[queue];
 	ring->launchtime_enable = enable;
-
-	if (adapter->base_time)
-		return 0;
-
-	adapter->cycle_time = NSEC_PER_SEC;
-
-	for (i = 0; i < adapter->num_tx_queues; i++) {
-		ring = adapter->tx_ring[i];
-		ring->start_time = 0;
-		ring->end_time = NSEC_PER_SEC;
-	}
 
 	return 0;
 }
