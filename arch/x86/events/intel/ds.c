@@ -1231,8 +1231,12 @@ void intel_pmu_pebs_enable(struct perf_event *event)
 		}
 	}
 
-	if (idx >= INTEL_PMC_IDX_FIXED)
-		idx = MAX_PEBS_EVENTS + (idx - INTEL_PMC_IDX_FIXED);
+	if (idx >= INTEL_PMC_IDX_FIXED) {
+		if (x86_pmu.intel_cap.pebs_format < 5)
+			idx = MAX_PEBS_EVENTS_FMT4 + (idx - INTEL_PMC_IDX_FIXED);
+		else
+			idx = MAX_PEBS_EVENTS + (idx - INTEL_PMC_IDX_FIXED);
+	}
 
 	/*
 	 * Use auto-reload if possible to save a MSR write in the PMI.
@@ -2206,7 +2210,7 @@ void __init intel_ds_init(void)
 			x86_pmu.large_pebs_flags |= PERF_SAMPLE_TIME;
 			break;
 
-		case 4:
+		case 4 ... 14:
 			x86_pmu.drain_pebs = intel_pmu_drain_pebs_icl;
 			x86_pmu.pebs_record_size = sizeof(struct pebs_basic);
 			if (x86_pmu.intel_cap.pebs_baseline) {
