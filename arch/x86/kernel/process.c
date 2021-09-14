@@ -26,6 +26,7 @@
 #include <linux/elf-randomize.h>
 #include <trace/events/power.h>
 #include <linux/hw_breakpoint.h>
+#include <asm/uintr.h>
 #include <asm/cpu.h>
 #include <asm/apic.h>
 #include <linux/uaccess.h>
@@ -43,6 +44,7 @@
 #include <asm/io_bitmap.h>
 #include <asm/proto.h>
 #include <asm/frame.h>
+#include <asm/cet.h>
 
 #include "process.h"
 
@@ -87,7 +89,27 @@ int arch_dup_task_struct(struct task_struct *dst, struct task_struct *src)
 #ifdef CONFIG_VM86
 	dst->thread.vm86 = NULL;
 #endif
+
+#ifdef CONFIG_X86_USER_INTERRUPTS
+	/* User Interrupt state is unique for each task */
+	dst->thread.ui_recv = NULL;
+	dst->thread.ui_send = NULL;
+#endif
+
 	return fpu_clone(dst);
+}
+
+void arch_thread_struct_whitelist(unsigned long *offset, unsigned long *size)
+{
+	*offset = offsetof(struct thread_struct, fpu.__default_state);
+	/* The buffer embedded in thread_struct has the minimum size. */
+	*size = get_xstate_config(XSTATE_MIN_SIZE);
+}
+
+void arch_release_task_struct(struct task_struct *task)
+{
+	if (cpu_feature_enabled(X86_FEATURE_FPU))
+		free_xstate_buffer(&task->thread.fpu);
 }
 
 /*
@@ -103,6 +125,10 @@ void exit_thread(struct task_struct *tsk)
 
 	free_vm86(t);
 
+	shstk_free(tsk);
+
+	uintr_free(tsk);
+
 	fpu__drop(fpu);
 }
 
@@ -116,8 +142,9 @@ static int set_new_tls(struct task_struct *p, unsigned long tls)
 		return do_set_thread_area_64(p, ARCH_SET_FS, tls);
 }
 
-int copy_thread(unsigned long clone_flags, unsigned long sp, unsigned long arg,
-		struct task_struct *p, unsigned long tls)
+int copy_thread(unsigned long clone_flags, unsigned long sp,
+		unsigned long stack_size, struct task_struct *p,
+		unsigned long tls)
 {
 	struct inactive_task_frame *frame;
 	struct fork_frame *fork_frame;
@@ -158,7 +185,7 @@ int copy_thread(unsigned long clone_flags, unsigned long sp, unsigned long arg,
 	if (unlikely(p->flags & PF_KTHREAD)) {
 		p->thread.pkru = pkru_get_init_value();
 		memset(childregs, 0, sizeof(struct pt_regs));
-		kthread_frame_init(frame, sp, arg);
+		kthread_frame_init(frame, sp, stack_size);
 		return 0;
 	}
 
@@ -191,13 +218,17 @@ int copy_thread(unsigned long clone_flags, unsigned long sp, unsigned long arg,
 		 */
 		childregs->sp = 0;
 		childregs->ip = 0;
-		kthread_frame_init(frame, sp, arg);
+		kthread_frame_init(frame, sp, stack_size);
 		return 0;
 	}
 
 	/* Set a new TLS for the child thread? */
 	if (clone_flags & CLONE_SETTLS)
 		ret = set_new_tls(p, tls);
+
+	/* Allocate a new shadow stack for pthread */
+	if (!ret)
+		ret = shstk_alloc_thread_stack(p, clone_flags, stack_size);
 
 	if (!ret && unlikely(test_tsk_thread_flag(current, TIF_IO_BITMAP)))
 		io_bitmap_share(p);
@@ -999,14 +1030,18 @@ out:
 }
 
 long do_arch_prctl_common(struct task_struct *task, int option,
-			  unsigned long cpuid_enabled)
+			  unsigned long arg2)
 {
 	switch (option) {
 	case ARCH_GET_CPUID:
 		return get_cpuid_mode();
 	case ARCH_SET_CPUID:
-		return set_cpuid_mode(task, cpuid_enabled);
+		return set_cpuid_mode(task, arg2);
+	case ARCH_SET_STATE_ENABLE:
+		return set_process_xstate_perm(task, arg2);
+	case ARCH_GET_STATE_ENABLE:
+		return get_task_state_perm(task);
 	}
 
-	return -EINVAL;
+	return prctl_cet(option, arg2);
 }

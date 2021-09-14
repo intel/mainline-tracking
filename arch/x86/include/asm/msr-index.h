@@ -375,6 +375,14 @@
 #define MSR_HWP_REQUEST 		0x00000774
 #define MSR_HWP_STATUS			0x00000777
 
+/* User Interrupt interface */
+#define MSR_IA32_UINTR_RR		0x985
+#define MSR_IA32_UINTR_HANDLER		0x986
+#define MSR_IA32_UINTR_STACKADJUST	0x987
+#define MSR_IA32_UINTR_MISC		0x988	/* 39:32-UINV, 31:0-UITTSZ */
+#define MSR_IA32_UINTR_PD		0x989
+#define MSR_IA32_UINTR_TT		0x98a
+
 /* CPUID.6.EAX */
 #define HWP_BASE_BIT			(1<<7)
 #define HWP_NOTIFICATIONS_BIT		(1<<8)
@@ -626,6 +634,8 @@
 #define MSR_IA32_BNDCFGS_RSVD		0x00000ffc
 
 #define MSR_IA32_XSS			0x00000da0
+#define MSR_IA32_XFD			0x000001c4
+#define MSR_IA32_XFD_ERR		0x000001c5
 
 #define MSR_IA32_APICBASE		0x0000001b
 #define MSR_IA32_APICBASE_BSP		(1<<8)
@@ -938,5 +948,24 @@
 #define MSR_VM_CR                       0xc0010114
 #define MSR_VM_IGNNE                    0xc0010115
 #define MSR_VM_HSAVE_PA                 0xc0010117
+
+/* Control-flow Enforcement Technology MSRs */
+#define MSR_IA32_U_CET		0x000006a0 /* user mode cet setting */
+#define MSR_IA32_S_CET		0x000006a2 /* kernel mode cet setting */
+#define CET_SHSTK_EN		BIT_ULL(0)
+#define CET_WRSS_EN		BIT_ULL(1)
+#define CET_ENDBR_EN		BIT_ULL(2)
+#define CET_LEG_IW_EN		BIT_ULL(3)
+#define CET_NO_TRACK_EN		BIT_ULL(4)
+#define CET_SUPPRESS_DISABLE	BIT_ULL(5)
+#define CET_RESERVED		(BIT_ULL(6) | BIT_ULL(7) | BIT_ULL(8) | BIT_ULL(9))
+#define CET_SUPPRESS		BIT_ULL(10)
+#define CET_WAIT_ENDBR		BIT_ULL(11)
+
+#define MSR_IA32_PL0_SSP	0x000006a4 /* kernel shadow stack pointer */
+#define MSR_IA32_PL1_SSP	0x000006a5 /* ring-1 shadow stack pointer */
+#define MSR_IA32_PL2_SSP	0x000006a6 /* ring-2 shadow stack pointer */
+#define MSR_IA32_PL3_SSP	0x000006a7 /* user shadow stack pointer */
+#define MSR_IA32_INT_SSP_TAB	0x000006a8 /* exception shadow stack table */
 
 #endif /* _ASM_X86_MSR_INDEX_H */

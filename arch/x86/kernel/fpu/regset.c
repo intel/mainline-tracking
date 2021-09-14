@@ -74,8 +74,8 @@ int xfpregs_get(struct task_struct *target, const struct user_regset *regset,
 	sync_fpstate(fpu);
 
 	if (!use_xsave()) {
-		return membuf_write(&to, &fpu->state.fxsave,
-				    sizeof(fpu->state.fxsave));
+		return membuf_write(&to, &fpu->state->fxsave,
+				    sizeof(fpu->state->fxsave));
 	}
 
 	copy_xstate_to_uabi_buf(to, target, XSTATE_COPY_FX);
@@ -110,15 +110,15 @@ int xfpregs_set(struct task_struct *target, const struct user_regset *regset,
 	fpu_force_restore(fpu);
 
 	/* Copy the state  */
-	memcpy(&fpu->state.fxsave, &newstate, sizeof(newstate));
+	memcpy(&fpu->state->fxsave, &newstate, sizeof(newstate));
 
 	/* Clear xmm8..15 */
-	BUILD_BUG_ON(sizeof(fpu->state.fxsave.xmm_space) != 16 * 16);
-	memset(&fpu->state.fxsave.xmm_space[8], 0, 8 * 16);
+	BUILD_BUG_ON(sizeof(fpu->state->fxsave.xmm_space) != 16 * 16);
+	memset(&fpu->state->fxsave.xmm_space[8], 0, 8 * 16);
 
 	/* Mark FP and SSE as in use when XSAVE is enabled */
 	if (use_xsave())
-		fpu->state.xsave.header.xfeatures |= XFEATURE_MASK_FPSSE;
+		fpu->state->xsave.header.xfeatures |= XFEATURE_MASK_FPSSE;
 
 	return 0;
 }
@@ -149,7 +149,7 @@ int xstateregs_set(struct task_struct *target, const struct user_regset *regset,
 	/*
 	 * A whole standard-format XSAVE buffer is needed:
 	 */
-	if (pos != 0 || count != fpu_user_xstate_size)
+	if (pos != 0 || count != get_xstate_config(XSTATE_USER_SIZE))
 		return -EFAULT;
 
 	if (!kbuf) {
@@ -163,12 +163,95 @@ int xstateregs_set(struct task_struct *target, const struct user_regset *regset,
 		}
 	}
 
+	/*
+	 * When a ptracer attempts to write any dynamic user state in the
+	 * target buffer but not sufficiently allocated, it dynamically
+	 * expands the buffer if permitted.
+	 *
+	 * Check if the expansion is possibly needed.
+	 */
+	if (xfeatures_mask_user_dynamic &&
+	    ((fpu->state_mask & xfeatures_mask_user_dynamic) != xfeatures_mask_user_dynamic)) {
+		u64 state_mask, dynstate_mask;
+
+		/* Retrieve XSTATE_BV. */
+		memcpy(&state_mask, (kbuf ?: tmpbuf) + offsetof(struct xregs_state, header),
+		       sizeof(u64));
+
+		/* Check the permission and expand the xstate buffer. */
+		dynstate_mask = state_mask & xfeatures_mask_user_dynamic;
+		if (dynstate_mask) {
+			if (!check_task_state_perm(target, dynstate_mask)) {
+				ret = -EFAULT;
+				goto out;
+			}
+
+			ret = alloc_xstate_buffer(fpu, dynstate_mask);
+			if (ret)
+				goto out;
+		}
+	}
+
 	fpu_force_restore(fpu);
-	ret = copy_uabi_from_kernel_to_xstate(&fpu->state.xsave, kbuf ?: tmpbuf);
+	ret = copy_uabi_from_kernel_to_xstate(fpu, kbuf ?: tmpbuf);
 
 out:
 	vfree(tmpbuf);
 	return ret;
+}
+
+int cetregs_active(struct task_struct *target, const struct user_regset *regset)
+{
+#ifdef CONFIG_X86_SHADOW_STACK
+	if (target->thread.shstk.size || target->thread.shstk.ibt)
+		return regset->n;
+#endif
+	return 0;
+}
+
+int cetregs_get(struct task_struct *target, const struct user_regset *regset,
+		struct membuf to)
+{
+	struct fpu *fpu = &target->thread.fpu;
+	struct cet_user_state *cetregs;
+
+	if (!boot_cpu_has(X86_FEATURE_SHSTK))
+		return -ENODEV;
+
+	sync_fpstate(fpu);
+	cetregs = get_xsave_addr(fpu, XFEATURE_CET_USER);
+	if (!cetregs)
+		return -ENODEV;
+
+	return membuf_write(&to, cetregs, sizeof(struct cet_user_state));
+}
+
+int cetregs_set(struct task_struct *target, const struct user_regset *regset,
+		  unsigned int pos, unsigned int count,
+		  const void *kbuf, const void __user *ubuf)
+{
+	struct fpu *fpu = &target->thread.fpu;
+	struct cet_user_state *cetregs, tmp;
+	int r;
+
+	if (!boot_cpu_has(X86_FEATURE_SHSTK))
+		return -ENODEV;
+
+	fpu_force_restore(fpu);
+	cetregs = get_xsave_addr(fpu, XFEATURE_CET_USER);
+	if (!cetregs)
+		return -ENODEV;
+
+	r = user_regset_copyin(&pos, &count, &kbuf, &ubuf, &tmp, 0, -1);
+	if (r)
+		return r;
+
+	if ((tmp.user_ssp >= TASK_SIZE_MAX) || (tmp.user_cet & CET_RESERVED) ||
+	    ((tmp.user_cet & (CET_SUPPRESS | CET_WAIT_ENDBR))
+	     == (CET_SUPPRESS | CET_WAIT_ENDBR)))
+		return -EINVAL;
+	memmove(cetregs, &tmp, sizeof(tmp));
+	return 0;
 }
 
 #if defined CONFIG_X86_32 || defined CONFIG_IA32_EMULATION
@@ -283,7 +366,7 @@ static void __convert_from_fxsr(struct user_i387_ia32_struct *env,
 void
 convert_from_fxsr(struct user_i387_ia32_struct *env, struct task_struct *tsk)
 {
-	__convert_from_fxsr(env, tsk, &tsk->thread.fpu.state.fxsave);
+	__convert_from_fxsr(env, tsk, &tsk->thread.fpu.state->fxsave);
 }
 
 void convert_to_fxsr(struct fxregs_state *fxsave,
@@ -326,7 +409,7 @@ int fpregs_get(struct task_struct *target, const struct user_regset *regset,
 		return fpregs_soft_get(target, regset, to);
 
 	if (!cpu_feature_enabled(X86_FEATURE_FXSR)) {
-		return membuf_write(&to, &fpu->state.fsave,
+		return membuf_write(&to, &fpu->state->fsave,
 				    sizeof(struct fregs_state));
 	}
 
@@ -337,7 +420,7 @@ int fpregs_get(struct task_struct *target, const struct user_regset *regset,
 		copy_xstate_to_uabi_buf(mb, target, XSTATE_COPY_FP);
 		fx = &fxsave;
 	} else {
-		fx = &fpu->state.fxsave;
+		fx = &fpu->state->fxsave;
 	}
 
 	__convert_from_fxsr(&env, target, fx);
@@ -366,16 +449,16 @@ int fpregs_set(struct task_struct *target, const struct user_regset *regset,
 	fpu_force_restore(fpu);
 
 	if (cpu_feature_enabled(X86_FEATURE_FXSR))
-		convert_to_fxsr(&fpu->state.fxsave, &env);
+		convert_to_fxsr(&fpu->state->fxsave, &env);
 	else
-		memcpy(&fpu->state.fsave, &env, sizeof(env));
+		memcpy(&fpu->state->fsave, &env, sizeof(env));
 
 	/*
 	 * Update the header bit in the xsave header, indicating the
 	 * presence of FP.
 	 */
 	if (cpu_feature_enabled(X86_FEATURE_XSAVE))
-		fpu->state.xsave.header.xfeatures |= XFEATURE_MASK_FP;
+		fpu->state->xsave.header.xfeatures |= XFEATURE_MASK_FP;
 
 	return 0;
 }

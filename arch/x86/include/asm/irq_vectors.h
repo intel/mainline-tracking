@@ -104,7 +104,11 @@
 #define HYPERV_STIMER0_VECTOR		0xed
 #endif
 
-#define LOCAL_TIMER_VECTOR		0xec
+/* Vector for User interrupt notifications */
+#define UINTR_NOTIFICATION_VECTOR       0xec
+#define UINTR_KERNEL_VECTOR		0xeb
+
+#define LOCAL_TIMER_VECTOR		0xea
 
 #define NR_VECTORS			 256
 

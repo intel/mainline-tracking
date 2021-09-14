@@ -1,0 +1,53 @@
+.TH uintr_unregister_handler 2
+.SH NAME
+uintr_unregister_handler - unregister a user interrupt handler
+
+.SH SYNOPSIS
+.SY
+int uintr_unregister_handler(unsigned int flags);
+.YS
+
+.SH DESCRIPTION
+uintr_unregister_handler() unregisters a previously registered user
+interrupt handler. If no interrupt handler was registered by the process
+uintr_unregister_handler() would return an error.
+
+Since interrupt handler is local to a thread, only the thread that has
+registered via uintr_register_handler(2) can call uintr_unregister_handler().
+
+The interrupt resources such as interrupt vectors and uintr_fd, that
+have been allocated for this thread, would be deactivated. Other senders
+posting interrupts to this thread will not be delivered.
+
+The kernel does not automatically close the uintr_fds related to this
+process/thread when uintr_unregister_handler() is called. The application is
+expected to close the unused uintr_fds before or the after the handler has been
+unregistered.
+
+.SH RETURN VALUE
+On success, uintr_unregister_handler() returns 0.  On error, -1 is
+returned and errno is set to indicate the cause of the error.
+
+.SH ERRORS
+EOPNOTSUPP  Underlying hardware doesn't have support for Uintr.
+
+EINVAL	   flags is not 0.
+
+EINVAL	   No registered user interrupt handler.
+
+.SH VERSIONS
+uintr_unregister_handler() first appeared in Linux <tbd>.
+
+.SH CONFORMING TO
+uintr_unregister_handler() is Linux specific.
+
+.SH NOTES
+Currently, there is no glibc wrapper for this system call; call it
+using syscall(2).
+
+The user interrupt related system calls need hardware support to
+generate and receive user interrupts. Refer uintr(7) for details.
+
+.SH SEE ALSO
+uintr_register_handler(2), uintr_create_fd(2), uintr_register_sender(2),
+uintr_unregister_sender(2), uintr_wait(2), uintr(7)
