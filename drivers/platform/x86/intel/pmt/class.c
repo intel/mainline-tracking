@@ -12,6 +12,7 @@
 #include <linux/module.h>
 #include <linux/mm.h>
 #include <linux/pci.h>
+#include <linux/pm_runtime.h>
 
 #include "../vsec.h"
 #include "class.h"
@@ -63,7 +64,10 @@ intel_pmt_read(struct file *filp, struct kobject *kobj,
 	if (count > entry->size - off)
 		count = entry->size - off;
 
+	pm_runtime_get_sync(&entry->pdev->dev);
 	memcpy_fromio(buf, entry->base + off, count);
+	pm_runtime_mark_last_busy(&entry->pdev->dev);
+	pm_runtime_put_autosuspend(&entry->pdev->dev);
 
 	return count;
 }
@@ -94,6 +98,9 @@ intel_pmt_mmap(struct file *filp, struct kobject *kobj,
 	if (io_remap_pfn_range(vma, vma->vm_start, pfn,
 		vsize, vma->vm_page_prot))
 		return -EAGAIN;
+
+	pm_runtime_get_sync(&entry->pdev->dev);
+	pm_runtime_forbid(&entry->pdev->dev);
 
 	return 0;
 }
@@ -239,6 +246,7 @@ static int intel_pmt_dev_register(struct intel_pmt_entry *entry,
 	}
 
 	entry->kobj = &dev->kobj;
+	entry->pdev = to_pci_dev(parent->parent);
 
 	if (ns->attr_grp) {
 		ret = sysfs_create_group(entry->kobj, ns->attr_grp);
