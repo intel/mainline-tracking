@@ -739,6 +739,8 @@ static long sgx_page_modp(struct sgx_encl *encl, struct sgx_page_modp *modp)
 	for (c = 0 ; c < modp->length; c += PAGE_SIZE) {
 		addr = encl->base + modp->offset + c;
 
+		sgx_direct_reclaim();
+
 		mutex_lock(&encl->lock);
 
 		entry = sgx_encl_load_page(encl, addr);
@@ -961,6 +963,8 @@ static long sgx_page_modt(struct sgx_encl *encl, struct sgx_page_modt *modt)
 
 	for (c = 0 ; c < modt->length; c += PAGE_SIZE) {
 		addr = encl->base + modt->offset + c;
+
+		sgx_direct_reclaim();
 
 		mutex_lock(&encl->lock);
 
@@ -1186,6 +1190,8 @@ static long sgx_page_remove(struct sgx_encl *encl,
 
 	for (c = 0 ; c < params->length; c += PAGE_SIZE) {
 		addr = encl->base + params->offset + c;
+
+		sgx_direct_reclaim();
 
 		mutex_lock(&encl->lock);
 
