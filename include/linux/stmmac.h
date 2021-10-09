@@ -299,5 +299,6 @@ struct plat_stmmacenet_data {
 	const struct dwmac4_addrs *dwmac4_addrs;
 	bool has_integrated_pcs;
 	bool skip_reset;
+	bool use_hw_vlan;
 };
 #endif
