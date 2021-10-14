@@ -751,6 +751,9 @@ static inline pci_power_t acpi_pci_choose_state(struct pci_dev *pdev)
 
 #ifdef CONFIG_PCIEASPM
 extern const struct attribute_group aspm_ctrl_attr_group;
+void pcie_aspm_override_policy(struct pci_dev *dev);
+#else
+static inline void pcie_aspm_override_policy(struct pci_dev *dev) {}
 #endif
 
 extern const struct attribute_group pci_dev_reset_method_attr_group;
