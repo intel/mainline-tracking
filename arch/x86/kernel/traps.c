@@ -1108,9 +1108,66 @@ DEFINE_IDTENTRY(exc_spurious_interrupt_bug)
 	 */
 }
 
+static __always_inline bool handle_xfd_event(struct fpu *fpu, struct pt_regs *regs)
+{
+	bool handled = false;
+	u64 xfd_err;
+
+	if (!cpu_feature_enabled(X86_FEATURE_XFD))
+		return handled;
+
+	rdmsrl_safe(MSR_IA32_XFD_ERR, &xfd_err);
+	wrmsrl_safe(MSR_IA32_XFD_ERR, 0);
+
+	if (xfd_err) {
+		u64 xfd_event = xfd_err & xfeatures_mask_user_dynamic;
+		u64 value;
+
+		if (WARN_ON(!xfd_event)) {
+			/*
+			 * Unexpected event is raised. But update XFD state to
+			 * unblock the task.
+			 */
+			rdmsrl_safe(MSR_IA32_XFD, &value);
+			xfd_write(value & ~xfd_err);
+		} else {
+			struct fpu *fpu = &current->thread.fpu;
+			int err = -1;
+
+			/*
+			 * Make sure that dynamic buffer expansion is permitted
+			 * and not in interrupt context as handling a trap from
+			 * userspace.
+			 *
+			 * Raise SIGILL with insufficient permission and SIGSEGV
+			 * with the buffer allocation failure.
+			 */
+			if (!dynamic_state_permitted(current, xfd_event)) {
+				force_sig_fault(SIGILL, ILL_ILLOPC, error_get_trap_addr(regs));
+			} else {
+				if (!WARN_ON(in_interrupt())) {
+					err = realloc_xstate_buffer(fpu, xfd_event);
+					if (!err)
+						xfd_write((fpu->state_mask &
+							  xfeatures_mask_user_dynamic) ^
+							  xfeatures_mask_user_dynamic);
+				}
+
+				if (err)
+					force_sig(SIGSEGV);
+			}
+		}
+		handled = true;
+	}
+	return handled;
+}
+
 DEFINE_IDTENTRY(exc_device_not_available)
 {
 	unsigned long cr0 = read_cr0();
+
+	if (handle_xfd_event(&current->thread.fpu, regs))
+		return;
 
 #ifdef CONFIG_MATH_EMULATION
 	if (!boot_cpu_has(X86_FEATURE_FPU) && (cr0 & X86_CR0_EM)) {

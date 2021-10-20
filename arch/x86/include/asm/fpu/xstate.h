@@ -8,11 +8,14 @@
 #include <asm/processor.h>
 #include <asm/fpu/api.h>
 #include <asm/user.h>
+#include <asm/prctl.h>
 
 /* Bit 63 of XCR0 is reserved for future expansion */
 #define XFEATURE_MASK_EXTEND	(~(XFEATURE_MASK_FPSSE | (1ULL << 63)))
 
 #define XSTATE_CPUID		0x0000000d
+
+#define TILE_CPUID		0x0000001d
 
 #define FXSAVE_SIZE	512
 
@@ -33,7 +36,8 @@
 				      XFEATURE_MASK_Hi16_ZMM	 | \
 				      XFEATURE_MASK_PKRU | \
 				      XFEATURE_MASK_BNDREGS | \
-				      XFEATURE_MASK_BNDCSR)
+				      XFEATURE_MASK_BNDCSR | \
+				      XFEATURE_MASK_XTILE)
 
 /*
  * Features which are restored when returning to user space.
@@ -44,7 +48,8 @@
 	(XFEATURE_MASK_USER_SUPPORTED & ~XFEATURE_MASK_PKRU)
 
 /* All currently supported supervisor features */
-#define XFEATURE_MASK_SUPERVISOR_SUPPORTED (XFEATURE_MASK_PASID)
+#define XFEATURE_MASK_SUPERVISOR_SUPPORTED (XFEATURE_MASK_PASID | \
+					    XFEATURE_MASK_UINTR)
 
 /*
  * A supervisor state component may not always contain valuable information,
@@ -77,6 +82,9 @@
 #define XFEATURE_MASK_SUPERVISOR_ALL (XFEATURE_MASK_SUPERVISOR_SUPPORTED | \
 				      XFEATURE_MASK_INDEPENDENT | \
 				      XFEATURE_MASK_SUPERVISOR_UNSUPPORTED)
+
+/* Volatile states that a child does not inherit. */
+#define XFEATURE_MASK_CLEARED_ON_CLONE	XFEATURE_MASK_XTILE
 
 #ifdef CONFIG_X86_64
 #define REX_PREFIX	"0x48, "
@@ -129,15 +137,70 @@ static inline u64 xfeatures_mask_independent(void)
 	return XFEATURE_MASK_INDEPENDENT;
 }
 
+extern u64 xfeatures_mask_user_dynamic;
+
 extern u64 xstate_fx_sw_bytes[USER_XSTATE_FX_SW_WORDS];
 
 extern void __init update_regset_xstate_info(unsigned int size,
 					     u64 xstate_mask);
 
-void *get_xsave_addr(struct xregs_state *xsave, int xfeature_nr);
+/**
+ * struct fpu_xstate_buffer_config - xstate buffer configuration
+ * @max_size:			The CPUID-enumerated all-feature "maximum" size
+ *				for xstate per-task buffer.
+ * @min_size:			The size to fit into the statically-allocated
+ *				buffer. With dynamic states, this buffer no longer
+ *				contains all the enabled state components.
+ * @user_size:			The size of user-space buffer for signal and
+ *				ptrace frames, in the non-compacted format.
+ * @user_minsig_size:		The non-compacted legacy xstate size for signal.
+ *				Legacy programs do not request to access dynamic
+ *				states.
+ */
+struct fpu_xstate_buffer_config {
+	unsigned int min_size, max_size;
+	unsigned int user_size, user_minsig_size;
+};
+
+extern struct fpu_xstate_buffer_config fpu_buf_cfg;
+
+unsigned int calculate_xstate_buf_size_from_mask(u64 mask);
+void *get_xsave_addr(struct fpu *fpu, int xfeature_nr);
+int realloc_xstate_buffer(struct fpu *fpu, u64 mask);
+void free_xstate_buffer(struct fpu *fpu);
+
+/**
+ * get_group_dynamic_state_perm - Get a per-process dynamic state perm
+ * @tsk:	A struct task_struct * pointer
+ * Return:	A bitmap to indicate which state permission is set.
+ */
+static inline u64 get_group_dynamic_state_perm(struct task_struct *tsk)
+{
+	return tsk->group_leader->thread.fpu.dynamic_state_perm;
+}
+
+/**
+ * dynamic_state_permitted - Check a task's permission for indicated
+ *			     features.
+ * @tsk:	A struct task_struct * pointer
+ * @state_mask:	A bitmap of queried features
+ * Return:	true if all of the queried features are permitted;
+ *		otherwise, false.
+ */
+static inline bool dynamic_state_permitted(struct task_struct *tsk, u64 state_mask)
+{
+	u64 dynamic_state_mask = state_mask & xfeatures_mask_user_dynamic;
+
+	return ((dynamic_state_mask & get_group_dynamic_state_perm(tsk)) ==
+		dynamic_state_mask);
+}
+
+void reset_dynamic_state_perm(struct task_struct *tsk);
+long do_arch_prctl_state(struct task_struct *tsk, int option, unsigned long arg2);
+
 int xfeature_size(int xfeature_nr);
-int copy_uabi_from_kernel_to_xstate(struct xregs_state *xsave, const void *kbuf);
-int copy_sigframe_from_user_to_xstate(struct xregs_state *xsave, const void __user *ubuf);
+int copy_uabi_from_kernel_to_xstate(struct fpu *fpu, const void *kbuf);
+int copy_sigframe_from_user_to_xstate(struct fpu *fpu, const void __user *ubuf);
 
 void xsaves(struct xregs_state *xsave, u64 mask);
 void xrstors(struct xregs_state *xsave, u64 mask);

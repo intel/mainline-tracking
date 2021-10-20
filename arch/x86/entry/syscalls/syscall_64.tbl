@@ -370,6 +370,12 @@
 446	common	landlock_restrict_self	sys_landlock_restrict_self
 447	common	memfd_secret		sys_memfd_secret
 448	common	process_mrelease	sys_process_mrelease
+449	common	uintr_register_handler	sys_uintr_register_handler
+450	common	uintr_unregister_handler sys_uintr_unregister_handler
+451	common	uintr_create_fd		sys_uintr_create_fd
+452	common	uintr_register_sender	sys_uintr_register_sender
+453	common	uintr_unregister_sender	sys_uintr_unregister_sender
+454	common	uintr_wait		sys_uintr_wait
 
 #
 # Due to a historical design error, certain syscalls are numbered differently

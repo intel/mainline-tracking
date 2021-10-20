@@ -26,6 +26,7 @@
 #include <linux/elf-randomize.h>
 #include <trace/events/power.h>
 #include <linux/hw_breakpoint.h>
+#include <asm/uintr.h>
 #include <asm/cpu.h>
 #include <asm/apic.h>
 #include <linux/uaccess.h>
@@ -87,7 +88,31 @@ int arch_dup_task_struct(struct task_struct *dst, struct task_struct *src)
 #ifdef CONFIG_VM86
 	dst->thread.vm86 = NULL;
 #endif
+
+#ifdef CONFIG_X86_USER_INTERRUPTS
+	/* User Interrupt state is unique for each task */
+	dst->thread.ui_recv = NULL;
+	dst->thread.ui_send = NULL;
+#endif
+
 	return fpu_clone(dst);
+}
+
+void arch_thread_struct_whitelist(unsigned long *offset, unsigned long *size)
+{
+	*offset = offsetof(struct thread_struct, fpu.__default_state);
+	/* The buffer embedded in thread_struct has the minimum size. */
+	*size = fpu_buf_cfg.min_size;
+}
+
+void arch_release_task_struct(struct task_struct *task)
+{
+	if (!cpu_feature_enabled(X86_FEATURE_FPU))
+		return;
+
+	/* Free up only the dynamically-allocated memory. */
+	if (task->thread.fpu.state != &task->thread.fpu.__default_state)
+		free_xstate_buffer(&task->thread.fpu);
 }
 
 /*
@@ -102,6 +127,8 @@ void exit_thread(struct task_struct *tsk)
 		io_bitmap_exit(tsk);
 
 	free_vm86(t);
+
+	uintr_free(tsk);
 
 	fpu__drop(fpu);
 }
@@ -999,13 +1026,17 @@ out:
 }
 
 long do_arch_prctl_common(struct task_struct *task, int option,
-			  unsigned long cpuid_enabled)
+			  unsigned long arg2)
 {
 	switch (option) {
 	case ARCH_GET_CPUID:
 		return get_cpuid_mode();
 	case ARCH_SET_CPUID:
-		return set_cpuid_mode(task, cpuid_enabled);
+		return set_cpuid_mode(task, arg2);
+	case ARCH_GET_FEATURES_WITH_KERNEL_ASSISTANCE:
+	case ARCH_SET_STATE_ENABLE:
+	case ARCH_GET_STATE_ENABLE:
+		return do_arch_prctl_state(task, option, arg2);
 	}
 
 	return -EINVAL;

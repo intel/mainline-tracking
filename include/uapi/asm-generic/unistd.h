@@ -880,8 +880,21 @@ __SYSCALL(__NR_memfd_secret, sys_memfd_secret)
 #define __NR_process_mrelease 448
 __SYSCALL(__NR_process_mrelease, sys_process_mrelease)
 
+#define __NR_uintr_register_handler 449
+__SYSCALL(__NR_uintr_register_handler, sys_uintr_register_handler)
+#define __NR_uintr_unregister_handler 450
+__SYSCALL(__NR_uintr_unregister_handler, sys_uintr_unregister_handler)
+#define __NR_uintr_create_fd 451
+__SYSCALL(__NR_uintr_create_fd, sys_uintr_create_fd)
+#define __NR_uintr_register_sender 452
+__SYSCALL(__NR_uintr_register_sender, sys_uintr_register_sender)
+#define __NR_uintr_unregister_sender 453
+__SYSCALL(__NR_uintr_unregister_sender, sys_uintr_unregister_sender)
+#define __NR_uintr_wait 454
+__SYSCALL(__NR_uintr_wait, sys_uintr_wait)
+
 #undef __NR_syscalls
-#define __NR_syscalls 449
+#define __NR_syscalls 455
 
 /*
  * 32 bit systems traditionally used different
