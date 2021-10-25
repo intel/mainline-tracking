@@ -1941,6 +1941,53 @@ int xhci_add_endpoint(struct usb_hcd *hcd, struct usb_device *udev,
 }
 EXPORT_SYMBOL_GPL(xhci_add_endpoint);
 
+/*
+ * Workaround Intel host LS/FS interrupt endpoint issue.
+ *
+ * Out of order TRB are seen after split transaction errors on active LS/FS
+ * interrupt endpoints behind HS hubs.
+ *
+ * This can be mitigated by setting HSII (HS interrupt in alarm) bit 8 in a
+ * Intel specific register at offset 0x8144 when such endpoints are active.
+ * Keeping HSII on at all time has additional power consumption cost, so clear
+ * it if no LS/FS  interrupt endpoints are active behid HS hubs.
+ *
+ * Older Intel hosts have HSII set all the time, so don't touch those.
+ */
+static void xhci_track_intr_eps_quirk(struct xhci_hcd *xhci, struct xhci_virt_ep *ep, int change)
+{
+	struct usb_device *udev;
+	unsigned long flags;
+	void __iomem *reg;
+	u32 val;
+
+	if (!(xhci->quirks & XHCI_INTEL_HOST) || !(xhci->hci_version >= 0x110))
+		return;
+
+	if (!ep->ring || ep->ring->type != TYPE_INTR || !change)
+		return;
+
+	udev = ep->vdev->udev;
+	reg = (void __iomem *) xhci->cap_regs + 0x8144;
+
+	/* Full or Low speed device endpoint behind HS hub */
+	if (udev && udev->tt && udev->tt->hub->parent) {
+		spin_lock_irqsave(&xhci->lock, flags);
+		xhci->num_active_tt_intr_eps += change;
+		val = readl(reg);
+
+		if (xhci->num_active_tt_intr_eps == 0)
+			writel(val & ~BIT(8), reg);
+		else if (xhci->num_active_tt_intr_eps == change)
+			writel(val | BIT(8), reg);
+
+		spin_unlock_irqrestore(&xhci->lock, flags);
+
+		xhci_dbg(xhci, "active LS/FS intr eps under HS hub:%d change:%d 0x8144:0x%x\n",
+			 xhci->num_active_tt_intr_eps, change, readl(reg));
+	}
+}
+
 static void xhci_zero_in_ctx(struct xhci_hcd *xhci, struct xhci_virt_device *virt_dev)
 {
 	struct xhci_input_control_ctx *ctrl_ctx;
@@ -2937,6 +2984,7 @@ int xhci_check_bandwidth(struct usb_hcd *hcd, struct usb_device *udev)
 	for (i = 1; i < 31; i++) {
 		if ((le32_to_cpu(ctrl_ctx->drop_flags) & (1 << (i + 1))) &&
 		    !(le32_to_cpu(ctrl_ctx->add_flags) & (1 << (i + 1)))) {
+			xhci_track_intr_eps_quirk(xhci, &virt_dev->eps[i], -1);
 			xhci_free_endpoint_ring(xhci, virt_dev, i);
 			xhci_check_bw_drop_ep_streams(xhci, virt_dev, i);
 		}
@@ -2953,11 +3001,13 @@ int xhci_check_bandwidth(struct usb_hcd *hcd, struct usb_device *udev)
 		 * It may not if this is the first add of an endpoint.
 		 */
 		if (virt_dev->eps[i].ring) {
+			xhci_track_intr_eps_quirk(xhci, &virt_dev->eps[i], -1);
 			xhci_free_endpoint_ring(xhci, virt_dev, i);
 		}
 		xhci_check_bw_drop_ep_streams(xhci, virt_dev, i);
 		virt_dev->eps[i].ring = virt_dev->eps[i].new_ring;
 		virt_dev->eps[i].new_ring = NULL;
+		xhci_track_intr_eps_quirk(xhci, &virt_dev->eps[i], 1);
 		xhci_debugfs_create_endpoint(xhci, virt_dev, i);
 	}
 command_cleanup:
@@ -3776,6 +3826,7 @@ static int xhci_discover_or_reset_device(struct usb_hcd *hcd,
 
 		if (ep->ring) {
 			xhci_debugfs_remove_endpoint(xhci, virt_dev, i);
+			xhci_track_intr_eps_quirk(xhci, ep, -1);
 			xhci_free_endpoint_ring(xhci, virt_dev, i);
 		}
 		if (!list_empty(&virt_dev->eps[i].bw_endpoint_list))
@@ -3830,8 +3881,12 @@ static void xhci_free_dev(struct usb_hcd *hcd, struct usb_device *udev)
 	trace_xhci_free_dev(slot_ctx);
 
 	/* Stop any wayward timer functions (which may grab the lock) */
-	for (i = 0; i < 31; i++)
+	for (i = 0; i < 31; i++) {
 		virt_dev->eps[i].ep_state &= ~EP_STOP_CMD_PENDING;
+		/* eps should be dropped, but if not then track them correctly */
+		xhci_track_intr_eps_quirk(xhci, &virt_dev->eps[i], -1);
+	}
+
 	virt_dev->udev = NULL;
 	xhci_disable_slot(xhci, udev->slot_id);
 

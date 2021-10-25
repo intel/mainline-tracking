@@ -1915,6 +1915,7 @@ no_bw:
 	xhci->usb2_rhub.num_ports = 0;
 	xhci->usb3_rhub.num_ports = 0;
 	xhci->num_active_eps = 0;
+	xhci->num_active_tt_intr_eps = 0;
 	kfree(xhci->usb2_rhub.ports);
 	kfree(xhci->usb3_rhub.ports);
 	kfree(xhci->hw_ports);
