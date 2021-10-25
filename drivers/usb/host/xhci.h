@@ -1905,6 +1905,7 @@ struct xhci_hcd {
 #define XHCI_ZHAOXIN_HOST	BIT_ULL(46)
 
 	unsigned int		num_active_eps;
+	unsigned int		num_active_tt_intr_eps;
 	unsigned int		limit_active_eps;
 	struct xhci_port	*hw_ports;
 	struct xhci_hub		usb2_rhub;
