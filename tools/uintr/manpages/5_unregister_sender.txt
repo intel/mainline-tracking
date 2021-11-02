@@ -1,0 +1,79 @@
+uintr_unregister_sender(2)    System Calls Manual   uintr_unregister_sender(2)
+
+
+
+NAME
+       uintr_unregister_sender  -  Unregister  a  user inter-process interrupt
+       sender
+
+
+SYNOPSIS
+        int uintr_unregister_sender(int uintr_fd, unsigned int flags);
+
+
+DESCRIPTION
+       uintr_unregister_sender() unregisters a sender process from a  uintr_fd
+       it had previously connected with. If no connection is present with this
+       uintr_fd the system call return an error.
+
+       The uipi_index that was allocated during uintr_register_sender(2)  will
+       also be freed. If a process tries to use a uipi_index after it has been
+       freed it would receive a SIGSEGV signal.
+
+       In case of a multi-threaded process uintr_unregister_sender() will only
+       disconnect  the thread that makes this call. Other threads can continue
+       to use their connection with the uintr_fd based on their uipi_index.
+
+       <We are considering an  alternate  approach  where  all  threads  in  a
+       process  see  a  consistent  view  of  the  uipi_index.  In  that case,
+       uintr_unregister_sender() would disconnect all threads from uintr_fd.>
+
+       The flags argument is reserved for future use.  Currently, it  must  be
+       specified as 0.
+
+       close(2)
+             When the file descriptor is no longer required it should be
+             closed.  When all file descriptors associated with the same
+             uintr_fd object have been closed, the resources for object are
+             freed by the kernel. Freeing the uintr_fd object would also
+             result in the associated uipi_index to be freed.
+
+       The  behavior  of  uintr_unregister_sender() system call after uintr_fd
+       has been close is undefined.
+
+
+RETURN VALUE
+       On success,  uintr_unregister_sender()  returns  0.  On  error,  -1  is
+       returned and errno is set to indicate the cause of the error.
+
+
+ERRORS
+       EOPNOTSUPP  Underlying hardware doesn't have support for uintr(7).
+
+       EOPNOTSUPP  uintr_fd does not refer to a Uintr instance.
+
+       EBADF       The uintr_fd passed to the kernel is invalid.
+
+       EINVAL      flags is not 0.
+
+       EINVAL      No connection has been setup with this uintr_fd.
+
+
+VERSIONS
+       uintr_unregister_sender() first appeared in Linux <tbd>.
+
+
+CONFORMING TO
+       uintr_unregister_sender() is Linux specific.
+
+
+NOTES
+       Currently,  there  is  no  glibc  wrapper for this system call; call it
+       using syscall(2).
+
+       The user interrupt  related  system  calls  need  hardware  support  to
+       generate and receive user interrupts. Refer uintr(7) for details.
+
+
+
+                                                    uintr_unregister_sender(2)
