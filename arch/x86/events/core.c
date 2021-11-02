@@ -79,7 +79,6 @@ DEFINE_STATIC_CALL_NULL(x86_pmu_commit_scheduling, *x86_pmu.commit_scheduling);
 DEFINE_STATIC_CALL_NULL(x86_pmu_stop_scheduling,   *x86_pmu.stop_scheduling);
 
 DEFINE_STATIC_CALL_NULL(x86_pmu_sched_task,    *x86_pmu.sched_task);
-DEFINE_STATIC_CALL_NULL(x86_pmu_swap_task_ctx, *x86_pmu.swap_task_ctx);
 
 DEFINE_STATIC_CALL_NULL(x86_pmu_drain_pebs,   *x86_pmu.drain_pebs);
 DEFINE_STATIC_CALL_NULL(x86_pmu_pebs_aliases, *x86_pmu.pebs_aliases);
@@ -821,6 +820,7 @@ static void perf_sched_init(struct perf_sched *sched, struct event_constraint **
 	sched->state.event	= idx;		/* start with min weight */
 	sched->state.weight	= wmin;
 	sched->state.unassigned	= num;
+	sched->state.counter	= INTEL_PMC_IDX_FIXED;
 }
 
 static void perf_sched_save_state(struct perf_sched *sched)
@@ -845,7 +845,7 @@ static bool perf_sched_restore_state(struct perf_sched *sched)
 	sched->state.used &= ~BIT_ULL(sched->state.counter);
 
 	/* try the next one */
-	sched->state.counter++;
+	sched->state.counter--;
 
 	return true;
 }
@@ -857,6 +857,7 @@ static bool perf_sched_restore_state(struct perf_sched *sched)
 static bool __perf_sched_find_counter(struct perf_sched *sched)
 {
 	struct event_constraint *c;
+	u64 idxmsk;
 	int idx;
 
 	if (!sched->state.unassigned)
@@ -880,13 +881,15 @@ static bool __perf_sched_find_counter(struct perf_sched *sched)
 		}
 	}
 
-	/* Grab the first unused counter starting with idx */
-	idx = sched->state.counter;
-	for_each_set_bit_from(idx, c->idxmsk, INTEL_PMC_IDX_FIXED) {
+	/* Grab the first unused counter in a reverse order */
+	idxmsk = c->idxmsk64 & ((1ULL << INTEL_PMC_IDX_FIXED) - 1);
+	while ((idx = find_last_bit((unsigned long *)&idxmsk, sched->state.counter)) < sched->state.counter) {
 		u64 mask = BIT_ULL(idx);
 
 		if (c->flags & PERF_X86_EVENT_PAIR)
 			mask |= mask << 1;
+
+		idxmsk &= ~mask;
 
 		if (sched->state.used & mask)
 			continue;
@@ -943,7 +946,7 @@ static bool perf_sched_next_event(struct perf_sched *sched)
 		c = sched->constraints[sched->state.event];
 	} while (c->weight != sched->state.weight);
 
-	sched->state.counter = 0;	/* start with first counter */
+	sched->state.counter = INTEL_PMC_IDX_FIXED;
 
 	return true;
 }
@@ -2018,7 +2021,6 @@ static void x86_pmu_static_call_update(void)
 	static_call_update(x86_pmu_stop_scheduling, x86_pmu.stop_scheduling);
 
 	static_call_update(x86_pmu_sched_task, x86_pmu.sched_task);
-	static_call_update(x86_pmu_swap_task_ctx, x86_pmu.swap_task_ctx);
 
 	static_call_update(x86_pmu_drain_pebs, x86_pmu.drain_pebs);
 	static_call_update(x86_pmu_pebs_aliases, x86_pmu.pebs_aliases);
@@ -2630,15 +2632,10 @@ static const struct attribute_group *x86_pmu_attr_groups[] = {
 	NULL,
 };
 
-static void x86_pmu_sched_task(struct perf_event_context *ctx, bool sched_in)
+static void x86_pmu_sched_task(struct perf_event_context *ctx,
+			       struct task_struct *task, bool sched_in)
 {
-	static_call_cond(x86_pmu_sched_task)(ctx, sched_in);
-}
-
-static void x86_pmu_swap_task_ctx(struct perf_event_context *prev,
-				  struct perf_event_context *next)
-{
-	static_call_cond(x86_pmu_swap_task_ctx)(prev, next);
+	static_call_cond(x86_pmu_sched_task)(ctx, task, sched_in);
 }
 
 void perf_check_microcode(void)
@@ -2702,7 +2699,6 @@ static struct pmu pmu = {
 
 	.event_idx		= x86_pmu_event_idx,
 	.sched_task		= x86_pmu_sched_task,
-	.swap_task_ctx		= x86_pmu_swap_task_ctx,
 	.check_period		= x86_pmu_check_period,
 
 	.aux_output_match	= x86_pmu_aux_output_match,
@@ -2839,6 +2835,10 @@ perf_callchain_user32(struct pt_regs *regs, struct perf_callchain_entry_ctx *ent
 
 	fp = compat_ptr(ss_base + regs->bp);
 	pagefault_disable();
+
+	if (x86_pmu.store_shadow_stack_user && x86_pmu.store_shadow_stack_user(entry))
+		goto out;
+
 	while (entry->nr < entry->max_stack) {
 		if (!valid_user_frame(fp, sizeof(frame)))
 			break;
@@ -2851,6 +2851,7 @@ perf_callchain_user32(struct pt_regs *regs, struct perf_callchain_entry_ctx *ent
 		perf_callchain_store(entry, cs_base + frame.return_address);
 		fp = compat_ptr(ss_base + frame.next_frame);
 	}
+out:
 	pagefault_enable();
 	return 1;
 }
@@ -2890,6 +2891,10 @@ perf_callchain_user(struct perf_callchain_entry_ctx *entry, struct pt_regs *regs
 		return;
 
 	pagefault_disable();
+
+	if (x86_pmu.store_shadow_stack_user && x86_pmu.store_shadow_stack_user(entry))
+		goto out;
+
 	while (entry->nr < entry->max_stack) {
 		if (!valid_user_frame(fp, sizeof(frame)))
 			break;
@@ -2902,6 +2907,7 @@ perf_callchain_user(struct perf_callchain_entry_ctx *entry, struct pt_regs *regs
 		perf_callchain_store(entry, frame.return_address);
 		fp = (void __user *)frame.next_frame;
 	}
+out:
 	pagefault_enable();
 }
 
