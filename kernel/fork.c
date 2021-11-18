@@ -179,6 +179,16 @@ static inline void free_task_struct(struct task_struct *tsk)
 
 #ifndef CONFIG_ARCH_THREAD_STACK_ALLOCATOR
 
+#define THREAD_STACK_DELAYED_FREE	1UL
+
+static void thread_stack_mark_delayed_free(struct task_struct *tsk)
+{
+	unsigned long val = (unsigned long)tsk->stack;
+
+	val |= THREAD_STACK_DELAYED_FREE;
+	WRITE_ONCE(tsk->stack, (void *)val);
+}
+
 /*
  * Allocate pages if THREAD_SIZE is >= PAGE_SIZE, otherwise use a
  * kmemcache based allocator.
@@ -294,7 +304,7 @@ static int alloc_thread_stack_node(struct task_struct *tsk, int node)
 	return 0;
 }
 
-static void free_thread_stack(struct task_struct *tsk)
+static void free_thread_stack(struct task_struct *tsk, bool cache_only)
 {
 	int i;
 
@@ -307,7 +317,12 @@ static void free_thread_stack(struct task_struct *tsk)
 		tsk->stack_vm_area = NULL;
 		return;
 	}
-	vfree_atomic(tsk->stack);
+	if (cache_only) {
+		thread_stack_mark_delayed_free(tsk);
+		return;
+	}
+
+	vfree(tsk->stack);
 	tsk->stack = NULL;
 	tsk->stack_vm_area = NULL;
 }
@@ -326,8 +341,12 @@ static int alloc_thread_stack_node(struct task_struct *tsk, int node)
 	return -ENOMEM;
 }
 
-static void free_thread_stack(struct task_struct *tsk)
+static void free_thread_stack(struct task_struct *tsk, bool cache_only)
 {
+	if (cache_only) {
+		thread_stack_mark_delayed_free(tsk);
+		return;
+	}
 	__free_pages(virt_to_page(tsk->stack), THREAD_SIZE_ORDER);
 	tsk->stack = NULL;
 }
@@ -346,8 +365,12 @@ static int alloc_thread_stack_node(struct task_struct *tsk, int node)
 	return stack ? 0 : -ENOMEM;
 }
 
-static void free_thread_stack(struct task_struct *tsk)
+static void free_thread_stack(struct task_struct *tsk, bool cache_only)
 {
+	if (cache_only) {
+		thread_stack_mark_delayed_free(tsk);
+		return;
+	}
 	kmem_cache_free(thread_stack_cache, tsk->stack);
 	tsk->stack = NULL;
 }
@@ -361,8 +384,19 @@ void thread_stack_cache_init(void)
 }
 
 # endif /* THREAD_SIZE >= PAGE_SIZE || defined(CONFIG_VMAP_STACK) */
-#else /* CONFIG_ARCH_THREAD_STACK_ALLOCATOR */
 
+void task_stack_cleanup(struct task_struct *tsk)
+{
+	unsigned long val = (unsigned long)tsk->stack;
+
+	if (!(val & THREAD_STACK_DELAYED_FREE))
+		return;
+
+	WRITE_ONCE(tsk->stack, (void *)(val & ~THREAD_STACK_DELAYED_FREE));
+	free_thread_stack(tsk, false);
+}
+
+#else /* CONFIG_ARCH_THREAD_STACK_ALLOCATOR */
 static int alloc_thread_stack_node(struct task_struct *tsk, int node)
 {
 	unsigned long *stack;
@@ -464,19 +498,25 @@ void exit_task_stack_account(struct task_struct *tsk)
 	}
 }
 
-static void release_task_stack(struct task_struct *tsk)
+static void release_task_stack(struct task_struct *tsk, bool cache_only)
 {
 	if (WARN_ON(READ_ONCE(tsk->__state) != TASK_DEAD))
 		return;  /* Better to leak the stack than to free prematurely */
 
-	free_thread_stack(tsk);
+	free_thread_stack(tsk, cache_only);
 }
 
 #ifdef CONFIG_THREAD_INFO_IN_TASK
 void put_task_stack(struct task_struct *tsk)
 {
 	if (refcount_dec_and_test(&tsk->stack_refcount))
-		release_task_stack(tsk);
+		release_task_stack(tsk, false);
+}
+
+void put_task_stack_sched(struct task_struct *tsk)
+{
+	if (refcount_dec_and_test(&tsk->stack_refcount))
+		release_task_stack(tsk, true);
 }
 #endif
 
@@ -490,7 +530,7 @@ void free_task(struct task_struct *tsk)
 	 * The task is finally done with both the stack and thread_info,
 	 * so free both.
 	 */
-	release_task_stack(tsk);
+	release_task_stack(tsk, false);
 #else
 	/*
 	 * If the task had a separate stack allocation, it should be gone
@@ -990,7 +1030,7 @@ static struct task_struct *dup_task_struct(struct task_struct *orig, int node)
 
 free_stack:
 	exit_task_stack_account(tsk);
-	free_thread_stack(tsk);
+	free_thread_stack(tsk, false);
 free_tsk:
 	free_task_struct(tsk);
 	return NULL;

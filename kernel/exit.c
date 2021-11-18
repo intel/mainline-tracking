@@ -171,6 +171,7 @@ static void delayed_put_task_struct(struct rcu_head *rhp)
 	kprobe_flush_task(tsk);
 	perf_event_delayed_put(tsk);
 	trace_sched_process_free(tsk);
+	task_stack_cleanup(tsk);
 	put_task_struct(tsk);
 }
 
