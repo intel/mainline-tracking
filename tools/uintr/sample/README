@@ -1,0 +1,11 @@
+====Build====
+To compile this sample an updated toolchain is needed.
+- Use GCC release 11 or higher &
+- Use Binutils release 2.36 or higher
+
+====Run====
+$./uipi_sample
+Receiver enabled interrupts
+Sending IPI from sender thread
+        -- User Interrupt handler --
+Success
