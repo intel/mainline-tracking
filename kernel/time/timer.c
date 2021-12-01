@@ -2466,7 +2466,7 @@ static void run_local_timers(void)
 		/* Raise the softirq only if required. */
 		if (time_after_eq(jiffies, base->next_expiry) ||
 		    (i == BASE_DEF && tmigr_requires_handle_remote())) {
-			raise_softirq(TIMER_SOFTIRQ);
+			raise_timer_softirq();
 			return;
 		}
 	}
