@@ -1245,6 +1245,32 @@ static bool process_interrupt_randomness_pool(struct fast_pool *fast_pool)
 	return true;
 }
 
+#ifdef CONFIG_PREEMPT_RT
+void process_interrupt_randomness(void)
+{
+	struct fast_pool *cpu_pool;
+	struct fast_pool fast_pool;
+
+	lockdep_assert_irqs_enabled();
+
+	migrate_disable();
+	cpu_pool = this_cpu_ptr(&irq_randomness);
+
+	local_irq_disable();
+	memcpy(&fast_pool, cpu_pool, sizeof(fast_pool));
+	local_irq_enable();
+
+	if (process_interrupt_randomness_pool(&fast_pool)) {
+		local_irq_disable();
+		cpu_pool->last = jiffies;
+		cpu_pool->count = 0;
+		local_irq_enable();
+	}
+	memzero_explicit(&fast_pool, sizeof(fast_pool));
+	migrate_enable();
+}
+#endif
+
 void add_interrupt_randomness(int irq)
 {
 	struct fast_pool *fast_pool = this_cpu_ptr(&irq_randomness);
@@ -1268,7 +1294,13 @@ void add_interrupt_randomness(int irq)
 	fast_mix(fast_pool);
 	add_interrupt_bench(cycles);
 
-	if (process_interrupt_randomness_pool(fast_pool)) {
+	/*
+	 * On PREEMPT_RT the entropy can not be fed into the input_pool because
+	 * it needs to acquire sleeping locks with disabled interrupts.
+	 * This is deferred to the threaded handler.
+	 */
+	if (!IS_ENABLED(CONFIG_PREEMPT_RT) &&
+	    process_interrupt_randomness_pool(fast_pool)) {
 		fast_pool->last = now;
 		fast_pool->count = 0;
 	}
