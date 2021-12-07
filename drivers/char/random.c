@@ -1220,31 +1220,29 @@ static u32 get_reg(struct fast_pool *f, struct pt_regs *regs)
 	return *ptr;
 }
 
-static void process_interrupt_randomness_pool(struct fast_pool *fast_pool)
+static bool process_interrupt_randomness_pool(struct fast_pool *fast_pool)
 {
 	if (unlikely(crng_init == 0)) {
+		bool pool_reset = false;
+
 		if ((fast_pool->count >= 64) &&
-		    crng_fast_load((u8 *)fast_pool->pool, sizeof(fast_pool->pool)) > 0) {
-			fast_pool->count = 0;
-			fast_pool->last = jiffies;
-		}
-		return;
+		    crng_fast_load((u8 *)fast_pool->pool, sizeof(fast_pool->pool)) > 0)
+			pool_reset = true;
+		return pool_reset;
 	}
 
 	if ((fast_pool->count < 64) && !time_after(jiffies, fast_pool->last + HZ))
-		return;
+		return false;
 
 	if (!spin_trylock(&input_pool.lock))
-		return;
+		return false;
 
-	fast_pool->last = jiffies;
 	__mix_pool_bytes(&fast_pool->pool, sizeof(fast_pool->pool));
 	spin_unlock(&input_pool.lock);
 
-	fast_pool->count = 0;
-
 	/* award one bit for the contents of the fast pool */
 	credit_entropy_bits(1);
+	return true;
 }
 
 void add_interrupt_randomness(int irq)
@@ -1270,7 +1268,10 @@ void add_interrupt_randomness(int irq)
 	fast_mix(fast_pool);
 	add_interrupt_bench(cycles);
 
-	process_interrupt_randomness_pool(fast_pool);
+	if (process_interrupt_randomness_pool(fast_pool)) {
+		fast_pool->last = now;
+		fast_pool->count = 0;
+	}
 }
 EXPORT_SYMBOL_GPL(add_interrupt_randomness);
 
