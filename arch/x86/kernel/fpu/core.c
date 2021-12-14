@@ -770,3 +770,24 @@ int fpu__exception_code(struct fpu *fpu, int trap_nr)
 	 */
 	return 0;
 }
+
+/*
+ * Leaving state in some large registers may prevent the processor from
+ * entering lower-power idle states. Initialize those states when needed.
+ *
+ * A caller needs to make sure fpregs are saved before this.
+ */
+void fpu_idle_fpregs(void)
+{
+	/*
+	 * Ensure AMX TILE registers in INIT-state before entering the idle
+	 * state.
+	 *
+	 * Dynamic states are enabled only when X86_FEATURE_XGETBV1 is
+	 * available.
+	 */
+	if (fpu_state_size_dynamic() && (xfeatures_in_use() & XFEATURE_MASK_XTILE)) {
+		tile_release();
+		fpregs_deactivate(&current->thread.fpu);
+	}
+}
