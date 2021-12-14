@@ -53,7 +53,7 @@ static const char *xfeature_names[] =
 	"unknown xstate feature"	,
 	"unknown xstate feature"	,
 	"unknown xstate feature"	,
-	"unknown xstate feature"	,
+	"User Interrupts registers"	,
 	"unknown xstate feature"	,
 	"unknown xstate feature"	,
 	"AMX Tile config"		,
@@ -75,6 +75,7 @@ static unsigned short xsave_cpuid_features[] __initdata = {
 	[XFEATURE_PASID]			= X86_FEATURE_ENQCMD,
 	[XFEATURE_XTILE_CFG]			= X86_FEATURE_AMX_TILE,
 	[XFEATURE_XTILE_DATA]			= X86_FEATURE_AMX_TILE,
+	[XFEATURE_UINTR]			= X86_FEATURE_UINTR,
 };
 
 static unsigned int xstate_offsets[XFEATURE_MAX] __ro_after_init =
@@ -252,6 +253,7 @@ static void __init print_xstate_features(void)
 	print_xstate_feature(XFEATURE_MASK_PASID);
 	print_xstate_feature(XFEATURE_MASK_XTILE_CFG);
 	print_xstate_feature(XFEATURE_MASK_XTILE_DATA);
+	print_xstate_feature(XFEATURE_MASK_UINTR);
 }
 
 /*
@@ -405,7 +407,8 @@ static __init void os_xrstor_booting(struct xregs_state *xstate)
 	 XFEATURE_MASK_BNDREGS |		\
 	 XFEATURE_MASK_BNDCSR |			\
 	 XFEATURE_MASK_PASID |			\
-	 XFEATURE_MASK_XTILE)
+	 XFEATURE_MASK_XTILE |			\
+	 XFEATURE_MASK_UINTR)
 
 /*
  * setup the xstate image representing the init state
@@ -621,6 +624,7 @@ static bool __init check_xstate_against_struct(int nr)
 	XCHECK_SZ(sz, nr, XFEATURE_PKRU,      struct pkru_state);
 	XCHECK_SZ(sz, nr, XFEATURE_PASID,     struct ia32_pasid_state);
 	XCHECK_SZ(sz, nr, XFEATURE_XTILE_CFG, struct xtile_cfg);
+	XCHECK_SZ(sz, nr, XFEATURE_UINTR,     struct uintr_state);
 
 	/* The tile data size varies between implementations. */
 	if (nr == XFEATURE_XTILE_DATA)
@@ -634,7 +638,11 @@ static bool __init check_xstate_against_struct(int nr)
 	if ((nr < XFEATURE_YMM) ||
 	    (nr >= XFEATURE_MAX) ||
 	    (nr == XFEATURE_PT_UNIMPLEMENTED_SO_FAR) ||
-	    ((nr >= XFEATURE_RSRVD_COMP_11) && (nr <= XFEATURE_RSRVD_COMP_16))) {
+	    (nr == XFEATURE_RSRVD_COMP_11) ||
+	    (nr == XFEATURE_RSRVD_COMP_12) ||
+	    (nr == XFEATURE_RSRVD_COMP_13) ||
+	    (nr == XFEATURE_LBR) ||
+	    (nr == XFEATURE_RSRVD_COMP_16)) {
 		WARN_ONCE(1, "no structure for xstate: %d\n", nr);
 		XSTATE_WARN_ON(1);
 		return false;
@@ -1815,3 +1823,148 @@ int proc_pid_arch_status(struct seq_file *m, struct pid_namespace *ns,
 	return 0;
 }
 #endif /* CONFIG_PROC_PID_ARCH_STATUS */
+
+static u64 *__get_xsave_member(void *xstate, u32 msr)
+{
+	switch (msr) {
+	case MSR_IA32_UINTR_RR:
+		return &((struct uintr_state *)xstate)->uirr;
+	case MSR_IA32_UINTR_HANDLER:
+		return &((struct uintr_state *)xstate)->handler;
+	case MSR_IA32_UINTR_STACKADJUST:
+		return &((struct uintr_state *)xstate)->stack_adjust;
+	case MSR_IA32_UINTR_MISC:
+		return (u64 *)&((struct uintr_state *)xstate)->misc;
+	case MSR_IA32_UINTR_PD:
+		return &((struct uintr_state *)xstate)->upid_addr;
+	case MSR_IA32_UINTR_TT:
+		return &((struct uintr_state *)xstate)->uitt_addr;
+	default:
+		WARN_ONCE(1, "x86/fpu: unsupported xstate msr (%u)\n", msr);
+		return NULL;
+	}
+}
+
+/*
+ * Return a pointer to the xstate for the feature if it should be used, or NULL
+ * if the MSRs should be written to directly. To do this safely using the
+ * associated read/write helpers are required.
+ */
+void *start_update_xsave_msrs(int xfeature_nr)
+{
+	void *xstate;
+
+	/*
+	 * fpregs_lock() only disables preemption (mostly). So modifing state
+	 * in an interrupt could screw up some in progress fpregs operation,
+	 * but appear to work. Warn about it.
+	 */
+	WARN_ON_ONCE(!in_task());
+	WARN_ON_ONCE(current->flags & PF_KTHREAD);
+
+	fpregs_lock();
+
+	fpregs_assert_state_consistent();
+
+	/*
+	 * If the registers don't need to be reloaded. Go ahead and operate on the
+	 * registers.
+	 */
+	if (!test_thread_flag(TIF_NEED_FPU_LOAD))
+		return NULL;
+
+	xstate = get_xsave_addr(&current->thread.fpu.fpstate->regs.xsave, xfeature_nr);
+
+	/*
+	 * If regs are in the init state, they can't be retrieved from
+	 * init_fpstate due to the init optimization, but are not nessarily
+	 * zero. The only option is to restore to make everything live and
+	 * operate on registers. This will clear TIF_NEED_FPU_LOAD.
+	 *
+	 * Otherwise, if not in the init state but TIF_NEED_FPU_LOAD is set,
+	 * operate on the buffer. The registers will be restored before going
+	 * to userspace in any case, but the task might get preempted before
+	 * then, so this possibly saves an xsave.
+	 */
+	if (!xstate)
+		fpregs_restore_userregs();
+	return xstate;
+}
+
+void end_update_xsave_msrs(void)
+{
+	fpregs_unlock();
+}
+
+/*
+ * When TIF_NEED_FPU_LOAD is set and fpregs_state_valid() is true, the saved
+ * state and fp state match. In this case, the kernel has some good options -
+ * it can skip the restore before returning to userspace or it could skip
+ * an xsave if preempted before then.
+ *
+ * But if this correspondence is broken by either a write to the in-memory
+ * buffer or the registers, the kernel needs to be notified so it doesn't miss
+ * an xsave or restore. __xsave_msrl_prepare_write() peforms this check and
+ * notifies the kernel if needed. Use before writes only, to not take away
+ * the kernel's options when not required.
+ *
+ * If TIF_NEED_FPU_LOAD is set, then the logic in start_update_xsave_msrs()
+ * must have resulted in targeting the in-memory state, so invaliding the
+ * registers is the right thing to do.
+ */
+static void __xsave_msrl_prepare_write(void)
+{
+	if (test_thread_flag(TIF_NEED_FPU_LOAD) &&
+	    fpregs_state_valid(&current->thread.fpu, smp_processor_id()))
+		__fpu_invalidate_fpregs_state(&current->thread.fpu);
+}
+
+int xsave_rdmsrl(void *xstate, unsigned int msr, unsigned long long *p)
+{
+	u64 *member_ptr;
+
+	if (!xstate)
+		return rdmsrl_safe(msr, p);
+
+	member_ptr = __get_xsave_member(xstate, msr);
+	if (!member_ptr)
+		return 1;
+
+	*p = *member_ptr;
+
+	return 0;
+}
+
+int xsave_wrmsrl(void *xstate, u32 msr, u64 val)
+{
+	u64 *member_ptr;
+
+	__xsave_msrl_prepare_write();
+	if (!xstate)
+		return wrmsrl_safe(msr, val);
+
+	member_ptr = __get_xsave_member(xstate, msr);
+	if (!member_ptr)
+		return 1;
+
+	*member_ptr = val;
+
+	return 0;
+}
+
+int xsave_set_clear_bits_msrl(void *xstate, u32 msr, u64 set, u64 clear)
+{
+	u64 val, new_val;
+	int ret;
+
+	ret = xsave_rdmsrl(xstate, msr, &val);
+	if (ret)
+		return ret;
+
+	new_val = (val & ~clear) | set;
+
+	if (new_val != val)
+		return xsave_wrmsrl(xstate, msr, new_val);
+
+	return 0;
+}
