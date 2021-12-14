@@ -10,6 +10,9 @@
 #include "stmmac.h"
 #include "stmmac_ptp.h"
 
+#define PTP_RATE_200MHZ		200000000
+#define PTP_RATE_204p86MHZ	204860000
+
 struct intel_priv_data {
 	int mdio_adhoc_addr;	/* mdio address for serdes & etc */
 	unsigned long crossts_adj;
@@ -592,7 +595,6 @@ static int ehl_common_data(struct pci_dev *pdev,
 {
 	plat->rx_queues_to_use = 8;
 	plat->tx_queues_to_use = 8;
-	plat->clk_ptp_rate = 200000000;
 	plat->use_phy_wol = 1;
 
 	plat->safety_feat_cfg->tsoee = 1;
@@ -617,6 +619,8 @@ static int ehl_sgmii_data(struct pci_dev *pdev,
 	plat->serdes_powerup = intel_serdes_powerup;
 	plat->serdes_powerdown = intel_serdes_powerdown;
 
+	plat->clk_ptp_rate = PTP_RATE_204p86MHZ;
+
 	if (pdev->revision == PCI_PCH_A0 ||
 	    pdev->revision == PCI_PCH_A1 ||
 	    pdev->revision == PCI_PCH_B0)
@@ -634,6 +638,8 @@ static int ehl_rgmii_data(struct pci_dev *pdev,
 {
 	plat->bus_id = 1;
 	plat->phy_interface = PHY_INTERFACE_MODE_RGMII;
+
+	plat->clk_ptp_rate = PTP_RATE_204p86MHZ;
 
 	if (pdev->revision == PCI_PCH_A0 ||
 	    pdev->revision == PCI_PCH_A1 ||
@@ -655,6 +661,8 @@ static int ehl_pse0_common_data(struct pci_dev *pdev,
 	intel_priv->is_pse = true;
 	plat->bus_id = 2;
 	plat->addr64 = 32;
+
+	plat->clk_ptp_rate = PTP_RATE_200MHZ;
 
 	intel_mgbe_pse_crossts_adj(intel_priv, EHL_PSE_ART_MHZ);
 
@@ -695,6 +703,8 @@ static int ehl_pse1_common_data(struct pci_dev *pdev,
 	plat->bus_id = 3;
 	plat->addr64 = 32;
 
+	plat->clk_ptp_rate = PTP_RATE_200MHZ;
+
 	intel_mgbe_pse_crossts_adj(intel_priv, EHL_PSE_ART_MHZ);
 
 	return ehl_common_data(pdev, plat);
@@ -730,7 +740,7 @@ static int tgl_common_data(struct pci_dev *pdev,
 {
 	plat->rx_queues_to_use = 6;
 	plat->tx_queues_to_use = 4;
-	plat->clk_ptp_rate = 200000000;
+	plat->clk_ptp_rate = PTP_RATE_200MHZ;
 
 	plat->safety_feat_cfg->tsoee = 1;
 	plat->safety_feat_cfg->mrxpee = 0;
