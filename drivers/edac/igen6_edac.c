@@ -222,6 +222,7 @@ static struct work_struct ecclog_work;
 #define DID_ADL_SKU2	0x4602
 #define DID_ADL_SKU3	0x4621
 #define DID_ADL_SKU4	0x4641
+#define DID_ADL_SKU5	0x460a
 
 static bool ehl_ibecc_available(struct pci_dev *pdev)
 {
@@ -425,6 +426,7 @@ static const struct pci_device_id igen6_pci_tbl[] = {
 	{ PCI_VDEVICE(INTEL, DID_ADL_SKU2), (kernel_ulong_t)&adl_cfg },
 	{ PCI_VDEVICE(INTEL, DID_ADL_SKU3), (kernel_ulong_t)&adl_cfg },
 	{ PCI_VDEVICE(INTEL, DID_ADL_SKU4), (kernel_ulong_t)&adl_cfg },
+	{ PCI_VDEVICE(INTEL, DID_ADL_SKU5), (kernel_ulong_t)&adl_cfg },
 	{ },
 };
 MODULE_DEVICE_TABLE(pci, igen6_pci_tbl);
