@@ -216,7 +216,6 @@ void panic(const char *fmt, ...)
 		panic_smp_self_stop();
 
 	console_verbose();
-	bust_spinlocks(1);
 	va_start(args, fmt);
 	len = vscnprintf(buf, sizeof(buf), fmt, args);
 	va_end(args);
@@ -239,6 +238,11 @@ void panic(const char *fmt, ...)
 	 * running on them.
 	 */
 	kgdb_panic(buf);
+
+	/* Use atomic consoles to dump the kernel log. */
+	console_flush_on_panic(CONSOLE_ATOMIC_FLUSH_PENDING);
+
+	bust_spinlocks(1);
 
 	/*
 	 * If we have crashed and we have a crash kernel loaded let it handle
