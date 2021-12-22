@@ -2030,7 +2030,7 @@ struct memcg_stock_pcp {
 	local_lock_t stock_lock;
 	struct mem_cgroup *cached; /* this never be root cgroup */
 	unsigned int nr_pages;
-#ifndef CONFIG_PREEMPT_RT
+#ifndef CONFIG_PREEMPTION
 	/* Protects only task_obj */
 	local_lock_t task_obj_lock;
 	struct obj_stock task_obj;
@@ -2043,7 +2043,7 @@ struct memcg_stock_pcp {
 };
 static DEFINE_PER_CPU(struct memcg_stock_pcp, memcg_stock) = {
 	.stock_lock = INIT_LOCAL_LOCK(stock_lock),
-#ifndef CONFIG_PREEMPT_RT
+#ifndef CONFIG_PREEMPTION
 	.task_obj_lock = INIT_LOCAL_LOCK(task_obj_lock),
 #endif
 };
@@ -2132,7 +2132,7 @@ static void drain_local_stock(struct work_struct *dummy)
 	 * drain_stock races is that we always operate on local CPU stock
 	 * here with IRQ disabled
 	 */
-#ifndef CONFIG_PREEMPT_RT
+#ifndef CONFIG_PREEMPTION
 	local_lock(&memcg_stock.task_obj_lock);
 	old = drain_obj_stock(&this_cpu_ptr(&memcg_stock)->task_obj, NULL);
 	local_unlock(&memcg_stock.task_obj_lock);
@@ -2741,7 +2741,7 @@ static inline struct obj_stock *get_obj_stock(unsigned long *pflags,
 {
 	struct memcg_stock_pcp *stock;
 
-#ifndef CONFIG_PREEMPT_RT
+#ifndef CONFIG_PREEMPTION
 	if (likely(in_task())) {
 		*pflags = 0UL;
 		*stock_lock_acquried = false;
@@ -2759,7 +2759,7 @@ static inline struct obj_stock *get_obj_stock(unsigned long *pflags,
 static inline void put_obj_stock(unsigned long flags,
 				 bool stock_lock_acquried)
 {
-#ifndef CONFIG_PREEMPT_RT
+#ifndef CONFIG_PREEMPTION
 	if (likely(!stock_lock_acquried)) {
 		local_unlock(&memcg_stock.task_obj_lock);
 		return;
@@ -3177,7 +3177,7 @@ static bool obj_stock_flush_required(struct memcg_stock_pcp *stock,
 {
 	struct mem_cgroup *memcg;
 
-#ifndef CONFIG_PREEMPT_RT
+#ifndef CONFIG_PREEMPTION
 	if (in_task() && stock->task_obj.cached_objcg) {
 		memcg = obj_cgroup_memcg(stock->task_obj.cached_objcg);
 		if (memcg && mem_cgroup_is_descendant(memcg, root_memcg))
