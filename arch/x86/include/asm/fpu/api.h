@@ -160,4 +160,6 @@ void end_update_xsave_msrs(void);
 int xsave_rdmsrl(void *state, unsigned int msr, unsigned long long *p);
 int xsave_wrmsrl(void *state, u32 msr, u64 val);
 int xsave_set_clear_bits_msrl(void *state, u32 msr, u64 set, u64 clear);
+extern void fpu_idle_fpregs(void);
+
 #endif /* _ASM_X86_FPU_API_H */
