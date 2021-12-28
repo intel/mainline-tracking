@@ -20,6 +20,10 @@ typedef struct {
 	unsigned int kvm_posted_intr_wakeup_ipis;
 	unsigned int kvm_posted_intr_nested_ipis;
 #endif
+#ifdef CONFIG_X86_USER_INTERRUPTS
+	unsigned int uintr_spurious_count;
+	unsigned int uintr_kernel_notifications;
+#endif
 	unsigned int x86_platform_ipis;	/* arch dependent */
 	unsigned int apic_perf_irqs;
 	unsigned int apic_irq_work_irqs;
