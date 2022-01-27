@@ -2043,8 +2043,10 @@ static u8 *__printk_recursion_counter(void)
 
 int printk_delay_msec __read_mostly;
 
-static inline void printk_delay(void)
+static inline void printk_delay(int level)
 {
+	boot_delay_msec(level);
+
 	if (unlikely(printk_delay_msec)) {
 		int m = printk_delay_msec;
 
@@ -2423,11 +2425,10 @@ static ssize_t msg_print_ext_body(char *buf, size_t size,
 static void console_lock_spinning_enable(void) { }
 static int console_lock_spinning_disable_and_check(void) { return 0; }
 static void call_console_driver(struct console *con, const char *text, size_t len,
-				char *dropped_text, bool atomic_printing) { }
+				char *dropped_text, bool atomic_printing) {}
 static bool suppress_message_printing(int level) { return false; }
-static void start_printk_kthread(struct console *con) { }
-static inline void boot_delay_msec(int level) { }
-static inline void printk_delay(void) { }
+static void printk_delay(int level) {}
+static void start_printk_kthread(struct console *con) {}
 
 #endif /* CONFIG_PRINTK */
 
@@ -2684,6 +2685,31 @@ int console_trylock(void)
 EXPORT_SYMBOL(console_trylock);
 
 /*
+ * A variant of console_trylock() that allows specifying if the context may
+ * sleep. If yes, a trylock on @console_sem is attempted and if successful,
+ * the threaded printers are paused. This is important to ensure that
+ * sleepable contexts do not become involved in console_lock handovers and
+ * will call cond_resched() during the printing loop.
+ */
+static int console_trylock_sched(bool may_schedule)
+{
+	if (!may_schedule)
+		return console_trylock();
+
+	might_sleep();
+
+	if (down_trylock_console_sem())
+		return 0;
+	if (console_suspended) {
+		up_console_sem();
+		return 0;
+	}
+	pause_all_consoles();
+	console_may_schedule = 1;
+	return 1;
+}
+
+/*
  * This is used to help to make sure that certain paths within the VT code are
  * running with the console lock held. It is definitely not the perfect debug
  * tool (it is not known if the VT code is the task holding the console lock),
@@ -2836,8 +2862,8 @@ static void write_console_seq(struct console *con, u64 val, bool atomic_printing
  *
  * @handover will be set to true if a printk waiter has taken over the
  * console_lock, in which case the caller is no longer holding the
- * console_lock. A NULL pointer may be provided to disable allowing
- * the console_lock to be taken over by a printk waiter.
+ * console_lock. Otherwise it is set to false. A NULL pointer may be provided
+ * to disable allowing the console_lock to be taken over by a printk waiter.
  */
 static bool console_emit_next_record(struct console *con, char *text, char *ext_text,
 				     char *dropped_text, bool atomic_printing,
@@ -2917,8 +2943,7 @@ static bool console_emit_next_record(struct console *con, char *text, char *ext_
 		printk_safe_exit_irqrestore(flags);
 	}
 
-	boot_delay_msec(r.info->level);
-	printk_delay();
+	printk_delay(r.info->level);
 skip:
 	return true;
 }
@@ -2935,7 +2960,7 @@ skip:
  *
  * @handover will be set to true if a printk waiter has taken over the
  * console_lock, in which case the caller is no longer holding the
- * console_lock.
+ * console_lock. Otherwise it is set to false.
  */
 static bool console_flush_all(bool do_cond_resched, u64 *next_seq, bool *handover)
 {
@@ -3089,11 +3114,8 @@ void console_unlock(void)
 	 * between lines if allowable.  Not doing so can cause a very long
 	 * scheduling stall on a slow console leading to RCU stall and
 	 * softlockup warnings which exacerbate the issue with more
-	 * messages practically incapacitating the system.
-	 *
-	 * console_trylock() is not able to detect the preemptive
-	 * context reliably. Therefore the value must be stored before
-	 * and cleared after the "again" goto label.
+	 * messages practically incapacitating the system. Therefore, create
+	 * a local to use for the printing loop.
 	 */
 	do_cond_resched = console_may_schedule;
 
@@ -3116,7 +3138,7 @@ void console_unlock(void)
 		 * Re-check if there is a new record to flush. If the trylock
 		 * fails, another context is already handling the printing.
 		 */
-	} while (prb_read_valid(prb, next_seq, NULL) && console_trylock());
+	} while (prb_read_valid(prb, next_seq, NULL) && console_trylock_sched(do_cond_resched));
 }
 EXPORT_SYMBOL(console_unlock);
 
@@ -3626,6 +3648,7 @@ static int __init printk_late_init(void)
 		start_printk_kthread(con);
 	kthreads_started = true;
 	console_unlock();
+
 	return 0;
 }
 late_initcall(printk_late_init);

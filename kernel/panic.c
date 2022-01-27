@@ -232,17 +232,17 @@ void panic(const char *fmt, ...)
 		dump_stack();
 #endif
 
+	/* If atomic consoles are available, flush the kernel log. */
+	console_flush_on_panic(CONSOLE_ATOMIC_FLUSH_PENDING);
+
+	bust_spinlocks(1);
+
 	/*
 	 * If kgdb is enabled, give it a chance to run before we stop all
 	 * the other CPUs or else we won't be able to debug processes left
 	 * running on them.
 	 */
 	kgdb_panic(buf);
-
-	/* Use atomic consoles to dump the kernel log. */
-	console_flush_on_panic(CONSOLE_ATOMIC_FLUSH_PENDING);
-
-	bust_spinlocks(1);
 
 	/*
 	 * If we have crashed and we have a crash kernel loaded let it handle
