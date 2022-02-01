@@ -4900,9 +4900,6 @@ static int xhci_check_intel_tier_policy(struct usb_device *udev,
 	struct usb_device *parent;
 	unsigned int num_hubs;
 
-	if (state == USB3_LPM_U2)
-		return 0;
-
 	/* Don't enable U1 if the device is on a 2nd tier hub or lower. */
 	for (parent = udev->parent, num_hubs = 0; parent->parent;
 			parent = parent->parent)
@@ -4911,7 +4908,7 @@ static int xhci_check_intel_tier_policy(struct usb_device *udev,
 	if (num_hubs < 2)
 		return 0;
 
-	dev_dbg(&udev->dev, "Disabling U1 link state for device"
+	dev_dbg(&udev->dev, "Disabling U1/U2 link state for device"
 			" below second-tier hub.\n");
 	dev_dbg(&udev->dev, "Plug device into first-tier hub "
 			"to decrease power consumption.\n");
@@ -4951,9 +4948,6 @@ static u16 xhci_calculate_lpm_timeout(struct usb_hcd *hcd,
 				state);
 		return timeout;
 	}
-
-	if (xhci_check_tier_policy(xhci, udev, state) < 0)
-		return timeout;
 
 	/* Gather some information about the currently installed configuration
 	 * and alternate interface settings.
@@ -5059,6 +5053,9 @@ static int xhci_enable_usb3_lpm_timeout(struct usb_hcd *hcd,
 	 */
 	if (!xhci || !(xhci->quirks & XHCI_LPM_SUPPORT) ||
 			!xhci->devs[udev->slot_id])
+		return USB3_LPM_DISABLED;
+
+	if (xhci_check_tier_policy(xhci, udev, state) < 0)
 		return USB3_LPM_DISABLED;
 
 	hub_encoded_timeout = xhci_calculate_lpm_timeout(hcd, udev, state);
