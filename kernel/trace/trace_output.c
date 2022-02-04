@@ -463,17 +463,19 @@ int trace_print_lat_fmt(struct trace_seq *s, struct trace_entry *entry)
 
 	switch (entry->flags & (TRACE_FLAG_NEED_RESCHED |
 				TRACE_FLAG_PREEMPT_RESCHED)) {
+#ifndef CONFIG_PREEMPT_LAZY
 	case TRACE_FLAG_NEED_RESCHED | TRACE_FLAG_PREEMPT_RESCHED:
 		need_resched = 'N';
 		break;
-#ifndef CONFIG_PREEMPT_LAZY
+#endif
 	case TRACE_FLAG_NEED_RESCHED:
 		need_resched = 'n';
 		break;
-#endif
+#ifndef CONFIG_PREEMPT_LAZY
 	case TRACE_FLAG_PREEMPT_RESCHED:
 		need_resched = 'p';
 		break;
+#endif
 	default:
 		need_resched = '.';
 		break;
