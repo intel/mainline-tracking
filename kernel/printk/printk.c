@@ -399,14 +399,40 @@ static DEFINE_MUTEX(syslog_lock);
  */
 static bool kthreads_started;
 
-static inline bool kthread_printers_active(void)
+#ifdef CONFIG_PRINTK
+static atomic_t printk_direct = ATOMIC_INIT(0);
+
+/**
+ * printk_direct_enter - cause console printing to occur in the context of
+ * 	printk() callers
+ *
+ * This globally effects all printk() callers.
+ *
+ * Context: Any context.
+ */
+void printk_direct_enter(void)
 {
-	return (kthreads_started &&
-		system_state == SYSTEM_RUNNING &&
-		!oops_in_progress);
+	atomic_inc(&printk_direct);
 }
 
-#ifdef CONFIG_PRINTK
+/**
+ * printk_direct_exit - restore console printing behavior from direct
+ *
+ * Context: Any context.
+ */
+void printk_direct_exit(void)
+{
+	atomic_dec(&printk_direct);
+}
+
+static inline bool allow_direct_printing(void)
+{
+	return (!kthreads_started ||
+		system_state != SYSTEM_RUNNING ||
+		oops_in_progress ||
+		atomic_read(&printk_direct));
+}
+
 DECLARE_WAIT_QUEUE_HEAD(log_wait);
 /* All 3 protected by @syslog_lock. */
 /* the next printk record to read by syslog(READ) or /proc/kmsg */
@@ -1873,7 +1899,7 @@ static int console_lock_spinning_disable_and_check(void)
 	return 1;
 }
 
-#if (!IS_ENABLED(CONFIG_PREEMPT_RT))
+#if !IS_ENABLED(CONFIG_PREEMPT_RT)
 /**
  * console_trylock_spinning - try to get console_lock by busy waiting
  *
@@ -2270,12 +2296,12 @@ asmlinkage int vprintk_emit(int facility, int level,
 	printed_len = vprintk_store(facility, level, dev_info, fmt, args);
 
 	/* If called from the scheduler, we can not call up(). */
-	if (!in_sched && !kthread_printers_active()) {
+	if (!in_sched && allow_direct_printing()) {
 		/*
 		 * Try to acquire and then immediately release the console
 		 * semaphore.  The release will print out buffers.
 		 */
-#if (IS_ENABLED(CONFIG_PREEMPT_RT))
+#if IS_ENABLED(CONFIG_PREEMPT_RT)
 		/*
 		 * Use the non-spinning trylock since PREEMPT_RT does not
 		 * support console lock handovers.
@@ -2429,6 +2455,7 @@ static void call_console_driver(struct console *con, const char *text, size_t le
 static bool suppress_message_printing(int level) { return false; }
 static void printk_delay(int level) {}
 static void start_printk_kthread(struct console *con) {}
+static bool allow_direct_printing(void) { return true; }
 
 #endif /* CONFIG_PRINTK */
 
@@ -2909,7 +2936,7 @@ static bool console_emit_next_record(struct console *con, char *text, char *ext_
 		len = record_print_text(&r, console_msg_format & MSG_FORMAT_SYSLOG, printk_time);
 	}
 
-#if (IS_ENABLED(CONFIG_PREEMPT_RT))
+#if IS_ENABLED(CONFIG_PREEMPT_RT)
 	/* PREEMPT_RT does not support console lock handovers. */
 	allow_handover = false;
 #else
@@ -2976,8 +3003,8 @@ static bool console_flush_all(bool do_cond_resched, u64 *next_seq, bool *handove
 
 	do {
 		/* Let the kthread printers do the work if they can. */
-		if (kthread_printers_active())
-			return false;
+		if (!allow_direct_printing())
+			break;
 
 		any_progress = false;
 
