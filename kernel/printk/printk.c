@@ -44,6 +44,7 @@
 #include <linux/irq_work.h>
 #include <linux/ctype.h>
 #include <linux/uio.h>
+#include <linux/clocksource.h>
 #include <linux/sched/clock.h>
 #include <linux/sched/debug.h>
 #include <linux/sched/task_stack.h>
@@ -2479,6 +2480,59 @@ asmlinkage __visible int _printk(const char *fmt, ...)
 }
 EXPORT_SYMBOL(_printk);
 
+#ifdef CONFIG_HAVE_ATOMIC_CONSOLE
+static void __free_atomic_data(struct console_atomic_data *d)
+{
+}
+
+static void free_atomic_data(struct console_atomic_data *d)
+{
+	int count = 1;
+	int i;
+
+	if (!d)
+		return;
+
+#ifdef CONFIG_HAVE_NMI
+	count = 2;
+#endif
+
+	for (i = 0; i < count; i++)
+		__free_atomic_data(&d[i]);
+	kfree(d);
+}
+
+static int __alloc_atomic_data(struct console_atomic_data *d, short flags)
+{
+	return 0;
+}
+
+static struct console_atomic_data *alloc_atomic_data(short flags)
+{
+	struct console_atomic_data *d;
+	int count = 1;
+	int i;
+
+#ifdef CONFIG_HAVE_NMI
+	count = 2;
+#endif
+
+	d = kzalloc(sizeof(*d) * count, GFP_KERNEL);
+	if (!d)
+		goto err_out;
+
+	for (i = 0; i < count; i++) {
+		if (__alloc_atomic_data(&d[i], flags) != 0)
+			goto err_out;
+	}
+
+	return d;
+err_out:
+	free_atomic_data(d);
+	return NULL;
+}
+#endif /* CONFIG_HAVE_ATOMIC_CONSOLE */
+
 static bool pr_flush(int timeout_ms, bool reset_on_progress);
 static bool __pr_flush(struct console *con, int timeout_ms, bool reset_on_progress);
 
@@ -2491,6 +2545,8 @@ static void printk_start_kthread(struct console *con);
 #define prb_read_valid(rb, seq, r)	false
 #define prb_first_valid_seq(rb)		0
 #define prb_next_seq(rb)		0
+
+#define free_atomic_data(d)
 
 static u64 syslog_seq;
 
@@ -2832,9 +2888,21 @@ static bool abandon_console_lock_in_panic(void)
  *
  * Requires the console_srcu_read_lock.
  */
-static inline bool console_is_usable(struct console *con)
+static inline bool console_is_usable(struct console *con, bool atomic_printing)
 {
-	short flags = console_srcu_read_flags(con);
+	short flags;
+
+	if (atomic_printing) {
+#ifdef CONFIG_HAVE_ATOMIC_CONSOLE
+		if (!con->write_atomic)
+			return false;
+		if (!con->atomic_data)
+			return false;
+#else
+		return false;
+#endif
+	}
+	flags = console_srcu_read_flags(con);
 
 	if (!(flags & CON_ENABLED))
 		return false;
@@ -2859,7 +2927,7 @@ static bool console_is_usable_unlocked(struct console *con)
 	bool ret;
 
 	cookie = console_srcu_read_lock();
-	ret = console_is_usable(con);
+	ret = console_is_usable(con, false);
 	console_srcu_read_unlock(cookie);
 
 	return ret;
@@ -2883,6 +2951,66 @@ static void __console_unlock(void)
 	wake_up_klogd();
 
 	up_console_sem();
+}
+
+static u64 read_console_seq(struct console *con)
+{
+#ifdef CONFIG_HAVE_ATOMIC_CONSOLE
+	unsigned long flags;
+	u64 seq2;
+	u64 seq;
+
+	if (!con->atomic_data)
+		return con->seq;
+
+	printk_cpu_sync_get_irqsave(flags);
+
+	seq = con->seq;
+	seq2 = con->atomic_data[0].seq;
+	if (seq2 > seq)
+		seq = seq2;
+#ifdef CONFIG_HAVE_NMI
+	seq2 = con->atomic_data[1].seq;
+	if (seq2 > seq)
+		seq = seq2;
+#endif
+
+	printk_cpu_sync_put_irqrestore(flags);
+
+	return seq;
+#else /* CONFIG_HAVE_ATOMIC_CONSOLE */
+	return con->seq;
+#endif
+}
+
+static void write_console_seq(struct console *con, u64 val, bool atomic_printing)
+{
+#ifdef CONFIG_HAVE_ATOMIC_CONSOLE
+	unsigned long flags;
+	u64 *seq;
+
+	if (!con->atomic_data) {
+		con->seq = val;
+		return;
+	}
+
+	printk_cpu_sync_get_irqsave(flags);
+
+	if (atomic_printing) {
+		seq = &con->atomic_data[0].seq;
+#ifdef CONFIG_HAVE_NMI
+		if (in_nmi())
+			seq = &con->atomic_data[1].seq;
+#endif
+	} else {
+		seq = &con->seq;
+	}
+	*seq = val;
+
+	printk_cpu_sync_put_irqrestore(flags);
+#else /* CONFIG_HAVE_ATOMIC_CONSOLE */
+	con->seq = val;
+#endif
 }
 
 /*
@@ -3028,7 +3156,8 @@ out:
  *
  * Requires the console_lock and the SRCU read lock.
  */
-static bool __console_emit_next_record(struct console *con, bool *handover, int cookie)
+static bool __console_emit_next_record(struct console *con, bool *handover,
+				       int cookie, bool atomic_printing)
 {
 	static struct printk_buffers pbufs;
 
@@ -3038,25 +3167,27 @@ static bool __console_emit_next_record(struct console *con, bool *handover, int 
 		.pbufs = &pbufs,
 	};
 	unsigned long flags;
+	unsigned long dropped = 0;
+	u64 seq;
 
 	if (handover)
 		*handover = false;
 
-	if (!printk_get_next_message(&pmsg, con->seq, is_extended, true))
+	seq = read_console_seq(con);
+	if (!printk_get_next_message(&pmsg, seq, is_extended, true))
 		return false;
 
-	con->dropped += pmsg.dropped;
+	atomic_long_add((unsigned long)(pmsg.dropped), &con->dropped);
 
 	/* Skip messages of formatted length 0. */
 	if (pmsg.outbuf_len == 0) {
-		con->seq = pmsg.seq + 1;
+		write_console_seq(con, pmsg.seq + 1, atomic_printing);
 		goto skip;
 	}
 
-	if (con->dropped && !is_extended) {
-		console_prepend_dropped(&pmsg, con->dropped);
-		con->dropped = 0;
-	}
+	dropped = atomic_long_xchg_relaxed(&con->dropped, 0);
+	if (dropped && !is_extended)
+		console_prepend_dropped(&pmsg, dropped);
 
 	if (handover) {
 		/*
@@ -3077,9 +3208,12 @@ static bool __console_emit_next_record(struct console *con, bool *handover, int 
 	}
 
 	/* Write everything out to the hardware. */
-	con->write(con, outbuf, pmsg.outbuf_len);
+	if (atomic_printing)
+		con->write_atomic(con, outbuf, pmsg.outbuf_len);
+	else
+		con->write(con, outbuf, pmsg.outbuf_len);
 
-	con->seq = pmsg.seq + 1;
+	write_console_seq(con, pmsg.seq + 1, atomic_printing);
 	if (handover) {
 		start_critical_timings();
 
@@ -3111,7 +3245,7 @@ static bool console_emit_next_record_transferable(struct console *con,
 		handover = NULL;
 	}
 
-	return __console_emit_next_record(con, handover, cookie);
+	return __console_emit_next_record(con, handover, cookie, false);
 }
 
 /*
@@ -3158,7 +3292,7 @@ static bool console_flush_all(bool do_cond_resched, u64 *next_seq, bool *handove
 		for_each_console_srcu(con) {
 			bool progress;
 
-			if (!console_is_usable(con))
+			if (!console_is_usable(con, false))
 				continue;
 			any_usable = true;
 
@@ -3195,6 +3329,57 @@ abandon:
 	console_srcu_read_unlock(cookie);
 	return false;
 }
+
+#if defined(CONFIG_HAVE_ATOMIC_CONSOLE) && defined(CONFIG_PRINTK)
+static bool console_emit_next_record(struct console *con, bool atomic_printing);
+
+static void atomic_console_flush_all(void)
+{
+	unsigned long flags;
+	struct console *con;
+	bool any_progress;
+	int index = 0;
+
+	if (console_suspended)
+		return;
+
+#ifdef CONFIG_HAVE_NMI
+	if (in_nmi())
+		index = 1;
+#endif
+
+	printk_cpu_sync_get_irqsave(flags);
+
+	do {
+		int cookie;
+
+		any_progress = false;
+
+		cookie = console_srcu_read_lock();
+		for_each_console_srcu(con) {
+			bool progress;
+
+			if (!console_is_usable(con, true))
+				continue;
+
+			progress = console_emit_next_record(con, true);
+			if (!progress)
+				continue;
+			any_progress = true;
+
+			touch_softlockup_watchdog_sync();
+			clocksource_touch_watchdog();
+			rcu_cpu_stall_reset();
+			touch_nmi_watchdog();
+		}
+		console_srcu_read_unlock(cookie);
+	} while (any_progress);
+
+	printk_cpu_sync_put_irqrestore(flags);
+}
+#else /* CONFIG_HAVE_ATOMIC_CONSOLE && CONFIG_PRINTK */
+#define atomic_console_flush_all()
+#endif
 
 /**
  * console_unlock - unblock the console subsystem from printing
@@ -3320,6 +3505,11 @@ void console_unblank(void)
  */
 void console_flush_on_panic(enum con_flush_mode mode)
 {
+	if (mode == CONSOLE_ATOMIC_FLUSH_PENDING) {
+		atomic_console_flush_all();
+		return;
+	}
+
 	/*
 	 * If someone else is holding the console lock, trylock will fail
 	 * and may_schedule may be set.  Ignore and proceed to unlock so
@@ -3344,7 +3534,7 @@ void console_flush_on_panic(enum con_flush_mode mode)
 			 * unsynchronized assignment. But in that case, the
 			 * kernel is in "hope and pray" mode anyway.
 			 */
-			c->seq = seq;
+			write_console_seq(c, seq, false);
 		}
 		console_srcu_read_unlock(cookie);
 	}
@@ -3508,11 +3698,11 @@ static void console_init_seq(struct console *newcon, bool bootcon_registered)
 	if (newcon->flags & (CON_PRINTBUFFER | CON_BOOT)) {
 		/* Get a consistent copy of @syslog_seq. */
 		mutex_lock(&syslog_lock);
-		newcon->seq = syslog_seq;
+		write_console_seq(newcon, syslog_seq, false);
 		mutex_unlock(&syslog_lock);
 	} else {
 		/* Begin with next message added to ringbuffer. */
-		newcon->seq = prb_next_seq(prb);
+		write_console_seq(newcon, prb_next_seq(prb), false);
 
 		/*
 		 * If any enabled boot consoles are due to be unregistered
@@ -3654,10 +3844,13 @@ void register_console(struct console *newcon)
 		newcon->flags &= ~CON_PRINTBUFFER;
 	}
 
-	newcon->dropped = 0;
+	atomic_long_set(&newcon->dropped, 0);
 	newcon->thread = NULL;
 	newcon->blocked = true;
 	mutex_init(&newcon->lock);
+#ifdef CONFIG_HAVE_ATOMIC_CONSOLE
+	newcon->atomic_data = NULL;
+#endif
 
 	console_init_seq(newcon, bootcon_registered);
 
@@ -3768,6 +3961,10 @@ static int unregister_console_locked(struct console *console)
 
 	if (thd)
 		kthread_stop(thd);
+
+#ifdef CONFIG_HAVE_ATOMIC_CONSOLE
+	free_atomic_data(console->atomic_data);
+#endif
 
 	if (console->exit)
 		res = console->exit(console);
@@ -3958,7 +4155,7 @@ static bool __pr_flush(struct console *con, int timeout_ms, bool reset_on_progre
 		for_each_console_srcu(c) {
 			if (con && con != c)
 				continue;
-			if (!console_is_usable(c))
+			if (!console_is_usable(c, false))
 				continue;
 			printk_seq = c->seq;
 			if (printk_seq < seq)
@@ -4032,9 +4229,9 @@ static void __printk_fallback_preferred_direct(void)
  *
  * See __console_emit_next_record() for argument and return details.
  */
-static bool console_emit_next_record(struct console *con)
+static bool console_emit_next_record(struct console *con, bool atomic_printing)
 {
-	return __console_emit_next_record(con, NULL, 0);
+	return __console_emit_next_record(con, NULL, 0, atomic_printing);
 }
 
 static bool printer_should_wake(struct console *con, u64 seq)
@@ -4061,6 +4258,11 @@ static int printk_kthread_func(void *data)
 	struct console *con = data;
 	u64 seq = 0;
 	int error;
+
+#ifdef CONFIG_HAVE_ATOMIC_CONSOLE
+	if (con->write_atomic)
+		con->atomic_data = alloc_atomic_data(con->flags);
+#endif
 
 	con_printk(KERN_INFO, con, "printing thread started\n");
 	for (;;) {
@@ -4116,7 +4318,7 @@ static int printk_kthread_func(void *data)
 		 * which can conditionally invoke cond_resched().
 		 */
 		console_may_schedule = 0;
-		console_emit_next_record(con);
+		console_emit_next_record(con, false);
 
 		seq = con->seq;
 
