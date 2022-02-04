@@ -4478,11 +4478,11 @@ static void rps_trigger_softirq(void *data)
  * If yes, queue it to our IPI list and return 1
  * If no, return 0
  */
-static int rps_ipi_queued(struct softnet_data *sd)
+static int napi_schedule_rps(struct softnet_data *sd)
 {
-#ifdef CONFIG_RPS
 	struct softnet_data *mysd = this_cpu_ptr(&softnet_data);
 
+#ifdef CONFIG_RPS
 	if (sd != mysd) {
 		sd->rps_ipi_next = mysd->rps_ipi_list;
 		mysd->rps_ipi_list = sd;
@@ -4491,6 +4491,7 @@ static int rps_ipi_queued(struct softnet_data *sd)
 		return 1;
 	}
 #endif /* CONFIG_RPS */
+	__napi_schedule_irqoff(&mysd->backlog);
 	return 0;
 }
 
@@ -4562,18 +4563,9 @@ enqueue:
 
 		/* Schedule NAPI for backlog device
 		 * We can use non atomic operation since we own the queue lock
-		 * PREEMPT_RT needs to disable interrupts here for
-		 * synchronisation needed in napi_schedule.
 		 */
-		if (IS_ENABLED(CONFIG_PREEMPT_RT))
-			local_irq_disable();
-
-		if (!__test_and_set_bit(NAPI_STATE_SCHED, &sd->backlog.state)) {
-			if (!rps_ipi_queued(sd))
-				____napi_schedule(sd, &sd->backlog);
-		}
-		if (IS_ENABLED(CONFIG_PREEMPT_RT))
-			local_irq_enable();
+		if (!__test_and_set_bit(NAPI_STATE_SCHED, &sd->backlog.state))
+			napi_schedule_rps(sd);
 		goto enqueue;
 	}
 
@@ -4839,6 +4831,16 @@ static int netif_rx_internal(struct sk_buff *skb)
 	return ret;
 }
 
+int __netif_rx(struct sk_buff *skb)
+{
+	int ret;
+
+	trace_netif_rx_entry(skb);
+	ret = netif_rx_internal(skb);
+	trace_netif_rx_exit(ret);
+	return ret;
+}
+
 /**
  *	netif_rx	-	post buffer to the network code
  *	@skb: buffer to post
@@ -4847,24 +4849,21 @@ static int netif_rx_internal(struct sk_buff *skb)
  *	the upper (protocol) levels to process.  It always succeeds. The buffer
  *	may be dropped during processing for congestion control or by the
  *	protocol layers.
+ *	This interface is considered legacy. Modern NIC driver should use NAPI
+ *	and GRO.
  *
  *	return values:
  *	NET_RX_SUCCESS	(no congestion)
  *	NET_RX_DROP     (packet was dropped)
  *
  */
-
 int netif_rx(struct sk_buff *skb)
 {
 	int ret;
 
 	local_bh_disable();
-	trace_netif_rx_entry(skb);
-
-	ret = netif_rx_internal(skb);
-	trace_netif_rx_exit(ret);
+	ret = __netif_rx(skb);
 	local_bh_enable();
-
 	return ret;
 }
 EXPORT_SYMBOL(netif_rx);
