@@ -3926,7 +3926,7 @@ void defer_console_output(void)
 		val |= PRINTK_DIRECT_OUTPUT;
 
 	preempt_disable();
-	__this_cpu_or(printk_pending, val);
+	this_cpu_or(printk_pending, val);
 	irq_work_queue(this_cpu_ptr(&wake_up_klogd_work));
 	preempt_enable();
 }
