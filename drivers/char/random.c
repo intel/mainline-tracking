@@ -404,7 +404,7 @@ struct fast_pool {
 	struct work_struct mix;
 	unsigned long last;
 	u32 pool[4];
-	atomic_t count;
+	unsigned int count;
 	u16 reg_idx;
 };
 #define FAST_POOL_MIX_INFLIGHT (1U << 31)
@@ -1045,25 +1045,22 @@ static u32 get_reg(struct fast_pool *f, struct pt_regs *regs)
 static void mix_interrupt_randomness(struct work_struct *work)
 {
 	struct fast_pool *fast_pool = container_of(work, struct fast_pool, mix);
+	u8 pool[sizeof(fast_pool->pool)];
 
-	fast_pool->last = jiffies;
-
-	/* Since this is the result of a trip through the scheduler, xor in
+	/*
+	 * Since this is the result of a trip through the scheduler, xor in
 	 * a cycle counter. It can't hurt, and might help.
 	 */
 	fast_pool->pool[3] ^= random_get_entropy();
+	/* Copy the pool to the stack so that the mixer always has a consistent view. */
+	memcpy(pool, fast_pool->pool, sizeof(pool));
+	/* We take care to zero out the count only after we're done reading the pool. */
+	WRITE_ONCE(fast_pool->count, 0);
+	fast_pool->last = jiffies;
 
-	if (unlikely(crng_init == 0)) {
-		if (crng_fast_load((u8 *)&fast_pool->pool, sizeof(fast_pool->pool)) > 0)
-			atomic_set(&fast_pool->count, 0);
-		else
-			atomic_and(~FAST_POOL_MIX_INFLIGHT, &fast_pool->count);
-		return;
-	}
-
-	mix_pool_bytes(&fast_pool->pool, sizeof(fast_pool->pool));
-	atomic_set(&fast_pool->count, 0);
+	mix_pool_bytes(pool, sizeof(pool));
 	credit_entropy_bits(1);
+	memzero_explicit(pool, sizeof(pool));
 }
 
 void add_interrupt_randomness(int irq)
@@ -1089,15 +1086,27 @@ void add_interrupt_randomness(int irq)
 
 	fast_mix(fast_pool);
 	add_interrupt_bench(cycles);
+	new_count = ++fast_pool->count;
 
-	new_count = (unsigned int)atomic_inc_return(&fast_pool->count);
-	if (new_count >= 64 && new_count < FAST_POOL_MIX_INFLIGHT &&
-	    (time_after(now, fast_pool->last + HZ) || unlikely(crng_init == 0))) {
-		if (unlikely(!fast_pool->mix.func))
-			INIT_WORK(&fast_pool->mix, mix_interrupt_randomness);
-		atomic_or(FAST_POOL_MIX_INFLIGHT, &fast_pool->count);
-		schedule_work(&fast_pool->mix);
+	if (unlikely(crng_init == 0)) {
+		if (new_count >= 64 &&
+		    crng_fast_load((u8 *)fast_pool->pool, sizeof(fast_pool->pool)) > 0) {
+			fast_pool->count = 0;
+			fast_pool->last = now;
+		}
+		return;
 	}
+
+	if (new_count & FAST_POOL_MIX_INFLIGHT)
+		return;
+
+	if (new_count < 64 && !time_after(now, fast_pool->last + HZ))
+		return;
+
+	if (unlikely(!fast_pool->mix.func))
+		INIT_WORK(&fast_pool->mix, mix_interrupt_randomness);
+	fast_pool->count |= FAST_POOL_MIX_INFLIGHT;
+	queue_work_on(raw_smp_processor_id(), system_highpri_wq, &fast_pool->mix);
 }
 EXPORT_SYMBOL_GPL(add_interrupt_randomness);
 
@@ -1881,13 +1890,16 @@ static int __init random_sysctls_init(void)
 device_initcall(random_sysctls_init);
 #endif	/* CONFIG_SYSCTL */
 
+static atomic_t batch_generation = ATOMIC_INIT(0);
+
 struct batched_entropy {
 	union {
 		u64 entropy_u64[CHACHA_BLOCK_SIZE / sizeof(u64)];
 		u32 entropy_u32[CHACHA_BLOCK_SIZE / sizeof(u32)];
 	};
+	local_lock_t lock;
 	unsigned int position;
-	spinlock_t batch_lock;
+	int generation;
 };
 
 /*
@@ -1899,7 +1911,7 @@ struct batched_entropy {
  * point prior.
  */
 static DEFINE_PER_CPU(struct batched_entropy, batched_entropy_u64) = {
-	.batch_lock = __SPIN_LOCK_UNLOCKED(batched_entropy_u64.lock),
+	.lock = INIT_LOCAL_LOCK(batched_entropy_u64.lock)
 };
 
 u64 get_random_u64(void)
@@ -1908,67 +1920,65 @@ u64 get_random_u64(void)
 	unsigned long flags;
 	struct batched_entropy *batch;
 	static void *previous;
+	int next_gen;
 
 	warn_unseeded_randomness(&previous);
 
+	local_lock_irqsave(&batched_entropy_u64.lock, flags);
 	batch = raw_cpu_ptr(&batched_entropy_u64);
-	spin_lock_irqsave(&batch->batch_lock, flags);
-	if (batch->position % ARRAY_SIZE(batch->entropy_u64) == 0) {
+
+	next_gen = atomic_read(&batch_generation);
+	if (batch->position % ARRAY_SIZE(batch->entropy_u64) == 0 ||
+	    next_gen != batch->generation) {
 		extract_crng((u8 *)batch->entropy_u64);
 		batch->position = 0;
+		batch->generation = next_gen;
 	}
+
 	ret = batch->entropy_u64[batch->position++];
-	spin_unlock_irqrestore(&batch->batch_lock, flags);
+	local_unlock_irqrestore(&batched_entropy_u64.lock, flags);
 	return ret;
 }
 EXPORT_SYMBOL(get_random_u64);
 
 static DEFINE_PER_CPU(struct batched_entropy, batched_entropy_u32) = {
-	.batch_lock = __SPIN_LOCK_UNLOCKED(batched_entropy_u32.lock),
+	.lock = INIT_LOCAL_LOCK(batched_entropy_u32.lock)
 };
+
 u32 get_random_u32(void)
 {
 	u32 ret;
 	unsigned long flags;
 	struct batched_entropy *batch;
 	static void *previous;
+	int next_gen;
 
 	warn_unseeded_randomness(&previous);
 
+	local_lock_irqsave(&batched_entropy_u32.lock, flags);
 	batch = raw_cpu_ptr(&batched_entropy_u32);
-	spin_lock_irqsave(&batch->batch_lock, flags);
-	if (batch->position % ARRAY_SIZE(batch->entropy_u32) == 0) {
+
+	next_gen = atomic_read(&batch_generation);
+	if (batch->position % ARRAY_SIZE(batch->entropy_u32) == 0 ||
+	    next_gen != batch->generation) {
 		extract_crng((u8 *)batch->entropy_u32);
 		batch->position = 0;
+		batch->generation = next_gen;
 	}
+
 	ret = batch->entropy_u32[batch->position++];
-	spin_unlock_irqrestore(&batch->batch_lock, flags);
+	local_unlock_irqrestore(&batched_entropy_u32.lock, flags);
 	return ret;
 }
 EXPORT_SYMBOL(get_random_u32);
 
 /* It's important to invalidate all potential batched entropy that might
  * be stored before the crng is initialized, which we can do lazily by
- * simply resetting the counter to zero so that it's re-extracted on the
- * next usage. */
+ * bumping the generation counter.
+ */
 static void invalidate_batched_entropy(void)
 {
-	int cpu;
-	unsigned long flags;
-
-	for_each_possible_cpu(cpu) {
-		struct batched_entropy *batched_entropy;
-
-		batched_entropy = per_cpu_ptr(&batched_entropy_u32, cpu);
-		spin_lock_irqsave(&batched_entropy->batch_lock, flags);
-		batched_entropy->position = 0;
-		spin_unlock(&batched_entropy->batch_lock);
-
-		batched_entropy = per_cpu_ptr(&batched_entropy_u64, cpu);
-		spin_lock(&batched_entropy->batch_lock);
-		batched_entropy->position = 0;
-		spin_unlock_irqrestore(&batched_entropy->batch_lock, flags);
-	}
+	atomic_inc(&batch_generation);
 }
 
 /**
