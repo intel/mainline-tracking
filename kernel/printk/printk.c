@@ -404,7 +404,7 @@ static atomic_t printk_direct = ATOMIC_INIT(0);
 
 /**
  * printk_direct_enter - cause console printing to occur in the context of
- * 	printk() callers
+ *                       printk() callers
  *
  * This globally effects all printk() callers.
  *
@@ -2451,7 +2451,9 @@ static ssize_t msg_print_ext_body(char *buf, size_t size,
 static void console_lock_spinning_enable(void) { }
 static int console_lock_spinning_disable_and_check(void) { return 0; }
 static void call_console_driver(struct console *con, const char *text, size_t len,
-				char *dropped_text, bool atomic_printing) {}
+				char *dropped_text, bool atomic_printing)
+{
+}
 static bool suppress_message_printing(int level) { return false; }
 static void printk_delay(int level) {}
 static void start_printk_kthread(struct console *con) {}
@@ -2878,7 +2880,7 @@ static void write_console_seq(struct console *con, u64 val, bool atomic_printing
  * CONSOLE_EXT_LOG_MAX. Otherwise @ext_text must be NULL.
  *
  * If dropped messages should be printed, @dropped_text is a buffer of size
- * DROPPED_TEXT_MAX. Otherise @dropped_text must be NULL.
+ * DROPPED_TEXT_MAX. Otherwise @dropped_text must be NULL.
  *
  * @atomic_printing specifies if atomic printing should be used.
  *
@@ -3873,6 +3875,7 @@ static void start_printk_kthread(struct console *con)
  */
 #define PRINTK_PENDING_WAKEUP	0x01
 #define PRINTK_PENDING_OUTPUT	0x02
+#define PRINTK_DIRECT_OUTPUT	0x04
 
 static DEFINE_PER_CPU(int, printk_pending);
 
@@ -3881,9 +3884,15 @@ static void wake_up_klogd_work_func(struct irq_work *irq_work)
 	int pending = __this_cpu_xchg(printk_pending, 0);
 
 	if (pending & PRINTK_PENDING_OUTPUT) {
+		if (pending & PRINTK_DIRECT_OUTPUT)
+			printk_direct_enter();
+
 		/* If trylock fails, someone else is doing the printing */
 		if (console_trylock())
 			console_unlock();
+
+		if (pending & PRINTK_DIRECT_OUTPUT)
+			printk_direct_exit();
 	}
 
 	if (pending & PRINTK_PENDING_WAKEUP)
@@ -3908,11 +3917,16 @@ void wake_up_klogd(void)
 
 void defer_console_output(void)
 {
+	int val = PRINTK_PENDING_OUTPUT;
+
 	if (!printk_percpu_data_ready())
 		return;
 
+	if (atomic_read(&printk_direct))
+		val |= PRINTK_DIRECT_OUTPUT;
+
 	preempt_disable();
-	__this_cpu_or(printk_pending, PRINTK_PENDING_OUTPUT);
+	__this_cpu_or(printk_pending, val);
 	irq_work_queue(this_cpu_ptr(&wake_up_klogd_work));
 	preempt_enable();
 }
