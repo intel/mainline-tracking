@@ -1047,6 +1047,17 @@ static void mix_interrupt_randomness(struct work_struct *work)
 	struct fast_pool *fast_pool = container_of(work, struct fast_pool, mix);
 	u8 pool[sizeof(fast_pool->pool)];
 
+	if (unlikely(crng_init == 0)) {
+		size_t ret;
+
+		ret = crng_fast_load((u8 *)fast_pool->pool, sizeof(fast_pool->pool));
+		if (ret) {
+			WRITE_ONCE(fast_pool->count, 0);
+			fast_pool->last = jiffies;
+			return;
+		}
+	}
+
 	/*
 	 * Since this is the result of a trip through the scheduler, xor in
 	 * a cycle counter. It can't hurt, and might help.
@@ -1089,11 +1100,17 @@ void add_interrupt_randomness(int irq)
 	new_count = ++fast_pool->count;
 
 	if (unlikely(crng_init == 0)) {
-		if (new_count >= 64 &&
-		    crng_fast_load((u8 *)fast_pool->pool, sizeof(fast_pool->pool)) > 0) {
-			fast_pool->count = 0;
-			fast_pool->last = now;
-		}
+		if (new_count & FAST_POOL_MIX_INFLIGHT)
+			return;
+
+		if (new_count < 64)
+			return;
+
+		fast_pool->count |= FAST_POOL_MIX_INFLIGHT;
+		if (unlikely(!fast_pool->mix.func))
+			INIT_WORK(&fast_pool->mix, mix_interrupt_randomness);
+		queue_work_on(raw_smp_processor_id(), system_highpri_wq,
+			      &fast_pool->mix);
 		return;
 	}
 
