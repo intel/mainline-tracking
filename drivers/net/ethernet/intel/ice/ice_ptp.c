@@ -15,6 +15,17 @@ static const char ice_pin_names[][64] = {
 	"1PPS"
 };
 
+#define E810_OUT_PROP_DELAY_NS 1
+
+static const struct ptp_pin_desc ice_pin_desc_e810t[] = {
+	/* name    idx   func         chan */
+	{ "GNSS",  GNSS, PTP_PF_EXTTS, 0, 0, { 0, } },
+	{ "SMA1",  SMA1, PTP_PF_NONE, 1, 0, { 0, } },
+	{ "U.FL1", UFL1, PTP_PF_NONE, 1, 0, { 0, } },
+	{ "SMA2",  SMA2, PTP_PF_NONE, 2, 0, { 0, } },
+	{ "U.FL2", UFL2, PTP_PF_NONE, 2, 0, { 0, } },
+};
+
 static const struct ice_ptp_pin_desc ice_pin_desc_e82x[] = {
 	/* name,        gpio */
 	{  TIME_SYNC, {  4, -1 }},
