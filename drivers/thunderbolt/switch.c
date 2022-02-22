@@ -27,9 +27,16 @@ struct nvm_auth_status {
 	u32 status;
 };
 
-static bool clx_enabled = true;
+#if IS_ENABLED(CONFIG_USB4_DEBUGFS_MARGINING)
+#define CLX_DEFAULT		false
+#else
+#define CLX_DEFAULT		true
+#endif
+
+static bool clx_enabled = CLX_DEFAULT;
 module_param_named(clx, clx_enabled, bool, 0444);
-MODULE_PARM_DESC(clx, "allow low power states on the high-speed lanes (default: true)");
+MODULE_PARM_DESC(clx, "allow low power states on the high-speed lanes (default: "
+		 __MODULE_STRING(CLX_DEFAULT) ")");
 
 /*
  * Hold NVM authentication failure status per switch This information
