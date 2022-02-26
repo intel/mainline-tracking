@@ -663,13 +663,15 @@ int generic_handle_irq(unsigned int irq)
 EXPORT_SYMBOL_GPL(generic_handle_irq);
 
 /**
- * generic_handle_irq_safe - Invoke the handler for a particular irq
+ * generic_handle_irq_safe - Invoke the handler for a particular irq from any
+ *			     context.
  * @irq:	The irq number to handle
  *
- * Returns:	0 on success, or -EINVAL if conversion has failed
+ * Returns:	0 on success, a negative value on error.
  *
- * This function must be called either from an IRQ context with irq regs
- * initialized or with care from any context.
+ * This function can be called from any context (IRQ or process context). It
+ * will report an error if not invoked from IRQ context and the irq has been
+ * marked to enforce IRQ-context only.
  */
 int generic_handle_irq_safe(unsigned int irq)
 {
