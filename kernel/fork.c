@@ -179,16 +179,6 @@ static inline void free_task_struct(struct task_struct *tsk)
 
 #ifndef CONFIG_ARCH_THREAD_STACK_ALLOCATOR
 
-#define THREAD_STACK_DELAYED_FREE	1UL
-
-static void thread_stack_mark_delayed_free(struct task_struct *tsk)
-{
-	unsigned long val = (unsigned long)tsk->stack;
-
-	val |= THREAD_STACK_DELAYED_FREE;
-	WRITE_ONCE(tsk->stack, (void *)val);
-}
-
 /*
  * Allocate pages if THREAD_SIZE is >= PAGE_SIZE, otherwise use a
  * kmemcache based allocator.
@@ -202,6 +192,41 @@ static void thread_stack_mark_delayed_free(struct task_struct *tsk)
  */
 #define NR_CACHED_STACKS 2
 static DEFINE_PER_CPU(struct vm_struct *, cached_stacks[NR_CACHED_STACKS]);
+
+struct vm_stack {
+	struct rcu_head rcu;
+	struct vm_struct *stack_vm_area;
+};
+
+static bool try_release_thread_stack_to_cache(struct vm_struct *vm)
+{
+	unsigned int i;
+
+	for (i = 0; i < NR_CACHED_STACKS; i++) {
+		if (this_cpu_cmpxchg(cached_stacks[i], NULL, vm) != NULL)
+			continue;
+		return true;
+	}
+	return false;
+}
+
+static void thread_stack_free_rcu(struct rcu_head *rh)
+{
+	struct vm_stack *vm_stack = container_of(rh, struct vm_stack, rcu);
+
+	if (try_release_thread_stack_to_cache(vm_stack->stack_vm_area))
+		return;
+
+	vfree(vm_stack);
+}
+
+static void thread_stack_delayed_free(struct task_struct *tsk)
+{
+	struct vm_stack *vm_stack = tsk->stack;
+
+	vm_stack->stack_vm_area = tsk->stack_vm_area;
+	call_rcu(&vm_stack->rcu, thread_stack_free_rcu);
+}
 
 static int free_vm_stack_cache(unsigned int cpu)
 {
@@ -304,30 +329,28 @@ static int alloc_thread_stack_node(struct task_struct *tsk, int node)
 	return 0;
 }
 
-static void free_thread_stack(struct task_struct *tsk, bool cache_only)
+static void free_thread_stack(struct task_struct *tsk)
 {
-	int i;
+	if (!try_release_thread_stack_to_cache(tsk->stack_vm_area))
+		thread_stack_delayed_free(tsk);
 
-	for (i = 0; i < NR_CACHED_STACKS; i++) {
-		if (this_cpu_cmpxchg(cached_stacks[i], NULL,
-				     tsk->stack_vm_area) != NULL)
-			continue;
-
-		tsk->stack = NULL;
-		tsk->stack_vm_area = NULL;
-		return;
-	}
-	if (cache_only) {
-		thread_stack_mark_delayed_free(tsk);
-		return;
-	}
-
-	vfree(tsk->stack);
 	tsk->stack = NULL;
 	tsk->stack_vm_area = NULL;
 }
 
 #  else /* !CONFIG_VMAP_STACK */
+
+static void thread_stack_free_rcu(struct rcu_head *rh)
+{
+	__free_pages(virt_to_page(rh), THREAD_SIZE_ORDER);
+}
+
+static void thread_stack_delayed_free(struct task_struct *tsk)
+{
+	struct rcu_head *rh = tsk->stack;
+
+	call_rcu(rh, thread_stack_free_rcu);
+}
 
 static int alloc_thread_stack_node(struct task_struct *tsk, int node)
 {
@@ -341,13 +364,9 @@ static int alloc_thread_stack_node(struct task_struct *tsk, int node)
 	return -ENOMEM;
 }
 
-static void free_thread_stack(struct task_struct *tsk, bool cache_only)
+static void free_thread_stack(struct task_struct *tsk)
 {
-	if (cache_only) {
-		thread_stack_mark_delayed_free(tsk);
-		return;
-	}
-	__free_pages(virt_to_page(tsk->stack), THREAD_SIZE_ORDER);
+	thread_stack_delayed_free(tsk);
 	tsk->stack = NULL;
 }
 
@@ -355,6 +374,18 @@ static void free_thread_stack(struct task_struct *tsk, bool cache_only)
 # else /* !(THREAD_SIZE >= PAGE_SIZE || defined(CONFIG_VMAP_STACK)) */
 
 static struct kmem_cache *thread_stack_cache;
+
+static void thread_stack_free_rcu(struct rcu_head *rh)
+{
+	kmem_cache_free(thread_stack_cache, rh);
+}
+
+static void thread_stack_delayed_free(struct task_struct *tsk)
+{
+	struct rcu_head *rh = tsk->stack;
+
+	call_rcu(rh, thread_stack_free_rcu);
+}
 
 static int alloc_thread_stack_node(struct task_struct *tsk, int node)
 {
@@ -365,13 +396,9 @@ static int alloc_thread_stack_node(struct task_struct *tsk, int node)
 	return stack ? 0 : -ENOMEM;
 }
 
-static void free_thread_stack(struct task_struct *tsk, bool cache_only)
+static void free_thread_stack(struct task_struct *tsk)
 {
-	if (cache_only) {
-		thread_stack_mark_delayed_free(tsk);
-		return;
-	}
-	kmem_cache_free(thread_stack_cache, tsk->stack);
+	thread_stack_delayed_free(tsk);
 	tsk->stack = NULL;
 }
 
@@ -384,19 +411,8 @@ void thread_stack_cache_init(void)
 }
 
 # endif /* THREAD_SIZE >= PAGE_SIZE || defined(CONFIG_VMAP_STACK) */
-
-void task_stack_cleanup(struct task_struct *tsk)
-{
-	unsigned long val = (unsigned long)tsk->stack;
-
-	if (!(val & THREAD_STACK_DELAYED_FREE))
-		return;
-
-	WRITE_ONCE(tsk->stack, (void *)(val & ~THREAD_STACK_DELAYED_FREE));
-	free_thread_stack(tsk, false);
-}
-
 #else /* CONFIG_ARCH_THREAD_STACK_ALLOCATOR */
+
 static int alloc_thread_stack_node(struct task_struct *tsk, int node)
 {
 	unsigned long *stack;
@@ -406,9 +422,10 @@ static int alloc_thread_stack_node(struct task_struct *tsk, int node)
 	return stack ? 0 : -ENOMEM;
 }
 
-static void free_thread_stack(struct task_struct *tsk, bool cache_only)
+static void free_thread_stack(struct task_struct *tsk)
 {
 	arch_free_thread_stack(tsk);
+	tsk->stack = NULL;
 }
 
 #endif /* !CONFIG_ARCH_THREAD_STACK_ALLOCATOR */
@@ -498,25 +515,19 @@ void exit_task_stack_account(struct task_struct *tsk)
 	}
 }
 
-static void release_task_stack(struct task_struct *tsk, bool cache_only)
+static void release_task_stack(struct task_struct *tsk)
 {
 	if (WARN_ON(READ_ONCE(tsk->__state) != TASK_DEAD))
 		return;  /* Better to leak the stack than to free prematurely */
 
-	free_thread_stack(tsk, cache_only);
+	free_thread_stack(tsk);
 }
 
 #ifdef CONFIG_THREAD_INFO_IN_TASK
 void put_task_stack(struct task_struct *tsk)
 {
 	if (refcount_dec_and_test(&tsk->stack_refcount))
-		release_task_stack(tsk, false);
-}
-
-void put_task_stack_sched(struct task_struct *tsk)
-{
-	if (refcount_dec_and_test(&tsk->stack_refcount))
-		release_task_stack(tsk, true);
+		release_task_stack(tsk);
 }
 #endif
 
@@ -530,7 +541,7 @@ void free_task(struct task_struct *tsk)
 	 * The task is finally done with both the stack and thread_info,
 	 * so free both.
 	 */
-	release_task_stack(tsk, false);
+	release_task_stack(tsk);
 #else
 	/*
 	 * If the task had a separate stack allocation, it should be gone
@@ -1030,7 +1041,7 @@ static struct task_struct *dup_task_struct(struct task_struct *orig, int node)
 
 free_stack:
 	exit_task_stack_account(tsk);
-	free_thread_stack(tsk, false);
+	free_thread_stack(tsk);
 free_tsk:
 	free_task_struct(tsk);
 	return NULL;

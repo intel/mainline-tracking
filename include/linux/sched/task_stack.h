@@ -70,7 +70,6 @@ static inline void *try_get_task_stack(struct task_struct *tsk)
 }
 
 extern void put_task_stack(struct task_struct *tsk);
-extern void put_task_stack_sched(struct task_struct *tsk);
 #else
 static inline void *try_get_task_stack(struct task_struct *tsk)
 {
@@ -78,13 +77,6 @@ static inline void *try_get_task_stack(struct task_struct *tsk)
 }
 
 static inline void put_task_stack(struct task_struct *tsk) {}
-static inline void put_task_stack_sched(struct task_struct *tsk) {}
-#endif
-
-#ifdef CONFIG_ARCH_THREAD_STACK_ALLOCATOR
-static inline void task_stack_cleanup(struct task_struct *tsk) {}
-#else
-extern void task_stack_cleanup(struct task_struct *tsk);
 #endif
 
 void exit_task_stack_account(struct task_struct *tsk);

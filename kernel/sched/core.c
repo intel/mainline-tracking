@@ -4948,11 +4948,8 @@ static struct rq *finish_task_switch(struct task_struct *prev)
 		if (prev->sched_class->task_dead)
 			prev->sched_class->task_dead(prev);
 
-		/*
-		 * Cache only the VMAP stack. The final deallocation is in
-		 * delayed_put_task_struct.
-		 */
-		put_task_stack_sched(prev);
+		/* Task is done with its stack. */
+		put_task_stack(prev);
 
 		put_task_struct_rcu_user(prev);
 	}
