@@ -401,13 +401,12 @@ static void mix_pool_bytes(const void *in, int nbytes)
 }
 
 struct fast_pool {
+	u32 pool[4];
 	struct work_struct mix;
 	unsigned long last;
-	u32 pool[4];
 	unsigned int count;
 	u16 reg_idx;
 };
-#define FAST_POOL_MIX_INFLIGHT (1U << 31)
 
 /*
  * This is a fast mixing routine used by the interrupt randomness
@@ -719,12 +718,13 @@ static size_t crng_fast_load(const u8 *cp, size_t len)
 		p[crng_init_cnt % CHACHA_KEY_SIZE] ^= *cp;
 		cp++; crng_init_cnt++; len--; ret++;
 	}
-	spin_unlock_irqrestore(&primary_crng.lock, flags);
 	if (crng_init_cnt >= CRNG_INIT_CNT_THRESH) {
 		invalidate_batched_entropy();
 		crng_init = 1;
-		pr_notice("fast init done\n");
 	}
+	spin_unlock_irqrestore(&primary_crng.lock, flags);
+	if (crng_init == 1)
+		pr_notice("fast init done\n");
 	return ret;
 }
 
@@ -1006,6 +1006,29 @@ EXPORT_SYMBOL_GPL(add_input_randomness);
 
 static DEFINE_PER_CPU(struct fast_pool, irq_randomness);
 
+#ifdef CONFIG_SMP
+/*
+ * This function is called when the CPU has just come online, with
+ * entry CPUHP_AP_RANDOM_ONLINE, just after CPUHP_AP_WORKQUEUE_ONLINE.
+ */
+int random_online_cpu(unsigned int cpu)
+{
+	/*
+	 * During CPU shutdown and before CPU onlining, add_interrupt_
+	 * randomness() may schedule mix_interrupt_randomness(), and
+	 * set the MIX_INFLIGHT flag. However, because the worker can
+	 * be scheduled on a different CPU during this period, that
+	 * flag will never be cleared. For that reason, we zero out
+	 * the flag here, which runs just after workqueues are onlined
+	 * for the CPU again. This also has the effect of setting the
+	 * irq randomness count to zero so that new accumulated irqs
+	 * are fresh.
+	 */
+	per_cpu_ptr(&irq_randomness, cpu)->count = 0;
+	return 0;
+}
+#endif
+
 #ifdef ADD_INTERRUPT_BENCH
 static unsigned long avg_cycles, avg_deviation;
 
@@ -1045,29 +1068,23 @@ static u32 get_reg(struct fast_pool *f, struct pt_regs *regs)
 static void mix_interrupt_randomness(struct work_struct *work)
 {
 	struct fast_pool *fast_pool = container_of(work, struct fast_pool, mix);
-	u8 pool[sizeof(fast_pool->pool)];
+	u32 pool[4];
 
-	if (unlikely(crng_init == 0)) {
-		size_t ret;
-
-		ret = crng_fast_load((u8 *)fast_pool->pool, sizeof(fast_pool->pool));
-		if (ret) {
-			WRITE_ONCE(fast_pool->count, 0);
-			fast_pool->last = jiffies;
-			return;
-		}
+	/* Check to see if we're running on the wrong CPU due to hotplug. */
+	local_irq_disable();
+	if (fast_pool != this_cpu_ptr(&irq_randomness)) {
+		local_irq_enable();
+		return;
 	}
 
 	/*
-	 * Since this is the result of a trip through the scheduler, xor in
-	 * a cycle counter. It can't hurt, and might help.
+	 * Copy the pool to the stack so that the mixer always has a
+	 * consistent view, before we reenable irqs again.
 	 */
-	fast_pool->pool[3] ^= random_get_entropy();
-	/* Copy the pool to the stack so that the mixer always has a consistent view. */
 	memcpy(pool, fast_pool->pool, sizeof(pool));
-	/* We take care to zero out the count only after we're done reading the pool. */
-	WRITE_ONCE(fast_pool->count, 0);
+	fast_pool->count = 0;
 	fast_pool->last = jiffies;
+	local_irq_enable();
 
 	mix_pool_bytes(pool, sizeof(pool));
 	credit_entropy_bits(1);
@@ -1076,13 +1093,14 @@ static void mix_interrupt_randomness(struct work_struct *work)
 
 void add_interrupt_randomness(int irq)
 {
+	enum { MIX_INFLIGHT = 1U << 31 };
 	struct fast_pool *fast_pool = this_cpu_ptr(&irq_randomness);
 	struct pt_regs *regs = get_irq_regs();
 	unsigned long now = jiffies;
 	cycles_t cycles = random_get_entropy();
-	unsigned int new_count;
 	u32 c_high, j_high;
 	u64 ip;
+	unsigned int new_count;
 
 	if (cycles == 0)
 		cycles = get_reg(fast_pool, regs);
@@ -1096,33 +1114,28 @@ void add_interrupt_randomness(int irq)
 		(sizeof(ip) > 4) ? ip >> 32 : get_reg(fast_pool, regs);
 
 	fast_mix(fast_pool);
-	add_interrupt_bench(cycles);
 	new_count = ++fast_pool->count;
 
+	add_interrupt_bench(cycles);
+
 	if (unlikely(crng_init == 0)) {
-		if (new_count & FAST_POOL_MIX_INFLIGHT)
-			return;
-
-		if (new_count < 64)
-			return;
-
-		fast_pool->count |= FAST_POOL_MIX_INFLIGHT;
-		if (unlikely(!fast_pool->mix.func))
-			INIT_WORK(&fast_pool->mix, mix_interrupt_randomness);
-		queue_work_on(raw_smp_processor_id(), system_highpri_wq,
-			      &fast_pool->mix);
+		if ((new_count >= 64) &&
+		    crng_fast_load((u8 *)fast_pool->pool, sizeof(fast_pool->pool)) > 0) {
+			fast_pool->count = 0;
+			fast_pool->last = now;
+		}
 		return;
 	}
 
-	if (new_count & FAST_POOL_MIX_INFLIGHT)
+	if (new_count & MIX_INFLIGHT)
 		return;
 
-	if (new_count < 64 && !time_after(now, fast_pool->last + HZ))
+	if ((new_count < 64) && !time_after(now, fast_pool->last + HZ))
 		return;
 
 	if (unlikely(!fast_pool->mix.func))
 		INIT_WORK(&fast_pool->mix, mix_interrupt_randomness);
-	fast_pool->count |= FAST_POOL_MIX_INFLIGHT;
+	fast_pool->count |= MIX_INFLIGHT;
 	queue_work_on(raw_smp_processor_id(), system_highpri_wq, &fast_pool->mix);
 }
 EXPORT_SYMBOL_GPL(add_interrupt_randomness);
@@ -1945,7 +1958,7 @@ u64 get_random_u64(void)
 	batch = raw_cpu_ptr(&batched_entropy_u64);
 
 	next_gen = atomic_read(&batch_generation);
-	if (batch->position % ARRAY_SIZE(batch->entropy_u64) == 0 ||
+	if (batch->position >= ARRAY_SIZE(batch->entropy_u64) ||
 	    next_gen != batch->generation) {
 		extract_crng((u8 *)batch->entropy_u64);
 		batch->position = 0;
@@ -1976,7 +1989,7 @@ u32 get_random_u32(void)
 	batch = raw_cpu_ptr(&batched_entropy_u32);
 
 	next_gen = atomic_read(&batch_generation);
-	if (batch->position % ARRAY_SIZE(batch->entropy_u32) == 0 ||
+	if (batch->position >= ARRAY_SIZE(batch->entropy_u32) ||
 	    next_gen != batch->generation) {
 		extract_crng((u8 *)batch->entropy_u32);
 		batch->position = 0;
@@ -1988,6 +2001,24 @@ u32 get_random_u32(void)
 	return ret;
 }
 EXPORT_SYMBOL(get_random_u32);
+
+#ifdef CONFIG_SMP
+/*
+ * This function is called when the CPU is coming up, with entry
+ * CPUHP_RANDOM_PREPARE, which comes before CPUHP_WORKQUEUE_PREP.
+ */
+int random_prepare_cpu(unsigned int cpu)
+{
+	/*
+	 * When the cpu comes back online, immediately invalidate both
+	 * the per-cpu crng and all batches, so that we serve fresh
+	 * randomness.
+	 */
+	per_cpu_ptr(&batched_entropy_u32, cpu)->position = UINT_MAX;
+	per_cpu_ptr(&batched_entropy_u64, cpu)->position = UINT_MAX;
+	return 0;
+}
+#endif
 
 /* It's important to invalidate all potential batched entropy that might
  * be stored before the crng is initialized, which we can do lazily by
