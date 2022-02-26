@@ -1084,7 +1084,6 @@ struct task_struct {
 	sigset_t			saved_sigmask;
 	struct sigpending		pending;
 #ifdef CONFIG_PREEMPT_RT
-	/* TODO: move me into ->restart_block ? */
 	struct				kernel_siginfo forced_info;
 #endif
 	unsigned long			sas_ss_sp;
