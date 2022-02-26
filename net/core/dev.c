@@ -4831,26 +4831,40 @@ static int netif_rx_internal(struct sk_buff *skb)
 	return ret;
 }
 
+/**
+ *	__netif_rx	-	Slightly optimized version of netif_rx
+ *	@skb: buffer to post
+ *
+ *	This behaves as netif_rx except that it does not disable bottom halves.
+ *	As a result this function may only be invoked from the interrupt context
+ *	(either hard or soft interrupt).
+ */
 int __netif_rx(struct sk_buff *skb)
 {
 	int ret;
+
+	lockdep_assert_once(hardirq_count() | softirq_count());
 
 	trace_netif_rx_entry(skb);
 	ret = netif_rx_internal(skb);
 	trace_netif_rx_exit(ret);
 	return ret;
 }
+EXPORT_SYMBOL(__netif_rx);
 
 /**
  *	netif_rx	-	post buffer to the network code
  *	@skb: buffer to post
  *
  *	This function receives a packet from a device driver and queues it for
- *	the upper (protocol) levels to process.  It always succeeds. The buffer
- *	may be dropped during processing for congestion control or by the
- *	protocol layers.
- *	This interface is considered legacy. Modern NIC driver should use NAPI
- *	and GRO.
+ *	the upper (protocol) levels to process via the backlog NAPI device. It
+ *	always succeeds. The buffer may be dropped during processing for
+ *	congestion control or by the protocol layers.
+ *	The network buffer is passed via the backlog NAPI device. Modern NIC
+ *	driver should use NAPI and GRO.
+ *	This function can used from interrupt and from process context. The
+ *	caller from process context must not disable interrupts before invoking
+ *	this function.
  *
  *	return values:
  *	NET_RX_SUCCESS	(no congestion)
@@ -4859,11 +4873,16 @@ int __netif_rx(struct sk_buff *skb)
  */
 int netif_rx(struct sk_buff *skb)
 {
+	bool need_bh_off = !(hardirq_count() | softirq_count());
 	int ret;
 
-	local_bh_disable();
-	ret = __netif_rx(skb);
-	local_bh_enable();
+	if (need_bh_off)
+		local_bh_disable();
+	trace_netif_rx_entry(skb);
+	ret = netif_rx_internal(skb);
+	trace_netif_rx_exit(ret);
+	if (need_bh_off)
+		local_bh_enable();
 	return ret;
 }
 EXPORT_SYMBOL(netif_rx);
