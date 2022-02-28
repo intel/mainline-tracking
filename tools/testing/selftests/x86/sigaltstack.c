@@ -88,8 +88,18 @@ static void sigalrm(int sig, siginfo_t *info, void *ctx_void)
 
 static void test_sigaltstack(void *altstack, unsigned long size)
 {
-	if (setup_altstack(altstack, size))
-		err(1, "sigaltstack()");
+	if (setup_altstack(altstack, size)) {
+		/*
+		 * With the STRICT_SIGALTSTACK_SIZE option, sigaltstack()
+		 * returns ENOMEM when a size less than at_minstack_size is
+		 * given.
+		 */
+		if (errno != ENOMEM || size > at_minstack_size)
+			err(1, "sigaltstack()");
+
+		printf("[NOTE]\tThe running kernel disallows an insufficient altstack.\n");
+		return;
+	}
 
 	sigalrm_expected = (size > at_minstack_size) ? true : false;
 
@@ -113,6 +123,12 @@ int main(void)
 	void *altstack;
 
 	at_minstack_size = getauxval(AT_MINSIGSTKSZ);
+	/*
+	 * getauxval() returns 0 for failure or success. But AT_MINSIGSTKSZ
+	 * will return non-zero value if implemented. Check for 0:
+	 */
+	if (at_minstack_size == 0)
+		err(1, "getauxval(AT_MINSIGSTKSZ)");
 
 	altstack = mmap(NULL, at_minstack_size + SIGSTKSZ, PROT_READ | PROT_WRITE,
 			MAP_PRIVATE | MAP_ANONYMOUS | MAP_STACK, -1, 0);

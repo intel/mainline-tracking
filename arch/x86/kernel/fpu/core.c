@@ -124,6 +124,14 @@ static void update_avx_timestamp(struct fpu *fpu)
  * over the place.
  *
  * FXSAVE and all XSAVE variants preserve the FPU register state.
+ *
+ * When XSAVES is called with XFEATURE_UINTR enabled it
+ * saves the FPU state and clears the interrupt notification
+ * vector byte of the MISC_MSR [bits 39:32]. This is required
+ * to stop detecting additional User Interrupts after we
+ * have saved the FPU state. Before going back to userspace
+ * we would correct this and only program the byte that was
+ * cleared.
  */
 void save_fpregs_to_fpstate(struct fpu *fpu)
 {
@@ -563,6 +571,7 @@ int fpu_clone(struct task_struct *dst, unsigned long clone_flags)
 {
 	struct fpu *src_fpu = &current->thread.fpu;
 	struct fpu *dst_fpu = &dst->thread.fpu;
+	struct uintr_state *uintr_state;
 
 	/* The new task's FPU state cannot be valid in the hardware. */
 	dst_fpu->last_cpu = -1;
@@ -610,6 +619,14 @@ int fpu_clone(struct task_struct *dst, unsigned long clone_flags)
 	save_fpregs_to_fpstate(dst_fpu);
 	if (!(clone_flags & CLONE_THREAD))
 		fpu_inherit_perms(dst_fpu);
+
+	/* UINTR state is not expected to be inherited (in the current design). */
+	if (static_cpu_has(X86_FEATURE_UINTR)) {
+		uintr_state = get_xsave_addr(&dst_fpu->fpstate->regs.xsave, XFEATURE_UINTR);
+		if (uintr_state)
+			memset(uintr_state, 0, sizeof(*uintr_state));
+	}
+
 	fpregs_unlock();
 
 	trace_x86_fpu_copy_src(src_fpu);
@@ -846,4 +863,25 @@ int fpu__exception_code(struct fpu *fpu, int trap_nr)
 	 * we get a spurious trap, which is not an error.
 	 */
 	return 0;
+}
+
+/*
+ * Leaving state in some large registers may prevent the processor from
+ * entering lower-power idle states. Initialize those states when needed.
+ *
+ * A caller needs to make sure fpregs are saved before this.
+ */
+void fpu_idle_fpregs(void)
+{
+	/*
+	 * Ensure AMX TILE registers in INIT-state before entering the idle
+	 * state.
+	 *
+	 * Dynamic states are enabled only when X86_FEATURE_XGETBV1 is
+	 * available.
+	 */
+	if (fpu_state_size_dynamic() && (xfeatures_in_use() & XFEATURE_MASK_XTILE)) {
+		tile_release();
+		fpregs_deactivate(&current->thread.fpu);
+	}
 }

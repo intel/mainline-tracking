@@ -886,8 +886,25 @@ __SYSCALL(__NR_futex_waitv, sys_futex_waitv)
 #define __NR_set_mempolicy_home_node 450
 __SYSCALL(__NR_set_mempolicy_home_node, sys_set_mempolicy_home_node)
 
+/*
+ * Skip syscall numbers until 470. Start UINTR syscall numbers at 471 to avoid
+ * upstream merge conflicts during internal development.
+ */
+#define __NR_uintr_register_handler 471
+__SYSCALL(__NR_uintr_register_handler, sys_uintr_register_handler)
+#define __NR_uintr_unregister_handler 472
+__SYSCALL(__NR_uintr_unregister_handler, sys_uintr_unregister_handler)
+#define __NR_uintr_create_fd 473
+__SYSCALL(__NR_uintr_create_fd, sys_uintr_create_fd)
+#define __NR_uintr_register_sender 474
+__SYSCALL(__NR_uintr_register_sender, sys_uintr_register_sender)
+#define __NR_uintr_unregister_sender 475
+__SYSCALL(__NR_uintr_unregister_sender, sys_uintr_unregister_sender)
+#define __NR_uintr_wait 476
+__SYSCALL(__NR_uintr_wait, sys_uintr_wait)
+
 #undef __NR_syscalls
-#define __NR_syscalls 451
+#define __NR_syscalls 477
 
 /*
  * 32 bit systems traditionally used different

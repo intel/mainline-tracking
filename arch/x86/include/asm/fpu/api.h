@@ -13,6 +13,7 @@
 #include <linux/bottom_half.h>
 
 #include <asm/fpu/types.h>
+#include <linux/sched.h>
 
 /*
  * Use kernel_fpu_begin/end() if you intend to use FPU in kernel context. It
@@ -164,5 +165,13 @@ static inline bool fpstate_is_confidential(struct fpu_guest *gfpu)
 /* prctl */
 struct task_struct;
 extern long fpu_xstate_prctl(struct task_struct *tsk, int option, unsigned long arg2);
+
+extern void fpu_idle_fpregs(void);
+
+void *start_update_xsave_msrs(int xfeature_nr);
+void end_update_xsave_msrs(void);
+int xsave_rdmsrl(void *state, unsigned int msr, unsigned long long *p);
+int xsave_wrmsrl(void *state, u32 msr, u64 val);
+int xsave_set_clear_bits_msrl(void *state, u32 msr, u64 set, u64 clear);
 
 #endif /* _ASM_X86_FPU_API_H */

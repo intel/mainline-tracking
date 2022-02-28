@@ -455,3 +455,10 @@
 448	i386	process_mrelease	sys_process_mrelease
 449	i386	futex_waitv		sys_futex_waitv
 450	i386	set_mempolicy_home_node		sys_set_mempolicy_home_node
+# Start UINTR syscalls at 471 to avoid upstream merge conflicts during development
+471	i386	uintr_register_handler	sys_uintr_register_handler
+472	i386	uintr_unregister_handler sys_uintr_unregister_handler
+473	i386	uintr_create_fd		sys_uintr_create_fd
+474	i386	uintr_register_sender	sys_uintr_register_sender
+475	i386	uintr_unregister_sender	sys_uintr_unregister_sender
+476	i386	uintr_wait		sys_uintr_wait
