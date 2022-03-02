@@ -3287,6 +3287,8 @@ unsigned long wait_task_inactive(struct task_struct *p, unsigned int match_state
 	struct rq *rq;
 
 	for (;;) {
+		int match_type = 0;
+
 		/*
 		 * We do the initial early heuristics without holding
 		 * any task-queue locks at all. We'll only try to get
@@ -3307,7 +3309,8 @@ unsigned long wait_task_inactive(struct task_struct *p, unsigned int match_state
 		 * is actually now running somewhere else!
 		 */
 		while (task_running(rq, p)) {
-			if (match_state && unlikely(READ_ONCE(p->__state) != match_state))
+			if (match_state &&
+			    unlikely(!task_state_match_eq(p, match_state)))
 				return 0;
 			cpu_relax();
 		}
@@ -3322,7 +3325,9 @@ unsigned long wait_task_inactive(struct task_struct *p, unsigned int match_state
 		running = task_running(rq, p);
 		queued = task_on_rq_queued(p);
 		ncsw = 0;
-		if (!match_state || READ_ONCE(p->__state) == match_state)
+		if (match_state)
+			match_type = __task_state_match_eq(p, match_state);
+		if (!match_state || match_type)
 			ncsw = p->nvcsw | LONG_MIN; /* sets MSB */
 		task_rq_unlock(rq, p, &rf);
 
@@ -3352,7 +3357,7 @@ unsigned long wait_task_inactive(struct task_struct *p, unsigned int match_state
 		 * running right now), it's preempted, and we should
 		 * yield - it could be a while.
 		 */
-		if (unlikely(queued)) {
+		if (unlikely(queued || match_type < 0)) {
 			ktime_t to = NSEC_PER_SEC / HZ;
 
 			set_current_state(TASK_UNINTERRUPTIBLE);
