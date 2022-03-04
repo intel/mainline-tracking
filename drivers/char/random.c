@@ -707,8 +707,7 @@ static size_t crng_fast_load(const u8 *cp, size_t len)
 	u8 *p;
 	size_t ret = 0;
 
-	if (!spin_trylock_irqsave(&primary_crng.lock, flags))
-		return 0;
+	spin_lock_irqsave(&primary_crng.lock, flags);
 	if (crng_init != 0) {
 		spin_unlock_irqrestore(&primary_crng.lock, flags);
 		return 0;
@@ -1086,6 +1085,19 @@ static void mix_interrupt_randomness(struct work_struct *work)
 	fast_pool->last = jiffies;
 	local_irq_enable();
 
+	if (unlikely(crng_init == 0)) {
+		size_t ret;
+
+		ret = crng_fast_load((u8 *)fast_pool->pool, sizeof(fast_pool->pool));
+		if (ret) {
+			local_irq_disable();
+			WRITE_ONCE(fast_pool->count, 0);
+			fast_pool->last = jiffies;
+			local_irq_enable();
+			return;
+		}
+	}
+
 	mix_pool_bytes(pool, sizeof(pool));
 	credit_entropy_bits(1);
 	memzero_explicit(pool, sizeof(pool));
@@ -1119,11 +1131,18 @@ void add_interrupt_randomness(int irq)
 	add_interrupt_bench(cycles);
 
 	if (unlikely(crng_init == 0)) {
-		if ((new_count >= 64) &&
-		    crng_fast_load((u8 *)fast_pool->pool, sizeof(fast_pool->pool)) > 0) {
-			fast_pool->count = 0;
-			fast_pool->last = now;
-		}
+		if (new_count & MIX_INFLIGHT)
+			return;
+
+		if (new_count < 64)
+			return;
+
+		if (unlikely(!fast_pool->mix.func))
+			INIT_WORK(&fast_pool->mix, mix_interrupt_randomness);
+
+		fast_pool->count |= MIX_INFLIGHT;
+		queue_work_on(raw_smp_processor_id(), system_highpri_wq, &fast_pool->mix);
+
 		return;
 	}
 
