@@ -1037,14 +1037,17 @@ static struct smp_hotplug_thread timer_threads = {
         .thread_comm            = "ktimers/%u",
 };
 
-__init void softirq_spawn_ksoftirqd(void)
+static __init int spawn_ksoftirqd(void)
 {
 	cpuhp_setup_state_nocalls(CPUHP_SOFTIRQ_DEAD, "softirq:dead", NULL,
 				  takeover_tasklets);
 	BUG_ON(smpboot_register_percpu_thread(&softirq_threads));
 	if (IS_ENABLED(CONFIG_PREEMPT_RT))
 		BUG_ON(smpboot_register_percpu_thread(&timer_threads));
+
+	return 0;
 }
+early_initcall(spawn_ksoftirqd);
 
 /*
  * [ These __weak aliases are kept in a separate compilation unit, so that
