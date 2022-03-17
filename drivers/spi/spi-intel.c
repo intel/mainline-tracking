@@ -1258,7 +1258,7 @@ EXPORT_SYMBOL_GPL(intel_spi_groups);
  * intel_spi_probe() - Probe the Intel SPI flash controller
  * @dev: Pointer to the parent device
  * @mem: MMIO resource
- * @info: Platform spefific information
+ * @info: Platform specific information
  *
  * Probes Intel SPI flash controller and creates the flash chip device.
  * Returns %0 on success and negative errno in case of failure.
