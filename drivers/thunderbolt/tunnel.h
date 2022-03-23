@@ -29,6 +29,8 @@ enum tb_tunnel_type {
  * @init: Optional tunnel specific initialization
  * @deinit: Optional tunnel specific de-initialization
  * @activate: Optional tunnel specific activation/deactivation
+ * @allocated_bandwidth: Return how much bandwidth is allocated for the tunnel
+ * @alloc_bandwidth: Change tunnel bandwidth allocation
  * @consumed_bandwidth: Return how much bandwidth the tunnel consumes
  * @release_unused_bandwidth: Release all unused bandwidth
  * @reclaim_available_bandwidth: Reclaim back available bandwidth
@@ -50,6 +52,10 @@ struct tb_tunnel {
 	int (*init)(struct tb_tunnel *tunnel);
 	void (*deinit)(struct tb_tunnel *tunnel);
 	int (*activate)(struct tb_tunnel *tunnel, bool activate);
+	int (*allocated_bandwidth)(struct tb_tunnel *tunnel, int *allocated_up,
+				   int *allocated_down);
+	int (*alloc_bandwidth)(struct tb_tunnel *tunnel, int *alloc_up,
+			       int *alloc_down);
 	int (*consumed_bandwidth)(struct tb_tunnel *tunnel, int *consumed_up,
 				  int *consumed_down);
 	int (*release_unused_bandwidth)(struct tb_tunnel *tunnel);
@@ -92,6 +98,10 @@ void tb_tunnel_deactivate(struct tb_tunnel *tunnel);
 bool tb_tunnel_is_invalid(struct tb_tunnel *tunnel);
 bool tb_tunnel_port_on_path(const struct tb_tunnel *tunnel,
 			    const struct tb_port *port);
+int tb_tunnel_allocated_bandwidth(struct tb_tunnel *tunnel, int *allocated_up,
+				  int *allocated_down);
+int tb_tunnel_alloc_bandwidth(struct tb_tunnel *tunnel, int *alloc_up,
+			      int *alloc_down);
 int tb_tunnel_consumed_bandwidth(struct tb_tunnel *tunnel, int *consumed_up,
 				 int *consumed_down);
 int tb_tunnel_release_unused_bandwidth(struct tb_tunnel *tunnel);
