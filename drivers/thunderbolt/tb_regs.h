@@ -50,6 +50,8 @@ enum tb_port_state {
 	TB_PORT_DISABLED	= 0, /* tb_cap_phy.disable == 1 */
 	TB_PORT_CONNECTING	= 1, /* retry */
 	TB_PORT_UP		= 2,
+	TB_PORT_TX_CL0S		= 3,
+	TB_PORT_RX_CL0S		= 4,
 	TB_PORT_UNPLUGGED	= 7,
 };
 
