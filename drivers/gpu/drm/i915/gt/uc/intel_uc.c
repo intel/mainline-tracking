@@ -5,6 +5,7 @@
 
 #include "gt/intel_gt.h"
 #include "gt/intel_reset.h"
+#include "gt/iov/intel_iov_query.h"
 #include "intel_guc.h"
 #include "intel_guc_ads.h"
 #include "intel_guc_submission.h"
@@ -15,6 +16,7 @@
 
 static const struct intel_uc_ops uc_ops_off;
 static const struct intel_uc_ops uc_ops_on;
+static const struct intel_uc_ops uc_ops_vf;
 
 static void uc_expand_default_options(struct intel_uc *uc)
 {
@@ -148,6 +150,10 @@ void intel_uc_driver_late_release(struct intel_uc *uc)
 void intel_uc_init_mmio(struct intel_uc *uc)
 {
 	intel_guc_init_send_regs(&uc->guc);
+
+	/* XXX can't do it in intel_uc_init_early, it's too early */
+	if (IS_SRIOV_VF(uc_to_gt(uc)->i915))
+		uc->ops = &uc_ops_vf;
 }
 
 static void __uc_capture_load_err_log(struct intel_uc *uc)
@@ -181,12 +187,18 @@ void intel_uc_driver_remove(struct intel_uc *uc)
  */
 static void guc_clear_mmio_msg(struct intel_guc *guc)
 {
+	if (IS_SRIOV_VF(guc_to_gt(guc)->i915))
+		return;
+
 	intel_uncore_write(guc_to_gt(guc)->uncore, SOFT_SCRATCH(15), 0);
 }
 
 static void guc_get_mmio_msg(struct intel_guc *guc)
 {
 	u32 val;
+
+	if (IS_SRIOV_VF(guc_to_gt(guc)->i915))
+		return;
 
 	spin_lock_irq(&guc->irq_lock);
 
@@ -432,6 +444,15 @@ static int __uc_check_hw(struct intel_uc *uc)
 	return 0;
 }
 
+static void print_fw_ver(struct intel_uc *uc, struct intel_uc_fw *fw)
+{
+	struct drm_i915_private *i915 = uc_to_gt(uc)->i915;
+
+	drm_info(&i915->drm, "%s firmware %s version %u.%u\n",
+		 intel_uc_fw_type_repr(fw->type), fw->path,
+		 fw->major_ver_found, fw->minor_ver_found);
+}
+
 static int __uc_init_hw(struct intel_uc *uc)
 {
 	struct drm_i915_private *i915 = uc_to_gt(uc)->i915;
@@ -441,6 +462,11 @@ static int __uc_init_hw(struct intel_uc *uc)
 
 	GEM_BUG_ON(!intel_uc_supports_guc(uc));
 	GEM_BUG_ON(!intel_uc_wants_guc(uc));
+
+	print_fw_ver(uc, &guc->fw);
+
+	if (intel_uc_uses_huc(uc))
+		print_fw_ver(uc, &huc->fw);
 
 	if (!intel_uc_fw_is_loadable(&guc->fw)) {
 		ret = __uc_check_hw(uc) ||
@@ -495,6 +521,15 @@ static int __uc_init_hw(struct intel_uc *uc)
 
 	intel_huc_auth(huc);
 
+	/*
+	 * Ignore table load failures for now. Missing tables will cause issues
+	 * for UMDs but won't prevent the i915 driver from working. So just
+	 * report the error and keep going.
+	 */
+	ret = intel_guc_hwconfig_init(&guc->hwconfig);
+	if (ret)
+		i915_probe_error(i915, "Failed to retrieve hwconfig table: %d\n", ret);
+
 	if (intel_uc_uses_guc_submission(uc))
 		intel_guc_submission_enable(guc);
 
@@ -507,23 +542,10 @@ static int __uc_init_hw(struct intel_uc *uc)
 		intel_rps_lower_unslice(&uc_to_gt(uc)->rps);
 	}
 
-	drm_info(&i915->drm, "%s firmware %s version %u.%u %s:%s\n",
-		 intel_uc_fw_type_repr(INTEL_UC_FW_TYPE_GUC), guc->fw.path,
-		 guc->fw.major_ver_found, guc->fw.minor_ver_found,
-		 "submission",
+	drm_info(&i915->drm, "GuC submission %s\n",
 		 enableddisabled(intel_uc_uses_guc_submission(uc)));
-
-	drm_info(&i915->drm, "GuC SLPC: %s\n",
+	drm_info(&i915->drm, "GuC SLPC %s\n",
 		 enableddisabled(intel_uc_uses_guc_slpc(uc)));
-
-	if (intel_uc_uses_huc(uc)) {
-		drm_info(&i915->drm, "%s firmware %s version %u.%u %s:%s\n",
-			 intel_uc_fw_type_repr(INTEL_UC_FW_TYPE_HUC),
-			 huc->fw.path,
-			 huc->fw.major_ver_found, huc->fw.minor_ver_found,
-			 "authenticated",
-			 yesno(intel_huc_is_authenticated(huc)));
-	}
 
 	return 0;
 
@@ -562,7 +584,98 @@ static void __uc_fini_hw(struct intel_uc *uc)
 	if (intel_uc_uses_guc_submission(uc))
 		intel_guc_submission_disable(guc);
 
+	intel_guc_hwconfig_fini(&guc->hwconfig);
+
 	__uc_sanitize(uc);
+}
+
+static int __vf_uc_sanitize(struct intel_uc *uc)
+{
+	intel_huc_sanitize(&uc->huc);
+	intel_guc_sanitize(&uc->guc);
+
+	return 0;
+}
+
+static int __vf_uc_init(struct intel_uc *uc)
+{
+	return intel_guc_init(&uc->guc);
+}
+
+static void __vf_uc_fini(struct intel_uc *uc)
+{
+	intel_guc_fini(&uc->guc);
+}
+
+static int __vf_uc_init_hw(struct intel_uc *uc)
+{
+	struct intel_gt *gt = uc_to_gt(uc);
+	struct drm_i915_private *i915 = gt->i915;
+	struct intel_guc *guc = &uc->guc;
+	struct intel_huc *huc = &uc->huc;
+	int err;
+
+	GEM_BUG_ON(!HAS_GT_UC(i915));
+	GEM_BUG_ON(!IS_SRIOV_VF(i915));
+	GEM_BUG_ON(!intel_uc_uses_guc_submission(&gt->uc));
+
+	err = intel_iov_query_bootstrap(&gt->iov);
+	if (unlikely(err))
+		goto err_out;
+
+	if (!intel_uc_fw_is_running(&guc->fw)) {
+		err = intel_uc_fw_status_to_error(guc->fw.status);
+		goto err_out;
+	}
+
+	intel_guc_reset_interrupts(guc);
+
+	err = guc_enable_communication(guc);
+	if (unlikely(err))
+		goto err_out;
+
+	err = intel_iov_query_version(&gt->iov);
+	if (unlikely(err))
+		goto err_out;
+
+	/*
+	 * pretend that HuC is running if it is supported
+	 * for status rely on runtime reg shared by PF
+	 */
+	if (intel_uc_fw_is_supported(&huc->fw)) {
+		/* XXX: We don't know how to get the HuC version yet */
+		intel_uc_fw_set_preloaded(&huc->fw, 0, 0);
+	}
+
+	intel_guc_submission_enable(guc);
+
+	dev_info(i915->drm.dev, "%s firmware %s version %u.%u %s:%s\n",
+		 intel_uc_fw_type_repr(INTEL_UC_FW_TYPE_GUC), guc->fw.path,
+		 guc->fw.major_ver_found, guc->fw.minor_ver_found,
+		 "submission", i915_iov_mode_to_string(IOV_MODE(i915)));
+
+	dev_info(i915->drm.dev, "%s firmware %s\n",
+		 intel_uc_fw_type_repr(INTEL_UC_FW_TYPE_HUC),
+		 intel_uc_fw_status_repr(__intel_uc_fw_status(&huc->fw)));
+
+	return 0;
+
+err_out:
+	__vf_uc_sanitize(uc);
+	i915_probe_error(i915, "GuC initialization failed (%pe)\n", ERR_PTR(err));
+	return -EIO;
+}
+
+static void __vf_uc_fini_hw(struct intel_uc *uc)
+{
+	struct intel_guc *guc = &uc->guc;
+
+	intel_guc_submission_disable(guc);
+
+	if (intel_guc_ct_enabled(&guc->ct))
+		guc_disable_communication(guc);
+
+	__vf_uc_sanitize(uc);
 }
 
 /**
@@ -589,7 +702,7 @@ void intel_uc_reset_prepare(struct intel_uc *uc)
 		intel_guc_submission_reset_prepare(guc);
 
 sanitize:
-	__uc_sanitize(uc);
+	intel_uc_sanitize(uc);
 }
 
 void intel_uc_reset(struct intel_uc *uc, bool stalled)
@@ -720,4 +833,12 @@ static const struct intel_uc_ops uc_ops_on = {
 
 	.init_hw = __uc_init_hw,
 	.fini_hw = __uc_fini_hw,
+};
+
+static const struct intel_uc_ops uc_ops_vf = {
+	.sanitize = __vf_uc_sanitize,
+	.init = __vf_uc_init,
+	.fini = __vf_uc_fini,
+	.init_hw = __vf_uc_init_hw,
+	.fini_hw = __vf_uc_fini_hw,
 };

@@ -29,11 +29,6 @@ i915_vm_to_dpt(struct i915_address_space *vm)
 
 #define dpt_total_entries(dpt) ((dpt)->vm.total >> PAGE_SHIFT)
 
-static void gen8_set_pte(void __iomem *addr, gen8_pte_t pte)
-{
-	writeq(pte, addr);
-}
-
 static void dpt_insert_page(struct i915_address_space *vm,
 			    dma_addr_t addr,
 			    u64 offset,
@@ -279,6 +274,8 @@ intel_dpt_create(struct intel_framebuffer *fb)
 
 	vm->vma_ops.bind_vma    = dpt_bind_vma;
 	vm->vma_ops.unbind_vma  = dpt_unbind_vma;
+	vm->vma_ops.set_pages   = ggtt_set_pages;
+	vm->vma_ops.clear_pages = clear_pages;
 
 	vm->pte_encode = gen8_ggtt_pte_encode;
 

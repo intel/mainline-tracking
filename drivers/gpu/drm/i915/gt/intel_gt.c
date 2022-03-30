@@ -22,14 +22,14 @@
 #include "intel_renderstate.h"
 #include "intel_rps.h"
 #include "intel_uncore.h"
+#include "intel_pm.h"
+#include "iov/intel_iov.h"
 #include "shmem_utils.h"
 #include "pxp/intel_pxp.h"
 
 void __intel_gt_init_early(struct intel_gt *gt, struct drm_i915_private *i915)
 {
 	spin_lock_init(&gt->irq_lock);
-
-	mutex_init(&gt->tlb_invalidate_lock);
 
 	INIT_LIST_HEAD(&gt->closed_vma);
 	spin_lock_init(&gt->closed_lock);
@@ -127,10 +127,15 @@ static u16 slicemask(struct intel_gt *gt, int count)
 int intel_gt_init_mmio(struct intel_gt *gt)
 {
 	struct drm_i915_private *i915 = gt->i915;
+	int ret;
+
+	ret = intel_iov_init_mmio(&gt->iov);
+	if (ret)
+		return ret;
 
 	intel_gt_init_clock_frequency(gt);
-
 	intel_uc_init_mmio(&gt->uc);
+
 	intel_sseu_info_init(gt);
 
 	/*
@@ -239,6 +244,13 @@ int intel_gt_init_hw(struct intel_gt *gt)
 		goto out;
 	}
 
+	ret = intel_iov_init_hw(&gt->iov);
+	if (unlikely(ret)) {
+		i915_probe_error(i915, "Enabling IOV failed (%pe)\n",
+				 ERR_PTR(ret));
+		goto out;
+	}
+
 	intel_mocs_init(gt);
 
 out:
@@ -324,12 +336,12 @@ static void gen6_check_faults(struct intel_gt *gt)
 				"\tAddr: 0x%08lx\n"
 				"\tAddress space: %s\n"
 				"\tSource ID: %d\n"
-				"\tType: %d\n",
+				"\tLevel: %d\n",
 				fault & PAGE_MASK,
 				fault & RING_FAULT_GTTSEL_MASK ?
 				"GGTT" : "PPGTT",
 				RING_FAULT_SRCID(fault),
-				RING_FAULT_FAULT_TYPE(fault));
+				RING_FAULT_LEVEL(fault));
 		}
 	}
 }
@@ -366,18 +378,22 @@ static void gen8_check_faults(struct intel_gt *gt)
 			"\tAddress space: %s\n"
 			"\tEngine ID: %d\n"
 			"\tSource ID: %d\n"
-			"\tType: %d\n",
-			upper_32_bits(fault_addr), lower_32_bits(fault_addr),
+			"\tLevel: %d\n",
+			upper_32_bits(fault_addr),
+			lower_32_bits(fault_addr),
 			fault_data1 & FAULT_GTT_SEL ? "GGTT" : "PPGTT",
 			GEN8_RING_FAULT_ENGINE_ID(fault),
 			RING_FAULT_SRCID(fault),
-			RING_FAULT_FAULT_TYPE(fault));
+			RING_FAULT_LEVEL(fault));
 	}
 }
 
 void intel_gt_check_and_clear_faults(struct intel_gt *gt)
 {
 	struct drm_i915_private *i915 = gt->i915;
+
+	if (IS_SRIOV_VF(i915))
+		return;
 
 	/* From GEN8 onwards we only have one 'All Engine Fault Register' */
 	if (GRAPHICS_VER(i915) >= 8)
@@ -679,10 +695,14 @@ int intel_gt_init(struct intel_gt *gt)
 	 */
 	intel_uncore_forcewake_get(gt->uncore, FORCEWAKE_ALL);
 
+	err = intel_iov_init(&gt->iov);
+	if (unlikely(err))
+		goto out_fw;
+
 	err = intel_gt_init_scratch(gt,
 				    GRAPHICS_VER(gt->i915) == 2 ? SZ_256K : SZ_4K);
 	if (err)
-		goto out_fw;
+		goto err_iov;
 
 	intel_gt_pm_init(gt);
 
@@ -705,6 +725,10 @@ int intel_gt_init(struct intel_gt *gt)
 	err = intel_gt_resume(gt);
 	if (err)
 		goto err_uc_init;
+
+	err = intel_iov_init_late(&gt->iov);
+	if (err)
+		goto err_gt;
 
 	err = __engines_record_defaults(gt);
 	if (err)
@@ -736,6 +760,8 @@ err_engines:
 err_pm:
 	intel_gt_pm_fini(gt);
 	intel_gt_fini_scratch(gt);
+err_iov:
+	intel_iov_fini(&gt->iov);
 out_fw:
 	if (err)
 		intel_gt_set_wedged_on_init(gt);
@@ -745,6 +771,10 @@ out_fw:
 
 void intel_gt_driver_remove(struct intel_gt *gt)
 {
+	intel_gt_fini_clock_frequency(gt);
+
+	intel_iov_fini_hw(&gt->iov);
+
 	__intel_gt_disable(gt);
 
 	intel_migrate_fini(&gt->migrate);
@@ -787,6 +817,7 @@ void intel_gt_driver_release(struct intel_gt *gt)
 	intel_gt_pm_fini(gt);
 	intel_gt_fini_scratch(gt);
 	intel_gt_fini_buffer_pool(gt);
+	intel_iov_fini(&gt->iov);
 }
 
 void intel_gt_driver_late_release(struct intel_gt *gt)
@@ -794,6 +825,7 @@ void intel_gt_driver_late_release(struct intel_gt *gt)
 	/* We need to wait for inflight RCU frees to release their grip */
 	rcu_barrier();
 
+	intel_iov_release(&gt->iov);
 	intel_uc_driver_late_release(&gt->uc);
 	intel_gt_fini_requests(gt);
 	intel_gt_fini_reset(gt);
@@ -913,110 +945,4 @@ void intel_gt_info_print(const struct intel_gt_info *info,
 	drm_printf(p, "available engines: %x\n", info->engine_mask);
 
 	intel_sseu_dump(&info->sseu, p);
-}
-
-struct reg_and_bit {
-	i915_reg_t reg;
-	u32 bit;
-};
-
-static struct reg_and_bit
-get_reg_and_bit(const struct intel_engine_cs *engine, const bool gen8,
-		const i915_reg_t *regs, const unsigned int num)
-{
-	const unsigned int class = engine->class;
-	struct reg_and_bit rb = { };
-
-	if (drm_WARN_ON_ONCE(&engine->i915->drm,
-			     class >= num || !regs[class].reg))
-		return rb;
-
-	rb.reg = regs[class];
-	if (gen8 && class == VIDEO_DECODE_CLASS)
-		rb.reg.reg += 4 * engine->instance; /* GEN8_M2TCR */
-	else
-		rb.bit = engine->instance;
-
-	rb.bit = BIT(rb.bit);
-
-	return rb;
-}
-
-void intel_gt_invalidate_tlbs(struct intel_gt *gt)
-{
-	static const i915_reg_t gen8_regs[] = {
-		[RENDER_CLASS]			= GEN8_RTCR,
-		[VIDEO_DECODE_CLASS]		= GEN8_M1TCR, /* , GEN8_M2TCR */
-		[VIDEO_ENHANCEMENT_CLASS]	= GEN8_VTCR,
-		[COPY_ENGINE_CLASS]		= GEN8_BTCR,
-	};
-	static const i915_reg_t gen12_regs[] = {
-		[RENDER_CLASS]			= GEN12_GFX_TLB_INV_CR,
-		[VIDEO_DECODE_CLASS]		= GEN12_VD_TLB_INV_CR,
-		[VIDEO_ENHANCEMENT_CLASS]	= GEN12_VE_TLB_INV_CR,
-		[COPY_ENGINE_CLASS]		= GEN12_BLT_TLB_INV_CR,
-	};
-	struct drm_i915_private *i915 = gt->i915;
-	struct intel_uncore *uncore = gt->uncore;
-	struct intel_engine_cs *engine;
-	enum intel_engine_id id;
-	const i915_reg_t *regs;
-	unsigned int num = 0;
-
-	if (I915_SELFTEST_ONLY(gt->awake == -ENODEV))
-		return;
-
-	if (GRAPHICS_VER(i915) == 12) {
-		regs = gen12_regs;
-		num = ARRAY_SIZE(gen12_regs);
-	} else if (GRAPHICS_VER(i915) >= 8 && GRAPHICS_VER(i915) <= 11) {
-		regs = gen8_regs;
-		num = ARRAY_SIZE(gen8_regs);
-	} else if (GRAPHICS_VER(i915) < 8) {
-		return;
-	}
-
-	if (drm_WARN_ONCE(&i915->drm, !num,
-			  "Platform does not implement TLB invalidation!"))
-		return;
-
-	GEM_TRACE("\n");
-
-	assert_rpm_wakelock_held(&i915->runtime_pm);
-
-	mutex_lock(&gt->tlb_invalidate_lock);
-	intel_uncore_forcewake_get(uncore, FORCEWAKE_ALL);
-
-	for_each_engine(engine, gt, id) {
-		/*
-		 * HW architecture suggest typical invalidation time at 40us,
-		 * with pessimistic cases up to 100us and a recommendation to
-		 * cap at 1ms. We go a bit higher just in case.
-		 */
-		const unsigned int timeout_us = 100;
-		const unsigned int timeout_ms = 4;
-		struct reg_and_bit rb;
-
-		rb = get_reg_and_bit(engine, regs == gen8_regs, regs, num);
-		if (!i915_mmio_reg_offset(rb.reg))
-			continue;
-
-		intel_uncore_write_fw(uncore, rb.reg, rb.bit);
-		if (__intel_wait_for_register_fw(uncore,
-						 rb.reg, rb.bit, 0,
-						 timeout_us, timeout_ms,
-						 NULL))
-			drm_err_ratelimited(&gt->i915->drm,
-					    "%s TLB invalidation did not complete in %ums!\n",
-					    engine->name, timeout_ms);
-	}
-
-	/*
-	 * Use delayed put since a) we mostly expect a flurry of TLB
-	 * invalidations so it is good to avoid paying the forcewake cost and
-	 * b) it works around a bug in Icelake which cannot cope with too rapid
-	 * transitions.
-	 */
-	intel_uncore_forcewake_put_delayed(uncore, FORCEWAKE_ALL);
-	mutex_unlock(&gt->tlb_invalidate_lock);
 }
