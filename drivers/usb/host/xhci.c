@@ -325,7 +325,7 @@ static int xhci_disable_interrupter(struct xhci_interrupter *ir)
 #ifdef CONFIG_USB_PCI
 
 /* Free any IRQs and disable MSI-X */
-static void xhci_cleanup_msix(struct xhci_hcd *xhci)
+void xhci_cleanup_msix(struct xhci_hcd *xhci)
 {
 	struct usb_hcd *hcd = xhci_to_hcd(xhci);
 	struct pci_dev *pdev = to_pci_dev(hcd->self.controller);
@@ -349,6 +349,7 @@ static void xhci_cleanup_msix(struct xhci_hcd *xhci)
 	pci_free_irq_vectors(pdev);
 	hcd->msix_enabled = 0;
 }
+EXPORT_SYMBOL_GPL(xhci_cleanup_msix);
 
 static void __maybe_unused xhci_msix_sync_irqs(struct xhci_hcd *xhci)
 {
@@ -621,7 +622,7 @@ EXPORT_SYMBOL_GPL(xhci_run);
  * Disable device contexts, disable IRQs, and quiesce the HC.
  * Reset the HC, finish any completed transactions, and cleanup memory.
  */
-static void xhci_stop(struct usb_hcd *hcd)
+void xhci_stop(struct usb_hcd *hcd)
 {
 	u32 temp;
 	struct xhci_hcd *xhci = hcd_to_xhci(hcd);
@@ -643,8 +644,6 @@ static void xhci_stop(struct usb_hcd *hcd)
 	xhci_halt(xhci);
 	xhci_reset(xhci, XHCI_RESET_SHORT_USEC);
 	spin_unlock_irq(&xhci->lock);
-
-	xhci_cleanup_msix(xhci);
 
 	/* Deleting Compliance Mode Recovery Timer */
 	if ((xhci->quirks & XHCI_COMP_MODE_QUIRK) &&
@@ -672,6 +671,7 @@ static void xhci_stop(struct usb_hcd *hcd)
 			readl(&xhci->op_regs->status));
 	mutex_unlock(&xhci->mutex);
 }
+EXPORT_SYMBOL_GPL(xhci_stop);
 
 /*
  * Shutdown HC (not bus-specific)
@@ -712,8 +712,6 @@ void xhci_shutdown(struct usb_hcd *hcd)
 		xhci_reset(xhci, XHCI_RESET_SHORT_USEC);
 
 	spin_unlock_irq(&xhci->lock);
-
-	xhci_cleanup_msix(xhci);
 
 	xhci_dbg_trace(xhci, trace_xhci_dbg_init,
 			"xhci_shutdown completed - status = %x",
