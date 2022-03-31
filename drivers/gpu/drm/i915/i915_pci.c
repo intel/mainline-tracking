@@ -879,6 +879,7 @@ static const struct intel_device_info tgl_info = {
 	.display.has_modular_fia = 1,
 	.platform_engine_mask =
 		BIT(RCS0) | BIT(BCS0) | BIT(VECS0) | BIT(VCS0) | BIT(VCS2),
+	.has_sriov = 1,
 };
 
 static const struct intel_device_info rkl_info = {
@@ -924,6 +925,7 @@ static const struct intel_device_info adl_s_info = {
 	.platform_engine_mask =
 		BIT(RCS0) | BIT(BCS0) | BIT(VECS0) | BIT(VCS0) | BIT(VCS2),
 	.dma_mask_size = 39,
+	.has_sriov = 1,
 };
 
 #define XE_LPD_CURSOR_OFFSETS \
@@ -984,10 +986,12 @@ static const struct intel_device_info adl_p_info = {
 	.display.has_cdclk_crawl = 1,
 	.display.has_modular_fia = 1,
 	.display.has_psr_hw_tracking = 0,
+	.has_selective_tlb_invalidation = 1,
 	.platform_engine_mask =
 		BIT(RCS0) | BIT(BCS0) | BIT(VECS0) | BIT(VCS0) | BIT(VCS2),
 	.ppgtt_size = 48,
 	.dma_mask_size = 39,
+	.has_sriov = 1,
 };
 
 #undef GEN
@@ -1027,7 +1031,6 @@ static const struct intel_device_info xehpsdv_info = {
 	DGFX_FEATURES,
 	PLATFORM(INTEL_XEHPSDV),
 	.display = { },
-	.has_64k_pages = 1,
 	.platform_engine_mask =
 		BIT(RCS0) | BIT(BCS0) |
 		BIT(VECS0) | BIT(VECS1) | BIT(VECS2) | BIT(VECS3) |
@@ -1045,7 +1048,6 @@ static const struct intel_device_info dg2_info = {
 	.graphics.rel = 55,
 	.media.rel = 55,
 	PLATFORM(INTEL_DG2),
-	.has_64k_pages = 1,
 	.platform_engine_mask =
 		BIT(RCS0) | BIT(BCS0) |
 		BIT(VECS0) | BIT(VECS1) |
@@ -1145,6 +1147,9 @@ static void i915_pci_remove(struct pci_dev *pdev)
 	if (!i915) /* driver load aborted, nothing to cleanup */
 		return;
 
+	if (IS_SRIOV_PF(i915))
+		i915_sriov_pf_disable_vfs(i915);
+
 	i915_driver_remove(i915);
 	pci_set_drvdata(pdev, NULL);
 }
@@ -1180,6 +1185,34 @@ static bool force_probe(u16 device_id, const char *devices)
 	return ret;
 }
 
+bool __pci_resource_valid(struct pci_dev *pdev, int bar)
+{
+	if (!pci_resource_flags(pdev, bar))
+		return false;
+
+	if (pci_resource_flags(pdev, bar) & IORESOURCE_UNSET)
+		return false;
+
+	if (!pci_resource_len(pdev, bar))
+		return false;
+
+	return true;
+}
+
+static bool intel_bars_valid(struct pci_dev *pdev, struct intel_device_info *intel_info)
+{
+	const int gttmmaddr_bar = intel_info->graphics.ver == 2 ? GEN2_GTTMMADR_BAR : GTTMMADR_BAR;
+	const int gfxmem_bar = GFXMEM_BAR;
+
+	if (!__pci_resource_valid(pdev, gttmmaddr_bar))
+		return false;
+
+	if (!__pci_resource_valid(pdev, gfxmem_bar))
+		return false;
+
+	return true;
+}
+
 static int i915_pci_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 {
 	struct intel_device_info *intel_info =
@@ -1197,12 +1230,16 @@ static int i915_pci_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 		return -ENODEV;
 	}
 
-	/* Only bind to function 0 of the device. Early generations
-	 * used function 1 as a placeholder for multi-head. This causes
-	 * us confusion instead, especially on the systems where both
-	 * functions have the same PCI-ID!
+	/*
+	 * Don't bind to non-zero function, unless it is a virtual function.
+	 * Early generations used function 1 as a placeholder for multi-head.
+	 * This causes us confusion instead, especially on the systems where
+	 * both functions have the same PCI-ID!
 	 */
-	if (PCI_FUNC(pdev->devfn))
+	if (PCI_FUNC(pdev->devfn) && !pdev->is_virtfn)
+		return -ENODEV;
+
+	if (!intel_bars_valid(pdev, intel_info))
 		return -ENODEV;
 
 	/* Detect if we need to wait for other drivers early on */
@@ -1237,7 +1274,45 @@ static void i915_pci_shutdown(struct pci_dev *pdev)
 {
 	struct drm_i915_private *i915 = pci_get_drvdata(pdev);
 
+	if (IS_SRIOV_PF(i915))
+		i915_sriov_pf_disable_vfs(i915);
+
 	i915_driver_shutdown(i915);
+}
+
+/**
+ * i915_pci_sriov_configure - Configure SR-IOV (enable/disable VFs).
+ * @pdev: pci_dev struct
+ * @num_vfs: number of VFs to enable (or zero to disable all)
+ *
+ * This function will be called when user requests SR-IOV configuration via the
+ * sysfs interface. Note that VFs configuration can be done only on the PF and
+ * after successful PF initialization.
+ *
+ * Return: number of configured VFs or a negative error code on failure.
+ */
+static int i915_pci_sriov_configure(struct pci_dev *pdev, int num_vfs)
+{
+	struct drm_device *dev = pci_get_drvdata(pdev);
+	struct drm_i915_private *i915 = to_i915(dev);
+	int ret;
+
+	/* handled in drivers/pci/pci-sysfs.c */
+	GEM_BUG_ON(num_vfs < 0);
+	GEM_BUG_ON(num_vfs > U16_MAX);
+	GEM_BUG_ON(num_vfs > pci_sriov_get_totalvfs(pdev));
+	GEM_BUG_ON(num_vfs && pci_num_vf(pdev));
+	GEM_BUG_ON(!num_vfs && !pci_num_vf(pdev));
+
+	if (!IS_SRIOV_PF(i915))
+		return -ENODEV;
+
+	if (num_vfs > 0)
+		ret = i915_sriov_pf_enable_vfs(i915, num_vfs);
+	else
+		ret = i915_sriov_pf_disable_vfs(i915);
+
+	return ret;
 }
 
 static struct pci_driver i915_pci_driver = {
@@ -1247,6 +1322,7 @@ static struct pci_driver i915_pci_driver = {
 	.remove = i915_pci_remove,
 	.shutdown = i915_pci_shutdown,
 	.driver.pm = &i915_pm_ops,
+	.sriov_configure = i915_pci_sriov_configure,
 };
 
 int i915_pci_register_driver(void)

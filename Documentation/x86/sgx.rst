@@ -71,15 +71,53 @@ The processor tracks EPC pages in a hardware metadata structure called the
 which describes the owning enclave, access rights and page type among the other
 things.
 
-EPCM permissions are separate from the normal page tables.  This prevents the
-kernel from, for instance, allowing writes to data which an enclave wishes to
-remain read-only.  EPCM permissions may only impose additional restrictions on
-top of normal x86 page permissions.
-
 For all intents and purposes, the SGX architecture allows the processor to
 invalidate all EPCM entries at will.  This requires that software be prepared to
 handle an EPCM fault at any time.  In practice, this can happen on events like
 power transitions when the ephemeral key that encrypts enclave memory is lost.
+
+Details about enclave page permissions
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+EPCM permissions are separate from the normal page tables.  This prevents the
+kernel from, for instance, allowing writes to data which an enclave wishes
+to remain read-only.
+
+Three permission masks are relevant to SGX:
+
+* EPCM permissions.
+* Page Table Entry (PTE) permissions.
+* Virtual Memory Area (VMA) permissions.
+
+An enclave is only able to access an enclave page if all three permission
+masks enable it to do so.
+
+The relationships between the different permission masks are:
+
+* An SGX VMA can only be created if its permissions are the same or weaker
+  than the EPCM permissions.
+* PTEs are installed to match the EPCM permissions, without exceeding the
+  VMA permissions.
+
+During runtime the EPCM permissions of enclave pages belonging to an
+initialized enclave can change on systems supporting SGX2. In support
+of these runtime changes the kernel maintains (for each enclave page)
+the most permissive EPCM permission mask allowed by policy as
+the ``vm_max_prot_bits`` of that page. EPCM permissions are not allowed
+to be relaxed beyond ``vm_max_prot_bits``.  The kernel also maintains
+the currently active EPCM permissions of an enclave page as its
+``vm_run_prot_bits`` to ensure PTEs and new VMAs respect the active
+EPCM permission values.
+
+On systems supporting SGX2 EPCM permissions may change while the
+enclave page belongs to a VMA without impacting the VMA permissions.
+This means that a running VMA may appear to allow access to an enclave
+page that is not allowed by its EPCM permissions. For example, when an
+enclave page with RW EPCM permissions is mapped by a RW VMA but is
+subsequently changed to have read-only EPCM permissions. The kernel
+continues to maintain correct access to the enclave page through the
+PTE that will ensure that only access allowed by both the VMA
+and EPCM permissions are permitted.
 
 Application interface
 =====================
@@ -99,6 +137,22 @@ pages and establish enclave page permissions.
                sgx_ioc_enclave_add_pages
                sgx_ioc_enclave_init
                sgx_ioc_enclave_provision
+
+Enclave runtime management
+--------------------------
+
+Systems supporting SGX2 additionally support changes to initialized
+enclaves: modifying enclave page permissions and type, and dynamically
+adding and removing of enclave pages. When an enclave accesses an address
+within its address range that does not have a backing page then a new
+regular page will be dynamically added to the enclave. The enclave is
+still required to run EACCEPT on the new page before it can be used.
+
+.. kernel-doc:: arch/x86/kernel/cpu/sgx/ioctl.c
+   :functions: sgx_ioc_enclave_relax_perm
+               sgx_ioc_enclave_restrict_perm
+               sgx_ioc_enclave_modt
+               sgx_ioc_enclave_remove_pages
 
 Enclave vDSO
 ------------

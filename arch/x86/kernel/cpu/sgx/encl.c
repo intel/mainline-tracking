@@ -131,24 +131,14 @@ static struct sgx_epc_page *sgx_encl_eldu(struct sgx_encl_page *encl_page,
 	return epc_page;
 }
 
-static struct sgx_encl_page *sgx_encl_load_page(struct sgx_encl *encl,
-						unsigned long addr,
-						unsigned long vm_flags)
+struct sgx_encl_page *sgx_encl_load_page(struct sgx_encl *encl,
+					 unsigned long addr)
 {
-	unsigned long vm_prot_bits = vm_flags & (VM_READ | VM_WRITE | VM_EXEC);
 	struct sgx_epc_page *epc_page;
 	struct sgx_encl_page *entry;
 
 	entry = xa_load(&encl->page_array, PFN_DOWN(addr));
 	if (!entry)
-		return ERR_PTR(-EFAULT);
-
-	/*
-	 * Verify that the faulted page has equal or higher build time
-	 * permissions than the VMA permissions (i.e. the subset of {VM_READ,
-	 * VM_WRITE, VM_EXECUTE} in vma->vm_flags).
-	 */
-	if ((entry->vm_max_prot_bits & vm_prot_bits) != vm_prot_bits)
 		return ERR_PTR(-EFAULT);
 
 	/* Entry successfully located. */
@@ -175,11 +165,135 @@ static struct sgx_encl_page *sgx_encl_load_page(struct sgx_encl *encl,
 	return entry;
 }
 
+/**
+ * sgx_encl_eaug_page() - Dynamically add page to initialized enclave
+ * @vma:	VMA obtained from fault info from where page is accessed
+ * @encl:	enclave accessing the page
+ * @addr:	address that triggered the page fault
+ *
+ * When an initialized enclave accesses a page with no backing EPC page
+ * on a SGX2 system then the EPC can be added dynamically via the SGX2
+ * ENCLS[EAUG] instruction.
+ *
+ * Returns: Appropriate vm_fault_t: VM_FAULT_NOPAGE when PTE was installed
+ * successfully, VM_FAULT_SIGBUS or VM_FAULT_OOM as error otherwise.
+ */
+static vm_fault_t sgx_encl_eaug_page(struct vm_area_struct *vma,
+				     struct sgx_encl *encl, unsigned long addr)
+{
+	struct sgx_pageinfo pginfo = {0};
+	struct sgx_encl_page *encl_page;
+	struct sgx_epc_page *epc_page;
+	struct sgx_va_page *va_page;
+	unsigned long phys_addr;
+	unsigned long prot;
+	vm_fault_t vmret;
+	int ret;
+
+	if (!test_bit(SGX_ENCL_INITIALIZED, &encl->flags))
+		return VM_FAULT_SIGBUS;
+
+	encl_page = kzalloc(sizeof(*encl_page), GFP_KERNEL);
+	if (!encl_page)
+		return VM_FAULT_OOM;
+
+	encl_page->desc = addr;
+	encl_page->encl = encl;
+
+	/*
+	 * Adding a regular page that is architecturally allowed to only
+	 * be created with RW permissions.
+	 * TBD: Interface with user space policy to support max permissions
+	 * of RWX.
+	 */
+	prot = PROT_READ | PROT_WRITE;
+	encl_page->vm_run_prot_bits = calc_vm_prot_bits(prot, 0);
+	encl_page->vm_max_prot_bits = encl_page->vm_run_prot_bits;
+
+	epc_page = sgx_alloc_epc_page(encl_page, true);
+	if (IS_ERR(epc_page)) {
+		kfree(encl_page);
+		return VM_FAULT_SIGBUS;
+	}
+
+	va_page = sgx_encl_grow(encl);
+	if (IS_ERR(va_page)) {
+		ret = PTR_ERR(va_page);
+		goto err_out_free;
+	}
+
+	mutex_lock(&encl->lock);
+
+	/*
+	 * Copy comment from sgx_encl_add_page() to maintain guidance in
+	 * this similar flow:
+	 * Adding to encl->va_pages must be done under encl->lock.  Ditto for
+	 * deleting (via sgx_encl_shrink()) in the error path.
+	 */
+	if (va_page)
+		list_add(&va_page->list, &encl->va_pages);
+
+	ret = xa_insert(&encl->page_array, PFN_DOWN(encl_page->desc),
+			encl_page, GFP_KERNEL);
+	/*
+	 * If ret == -EBUSY then page was created in another flow while
+	 * running without encl->lock
+	 */
+	if (ret)
+		goto err_out_unlock;
+
+	pginfo.secs = (unsigned long)sgx_get_epc_virt_addr(encl->secs.epc_page);
+	pginfo.addr = encl_page->desc & PAGE_MASK;
+	pginfo.metadata = 0;
+
+	ret = __eaug(&pginfo, sgx_get_epc_virt_addr(epc_page));
+	if (ret)
+		goto err_out;
+
+	encl_page->encl = encl;
+	encl_page->epc_page = epc_page;
+	encl_page->type = SGX_PAGE_TYPE_REG;
+	encl->secs_child_cnt++;
+
+	sgx_mark_page_reclaimable(encl_page->epc_page);
+
+	phys_addr = sgx_get_epc_phys_addr(epc_page);
+	/*
+	 * Do not undo everything when creating PTE entry fails - next #PF
+	 * would find page ready for a PTE.
+	 * PAGE_SHARED because protection is forced to be RW above and COW
+	 * is not supported.
+	 */
+	vmret = vmf_insert_pfn_prot(vma, addr, PFN_DOWN(phys_addr),
+				    PAGE_SHARED);
+	if (vmret != VM_FAULT_NOPAGE) {
+		mutex_unlock(&encl->lock);
+		return VM_FAULT_SIGBUS;
+	}
+	mutex_unlock(&encl->lock);
+	return VM_FAULT_NOPAGE;
+
+err_out:
+	xa_erase(&encl->page_array, PFN_DOWN(encl_page->desc));
+
+err_out_unlock:
+	sgx_encl_shrink(encl, va_page);
+	mutex_unlock(&encl->lock);
+
+err_out_free:
+	sgx_encl_free_epc_page(epc_page);
+	kfree(encl_page);
+
+	return VM_FAULT_SIGBUS;
+}
+
 static vm_fault_t sgx_vma_fault(struct vm_fault *vmf)
 {
 	unsigned long addr = (unsigned long)vmf->address;
 	struct vm_area_struct *vma = vmf->vma;
+	unsigned long page_prot_bits;
 	struct sgx_encl_page *entry;
+	unsigned long vm_prot_bits;
 	unsigned long phys_addr;
 	struct sgx_encl *encl;
 	vm_fault_t ret;
@@ -194,9 +308,20 @@ static vm_fault_t sgx_vma_fault(struct vm_fault *vmf)
 	if (unlikely(!encl))
 		return VM_FAULT_SIGBUS;
 
+	/*
+	 * The page_array keeps track of all enclave pages, whether they
+	 * are swapped out or not. If there is no entry for this page and
+	 * the system supports SGX2 then it is possible to dynamically add
+	 * a new enclave page. This is only possible for an initialized
+	 * enclave that will be checked for right away.
+	 */
+	if (cpu_feature_enabled(X86_FEATURE_SGX2) &&
+	    (!xa_load(&encl->page_array, PFN_DOWN(addr))))
+		return sgx_encl_eaug_page(vma, encl, addr);
+
 	mutex_lock(&encl->lock);
 
-	entry = sgx_encl_load_page(encl, addr, vma->vm_flags);
+	entry = sgx_encl_load_page(encl, addr);
 	if (IS_ERR(entry)) {
 		mutex_unlock(&encl->lock);
 
@@ -208,7 +333,19 @@ static vm_fault_t sgx_vma_fault(struct vm_fault *vmf)
 
 	phys_addr = sgx_get_epc_phys_addr(entry->epc_page);
 
-	ret = vmf_insert_pfn(vma, addr, PFN_DOWN(phys_addr));
+	/*
+	 * Insert PTE to match the EPCM page permissions ensured to not
+	 * exceed the VMA permissions.
+	 */
+	vm_prot_bits = vma->vm_flags & (VM_READ | VM_WRITE | VM_EXEC);
+	page_prot_bits = entry->vm_run_prot_bits & vm_prot_bits;
+	/*
+	 * Add VM_SHARED so that PTE is made writable right away if VMA
+	 * and EPCM are writable (no COW in SGX).
+	 */
+	page_prot_bits |= (vma->vm_flags & VM_SHARED);
+	ret = vmf_insert_pfn_prot(vma, addr, PFN_DOWN(phys_addr),
+				  vm_get_page_prot(page_prot_bits));
 	if (ret != VM_FAULT_NOPAGE) {
 		mutex_unlock(&encl->lock);
 
@@ -219,6 +356,47 @@ static vm_fault_t sgx_vma_fault(struct vm_fault *vmf)
 	mutex_unlock(&encl->lock);
 
 	return VM_FAULT_NOPAGE;
+}
+
+/*
+ * A fault occurred while writing to a present enclave PTE. Since PTE is
+ * present this will not be handled by sgx_vma_fault(). VMA may allow
+ * writing to the page while enclave (as based on EPCM permissions) does
+ * not. Do not follow the default of inheriting VMA permissions in this
+ * regard, ensure enclave also allows writing to the page.
+ */
+static vm_fault_t sgx_vma_pfn_mkwrite(struct vm_fault *vmf)
+{
+	unsigned long addr = (unsigned long)vmf->address;
+	struct vm_area_struct *vma = vmf->vma;
+	struct sgx_encl_page *entry;
+	struct sgx_encl *encl;
+	vm_fault_t ret = 0;
+
+	encl = vma->vm_private_data;
+
+	/*
+	 * It's very unlikely but possible that allocating memory for the
+	 * mm_list entry of a forked process failed in sgx_vma_open(). When
+	 * this happens, vm_private_data is set to NULL.
+	 */
+	if (unlikely(!encl))
+		return VM_FAULT_SIGBUS;
+
+	mutex_lock(&encl->lock);
+
+	entry = xa_load(&encl->page_array, PFN_DOWN(addr));
+	if (!entry) {
+		ret = VM_FAULT_SIGBUS;
+		goto out;
+	}
+
+	if (!(entry->vm_run_prot_bits & VM_WRITE))
+		ret = VM_FAULT_SIGBUS;
+
+out:
+	mutex_unlock(&encl->lock);
+	return ret;
 }
 
 static void sgx_vma_open(struct vm_area_struct *vma)
@@ -266,6 +444,11 @@ int sgx_encl_may_map(struct sgx_encl *encl, unsigned long start,
 
 	XA_STATE(xas, &encl->page_array, PFN_DOWN(start));
 
+	/* Disallow mapping outside enclave's address range. */
+	if (test_bit(SGX_ENCL_INITIALIZED, &encl->flags) &&
+	    (start < encl->base || end > encl->base + encl->size))
+		return -EACCES;
+
 	/*
 	 * Disallow READ_IMPLIES_EXEC tasks as their VMA permissions might
 	 * conflict with the enclave page permissions.
@@ -276,7 +459,7 @@ int sgx_encl_may_map(struct sgx_encl *encl, unsigned long start,
 	mutex_lock(&encl->lock);
 	xas_lock(&xas);
 	xas_for_each(&xas, page, PFN_DOWN(end - 1)) {
-		if (~page->vm_max_prot_bits & vm_prot_bits) {
+		if (~page->vm_run_prot_bits & vm_prot_bits) {
 			ret = -EACCES;
 			break;
 		}
@@ -336,15 +519,14 @@ static int sgx_encl_debug_write(struct sgx_encl *encl, struct sgx_encl_page *pag
  * Load an enclave page to EPC if required, and take encl->lock.
  */
 static struct sgx_encl_page *sgx_encl_reserve_page(struct sgx_encl *encl,
-						   unsigned long addr,
-						   unsigned long vm_flags)
+						   unsigned long addr)
 {
 	struct sgx_encl_page *entry;
 
 	for ( ; ; ) {
 		mutex_lock(&encl->lock);
 
-		entry = sgx_encl_load_page(encl, addr, vm_flags);
+		entry = sgx_encl_load_page(encl, addr);
 		if (PTR_ERR(entry) != -EBUSY)
 			break;
 
@@ -380,8 +562,7 @@ static int sgx_vma_access(struct vm_area_struct *vma, unsigned long addr,
 		return -EFAULT;
 
 	for (i = 0; i < len; i += cnt) {
-		entry = sgx_encl_reserve_page(encl, (addr + i) & PAGE_MASK,
-					      vma->vm_flags);
+		entry = sgx_encl_reserve_page(encl, (addr + i) & PAGE_MASK);
 		if (IS_ERR(entry)) {
 			ret = PTR_ERR(entry);
 			break;
@@ -420,6 +601,7 @@ const struct vm_operations_struct sgx_vm_ops = {
 	.mprotect = sgx_vma_mprotect,
 	.open = sgx_vma_open,
 	.access = sgx_vma_access,
+	.pfn_mkwrite = sgx_vma_pfn_mkwrite,
 };
 
 /**
@@ -586,12 +768,79 @@ int sgx_encl_mm_add(struct sgx_encl *encl, struct mm_struct *mm)
 
 	spin_lock(&encl->mm_lock);
 	list_add_rcu(&encl_mm->list, &encl->mm_list);
-	/* Pairs with smp_rmb() in sgx_reclaimer_block(). */
+	/* Pairs with smp_rmb() in sgx_zap_enclave_ptes(). */
 	smp_wmb();
 	encl->mm_list_version++;
 	spin_unlock(&encl->mm_lock);
 
 	return 0;
+}
+
+/**
+ * sgx_encl_cpumask() - Query which CPUs might be accessing the enclave
+ * @encl: the enclave
+ *
+ * Some SGX functions require that no cached linear-to-physical address
+ * mappings are present before they can succeed. For example, ENCLS[EWB]
+ * copies a page from the enclave page cache to regular main memory but
+ * it fails if it cannot ensure that there are no cached
+ * linear-to-physical address mappings referring to the page.
+ *
+ * SGX hardware flushes all cached linear-to-physical mappings on a CPU
+ * when an enclave is exited via ENCLU[EEXIT] or an Asynchronous Enclave
+ * Exit (AEX). Exiting an enclave will thus ensure cached linear-to-physical
+ * address mappings are cleared but coordination with the tracking done within
+ * the SGX hardware is needed to support the SGX functions that depend on this
+ * cache clearing.
+ *
+ * When the ENCLS[ETRACK] function is issued on an enclave the hardware
+ * tracks threads operating inside the enclave at that time. The SGX
+ * hardware tracking require that all the identified threads must have
+ * exited the enclave in order to flush the mappings before a function such
+ * as ENCLS[EWB] will be permitted
+ *
+ * The following flow is used to support SGX functions that require that
+ * no cached linear-to-physical address mappings are present:
+ * 1) Execute ENCLS[ETRACK] to initiate hardware tracking.
+ * 2) Use this function (sgx_encl_cpumask()) to query which CPUs might be
+ *    accessing the enclave.
+ * 3) Send IPI to identified CPUs, kicking them out of the enclave and
+ *    thus flushing all locally cached linear-to-physical address mappings.
+ * 4) Execute SGX function.
+ *
+ * Context: It is required to call this function after ENCLS[ETRACK].
+ *          This will ensure that if any new mm appears (racing with
+ *          sgx_encl_mm_add()) then the new mm will enter into the
+ *          enclave with fresh linear-to-physical address mappings.
+ *
+ *          It is required that all IPIs are completed before a new
+ *          ENCLS[ETRACK] is issued so be sure to protect steps 1 to 3
+ *          of the above flow with the enclave's mutex.
+ *
+ * Return: cpumask of CPUs that might be accessing @encl
+ */
+const cpumask_t *sgx_encl_cpumask(struct sgx_encl *encl)
+{
+	cpumask_t *cpumask = &encl->cpumask;
+	struct sgx_encl_mm *encl_mm;
+	int idx;
+
+	cpumask_clear(cpumask);
+
+	idx = srcu_read_lock(&encl->srcu);
+
+	list_for_each_entry_rcu(encl_mm, &encl->mm_list, list) {
+		if (!mmget_not_zero(encl_mm->mm))
+			continue;
+
+		cpumask_or(cpumask, cpumask, mm_cpumask(encl_mm->mm));
+
+		mmput_async(encl_mm->mm);
+	}
+
+	srcu_read_unlock(&encl->srcu, idx);
+
+	return cpumask;
 }
 
 static struct page *sgx_encl_get_backing_page(struct sgx_encl *encl,
@@ -704,6 +953,49 @@ int sgx_encl_test_and_clear_young(struct mm_struct *mm,
 		return 0;
 
 	return ret;
+}
+
+/**
+ * sgx_zap_enclave_ptes() - remove PTEs mapping the address from enclave
+ * @encl: the enclave
+ * @addr: page aligned pointer to single page for which PTEs will be removed
+ *
+ * Multiple VMAs may have an enclave page mapped. Remove the PTE mapping
+ * @addr from each VMA. Ensure that page fault handler is ready to handle
+ * new mappings of @addr before calling this function.
+ */
+void sgx_zap_enclave_ptes(struct sgx_encl *encl, unsigned long addr)
+{
+	unsigned long mm_list_version;
+	struct sgx_encl_mm *encl_mm;
+	struct vm_area_struct *vma;
+	int idx, ret;
+
+	do {
+		mm_list_version = encl->mm_list_version;
+
+		/* Pairs with smp_wmb() in sgx_encl_mm_add(). */
+		smp_rmb();
+
+		idx = srcu_read_lock(&encl->srcu);
+
+		list_for_each_entry_rcu(encl_mm, &encl->mm_list, list) {
+			if (!mmget_not_zero(encl_mm->mm))
+				continue;
+
+			mmap_read_lock(encl_mm->mm);
+
+			ret = sgx_encl_find(encl_mm->mm, addr, &vma);
+			if (!ret && encl == vma->vm_private_data)
+				zap_vma_ptes(vma, addr, PAGE_SIZE);
+
+			mmap_read_unlock(encl_mm->mm);
+
+			mmput_async(encl_mm->mm);
+		}
+
+		srcu_read_unlock(&encl->srcu, idx);
+	} while (unlikely(encl->mm_list_version != mm_list_version));
 }
 
 /**

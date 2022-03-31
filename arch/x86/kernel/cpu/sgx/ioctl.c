@@ -17,7 +17,7 @@
 #include "encl.h"
 #include "encls.h"
 
-static struct sgx_va_page *sgx_encl_grow(struct sgx_encl *encl)
+struct sgx_va_page *sgx_encl_grow(struct sgx_encl *encl)
 {
 	struct sgx_va_page *va_page = NULL;
 	void *err;
@@ -43,7 +43,7 @@ static struct sgx_va_page *sgx_encl_grow(struct sgx_encl *encl)
 	return va_page;
 }
 
-static void sgx_encl_shrink(struct sgx_encl *encl, struct sgx_va_page *va_page)
+void sgx_encl_shrink(struct sgx_encl *encl, struct sgx_va_page *va_page)
 {
 	encl->page_cnt--;
 
@@ -107,6 +107,7 @@ static int sgx_encl_create(struct sgx_encl *encl, struct sgx_secs *secs)
 		set_bit(SGX_ENCL_DEBUG, &encl->flags);
 
 	encl->secs.encl = encl;
+	encl->secs.type = SGX_PAGE_TYPE_SECS;
 	encl->base = secs->base;
 	encl->size = secs->size;
 	encl->attributes = secs->attributes;
@@ -196,6 +197,12 @@ static struct sgx_encl_page *sgx_encl_page_alloc(struct sgx_encl *encl,
 
 	/* Calculate maximum of the VM flags for the page. */
 	encl_page->vm_max_prot_bits = calc_vm_prot_bits(prot, 0);
+
+	/*
+	 * At time of allocation, the runtime protection bits are the same
+	 * as the maximum protection bits.
+	 */
+	encl_page->vm_run_prot_bits = encl_page->vm_max_prot_bits;
 
 	return encl_page;
 }
@@ -344,6 +351,7 @@ static int sgx_encl_add_page(struct sgx_encl *encl, unsigned long src,
 	 */
 	encl_page->encl = encl;
 	encl_page->epc_page = epc_page;
+	encl_page->type = (secinfo->flags & SGX_SECINFO_PAGE_TYPE_MASK) >> 8;
 	encl->secs_child_cnt++;
 
 	if (flags & SGX_PAGE_MEASURE) {
@@ -370,6 +378,26 @@ err_out_free:
 	kfree(encl_page);
 
 	return ret;
+}
+
+/*
+ * Ensure user provided offset and length values are valid for
+ * an enclave.
+ */
+static int sgx_validate_offset_length(struct sgx_encl *encl,
+				      unsigned long offset,
+				      unsigned long length)
+{
+	if (!IS_ALIGNED(offset, PAGE_SIZE))
+		return -EINVAL;
+
+	if (!length || length & (PAGE_SIZE - 1))
+		return -EINVAL;
+
+	if (offset + length - PAGE_SIZE >= encl->size)
+		return -EINVAL;
+
+	return 0;
 }
 
 /**
@@ -425,14 +453,10 @@ static long sgx_ioc_enclave_add_pages(struct sgx_encl *encl, void __user *arg)
 	if (copy_from_user(&add_arg, arg, sizeof(add_arg)))
 		return -EFAULT;
 
-	if (!IS_ALIGNED(add_arg.offset, PAGE_SIZE) ||
-	    !IS_ALIGNED(add_arg.src, PAGE_SIZE))
+	if (!IS_ALIGNED(add_arg.src, PAGE_SIZE))
 		return -EINVAL;
 
-	if (!add_arg.length || add_arg.length & (PAGE_SIZE - 1))
-		return -EINVAL;
-
-	if (add_arg.offset + add_arg.length - PAGE_SIZE >= encl->size)
+	if (sgx_validate_offset_length(encl, add_arg.offset, add_arg.length))
 		return -EINVAL;
 
 	if (copy_from_user(&secinfo, (void __user *)add_arg.secinfo,
@@ -674,6 +698,785 @@ static long sgx_ioc_enclave_provision(struct sgx_encl *encl, void __user *arg)
 	return sgx_set_attribute(&encl->attributes_mask, params.fd);
 }
 
+static unsigned long vm_prot_from_secinfo(u64 secinfo_perm)
+{
+	unsigned long vm_prot;
+
+	vm_prot = _calc_vm_trans(secinfo_perm, SGX_SECINFO_R, PROT_READ)  |
+		  _calc_vm_trans(secinfo_perm, SGX_SECINFO_W, PROT_WRITE) |
+		  _calc_vm_trans(secinfo_perm, SGX_SECINFO_X, PROT_EXEC);
+	vm_prot = calc_vm_prot_bits(vm_prot, 0);
+
+	return vm_prot;
+}
+
+/**
+ * sgx_enclave_relax_perm() - Update OS after permissions relaxed by enclave
+ * @encl:	Enclave to which the pages belong.
+ * @modp:	Checked parameters from user on which pages need modifying.
+ * @secinfo_perm: New validated permission bits.
+ *
+ * Return:
+ * - 0:		Success.
+ * - -errno:	Otherwise.
+ */
+static long sgx_enclave_relax_perm(struct sgx_encl *encl,
+				   struct sgx_enclave_relax_perm *modp,
+				   u64 secinfo_perm)
+{
+	struct sgx_encl_page *entry;
+	unsigned long vm_prot;
+	unsigned long addr;
+	unsigned long c;
+	int ret;
+
+	vm_prot = vm_prot_from_secinfo(secinfo_perm);
+
+	for (c = 0 ; c < modp->length; c += PAGE_SIZE) {
+		addr = encl->base + modp->offset + c;
+
+		mutex_lock(&encl->lock);
+
+		entry = xa_load(&encl->page_array, PFN_DOWN(addr));
+		if (!entry) {
+			ret = -EFAULT;
+			goto out_unlock;
+		}
+
+		/*
+		 * Changing EPCM permissions is only supported on regular
+		 * SGX pages.
+		 */
+		if (entry->type != SGX_PAGE_TYPE_REG) {
+			ret = -EINVAL;
+			goto out_unlock;
+		}
+
+		/*
+		 * Do not accept permissions that are more relaxed
+		 * than vetted permissions.
+		 * If this check fails then EPCM permissions may be more
+		 * relaxed that what would be allowed by the kernel via
+		 * PTEs.
+		 */
+		if ((entry->vm_max_prot_bits & vm_prot) != vm_prot) {
+			ret = -EPERM;
+			goto out_unlock;
+		}
+
+		/*
+		 * Change runtime protection before zapping PTEs to ensure
+		 * any new #PF uses new permissions.
+		 */
+		entry->vm_run_prot_bits = vm_prot;
+
+		mutex_unlock(&encl->lock);
+		/*
+		 * Do not keep encl->lock because of dependency on
+		 * mmap_lock acquired in sgx_zap_enclave_ptes().
+		 */
+		sgx_zap_enclave_ptes(encl, addr);
+	}
+
+	ret = 0;
+	goto out;
+
+out_unlock:
+	mutex_unlock(&encl->lock);
+out:
+	modp->count = c;
+
+	return ret;
+}
+
+/*
+ * Ensure enclave is ready for SGX2 functions. Readiness is checked
+ * by ensuring the hardware supports SGX2 and the enclave is initialized
+ * and thus able to handle requests to modify pages within it.
+ */
+static int sgx_ioc_sgx2_ready(struct sgx_encl *encl)
+{
+	if (!(cpu_feature_enabled(X86_FEATURE_SGX2)))
+		return -ENODEV;
+
+	if (!test_bit(SGX_ENCL_INITIALIZED, &encl->flags))
+		return -EINVAL;
+
+	return 0;
+}
+
+/*
+ * Return valid permission fields from a secinfo structure provided by
+ * user space. The secinfo structure is required to only have bits in
+ * the permission fields set.
+ */
+static int sgx_perm_from_user_secinfo(void __user *_secinfo, u64 *secinfo_perm)
+{
+	struct sgx_secinfo secinfo;
+	u64 perm;
+
+	if (copy_from_user(&secinfo, (void __user *)_secinfo,
+			   sizeof(secinfo)))
+		return -EFAULT;
+
+	if (secinfo.flags & ~SGX_SECINFO_PERMISSION_MASK)
+		return -EINVAL;
+
+	if (memchr_inv(secinfo.reserved, 0, sizeof(secinfo.reserved)))
+		return -EINVAL;
+
+	perm = secinfo.flags & SGX_SECINFO_PERMISSION_MASK;
+
+	if ((perm & SGX_SECINFO_W) && !(perm & SGX_SECINFO_R))
+		return -EINVAL;
+
+	*secinfo_perm = perm;
+
+	return 0;
+}
+
+/**
+ * sgx_ioc_enclave_relax_perm() - handler for
+ *                                %SGX_IOC_ENCLAVE_RELAX_PERMISSIONS
+ * @encl:	an enclave pointer
+ * @arg:	userspace pointer to a &struct sgx_enclave_relax_perm instance
+ *
+ * SGX2 distinguishes between relaxing and restricting the enclave page
+ * permissions maintained by the hardware (EPCM permissions) of pages
+ * belonging to an initialized enclave (after %SGX_IOC_ENCLAVE_INIT).
+ *
+ * EPCM permissions can be relaxed anytime directly from within the enclave
+ * with no visibility from the kernel. This is accomplished with
+ * ENCLU[EMODPE] run from within the enclave. Accessing pages with
+ * the new, relaxed permissions requires the kernel to update the PTE
+ * to handle the subsequent #PF correctly.
+ *
+ * Enclave page permissions are not allowed to exceed the
+ * maximum vetted permissions maintained in
+ * &struct sgx_encl_page->vm_max_prot_bits. If the enclave
+ * exceeds these permissions by running ENCLU[EMODPE] from within the enclave
+ * the kernel will prevent access to the pages via PTE and
+ * VMA permissions.
+ *
+ * Return:
+ * - 0:		Success
+ * - -errno:	Otherwise
+ */
+static long sgx_ioc_enclave_relax_perm(struct sgx_encl *encl, void __user *arg)
+{
+	struct sgx_enclave_relax_perm params;
+	u64 secinfo_perm;
+	long ret;
+
+	ret = sgx_ioc_sgx2_ready(encl);
+	if (ret)
+		return ret;
+
+	if (copy_from_user(&params, arg, sizeof(params)))
+		return -EFAULT;
+
+	if (sgx_validate_offset_length(encl, params.offset, params.length))
+		return -EINVAL;
+
+	ret = sgx_perm_from_user_secinfo((void __user *)params.secinfo,
+					 &secinfo_perm);
+	if (ret)
+		return ret;
+
+	if (params.count)
+		return -EINVAL;
+
+	ret = sgx_enclave_relax_perm(encl, &params, secinfo_perm);
+
+	if (copy_to_user(arg, &params, sizeof(params)))
+		return -EFAULT;
+
+	return ret;
+}
+
+/*
+ * Some SGX functions require that no cached linear-to-physical address
+ * mappings are present before they can succeed. Collaborate with
+ * hardware via ENCLS[ETRACK] to ensure that all cached
+ * linear-to-physical address mappings belonging to all threads of
+ * the enclave are cleared. See sgx_encl_cpumask() for details.
+ */
+static int sgx_enclave_etrack(struct sgx_encl *encl)
+{
+	void *epc_virt;
+	int ret;
+
+	epc_virt = sgx_get_epc_virt_addr(encl->secs.epc_page);
+	ret = __etrack(epc_virt);
+	if (ret) {
+		/*
+		 * ETRACK only fails when there is an OS issue. For
+		 * example, two consecutive ETRACK was sent without
+		 * completed IPI between.
+		 */
+		pr_err_once("ETRACK returned %d (0x%x)", ret, ret);
+		/*
+		 * Send IPIs to kick CPUs out of the enclave and
+		 * try ETRACK again.
+		 */
+		on_each_cpu_mask(sgx_encl_cpumask(encl), sgx_ipi_cb, NULL, 1);
+		ret = __etrack(epc_virt);
+		if (ret) {
+			pr_err_once("ETRACK repeat returned %d (0x%x)",
+				    ret, ret);
+			return -EFAULT;
+		}
+	}
+	on_each_cpu_mask(sgx_encl_cpumask(encl), sgx_ipi_cb, NULL, 1);
+
+	return 0;
+}
+
+/**
+ * sgx_enclave_restrict_perm() - Restrict EPCM permissions and align OS view
+ * @encl:	Enclave to which the pages belong.
+ * @modp:	Checked parameters from user on which pages need modifying.
+ * @secinfo_perm: New (validated) permission bits.
+ *
+ * Return:
+ * - 0:		Success.
+ * - -errno:	Otherwise.
+ */
+static long sgx_enclave_restrict_perm(struct sgx_encl *encl,
+				      struct sgx_enclave_restrict_perm *modp,
+				      u64 secinfo_perm)
+{
+	unsigned long vm_prot, run_prot_restore;
+	struct sgx_encl_page *entry;
+	struct sgx_secinfo secinfo;
+	unsigned long addr;
+	unsigned long c;
+	void *epc_virt;
+	int ret;
+
+	memset(&secinfo, 0, sizeof(secinfo));
+	secinfo.flags = secinfo_perm;
+
+	vm_prot = vm_prot_from_secinfo(secinfo_perm);
+
+	for (c = 0 ; c < modp->length; c += PAGE_SIZE) {
+		addr = encl->base + modp->offset + c;
+
+		sgx_direct_reclaim();
+
+		mutex_lock(&encl->lock);
+
+		entry = sgx_encl_load_page(encl, addr);
+		if (IS_ERR(entry)) {
+			ret = PTR_ERR(entry) == -EBUSY ? -EAGAIN : -EFAULT;
+			goto out_unlock;
+		}
+
+		/*
+		 * Changing EPCM permissions is only supported on regular
+		 * SGX pages. Attempting this change on other pages will
+		 * result in #PF.
+		 */
+		if (entry->type != SGX_PAGE_TYPE_REG) {
+			ret = -EINVAL;
+			goto out_unlock;
+		}
+
+		/*
+		 * Do not verify if current runtime protection bits are what
+		 * is being requested. The enclave may have relaxed EPCM
+		 * permissions calls without letting the kernel know and
+		 * thus permission restriction may still be needed even if
+		 * from the kernel's perspective the permissions are unchanged.
+		 */
+
+		/* New permissions should never exceed vetted permissions. */
+		if ((entry->vm_max_prot_bits & vm_prot) != vm_prot) {
+			ret = -EPERM;
+			goto out_unlock;
+		}
+
+		/* Make sure page stays around while releasing mutex. */
+		if (sgx_unmark_page_reclaimable(entry->epc_page)) {
+			ret = -EAGAIN;
+			goto out_unlock;
+		}
+
+		/*
+		 * Change runtime protection before zapping PTEs to ensure
+		 * any new #PF uses new permissions. EPCM permissions (if
+		 * needed) not changed yet.
+		 */
+		run_prot_restore = entry->vm_run_prot_bits;
+		entry->vm_run_prot_bits = vm_prot;
+
+		mutex_unlock(&encl->lock);
+		/*
+		 * Do not keep encl->lock because of dependency on
+		 * mmap_lock acquired in sgx_zap_enclave_ptes().
+		 */
+		sgx_zap_enclave_ptes(encl, addr);
+
+		mutex_lock(&encl->lock);
+
+		/* Change EPCM permissions. */
+		epc_virt = sgx_get_epc_virt_addr(entry->epc_page);
+		ret = __emodpr(&secinfo, epc_virt);
+		if (encls_faulted(ret)) {
+			/*
+			 * All possible faults should be avoidable:
+			 * parameters have been checked, will only change
+			 * permissions of a regular page, and no concurrent
+			 * SGX1/SGX2 ENCLS instructions since these
+			 * are protected with mutex.
+			 */
+			pr_err_once("EMODPR encountered exception %d\n",
+				    ENCLS_TRAPNR(ret));
+			ret = -EFAULT;
+			goto out_prot_restore;
+		}
+		if (encls_failed(ret)) {
+			modp->result = ret;
+			ret = -EFAULT;
+			goto out_prot_restore;
+		}
+
+		ret = sgx_enclave_etrack(encl);
+		if (ret) {
+			ret = -EFAULT;
+			goto out_reclaim;
+		}
+
+		sgx_mark_page_reclaimable(entry->epc_page);
+		mutex_unlock(&encl->lock);
+	}
+
+	ret = 0;
+	goto out;
+
+out_prot_restore:
+	entry->vm_run_prot_bits = run_prot_restore;
+out_reclaim:
+	sgx_mark_page_reclaimable(entry->epc_page);
+out_unlock:
+	mutex_unlock(&encl->lock);
+out:
+	modp->count = c;
+
+	return ret;
+}
+
+/**
+ * sgx_ioc_enclave_restrict_perm() - handler for
+ *                                   %SGX_IOC_ENCLAVE_RESTRICT_PERMISSIONS
+ * @encl:	an enclave pointer
+ * @arg:	userspace pointer to a &struct sgx_enclave_restrict_perm
+ *		instance
+ *
+ * SGX2 distinguishes between relaxing and restricting the enclave page
+ * permissions maintained by the hardware (EPCM permissions) of pages
+ * belonging to an initialized enclave (after SGX_IOC_ENCLAVE_INIT).
+ *
+ * EPCM permissions cannot be restricted from within the enclave, the enclave
+ * requires the kernel to run the privileged level 0 instructions ENCLS[EMODPR]
+ * and ENCLS[ETRACK]. An attempt to relax EPCM permissions with this call
+ * will be ignored by the hardware.
+ *
+ * Enclave page permissions are not allowed to exceed the maximum vetted
+ * permissions maintained in &struct sgx_encl_page->vm_max_prot_bits.
+ *
+ * Return:
+ * - 0:		Success
+ * - -errno:	Otherwise
+ */
+static long sgx_ioc_enclave_restrict_perm(struct sgx_encl *encl,
+					  void __user *arg)
+{
+	struct sgx_enclave_restrict_perm params;
+	u64 secinfo_perm;
+	long ret;
+
+	ret = sgx_ioc_sgx2_ready(encl);
+	if (ret)
+		return ret;
+
+	if (copy_from_user(&params, arg, sizeof(params)))
+		return -EFAULT;
+
+	if (sgx_validate_offset_length(encl, params.offset, params.length))
+		return -EINVAL;
+
+	ret = sgx_perm_from_user_secinfo((void __user *)params.secinfo,
+					 &secinfo_perm);
+	if (ret)
+		return ret;
+
+	if (params.result || params.count)
+		return -EINVAL;
+
+	ret = sgx_enclave_restrict_perm(encl, &params, secinfo_perm);
+
+	if (copy_to_user(arg, &params, sizeof(params)))
+		return -EFAULT;
+
+	return ret;
+}
+
+/**
+ * sgx_enclave_modt() - Modify type of SGX enclave pages
+ * @encl:	Enclave to which the pages belong.
+ * @modt:	Checked parameters from user about which pages need modifying.
+ * @page_type:	New page type.
+ *
+ * Return:
+ * - 0:		Success
+ * - -errno:	Otherwise
+ */
+static long sgx_enclave_modt(struct sgx_encl *encl,
+			     struct sgx_enclave_modt *modt,
+			     enum sgx_page_type page_type)
+{
+	unsigned long max_prot_restore, run_prot_restore;
+	struct sgx_encl_page *entry;
+	struct sgx_secinfo secinfo;
+	unsigned long prot;
+	unsigned long addr;
+	unsigned long c;
+	void *epc_virt;
+	int ret;
+
+	/*
+	 * The only new page types allowed by hardware are PT_TCS and PT_TRIM.
+	 */
+	if (page_type != SGX_PAGE_TYPE_TCS && page_type != SGX_PAGE_TYPE_TRIM)
+		return -EINVAL;
+
+	memset(&secinfo, 0, sizeof(secinfo));
+
+	secinfo.flags = page_type << 8;
+
+	for (c = 0 ; c < modt->length; c += PAGE_SIZE) {
+		addr = encl->base + modt->offset + c;
+
+		sgx_direct_reclaim();
+
+		mutex_lock(&encl->lock);
+
+		entry = sgx_encl_load_page(encl, addr);
+		if (IS_ERR(entry)) {
+			ret = PTR_ERR(entry) == -EBUSY ? -EAGAIN : -EFAULT;
+			goto out_unlock;
+		}
+
+		/*
+		 * Borrow the logic from the Intel SDM. Regular pages
+		 * (SGX_PAGE_TYPE_REG) can change type to SGX_PAGE_TYPE_TCS
+		 * or SGX_PAGE_TYPE_TRIM but TCS pages can only be trimmed.
+		 * CET pages not supported yet.
+		 */
+		if (!(entry->type == SGX_PAGE_TYPE_REG ||
+		      (entry->type == SGX_PAGE_TYPE_TCS &&
+		       page_type == SGX_PAGE_TYPE_TRIM))) {
+			ret = -EINVAL;
+			goto out_unlock;
+		}
+
+		max_prot_restore = entry->vm_max_prot_bits;
+		run_prot_restore = entry->vm_run_prot_bits;
+
+		/*
+		 * Once a regular page becomes a TCS page it cannot be
+		 * changed back. So the maximum allowed protection reflects
+		 * the TCS page that is always RW from kernel perspective but
+		 * will be inaccessible from within enclave. Before doing
+		 * so, do make sure that the new page type continues to
+		 * respect the originally vetted page permissions.
+		 */
+		if (entry->type == SGX_PAGE_TYPE_REG &&
+		    page_type == SGX_PAGE_TYPE_TCS) {
+			if (~entry->vm_max_prot_bits & (VM_READ | VM_WRITE)) {
+				ret = -EPERM;
+				goto out_unlock;
+			}
+			prot = PROT_READ | PROT_WRITE;
+			entry->vm_max_prot_bits = calc_vm_prot_bits(prot, 0);
+			entry->vm_run_prot_bits = entry->vm_max_prot_bits;
+
+			/*
+			 * Prevent page from being reclaimed while mutex
+			 * is released.
+			 */
+			if (sgx_unmark_page_reclaimable(entry->epc_page)) {
+				ret = -EAGAIN;
+				goto out_entry_changed;
+			}
+
+			/*
+			 * Do not keep encl->lock because of dependency on
+			 * mmap_lock acquired in sgx_zap_enclave_ptes().
+			 */
+			mutex_unlock(&encl->lock);
+
+			sgx_zap_enclave_ptes(encl, addr);
+
+			mutex_lock(&encl->lock);
+
+			sgx_mark_page_reclaimable(entry->epc_page);
+		}
+
+		/* Change EPC type */
+		epc_virt = sgx_get_epc_virt_addr(entry->epc_page);
+		ret = __emodt(&secinfo, epc_virt);
+		if (encls_faulted(ret)) {
+			/*
+			 * All possible faults should be avoidable:
+			 * parameters have been checked, will only change
+			 * valid page types, and no concurrent
+			 * SGX1/SGX2 ENCLS instructions since these are
+			 * protected with mutex.
+			 */
+			pr_err_once("EMODT encountered exception %d\n",
+				    ENCLS_TRAPNR(ret));
+			ret = -EFAULT;
+			goto out_entry_changed;
+		}
+		if (encls_failed(ret)) {
+			modt->result = ret;
+			ret = -EFAULT;
+			goto out_entry_changed;
+		}
+
+		ret = sgx_enclave_etrack(encl);
+		if (ret) {
+			ret = -EFAULT;
+			goto out_unlock;
+		}
+
+		entry->type = page_type;
+
+		mutex_unlock(&encl->lock);
+	}
+
+	ret = 0;
+	goto out;
+
+out_entry_changed:
+	entry->vm_max_prot_bits = max_prot_restore;
+	entry->vm_run_prot_bits = run_prot_restore;
+out_unlock:
+	mutex_unlock(&encl->lock);
+out:
+	modt->count = c;
+
+	return ret;
+}
+
+/**
+ * sgx_ioc_enclave_modt() - handler for %SGX_IOC_ENCLAVE_MODIFY_TYPE
+ * @encl:	an enclave pointer
+ * @arg:	userspace pointer to a &struct sgx_enclave_modt instance
+ *
+ * Ability to change the enclave page type supports the following use cases:
+ *
+ * * It is possible to add TCS pages to an enclave by changing the type of
+ *   regular pages (%SGX_PAGE_TYPE_REG) to TCS (%SGX_PAGE_TYPE_TCS) pages.
+ *   With this support the number of threads supported by an initialized
+ *   enclave can be increased dynamically.
+ *
+ * * Regular or TCS pages can dynamically be removed from an initialized
+ *   enclave by changing the page type to %SGX_PAGE_TYPE_TRIM. Changing the
+ *   page type to %SGX_PAGE_TYPE_TRIM marks the page for removal with actual
+ *   removal done by handler of %SGX_IOC_ENCLAVE_REMOVE_PAGES ioctl() called
+ *   after ENCLU[EACCEPT] is run on %SGX_PAGE_TYPE_TRIM page from within the
+ *   enclave.
+ *
+ * Return:
+ * - 0:		Success
+ * - -errno:	Otherwise
+ */
+static long sgx_ioc_enclave_modt(struct sgx_encl *encl, void __user *arg)
+{
+	struct sgx_enclave_modt params;
+	enum sgx_page_type page_type;
+	struct sgx_secinfo secinfo;
+	long ret;
+
+	ret = sgx_ioc_sgx2_ready(encl);
+	if (ret)
+		return ret;
+
+	if (copy_from_user(&params, arg, sizeof(params)))
+		return -EFAULT;
+
+	if (sgx_validate_offset_length(encl, params.offset, params.length))
+		return -EINVAL;
+
+	if (copy_from_user(&secinfo, (void __user *)params.secinfo,
+			   sizeof(secinfo)))
+		return -EFAULT;
+
+	if (secinfo.flags & ~SGX_SECINFO_PAGE_TYPE_MASK)
+		return -EINVAL;
+
+	if (memchr_inv(secinfo.reserved, 0, sizeof(secinfo.reserved)))
+		return -EINVAL;
+
+	if (params.result || params.count)
+		return -EINVAL;
+
+	page_type = (secinfo.flags & SGX_SECINFO_PAGE_TYPE_MASK) >> 8;
+	ret = sgx_enclave_modt(encl, &params, page_type);
+
+	if (copy_to_user(arg, &params, sizeof(params)))
+		return -EFAULT;
+
+	return ret;
+}
+
+/**
+ * sgx_encl_remove_pages() - Remove trimmed pages from SGX enclave
+ * @encl:	Enclave to which the pages belong
+ * @params:	Checked parameters from user on which pages need to be removed
+ *
+ * Return:
+ * - 0:		Success.
+ * - -errno:	Otherwise.
+ */
+static long sgx_encl_remove_pages(struct sgx_encl *encl,
+				  struct sgx_enclave_remove_pages *params)
+{
+	struct sgx_encl_page *entry;
+	struct sgx_secinfo secinfo;
+	unsigned long addr;
+	unsigned long c;
+	void *epc_virt;
+	int ret;
+
+	memset(&secinfo, 0, sizeof(secinfo));
+	secinfo.flags = SGX_SECINFO_R | SGX_SECINFO_W | SGX_SECINFO_X;
+
+	for (c = 0 ; c < params->length; c += PAGE_SIZE) {
+		addr = encl->base + params->offset + c;
+
+		sgx_direct_reclaim();
+
+		mutex_lock(&encl->lock);
+
+		entry = sgx_encl_load_page(encl, addr);
+		if (IS_ERR(entry)) {
+			ret = PTR_ERR(entry) == -EBUSY ? -EAGAIN : -EFAULT;
+			goto out_unlock;
+		}
+
+		if (entry->type != SGX_PAGE_TYPE_TRIM) {
+			ret = -EPERM;
+			goto out_unlock;
+		}
+
+		/*
+		 * ENCLS[EMODPR] is a no-op instruction used to inform if
+		 * ENCLU[EACCEPT] was run from within the enclave. If
+		 * ENCLS[EMODPR] is run with RWX on a trimmed page that is
+		 * not yet accepted then it will return
+		 * %SGX_PAGE_NOT_MODIFIABLE, after the trimmed page is
+		 * accepted the instruction will encounter a page fault.
+		 */
+		epc_virt = sgx_get_epc_virt_addr(entry->epc_page);
+		ret = __emodpr(&secinfo, epc_virt);
+		if (!encls_faulted(ret) || ENCLS_TRAPNR(ret) != X86_TRAP_PF) {
+			ret = -EPERM;
+			goto out_unlock;
+		}
+
+		if (sgx_unmark_page_reclaimable(entry->epc_page)) {
+			ret = -EBUSY;
+			goto out_unlock;
+		}
+
+		/*
+		 * Do not keep encl->lock because of dependency on
+		 * mmap_lock acquired in sgx_zap_enclave_ptes().
+		 */
+		mutex_unlock(&encl->lock);
+
+		sgx_zap_enclave_ptes(encl, addr);
+
+		mutex_lock(&encl->lock);
+
+		sgx_encl_free_epc_page(entry->epc_page);
+		encl->secs_child_cnt--;
+		entry->epc_page = NULL;
+		xa_erase(&encl->page_array, PFN_DOWN(entry->desc));
+		sgx_encl_shrink(encl, NULL);
+		kfree(entry);
+
+		mutex_unlock(&encl->lock);
+	}
+
+	ret = 0;
+	goto out;
+
+out_unlock:
+	mutex_unlock(&encl->lock);
+out:
+	params->count = c;
+
+	return ret;
+}
+
+/**
+ * sgx_ioc_enclave_remove_pages() - handler for %SGX_IOC_ENCLAVE_REMOVE_PAGES
+ * @encl:	an enclave pointer
+ * @arg:	userspace pointer to &struct sgx_enclave_remove_pages instance
+ *
+ * Final step of the flow removing pages from an initialized enclave. The
+ * complete flow is:
+ *
+ * 1) User changes the type of the pages to be removed to %SGX_PAGE_TYPE_TRIM
+ *    using the %SGX_IOC_ENCLAVE_MODIFY_TYPE ioctl().
+ * 2) User approves the page removal by running ENCLU[EACCEPT] from within
+ *    the enclave.
+ * 3) User initiates actual page removal using the
+ *    %SGX_IOC_ENCLAVE_REMOVE_PAGES ioctl() that is handled here.
+ *
+ * First remove any page table entries pointing to the page and then proceed
+ * with the actual removal of the enclave page and data in support of it.
+ *
+ * VA pages are not affected by this removal. It is thus possible that the
+ * enclave may end up with more VA pages than needed to support all its
+ * pages.
+ *
+ * Return:
+ * - 0:		Success
+ * - -errno:	Otherwise
+ */
+static long sgx_ioc_enclave_remove_pages(struct sgx_encl *encl,
+					 void __user *arg)
+{
+	struct sgx_enclave_remove_pages params;
+	long ret;
+
+	ret = sgx_ioc_sgx2_ready(encl);
+	if (ret)
+		return ret;
+
+	if (copy_from_user(&params, arg, sizeof(params)))
+		return -EFAULT;
+
+	if (sgx_validate_offset_length(encl, params.offset, params.length))
+		return -EINVAL;
+
+	if (params.count)
+		return -EINVAL;
+
+	ret = sgx_encl_remove_pages(encl, &params);
+
+	if (copy_to_user(arg, &params, sizeof(params)))
+		return -EFAULT;
+
+	return ret;
+}
+
 long sgx_ioctl(struct file *filep, unsigned int cmd, unsigned long arg)
 {
 	struct sgx_encl *encl = filep->private_data;
@@ -694,6 +1497,18 @@ long sgx_ioctl(struct file *filep, unsigned int cmd, unsigned long arg)
 		break;
 	case SGX_IOC_ENCLAVE_PROVISION:
 		ret = sgx_ioc_enclave_provision(encl, (void __user *)arg);
+		break;
+	case SGX_IOC_ENCLAVE_RELAX_PERMISSIONS:
+		ret = sgx_ioc_enclave_relax_perm(encl, (void __user *)arg);
+		break;
+	case SGX_IOC_ENCLAVE_RESTRICT_PERMISSIONS:
+		ret = sgx_ioc_enclave_restrict_perm(encl, (void __user *)arg);
+		break;
+	case SGX_IOC_ENCLAVE_MODIFY_TYPE:
+		ret = sgx_ioc_enclave_modt(encl, (void __user *)arg);
+		break;
+	case SGX_IOC_ENCLAVE_REMOVE_PAGES:
+		ret = sgx_ioc_enclave_remove_pages(encl, (void __user *)arg);
 		break;
 	default:
 		ret = -ENOIOCTLCMD;

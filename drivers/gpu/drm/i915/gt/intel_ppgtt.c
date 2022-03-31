@@ -151,6 +151,17 @@ int i915_ppgtt_init_hw(struct intel_gt *gt)
 	else if (GRAPHICS_VER(i915) == 7)
 		gen7_ppgtt_enable(gt);
 
+	/*
+	 * Tell GAM that we want to use dual-ctx. The same address space will be
+	 * shared by RCS and CCS and the HW to use bit 47 as an indication of
+	 * the source unit, so the PPGTT size needs to be limited to 47b.
+	 * This restriction does not apply in multi-ctx mode.
+	 */
+	if (IS_TIGERLAKE(i915) || IS_DG1(i915) || IS_ALDERLAKE_S(i915) || IS_ALDERLAKE_P(i915))
+		if (HAS_ENGINE(gt, CCS0) && INTEL_INFO(i915)->ppgtt_size < 48)
+			intel_uncore_write(gt->uncore, GEN12_GAM_MULT_CTXT_CTL,
+					   _MASKED_BIT_ENABLE
+					   (GEN12_GAM_MULT_CTXT_ENABLE));
 	return 0;
 }
 
@@ -289,6 +300,16 @@ void i915_vm_free_pt_stash(struct i915_address_space *vm,
 	}
 }
 
+int ppgtt_set_pages(struct i915_vma *vma)
+{
+	GEM_BUG_ON(vma->pages);
+
+	vma->pages = vma->obj->mm.pages;
+	vma->page_sizes = vma->obj->mm.page_sizes;
+
+	return 0;
+}
+
 void ppgtt_init(struct i915_ppgtt *ppgtt, struct intel_gt *gt,
 		unsigned long lmem_pt_obj_flags)
 {
@@ -305,4 +326,6 @@ void ppgtt_init(struct i915_ppgtt *ppgtt, struct intel_gt *gt,
 
 	ppgtt->vm.vma_ops.bind_vma    = ppgtt_bind_vma;
 	ppgtt->vm.vma_ops.unbind_vma  = ppgtt_unbind_vma;
+	ppgtt->vm.vma_ops.set_pages   = ppgtt_set_pages;
+	ppgtt->vm.vma_ops.clear_pages = clear_pages;
 }

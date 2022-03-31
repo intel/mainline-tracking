@@ -539,7 +539,8 @@ static void aggr_update_shadow(struct perf_stat_config *config,
 	}
 }
 
-static void uniquify_event_name(struct evsel *counter)
+static void uniquify_event_name(struct evsel *counter,
+				struct perf_stat_config *stat_config)
 {
 	char *new_name;
 	char *config;
@@ -558,7 +559,8 @@ static void uniquify_event_name(struct evsel *counter)
 			counter->name = new_name;
 		}
 	} else {
-		if (perf_pmu__has_hybrid()) {
+		if (perf_pmu__has_hybrid() &&
+		    stat_config->metric_events.nr_entries == 0) {
 			ret = asprintf(&new_name, "%s/%s/",
 				       counter->pmu_name, counter->name);
 		} else {
@@ -585,16 +587,19 @@ static void collect_all_aliases(struct perf_stat_config *config, struct evsel *c
 
 	alias = list_prepare_entry(counter, &(evlist->core.entries), core.node);
 	list_for_each_entry_continue (alias, &evlist->core.entries, core.node) {
-		/* Merge events with the same name, etc. but on different PMUs. */
-		if (!strcmp(evsel__name(alias), evsel__name(counter)) &&
-			alias->scale == counter->scale &&
-			alias->cgrp == counter->cgrp &&
-			!strcmp(alias->unit, counter->unit) &&
-			evsel__is_clock(alias) == evsel__is_clock(counter) &&
-			strcmp(alias->pmu_name, counter->pmu_name)) {
-			alias->merged_stat = true;
-			cb(config, alias, data, false);
-		}
+		if (strcmp(evsel__name(alias), evsel__name(counter)) ||
+		    alias->scale != counter->scale ||
+		    alias->cgrp != counter->cgrp ||
+		    strcmp(alias->unit, counter->unit) ||
+		    evsel__is_clock(alias) != evsel__is_clock(counter) ||
+		    !strcmp(alias->pmu_name, counter->pmu_name) ||
+		    (evsel__is_hybrid(alias) &&
+		     evsel__is_hybrid(counter) &&
+		     !config->hybrid_merge &&
+		     strcmp(alias->pmu_name, counter->pmu_name)))
+			break;
+		alias->merged_stat = true;
+		cb(config, alias, data, false);
 	}
 }
 
@@ -618,9 +623,9 @@ static bool collect_data(struct perf_stat_config *config, struct evsel *counter,
 	if (counter->merged_stat)
 		return false;
 	cb(config, counter, data, true);
-	if (config->no_merge || hybrid_uniquify(counter))
-		uniquify_event_name(counter);
-	else if (counter->auto_merge_stats)
+	if (config->no_merge || (hybrid_uniquify(counter) && !config->hybrid_merge))
+		uniquify_event_name(counter, config);
+	else if (counter->auto_merge_stats || config->hybrid_merge)
 		collect_all_aliases(config, counter, cb, data);
 	return true;
 }
