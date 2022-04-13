@@ -2364,4 +2364,6 @@ static inline void sched_core_free(struct task_struct *tsk) { }
 static inline void sched_core_fork(struct task_struct *p) { }
 #endif
 
+extern void sched_set_stop_task(int cpu, struct task_struct *stop);
+
 #endif
