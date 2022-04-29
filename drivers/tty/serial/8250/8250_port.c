@@ -1224,6 +1224,7 @@ static void autoconfig(struct uart_8250_port *up)
 	unsigned char status1, scratch, scratch2, scratch3;
 	unsigned char save_lcr, save_mcr;
 	struct uart_port *port = &up->port;
+	unsigned long cs_flags;
 	unsigned long flags;
 	unsigned int old_capabilities;
 	bool is_console;
@@ -1244,8 +1245,6 @@ static void autoconfig(struct uart_8250_port *up)
 	up->bugs = 0;
 
 	if (!(port->flags & UPF_BUGGY_UART)) {
-		unsigned long cs_flags;
-
 		is_console = uart_console(port);
 
 		if (is_console)

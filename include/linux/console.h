@@ -137,7 +137,6 @@ static inline int con_debug_leave(void)
 #define CON_ANYTIME	(16) /* Safe to call when cpu is offline */
 #define CON_BRL		(32) /* Used for a braille device */
 #define CON_EXTENDED	(64) /* Use the extended output format a la /dev/kmsg */
-#define CON_THD_BLOCKED	(128) /* Thread blocked because console is locked */
 
 #ifdef CONFIG_HAVE_ATOMIC_CONSOLE
 struct console_atomic_data {
@@ -169,12 +168,13 @@ struct console {
 	struct console_atomic_data *atomic_data;
 #endif
 	struct task_struct *thread;
+	bool	blocked;
 
 	/*
 	 * The per-console lock is used by printing kthreads to synchronize
 	 * this console with callers of console_lock(). This is necessary in
 	 * order to allow printing kthreads to run in parallel to each other,
-	 * while each safely accessing their own @flags and synchronizing
+	 * while each safely accessing the @blocked field and synchronizing
 	 * against direct printing via console_lock/console_unlock.
 	 *
 	 * Note: For synchronizing against direct printing via
