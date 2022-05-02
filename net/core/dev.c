@@ -10357,9 +10357,9 @@ struct rtnl_link_stats64 *dev_get_stats(struct net_device *dev,
 
 		for_each_possible_cpu(i) {
 			core_stats = per_cpu_ptr(p, i);
-			storage->rx_dropped += core_stats->rx_dropped;
-			storage->tx_dropped += core_stats->tx_dropped;
-			storage->rx_nohandler += core_stats->rx_nohandler;
+			storage->rx_dropped += READ_ONCE(core_stats->rx_dropped);
+			storage->tx_dropped += READ_ONCE(core_stats->tx_dropped);
+			storage->rx_nohandler += READ_ONCE(core_stats->rx_nohandler);
 		}
 	}
 	return storage;
