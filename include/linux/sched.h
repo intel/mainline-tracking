@@ -103,7 +103,7 @@ struct task_group;
 /* Convenience macros for the sake of set_current_state: */
 #define TASK_KILLABLE			(TASK_WAKEKILL | TASK_UNINTERRUPTIBLE)
 #define TASK_STOPPED			(TASK_WAKEKILL | __TASK_STOPPED)
-#define TASK_TRACED			(TASK_WAKEKILL | __TASK_TRACED)
+#define TASK_TRACED			__TASK_TRACED
 
 #define TASK_IDLE			(TASK_UNINTERRUPTIBLE | TASK_NOLOAD)
 
@@ -118,7 +118,9 @@ struct task_group;
 
 #define task_is_running(task)		(READ_ONCE((task)->__state) == TASK_RUNNING)
 
-#define task_is_stopped(task)		((READ_ONCE(task->__state) & __TASK_STOPPED) != 0)
+#define task_is_traced(task)		((READ_ONCE(task->jobctl) & JOBCTL_TRACED) != 0)
+#define task_is_stopped(task)		((READ_ONCE(task->jobctl) & JOBCTL_STOPPED) != 0)
+#define task_is_stopped_or_traced(task)	((READ_ONCE(task->jobctl) & (JOBCTL_STOPPED | JOBCTL_TRACED)) != 0)
 
 /*
  * Special states are those that do not use the normal wait-loop pattern. See
@@ -2060,130 +2062,6 @@ static inline int need_resched_now(void)
 }
 
 #endif
-
-#ifdef CONFIG_PREEMPT_RT
-
-static inline bool task_state_match_and(struct task_struct *tsk, long state)
-{
-	unsigned long flags;
-	bool match = false;
-
-	raw_spin_lock_irqsave(&tsk->pi_lock, flags);
-	if (READ_ONCE(tsk->__state) & state)
-		match = true;
-	else if (tsk->saved_state & state)
-		match = true;
-	raw_spin_unlock_irqrestore(&tsk->pi_lock, flags);
-	return match;
-}
-
-static inline int __task_state_match_eq(struct task_struct *tsk, long state)
-{
-	int match = 0;
-
-	if (READ_ONCE(tsk->__state) == state)
-		match = 1;
-	else if (tsk->saved_state == state)
-		match = -1;
-
-	return match;
-}
-
-static inline int task_state_match_eq(struct task_struct *tsk, long state)
-{
-	unsigned long flags;
-	int match;
-
-	raw_spin_lock_irqsave(&tsk->pi_lock, flags);
-	match = __task_state_match_eq(tsk, state);
-	raw_spin_unlock_irqrestore(&tsk->pi_lock, flags);
-	return match;
-}
-
-static inline bool task_state_match_and_set(struct task_struct *tsk, long state,
-					    long new_state)
-{
-	unsigned long flags;
-	bool match = false;
-
-	raw_spin_lock_irqsave(&tsk->pi_lock, flags);
-	if (READ_ONCE(tsk->__state) & state) {
-		WRITE_ONCE(tsk->__state, new_state);
-		match = true;
-	} else if (tsk->saved_state & state) {
-		tsk->saved_state = new_state;
-		match = true;
-	}
-	raw_spin_unlock_irqrestore(&tsk->pi_lock, flags);
-	return match;
-}
-
-static inline bool task_state_match_eq_set(struct task_struct *tsk, long state,
-					   long new_state)
-{
-	unsigned long flags;
-	bool match = false;
-
-	raw_spin_lock_irqsave(&tsk->pi_lock, flags);
-	if (READ_ONCE(tsk->__state) == state) {
-		WRITE_ONCE(tsk->__state, new_state);
-		match = true;
-	} else if (tsk->saved_state == state) {
-		tsk->saved_state = new_state;
-		match = true;
-	}
-	raw_spin_unlock_irqrestore(&tsk->pi_lock, flags);
-	return match;
-}
-
-#else
-
-static inline bool task_state_match_and(struct task_struct *tsk, long state)
-{
-	return READ_ONCE(tsk->__state) & state;
-}
-
-static inline int __task_state_match_eq(struct task_struct *tsk, long state)
-{
-	return READ_ONCE(tsk->__state) == state;
-}
-
-static inline int task_state_match_eq(struct task_struct *tsk, long state)
-{
-	return __task_state_match_eq(tsk, state);
-}
-
-static inline bool task_state_match_and_set(struct task_struct *tsk, long state,
-					    long new_state)
-{
-	if (READ_ONCE(tsk->__state) & state) {
-		WRITE_ONCE(tsk->__state, new_state);
-		return true;
-	}
-	return false;
-}
-
-static inline bool task_state_match_eq_set(struct task_struct *tsk, long state,
-					   long new_state)
-{
-	if (READ_ONCE(tsk->__state) == state) {
-		WRITE_ONCE(tsk->__state, new_state);
-		return true;
-	}
-	return false;
-}
-
-#endif
-
-static inline bool task_is_traced(struct task_struct *tsk)
-{
-	return task_state_match_and(tsk, __TASK_TRACED);
-}
-
-static inline bool task_is_stopped_or_traced(struct task_struct *tsk)
-{
-	return task_state_match_and(tsk, __TASK_STOPPED | __TASK_TRACED);
-}
 
 /*
  * cond_resched() and cond_resched_lock(): latency reduction via

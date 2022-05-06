@@ -3327,10 +3327,10 @@ unsigned long wait_task_inactive(struct task_struct *p, unsigned int match_state
 	struct rq_flags rf;
 	unsigned long ncsw;
 	struct rq *rq;
+	bool saved_state_match;
+	bool update_ncsw;
 
 	for (;;) {
-		int match_type = 0;
-
 		/*
 		 * We do the initial early heuristics without holding
 		 * any task-queue locks at all. We'll only try to get
@@ -3351,9 +3351,22 @@ unsigned long wait_task_inactive(struct task_struct *p, unsigned int match_state
 		 * is actually now running somewhere else!
 		 */
 		while (task_running(rq, p)) {
-			if (match_state &&
-			    unlikely(!task_state_match_eq(p, match_state)))
-				return 0;
+			if (match_state) {
+				unsigned long flags;
+				bool missmatch = false;
+
+				raw_spin_lock_irqsave(&p->pi_lock, flags);
+#ifdef CONFIG_PREEMPT_RT
+				if ((READ_ONCE(p->__state) != match_state) &&
+				    (READ_ONCE(p->saved_state) != match_state))
+#else
+				if (READ_ONCE(p->__state) != match_state)
+#endif
+					missmatch = true;
+				raw_spin_unlock_irqrestore(&p->pi_lock, flags);
+				if (missmatch)
+					return 0;
+			}
 			cpu_relax();
 		}
 
@@ -3367,9 +3380,21 @@ unsigned long wait_task_inactive(struct task_struct *p, unsigned int match_state
 		running = task_running(rq, p);
 		queued = task_on_rq_queued(p);
 		ncsw = 0;
-		if (match_state)
-			match_type = __task_state_match_eq(p, match_state);
-		if (!match_state || match_type)
+		update_ncsw = false;
+		saved_state_match = false;
+
+		if (!match_state) {
+			update_ncsw = true;
+		} else if (READ_ONCE(p->__state) == match_state) {
+			update_ncsw = true;
+#ifdef CONFIG_PREEMPT_RT
+		} else if (READ_ONCE(p->saved_state) == match_state) {
+			update_ncsw = true;
+			saved_state_match = true;
+#endif
+		}
+
+		if (update_ncsw)
 			ncsw = p->nvcsw | LONG_MIN; /* sets MSB */
 		task_rq_unlock(rq, p, &rf);
 
@@ -3399,7 +3424,7 @@ unsigned long wait_task_inactive(struct task_struct *p, unsigned int match_state
 		 * running right now), it's preempted, and we should
 		 * yield - it could be a while.
 		 */
-		if (unlikely(queued || match_type < 0)) {
+		if (unlikely(queued) || saved_state_match) {
 			ktime_t to = NSEC_PER_SEC / HZ;
 
 			set_current_state(TASK_UNINTERRUPTIBLE);
@@ -6363,10 +6388,7 @@ static void __sched notrace __schedule(unsigned int sched_mode)
 
 	/*
 	 * We must load prev->state once (task_struct::state is volatile), such
-	 * that:
-	 *
-	 *  - we form a control dependency vs deactivate_task() below.
-	 *  - ptrace_{,un}freeze_traced() can change ->state underneath us.
+	 * that we form a control dependency vs deactivate_task() below.
 	 */
 	prev_state = READ_ONCE(prev->__state);
 	if (!(sched_mode & SM_MASK_PREEMPT) && prev_state) {
