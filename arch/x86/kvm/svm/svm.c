@@ -5519,6 +5519,9 @@ static __init void svm_set_cpu_caps(void)
 
 	kvm_cpu_cap_clear(X86_FEATURE_IBT);
 
+	/* SVM FRED virtualization not implemented yet */
+	kvm_cpu_cap_clear(X86_FEATURE_FRED);
+
 	/* CPUID 0x80000001 and 0x8000000A (SVM features) */
 	if (nested) {
 		kvm_cpu_cap_set(X86_FEATURE_SVM);
