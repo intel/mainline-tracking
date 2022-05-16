@@ -98,7 +98,7 @@ struct dentry {
 
 	union {
 		struct list_head d_lru;		/* LRU list */
-		struct swait_queue_head *d_wait;	/* in-lookup ones only */
+		wait_queue_head_t *d_wait;	/* in-lookup ones only */
 	};
 	struct list_head d_child;	/* child of parent list */
 	struct list_head d_subdirs;	/* our children */
@@ -230,7 +230,7 @@ extern void d_set_d_op(struct dentry *dentry, const struct dentry_operations *op
 extern struct dentry * d_alloc(struct dentry *, const struct qstr *);
 extern struct dentry * d_alloc_anon(struct super_block *);
 extern struct dentry * d_alloc_parallel(struct dentry *, const struct qstr *,
-					struct swait_queue_head *);
+					wait_queue_head_t *);
 extern struct dentry * d_splice_alias(struct inode *, struct dentry *);
 extern struct dentry * d_add_ci(struct dentry *, struct inode *, struct qstr *);
 extern struct dentry * d_exact_alias(struct dentry *, struct inode *);
@@ -349,7 +349,7 @@ static inline void dont_mount(struct dentry *dentry)
 	spin_unlock(&dentry->d_lock);
 }
 
-extern void __d_lookup_done(struct dentry *);
+extern void __d_lookup_done(struct dentry *dentry);
 
 static inline int d_in_lookup(const struct dentry *dentry)
 {
@@ -358,11 +358,8 @@ static inline int d_in_lookup(const struct dentry *dentry)
 
 static inline void d_lookup_done(struct dentry *dentry)
 {
-	if (unlikely(d_in_lookup(dentry))) {
-		spin_lock(&dentry->d_lock);
+	if (unlikely(d_in_lookup(dentry)))
 		__d_lookup_done(dentry);
-		spin_unlock(&dentry->d_lock);
-	}
 }
 
 extern void dput(struct dentry *);
