@@ -221,6 +221,23 @@ struct tb_switch {
 };
 
 /**
+ * struct tb_bandwidth_group - Bandwidth management group
+ * @tb: Pointer to the domain the group belongs to
+ * @index: Index of the group (aka Group_ID). Valid values %1-%7
+ * @ports: DP IN adapters belonging to this group are linked here
+ *
+ * Any tunnel that requires isochronous bandwidth (that's DP for now) is
+ * attached to a bandwidth group. All tunnels going through the same
+ * USB4 links share the same group and can dynamically distribute the
+ * bandwidth within the group.
+ */
+struct tb_bandwidth_group {
+	struct tb *tb;
+	int index;
+	struct list_head ports;
+};
+
+/**
  * struct tb_port - a thunderbolt port, part of a tb_switch
  * @config: Cached port configuration read from registers
  * @sw: Switch the port belongs to
@@ -244,6 +261,10 @@ struct tb_switch {
  * @ctl_credits: Buffers reserved for control path
  * @dma_credits: Number of credits allocated for DMA tunneling for all
  *		 DMA paths through this port.
+ * @group: If set the adapter is assigned with bandwidth group and
+ *	   supports DP bandwidth allocation mode. Only used for DP
+ *	   IN adapters for now.
+ * @group_list: The port is linked to the group's list of ports through this
  *
  * In USB4 terminology this structure represents an adapter (protocol or
  * lane adapter).
@@ -269,6 +290,8 @@ struct tb_port {
 	unsigned int total_credits;
 	unsigned int ctl_credits;
 	unsigned int dma_credits;
+	struct tb_bandwidth_group *group;
+	struct list_head group_list;
 };
 
 /**
@@ -278,12 +301,16 @@ struct tb_port {
  * @can_offline: Does the port have necessary platform support to moved
  *		 it into offline mode and back
  * @offline: The port is currently in offline mode
+ * @margining: Pointer to margining structure if enabled
  */
 struct usb4_port {
 	struct device dev;
 	struct tb_port *port;
 	bool can_offline;
 	bool offline;
+#ifdef CONFIG_USB4_DEBUGFS_MARGINING
+	struct tb_margining *margining;
+#endif
 };
 
 /**
@@ -674,7 +701,7 @@ static inline int tb_port_write(struct tb_port *port, const void *buffer,
 #define __TB_PORT_PRINT(level, _port, fmt, arg...)                      \
 	do {                                                            \
 		const struct tb_port *__port = (_port);                 \
-		level(__port->sw->tb, "%llx:%x: " fmt,                  \
+		level(__port->sw->tb, "%llx:%u: " fmt,                  \
 		      tb_route(__port->sw), __port->port, ## arg);      \
 	} while (0)
 #define tb_port_WARN(port, fmt, arg...) \
@@ -855,6 +882,7 @@ static inline bool tb_switch_is_alpine_ridge(const struct tb_switch *sw)
 	if (sw->config.vendor_id == PCI_VENDOR_ID_INTEL) {
 		switch (sw->config.device_id) {
 		case PCI_DEVICE_ID_INTEL_ALPINE_RIDGE_2C_BRIDGE:
+		case PCI_DEVICE_ID_INTEL_ALPINE_RIDGE_4C_BRIDGE:
 		case PCI_DEVICE_ID_INTEL_ALPINE_RIDGE_LP_BRIDGE:
 		case PCI_DEVICE_ID_INTEL_ALPINE_RIDGE_C_4C_BRIDGE:
 		case PCI_DEVICE_ID_INTEL_ALPINE_RIDGE_C_2C_BRIDGE:
@@ -987,6 +1015,10 @@ int tb_switch_mask_clx_objections(struct tb_switch *sw);
 
 int tb_switch_pcie_l1_enable(struct tb_switch *sw);
 
+int tb_switch_xhci_connect(struct tb_switch *sw);
+void tb_switch_xhci_disconnect(struct tb_switch *sw);
+
+int tb_port_state(struct tb_port *port);
 int tb_wait_for_port(struct tb_port *port, bool wait_if_unplugged);
 int tb_port_add_nfc_credits(struct tb_port *port, int credits);
 int tb_port_clear_counter(struct tb_port *port, int counter);
@@ -1019,7 +1051,8 @@ static inline bool tb_port_use_credit_allocation(const struct tb_port *port)
 
 int tb_port_get_link_speed(struct tb_port *port);
 int tb_port_get_link_width(struct tb_port *port);
-int tb_port_state(struct tb_port *port);
+int tb_port_set_link_width(struct tb_port *port, unsigned int width);
+int tb_port_set_lane_bonding(struct tb_port *port, bool bonding);
 int tb_port_lane_bonding_enable(struct tb_port *port);
 void tb_port_lane_bonding_disable(struct tb_port *port);
 int tb_port_wait_for_link_width(struct tb_port *port, int width,
@@ -1081,6 +1114,10 @@ int tb_lc_configure_xdomain(struct tb_port *port);
 void tb_lc_unconfigure_xdomain(struct tb_port *port);
 int tb_lc_start_lane_initialization(struct tb_port *port);
 bool tb_lc_is_clx_supported(struct tb_port *port);
+bool tb_lc_is_usb_plugged(struct tb_port *port);
+bool tb_lc_is_xhci_connected(struct tb_port *port);
+int tb_lc_xhci_connect(struct tb_port *port);
+void tb_lc_xhci_disconnect(struct tb_port *port);
 int tb_lc_set_wake(struct tb_switch *sw, unsigned int flags);
 int tb_lc_set_sleep(struct tb_switch *sw);
 bool tb_lc_lane_bonding_possible(struct tb_switch *sw);
@@ -1117,6 +1154,11 @@ void tb_xdomain_add(struct tb_xdomain *xd);
 void tb_xdomain_remove(struct tb_xdomain *xd);
 struct tb_xdomain *tb_xdomain_find_by_link_depth(struct tb *tb, u8 link,
 						 u8 depth);
+
+static inline struct tb_switch *tb_xdomain_parent(struct tb_xdomain *xd)
+{
+	return tb_to_switch(xd->dev.parent);
+}
 
 int tb_retimer_scan(struct tb_port *port, bool add);
 void tb_retimer_remove_all(struct tb_port *port);
@@ -1168,6 +1210,12 @@ int usb4_port_router_offline(struct tb_port *port);
 int usb4_port_router_online(struct tb_port *port);
 int usb4_port_enumerate_retimers(struct tb_port *port);
 bool usb4_port_clx_supported(struct tb_port *port);
+int usb4_port_margining_caps(struct tb_port *port, u32 *caps);
+int usb4_port_hw_margin(struct tb_port *port, unsigned int lanes, bool timing,
+			bool right_high, u32 *results);
+int usb4_port_sw_margin(struct tb_port *port, unsigned int lanes, bool timing,
+			bool right_high, u32 counter);
+int usb4_port_sw_margin_errors(struct tb_port *port, u32 *errors);
 
 int usb4_port_retimer_set_inbound_sbtx(struct tb_port *port, u8 index);
 int usb4_port_retimer_read(struct tb_port *port, u8 index, u8 reg, void *buf,
@@ -1195,6 +1243,20 @@ int usb4_usb3_port_allocate_bandwidth(struct tb_port *port, int *upstream_bw,
 				      int *downstream_bw);
 int usb4_usb3_port_release_bandwidth(struct tb_port *port, int *upstream_bw,
 				     int *downstream_bw);
+
+int usb4_dp_port_set_cm_id(struct tb_port *port, int cm_id);
+bool usb4_dp_port_bw_mode_supported(struct tb_port *port);
+bool usb4_dp_port_bw_mode_enabled(struct tb_port *port);
+int usb4_dp_port_set_cm_bw_mode_supported(struct tb_port *port, bool supported);
+int usb4_dp_port_group_id(struct tb_port *port);
+int usb4_dp_port_set_group_id(struct tb_port *port, int group_id);
+int usb4_dp_port_nrd(struct tb_port *port, int *rate, int *lanes);
+int usb4_dp_port_set_nrd(struct tb_port *port, int rate, int lanes);
+int usb4_dp_port_set_granularity(struct tb_port *port, int granularity);
+int usb4_dp_port_set_estimated_bw(struct tb_port *port, int bw);
+int usb4_dp_port_allocated_bw(struct tb_port *port);
+int usb4_dp_port_allocate_bw(struct tb_port *port, int bw);
+int usb4_dp_port_requested_bw(struct tb_port *port);
 
 static inline bool tb_is_usb4_port_device(const struct device *dev)
 {
@@ -1250,6 +1312,8 @@ void tb_debugfs_init(void);
 void tb_debugfs_exit(void);
 void tb_switch_debugfs_init(struct tb_switch *sw);
 void tb_switch_debugfs_remove(struct tb_switch *sw);
+void tb_xdomain_debugfs_init(struct tb_xdomain *xd);
+void tb_xdomain_debugfs_remove(struct tb_xdomain *xd);
 void tb_service_debugfs_init(struct tb_service *svc);
 void tb_service_debugfs_remove(struct tb_service *svc);
 #else
@@ -1257,6 +1321,8 @@ static inline void tb_debugfs_init(void) { }
 static inline void tb_debugfs_exit(void) { }
 static inline void tb_switch_debugfs_init(struct tb_switch *sw) { }
 static inline void tb_switch_debugfs_remove(struct tb_switch *sw) { }
+static inline void tb_xdomain_debugfs_init(struct tb_xdomain *xd) { }
+static inline void tb_xdomain_debugfs_remove(struct tb_xdomain *xd) { }
 static inline void tb_service_debugfs_init(struct tb_service *svc) { }
 static inline void tb_service_debugfs_remove(struct tb_service *svc) { }
 #endif
