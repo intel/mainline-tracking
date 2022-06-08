@@ -3427,7 +3427,7 @@ static void perf_event_context_sched_out(struct task_struct *task, int ctxn,
 			perf_pmu_disable(pmu);
 
 			if (cpuctx->sched_cb_usage && pmu->sched_task)
-				pmu->sched_task(ctx, false);
+				pmu->sched_task(ctx, task, false);
 
 			/*
 			 * PMU specific parts of task perf context can require
@@ -3467,7 +3467,7 @@ unlock:
 		perf_pmu_disable(pmu);
 
 		if (cpuctx->sched_cb_usage && pmu->sched_task)
-			pmu->sched_task(ctx, false);
+			pmu->sched_task(ctx, task, false);
 		task_ctx_sched_out(cpuctx, ctx, EVENT_ALL);
 
 		perf_pmu_enable(pmu);
@@ -3506,7 +3506,8 @@ void perf_sched_cb_inc(struct pmu *pmu)
  * PEBS requires this to provide PID/TID information. This requires we flush
  * all queued PEBS records before we context switch to a new task.
  */
-static void __perf_pmu_sched_task(struct perf_cpu_context *cpuctx, bool sched_in)
+static void __perf_pmu_sched_task(struct perf_cpu_context *cpuctx,
+				  struct task_struct *task, bool sched_in)
 {
 	struct pmu *pmu;
 
@@ -3518,7 +3519,7 @@ static void __perf_pmu_sched_task(struct perf_cpu_context *cpuctx, bool sched_in
 	perf_ctx_lock(cpuctx, cpuctx->task_ctx);
 	perf_pmu_disable(pmu);
 
-	pmu->sched_task(cpuctx->task_ctx, sched_in);
+	pmu->sched_task(cpuctx->task_ctx, task, sched_in);
 
 	perf_pmu_enable(pmu);
 	perf_ctx_unlock(cpuctx, cpuctx->task_ctx);
@@ -3538,7 +3539,7 @@ static void perf_pmu_sched_task(struct task_struct *prev,
 		if (cpuctx->task_ctx)
 			continue;
 
-		__perf_pmu_sched_task(cpuctx, sched_in);
+		__perf_pmu_sched_task(cpuctx, sched_in ? next : prev, sched_in);
 	}
 }
 
@@ -3842,7 +3843,7 @@ static void perf_event_context_sched_in(struct perf_event_context *ctx,
 
 	if (cpuctx->task_ctx == ctx) {
 		if (cpuctx->sched_cb_usage)
-			__perf_pmu_sched_task(cpuctx, true);
+			__perf_pmu_sched_task(cpuctx, task, true);
 		return;
 	}
 
@@ -3868,7 +3869,7 @@ static void perf_event_context_sched_in(struct perf_event_context *ctx,
 	perf_event_sched_in(cpuctx, ctx);
 
 	if (cpuctx->sched_cb_usage && pmu->sched_task)
-		pmu->sched_task(cpuctx->task_ctx, true);
+		pmu->sched_task(cpuctx->task_ctx, task, true);
 
 	perf_pmu_enable(pmu);
 
