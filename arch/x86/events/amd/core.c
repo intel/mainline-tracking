@@ -1249,7 +1249,8 @@ static ssize_t amd_event_sysfs_show(char *page, u64 config)
 }
 
 static void amd_pmu_sched_task(struct perf_event_context *ctx,
-				 bool sched_in)
+			       struct task_struct *task,
+			       bool sched_in)
 {
 	if (sched_in && x86_pmu.lbr_nr)
 		amd_pmu_brs_sched_task(ctx, sched_in);
