@@ -170,6 +170,23 @@ static struct tb_switch *alloc_host_usb4(struct kunit *test)
 	return sw;
 }
 
+static struct tb_switch *alloc_host_lnl(struct kunit *test)
+{
+	struct tb_switch *sw;
+
+	sw = alloc_host_usb4(test);
+	if (!sw)
+		return NULL;
+
+	sw->ports[10].config.type = TB_TYPE_DP_HDMI_IN;
+	sw->ports[10].config.max_in_hop_id = 9;
+	sw->ports[10].config.max_out_hop_id = 9;
+	sw->ports[10].cap_adap = -1;
+	sw->ports[10].disabled = false;
+
+	return sw;
+}
+
 static struct tb_switch *alloc_dev_default(struct kunit *test,
 					   struct tb_switch *parent,
 					   u64 route, bool bonded)
@@ -1348,7 +1365,7 @@ static void tb_test_tunnel_dp(struct kunit *test)
 	in = &host->ports[5];
 	out = &dev->ports[13];
 
-	tunnel = tb_tunnel_alloc_dp(NULL, in, out, 0, 0);
+	tunnel = tb_tunnel_alloc_dp(NULL, in, out, 1, 0, 0);
 	KUNIT_ASSERT_TRUE(test, tunnel != NULL);
 	KUNIT_EXPECT_EQ(test, tunnel->type, TB_TUNNEL_DP);
 	KUNIT_EXPECT_PTR_EQ(test, tunnel->src_port, in);
@@ -1394,7 +1411,7 @@ static void tb_test_tunnel_dp_chain(struct kunit *test)
 	in = &host->ports[5];
 	out = &dev4->ports[14];
 
-	tunnel = tb_tunnel_alloc_dp(NULL, in, out, 0, 0);
+	tunnel = tb_tunnel_alloc_dp(NULL, in, out, 1, 0, 0);
 	KUNIT_ASSERT_TRUE(test, tunnel != NULL);
 	KUNIT_EXPECT_EQ(test, tunnel->type, TB_TUNNEL_DP);
 	KUNIT_EXPECT_PTR_EQ(test, tunnel->src_port, in);
@@ -1444,7 +1461,7 @@ static void tb_test_tunnel_dp_tree(struct kunit *test)
 	in = &dev2->ports[13];
 	out = &dev5->ports[13];
 
-	tunnel = tb_tunnel_alloc_dp(NULL, in, out, 0, 0);
+	tunnel = tb_tunnel_alloc_dp(NULL, in, out, 1, 0, 0);
 	KUNIT_ASSERT_TRUE(test, tunnel != NULL);
 	KUNIT_EXPECT_EQ(test, tunnel->type, TB_TUNNEL_DP);
 	KUNIT_EXPECT_PTR_EQ(test, tunnel->src_port, in);
@@ -1509,7 +1526,7 @@ static void tb_test_tunnel_dp_max_length(struct kunit *test)
 	in = &dev6->ports[13];
 	out = &dev12->ports[13];
 
-	tunnel = tb_tunnel_alloc_dp(NULL, in, out, 0, 0);
+	tunnel = tb_tunnel_alloc_dp(NULL, in, out, 1, 0, 0);
 	KUNIT_ASSERT_TRUE(test, tunnel != NULL);
 	KUNIT_EXPECT_EQ(test, tunnel->type, TB_TUNNEL_DP);
 	KUNIT_EXPECT_PTR_EQ(test, tunnel->src_port, in);
@@ -1540,6 +1557,71 @@ static void tb_test_tunnel_dp_max_length(struct kunit *test)
 			    &host->ports[1]);
 	KUNIT_EXPECT_PTR_EQ(test, tunnel->paths[2]->hops[12].out_port, in);
 	tb_tunnel_free(tunnel);
+}
+
+static void tb_test_tunnel_3dp(struct kunit *test)
+{
+	struct tb_switch *host, *dev1, *dev2, *dev3, *dev4, *dev5;
+	struct tb_port *in1, *in2, *in3, *out1, *out2, *out3;
+	struct tb_tunnel *tunnel1, *tunnel2, *tunnel3;
+
+	/*
+	 * Create 3 DP tunnels from Host to Devices #2, #5 and #4.
+	 *
+	 *          [Host]
+	 *           3 |
+	 *           1 |
+	 *         [Device #1]
+	 *       3 /   | 5  \ 7
+	 *      1 /    |     \ 1
+	 * [Device #2] |    [Device #4]
+	 *             | 1
+	 *         [Device #3]
+	 *             | 5
+	 *             | 1
+	 *         [Device #5]
+	 */
+	host = alloc_host_lnl(test);
+	dev1 = alloc_dev_default(test, host, 0x3, true);
+	dev2 = alloc_dev_default(test, dev1, 0x303, true);
+	dev3 = alloc_dev_default(test, dev1, 0x503, true);
+	dev4 = alloc_dev_default(test, dev1, 0x703, true);
+	dev5 = alloc_dev_default(test, dev3, 0x50503, true);
+
+	in1 = &host->ports[5];
+	in2 = &host->ports[6];
+	in3 = &host->ports[10];
+
+	out1 = &dev2->ports[13];
+	out2 = &dev5->ports[13];
+	out3 = &dev4->ports[14];
+
+	tunnel1 = tb_tunnel_alloc_dp(NULL, in1, out1, 1, 0, 0);
+	KUNIT_ASSERT_TRUE(test, tunnel1 != NULL);
+	KUNIT_EXPECT_EQ(test, tunnel1->type, TB_TUNNEL_DP);
+	KUNIT_EXPECT_PTR_EQ(test, tunnel1->src_port, in1);
+	KUNIT_EXPECT_PTR_EQ(test, tunnel1->dst_port, out1);
+	KUNIT_ASSERT_EQ(test, tunnel1->npaths, 3);
+	KUNIT_ASSERT_EQ(test, tunnel1->paths[0]->path_length, 3);
+
+	tunnel2 = tb_tunnel_alloc_dp(NULL, in2, out2, 1, 0, 0);
+	KUNIT_ASSERT_TRUE(test, tunnel2 != NULL);
+	KUNIT_EXPECT_EQ(test, tunnel2->type, TB_TUNNEL_DP);
+	KUNIT_EXPECT_PTR_EQ(test, tunnel2->src_port, in2);
+	KUNIT_EXPECT_PTR_EQ(test, tunnel2->dst_port, out2);
+	KUNIT_ASSERT_EQ(test, tunnel2->npaths, 3);
+	KUNIT_ASSERT_EQ(test, tunnel2->paths[0]->path_length, 4);
+
+	tunnel3 = tb_tunnel_alloc_dp(NULL, in3, out3, 1, 0, 0);
+	KUNIT_ASSERT_TRUE(test, tunnel3 != NULL);
+	KUNIT_EXPECT_EQ(test, tunnel3->type, TB_TUNNEL_DP);
+	KUNIT_EXPECT_PTR_EQ(test, tunnel3->src_port, in3);
+	KUNIT_EXPECT_PTR_EQ(test, tunnel3->dst_port, out3);
+	KUNIT_ASSERT_EQ(test, tunnel3->npaths, 3);
+	KUNIT_ASSERT_EQ(test, tunnel3->paths[0]->path_length, 3);
+
+	tb_tunnel_free(tunnel2);
+	tb_tunnel_free(tunnel1);
 }
 
 static void tb_test_tunnel_usb3(struct kunit *test)
@@ -1627,7 +1709,7 @@ static void tb_test_tunnel_port_on_path(struct kunit *test)
 	in = &dev2->ports[13];
 	out = &dev5->ports[13];
 
-	dp_tunnel = tb_tunnel_alloc_dp(NULL, in, out, 0, 0);
+	dp_tunnel = tb_tunnel_alloc_dp(NULL, in, out, 1, 0, 0);
 	KUNIT_ASSERT_TRUE(test, dp_tunnel != NULL);
 
 	KUNIT_EXPECT_TRUE(test, tb_tunnel_port_on_path(dp_tunnel, in));
@@ -2009,7 +2091,7 @@ static void tb_test_credit_alloc_dp(struct kunit *test)
 	in = &host->ports[5];
 	out = &dev->ports[14];
 
-	tunnel = tb_tunnel_alloc_dp(NULL, in, out, 0, 0);
+	tunnel = tb_tunnel_alloc_dp(NULL, in, out, 1, 0, 0);
 	KUNIT_ASSERT_TRUE(test, tunnel != NULL);
 	KUNIT_ASSERT_EQ(test, tunnel->npaths, (size_t)3);
 
@@ -2245,7 +2327,7 @@ static struct tb_tunnel *TB_TEST_DP_TUNNEL1(struct kunit *test,
 
 	in = &host->ports[5];
 	out = &dev->ports[13];
-	dp_tunnel1 = tb_tunnel_alloc_dp(NULL, in, out, 0, 0);
+	dp_tunnel1 = tb_tunnel_alloc_dp(NULL, in, out, 1, 0, 0);
 	KUNIT_ASSERT_TRUE(test, dp_tunnel1 != NULL);
 	KUNIT_ASSERT_EQ(test, dp_tunnel1->npaths, (size_t)3);
 
@@ -2282,7 +2364,7 @@ static struct tb_tunnel *TB_TEST_DP_TUNNEL2(struct kunit *test,
 
 	in = &host->ports[6];
 	out = &dev->ports[14];
-	dp_tunnel2 = tb_tunnel_alloc_dp(NULL, in, out, 0, 0);
+	dp_tunnel2 = tb_tunnel_alloc_dp(NULL, in, out, 1, 0, 0);
 	KUNIT_ASSERT_TRUE(test, dp_tunnel2 != NULL);
 	KUNIT_ASSERT_EQ(test, dp_tunnel2->npaths, (size_t)3);
 
@@ -2699,6 +2781,7 @@ static struct kunit_case tb_test_cases[] = {
 	KUNIT_CASE(tb_test_tunnel_dp_chain),
 	KUNIT_CASE(tb_test_tunnel_dp_tree),
 	KUNIT_CASE(tb_test_tunnel_dp_max_length),
+	KUNIT_CASE(tb_test_tunnel_3dp),
 	KUNIT_CASE(tb_test_tunnel_port_on_path),
 	KUNIT_CASE(tb_test_tunnel_usb3),
 	KUNIT_CASE(tb_test_tunnel_dma),

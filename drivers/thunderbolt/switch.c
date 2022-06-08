@@ -567,36 +567,42 @@ int tb_wait_for_port(struct tb_port *port, bool wait_if_unplugged)
 
 	while (retries--) {
 		state = tb_port_state(port);
-		if (state < 0)
-			return state;
-		if (state == TB_PORT_DISABLED) {
+		switch (state) {
+		case TB_PORT_DISABLED:
 			tb_port_dbg(port, "is disabled (state: 0)\n");
 			return 0;
-		}
-		if (state == TB_PORT_UNPLUGGED) {
+
+		case TB_PORT_UNPLUGGED:
 			if (wait_if_unplugged) {
 				/* used during resume */
 				tb_port_dbg(port,
 					    "is unplugged (state: 7), retrying...\n");
 				msleep(100);
-				continue;
+				break;
 			}
 			tb_port_dbg(port, "is unplugged (state: 7)\n");
 			return 0;
-		}
-		if (state == TB_PORT_UP) {
-			tb_port_dbg(port, "is connected, link is up (state: 2)\n");
+
+		case TB_PORT_UP:
+		case TB_PORT_TX_CL0S:
+		case TB_PORT_RX_CL0S:
+			tb_port_dbg(port, "is connected, link is up (state: %d)\n", state);
 			return 1;
+
+		default:
+			if (state < 0)
+				return state;
+
+			/*
+			 * After plug-in the state is TB_PORT_CONNECTING. Give it some
+			 * time.
+			 */
+			tb_port_dbg(port,
+				    "is connected, link is not up (state: %d), retrying...\n",
+				    state);
+			msleep(100);
 		}
 
-		/*
-		 * After plug-in the state is TB_PORT_CONNECTING. Give it some
-		 * time.
-		 */
-		tb_port_dbg(port,
-			    "is connected, link is not up (state: %d), retrying...\n",
-			    state);
-		msleep(100);
 	}
 	tb_port_warn(port,
 		     "failed to reach state TB_PORT_UP. Ignoring port...\n");
@@ -693,8 +699,14 @@ static int __tb_port_enable(struct tb_port *port, bool enable)
 	else
 		phy |= LANE_ADP_CS_1_LD;
 
-	return tb_port_write(port, &phy, TB_CFG_PORT,
-			     port->cap_phy + LANE_ADP_CS_1, 1);
+
+	ret = tb_port_write(port, &phy, TB_CFG_PORT,
+			    port->cap_phy + LANE_ADP_CS_1, 1);
+	if (ret)
+		return ret;
+
+	tb_port_dbg(port, "lane %sabled\n", enable ? "en" : "dis");
+	return 0;
 }
 
 /**
@@ -993,7 +1005,17 @@ static bool tb_port_is_width_supported(struct tb_port *port, int width)
 	return !!(widths & width);
 }
 
-static int tb_port_set_link_width(struct tb_port *port, unsigned int width)
+/**
+ * tb_port_set_link_width() - Set target link width of the lane adapter
+ * @port: Lane adapter
+ * @width: Target link width (%1 or %2)
+ *
+ * Sets the target link width of the lane adapter to @width. Does not
+ * enable/disable lane bonding. For that call tb_port_set_lane_bonding().
+ *
+ * Return: %0 in case of success and negative errno in case of error
+ */
+int tb_port_set_link_width(struct tb_port *port, unsigned int width)
 {
 	u32 val;
 	int ret;
@@ -1020,10 +1042,56 @@ static int tb_port_set_link_width(struct tb_port *port, unsigned int width)
 		return -EINVAL;
 	}
 
-	val |= LANE_ADP_CS_1_LB;
-
 	return tb_port_write(port, &val, TB_CFG_PORT,
 			     port->cap_phy + LANE_ADP_CS_1, 1);
+}
+
+/**
+ * tb_port_set_lane_bonding() - Enable/disable lane bonding
+ * @port: Lane adapter
+ * @bonding: enable/disble bonding
+ *
+ * Enables or disables lane bonding. This should be called after target
+ * link width has been set (tb_port_set_link_width()). Note in most
+ * cases one should use tb_port_lane_bonding_enable() instead to enable
+ * lane bonding.
+ *
+ * As a side effect sets @port->bonding accordingly (and does the same
+ * for lane 1 too).
+ *
+ * Return: %0 in case of success and negative errno in case of error
+ */
+int tb_port_set_lane_bonding(struct tb_port *port, bool bonding)
+{
+	u32 val;
+	int ret;
+
+	if (!port->cap_phy)
+		return -EINVAL;
+
+	ret = tb_port_read(port, &val, TB_CFG_PORT,
+			   port->cap_phy + LANE_ADP_CS_1, 1);
+	if (ret)
+		return ret;
+
+	if (bonding)
+		val |= LANE_ADP_CS_1_LB;
+	else
+		val &= ~LANE_ADP_CS_1_LB;
+
+	ret = tb_port_write(port, &val, TB_CFG_PORT,
+			    port->cap_phy + LANE_ADP_CS_1, 1);
+	if (ret)
+		return ret;
+
+	/*
+	 * When lane 0 bonding is set it will affect lane 1 too so
+	 * update both.
+	 */
+	port->bonded = bonding;
+	port->dual_link_port->bonded = bonding;
+
+	return 0;
 }
 
 /**
@@ -1050,22 +1118,27 @@ int tb_port_lane_bonding_enable(struct tb_port *port)
 	if (ret == 1) {
 		ret = tb_port_set_link_width(port, 2);
 		if (ret)
-			return ret;
+			goto err_lane0;
 	}
 
 	ret = tb_port_get_link_width(port->dual_link_port);
 	if (ret == 1) {
 		ret = tb_port_set_link_width(port->dual_link_port, 2);
-		if (ret) {
-			tb_port_set_link_width(port, 1);
-			return ret;
-		}
+		if (ret)
+			goto err_lane0;
 	}
 
-	port->bonded = true;
-	port->dual_link_port->bonded = true;
+	ret = tb_port_set_lane_bonding(port, true);
+	if (ret)
+		goto err_lane1;
 
 	return 0;
+
+err_lane1:
+	tb_port_set_link_width(port->dual_link_port, 1);
+err_lane0:
+	tb_port_set_link_width(port, 1);
+	return ret;
 }
 
 /**
@@ -1074,13 +1147,10 @@ int tb_port_lane_bonding_enable(struct tb_port *port)
  *
  * Disable bonding by setting the link width of the port and the
  * other port in case of dual link port.
- *
  */
 void tb_port_lane_bonding_disable(struct tb_port *port)
 {
-	port->dual_link_port->bonded = false;
-	port->bonded = false;
-
+	tb_port_set_lane_bonding(port, false);
 	tb_port_set_link_width(port->dual_link_port, 1);
 	tb_port_set_link_width(port, 1);
 }
@@ -1104,10 +1174,17 @@ int tb_port_wait_for_link_width(struct tb_port *port, int width,
 
 	do {
 		ret = tb_port_get_link_width(port);
-		if (ret < 0)
-			return ret;
-		else if (ret == width)
+		if (ret < 0) {
+			/*
+			 * Sometimes we get port locked error when
+			 * polling the lanes so we can ignore it and
+			 * retry.
+			 */
+			if (ret != -EACCES)
+				return ret;
+		} else if (ret == width) {
 			return 0;
+		}
 
 		usleep_range(1000, 2000);
 	} while (ktime_before(ktime_get(), timeout));
