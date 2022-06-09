@@ -828,3 +828,20 @@ int intel_iov_state_restore_vf(struct intel_iov *iov, u32 vfid, const void *buf,
 
 	return err;
 }
+
+int intel_iov_state_store_guc_migration_state(struct intel_iov *iov, u32 vfid,
+					      const void *buf, size_t size)
+{
+	int ret;
+
+	if (size < PF2GUC_SAVE_RESTORE_VF_BUFF_MIN_SIZE)
+		return -EINVAL;
+
+	mutex_lock(pf_provisioning_mutex(iov));
+	ret = intel_iov_state_restore_vf(iov, vfid, buf, size);
+	mutex_unlock(pf_provisioning_mutex(iov));
+
+	if (ret < 0)
+		return ret;
+	return 0;
+}
