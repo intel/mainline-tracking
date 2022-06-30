@@ -13,6 +13,7 @@
 #include <linux/pci.h>
 #include <linux/thunderbolt.h>
 #include <linux/uuid.h>
+#include <linux/bitfield.h>
 
 #include "tb_regs.h"
 #include "ctl.h"
@@ -111,7 +112,7 @@ struct tb_switch_tmu {
 
 enum tb_clx {
 	TB_CLX_DISABLE,
-	TB_CL0S,
+	/* CL0s and CL1 are enabled and supported together */
 	TB_CL1,
 	TB_CL2,
 };
@@ -221,6 +222,23 @@ struct tb_switch {
 };
 
 /**
+ * struct tb_bandwidth_group - Bandwidth management group
+ * @tb: Pointer to the domain the group belongs to
+ * @index: Index of the group (aka Group_ID). Valid values %1-%7
+ * @ports: DP IN adapters belonging to this group are linked here
+ *
+ * Any tunnel that requires isochronous bandwidth (that's DP for now) is
+ * attached to a bandwidth group. All tunnels going through the same
+ * USB4 links share the same group and can dynamically distribute the
+ * bandwidth within the group.
+ */
+struct tb_bandwidth_group {
+	struct tb *tb;
+	int index;
+	struct list_head ports;
+};
+
+/**
  * struct tb_port - a thunderbolt port, part of a tb_switch
  * @config: Cached port configuration read from registers
  * @sw: Switch the port belongs to
@@ -244,6 +262,9 @@ struct tb_switch {
  * @ctl_credits: Buffers reserved for control path
  * @dma_credits: Number of credits allocated for DMA tunneling for all
  *		 DMA paths through this port.
+ * @group: Bandwidth allocation group the adapter is assigned to. Only
+ *	   used for DP IN adapters for now.
+ * @group_list: The adapter is linked to the group's list of ports through this
  *
  * In USB4 terminology this structure represents an adapter (protocol or
  * lane adapter).
@@ -269,6 +290,8 @@ struct tb_port {
 	unsigned int total_credits;
 	unsigned int ctl_credits;
 	unsigned int dma_credits;
+	struct tb_bandwidth_group *group;
+	struct list_head group_list;
 };
 
 /**
@@ -278,12 +301,16 @@ struct tb_port {
  * @can_offline: Does the port have necessary platform support to moved
  *		 it into offline mode and back
  * @offline: The port is currently in offline mode
+ * @margining: Pointer to margining structure if enabled
  */
 struct usb4_port {
 	struct device dev;
 	struct tb_port *port;
 	bool can_offline;
 	bool offline;
+#ifdef CONFIG_USB4_DEBUGFS_MARGINING
+	struct tb_margining *margining;
+#endif
 };
 
 /**
@@ -933,19 +960,32 @@ int tb_switch_tmu_enable(struct tb_switch *sw);
 void tb_switch_tmu_configure(struct tb_switch *sw,
 			     enum tb_switch_tmu_rate rate,
 			     bool unidirectional);
+void tb_switch_enable_tmu_1st_child(struct tb_switch *sw,
+				    enum tb_switch_tmu_rate rate);
 /**
- * tb_switch_tmu_hifi_is_enabled() - Checks if the specified TMU mode is enabled
+ * tb_switch_tmu_is_enabled() - Checks if the specified TMU mode is enabled
  * @sw: Router whose TMU mode to check
  * @unidirectional: If uni-directional (bi-directional otherwise)
  *
  * Return true if hardware TMU configuration matches the one passed in
- * as parameter. That is HiFi and either uni-directional or bi-directional.
+ * as parameter. That is HiFi/Normal and either uni-directional or bi-directional.
  */
-static inline bool tb_switch_tmu_hifi_is_enabled(const struct tb_switch *sw,
-						 bool unidirectional)
+static inline bool tb_switch_tmu_is_enabled(const struct tb_switch *sw,
+					    bool unidirectional)
 {
-	return sw->tmu.rate == TB_SWITCH_TMU_RATE_HIFI &&
+	return sw->tmu.rate == sw->tmu.rate_request &&
 	       sw->tmu.unidirectional == unidirectional;
+}
+
+static inline const char *tb_switch_clx_name(enum tb_clx clx)
+{
+	switch (clx) {
+	/* CL0s and CL1 are enabled and supported together */
+	case TB_CL1:
+		return "CL0s/CL1";
+	default:
+		return "unknown";
+	}
 }
 
 int tb_switch_enable_clx(struct tb_switch *sw, enum tb_clx clx);
@@ -953,26 +993,16 @@ int tb_switch_disable_clx(struct tb_switch *sw, enum tb_clx clx);
 
 /**
  * tb_switch_is_clx_enabled() - Checks if the CLx is enabled
- * @sw: Router to check the CLx state for
+ * @sw: Router to check for the CLx
+ * @clx: The CLx state to check for
  *
- * Checks if the CLx is enabled on the router upstream link.
+ * Checks if the specified CLx is enabled on the router upstream link.
  * Not applicable for a host router.
  */
-static inline bool tb_switch_is_clx_enabled(const struct tb_switch *sw)
+static inline bool tb_switch_is_clx_enabled(const struct tb_switch *sw,
+					    enum tb_clx clx)
 {
-	return sw->clx != TB_CLX_DISABLE;
-}
-
-/**
- * tb_switch_is_cl0s_enabled() - Checks if the CL0s is enabled
- * @sw: Router to check for the CL0s
- *
- * Checks if the CL0s is enabled on the router upstream link.
- * Not applicable for a host router.
- */
-static inline bool tb_switch_is_cl0s_enabled(const struct tb_switch *sw)
-{
-	return sw->clx == TB_CL0S;
+	return sw->clx == clx;
 }
 
 /**
@@ -1128,6 +1158,11 @@ void tb_xdomain_remove(struct tb_xdomain *xd);
 struct tb_xdomain *tb_xdomain_find_by_link_depth(struct tb *tb, u8 link,
 						 u8 depth);
 
+static inline struct tb_switch *tb_xdomain_parent(struct tb_xdomain *xd)
+{
+	return tb_to_switch(xd->dev.parent);
+}
+
 int tb_retimer_scan(struct tb_port *port, bool add);
 void tb_retimer_remove_all(struct tb_port *port);
 
@@ -1178,6 +1213,13 @@ int usb4_port_router_offline(struct tb_port *port);
 int usb4_port_router_online(struct tb_port *port);
 int usb4_port_enumerate_retimers(struct tb_port *port);
 bool usb4_port_clx_supported(struct tb_port *port);
+int usb4_port_margining_caps(struct tb_port *port, u32 *caps);
+int usb4_port_hw_margin(struct tb_port *port, unsigned int lanes,
+			unsigned int ber_level, bool timing, bool right_high,
+			u32 *results);
+int usb4_port_sw_margin(struct tb_port *port, unsigned int lanes, bool timing,
+			bool right_high, u32 counter);
+int usb4_port_sw_margin_errors(struct tb_port *port, u32 *errors);
 
 int usb4_port_retimer_set_inbound_sbtx(struct tb_port *port, u8 index);
 int usb4_port_retimer_read(struct tb_port *port, u8 index, u8 reg, void *buf,
@@ -1205,6 +1247,21 @@ int usb4_usb3_port_allocate_bandwidth(struct tb_port *port, int *upstream_bw,
 				      int *downstream_bw);
 int usb4_usb3_port_release_bandwidth(struct tb_port *port, int *upstream_bw,
 				     int *downstream_bw);
+
+int usb4_dp_port_set_cm_id(struct tb_port *port, int cm_id);
+bool usb4_dp_port_bw_mode_supported(struct tb_port *port);
+bool usb4_dp_port_bw_mode_enabled(struct tb_port *port);
+int usb4_dp_port_set_cm_bw_mode_supported(struct tb_port *port, bool supported);
+int usb4_dp_port_group_id(struct tb_port *port);
+int usb4_dp_port_set_group_id(struct tb_port *port, int group_id);
+int usb4_dp_port_nrd(struct tb_port *port, int *rate, int *lanes);
+int usb4_dp_port_set_nrd(struct tb_port *port, int rate, int lanes);
+int usb4_dp_port_granularity(struct tb_port *port);
+int usb4_dp_port_set_granularity(struct tb_port *port, int granularity);
+int usb4_dp_port_set_estimated_bw(struct tb_port *port, int bw);
+int usb4_dp_port_allocated_bw(struct tb_port *port);
+int usb4_dp_port_allocate_bw(struct tb_port *port, int bw);
+int usb4_dp_port_requested_bw(struct tb_port *port);
 
 static inline bool tb_is_usb4_port_device(const struct device *dev)
 {
@@ -1260,6 +1317,8 @@ void tb_debugfs_init(void);
 void tb_debugfs_exit(void);
 void tb_switch_debugfs_init(struct tb_switch *sw);
 void tb_switch_debugfs_remove(struct tb_switch *sw);
+void tb_xdomain_debugfs_init(struct tb_xdomain *xd);
+void tb_xdomain_debugfs_remove(struct tb_xdomain *xd);
 void tb_service_debugfs_init(struct tb_service *svc);
 void tb_service_debugfs_remove(struct tb_service *svc);
 #else
@@ -1267,6 +1326,8 @@ static inline void tb_debugfs_init(void) { }
 static inline void tb_debugfs_exit(void) { }
 static inline void tb_switch_debugfs_init(struct tb_switch *sw) { }
 static inline void tb_switch_debugfs_remove(struct tb_switch *sw) { }
+static inline void tb_xdomain_debugfs_init(struct tb_xdomain *xd) { }
+static inline void tb_xdomain_debugfs_remove(struct tb_xdomain *xd) { }
 static inline void tb_service_debugfs_init(struct tb_service *svc) { }
 static inline void tb_service_debugfs_remove(struct tb_service *svc) { }
 #endif

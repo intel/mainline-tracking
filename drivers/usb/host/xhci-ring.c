@@ -1558,6 +1558,28 @@ void xhci_cleanup_command_queue(struct xhci_hcd *xhci)
 		xhci_complete_del_and_free_cmd(cur_cmd, COMP_COMMAND_ABORTED);
 }
 
+static bool xhci_pending_command_completion(struct xhci_hcd *xhci)
+{
+	struct xhci_segment	*seg = xhci->event_ring->deq_seg;
+	union xhci_trb		*deq = xhci->event_ring->dequeue;
+	u32			deq_flags = le32_to_cpu(deq->event_cmd.flags);
+	u32			cycle = xhci->event_ring->cycle_state;
+	int			i = 0;
+
+	/* Check if event ring contains an unhandled command completion */
+	while ((deq_flags & TRB_CYCLE) == cycle) {
+		if ((deq_flags & TRB_TYPE_BITMASK) == TRB_TYPE(TRB_COMPLETION))
+			return true;
+		if (last_trb_on_ring(xhci->event_ring, seg, deq))
+			cycle ^= 1;
+		next_trb(xhci, xhci->event_ring,  &seg, &deq);
+		deq_flags = le32_to_cpu(deq->event_cmd.flags);
+		if (i++ > TRBS_PER_SEGMENT)
+			break;
+	}
+	return false;
+}
+
 void xhci_handle_command_timeout(struct work_struct *work)
 {
 	struct xhci_hcd	*xhci;
@@ -1583,6 +1605,14 @@ void xhci_handle_command_timeout(struct work_struct *work)
 	cmd_field3 = le32_to_cpu(xhci->current_cmd->command_trb->generic.field[3]);
 	usbsts = readl(&xhci->op_regs->status);
 	xhci_dbg(xhci, "Command timeout, USBSTS:%s\n", xhci_decode_usbsts(str, usbsts));
+
+	/* Did hw complete the command but event handler was blocked? */
+	if (xhci_pending_interrupt(xhci) > 0 &&
+	    xhci_pending_command_completion(xhci)) {
+		xhci_dbg(xhci, "Command timeout with unhandled command completion\n");
+		xhci_mod_cmd_timer(xhci, XHCI_CMD_DEFAULT_TIMEOUT);
+		goto time_out_completed;
+	}
 
 	/* Bail out and tear down xhci if a stop endpoint command failed */
 	if (TRB_FIELD_TO_TYPE(cmd_field3) == TRB_STOP_RING) {
