@@ -161,6 +161,10 @@ void intel_gt_init_clock_frequency(struct intel_gt *gt)
 	if (gt->clock_frequency)
 		gt->clock_period_ns = intel_gt_clock_interval_to_ns(gt, 1);
 
+	/* Icelake appears to use another fixed frequency for CTX_TIMESTAMP */
+	if (GRAPHICS_VER(gt->i915) == 11)
+		gt->clock_period_ns = NSEC_PER_SEC / 13750000;
+
 	GT_TRACE(gt,
 		 "Using clock frequency: %dkHz, period: %dns, wrap: %lldms\n",
 		 gt->clock_frequency / 1000,
@@ -169,9 +173,18 @@ void intel_gt_init_clock_frequency(struct intel_gt *gt)
 			 USEC_PER_SEC));
 }
 
+void intel_gt_fini_clock_frequency(struct intel_gt *gt)
+{
+	/* Clock registers no longer accessible, stop checking */
+	gt->clock_frequency = 0;
+}
+
 #if IS_ENABLED(CONFIG_DRM_I915_DEBUG_GEM)
 void intel_gt_check_clock_frequency(const struct intel_gt *gt)
 {
+	if (!gt->clock_frequency)
+		return;
+
 	if (gt->clock_frequency != read_clock_frequency(gt->uncore)) {
 		dev_err(gt->i915->drm.dev,
 			"GT clock frequency changed, was %uHz, now %uHz!\n",

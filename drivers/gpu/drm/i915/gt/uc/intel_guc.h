@@ -10,18 +10,25 @@
 #include <linux/iosys-map.h>
 #include <linux/xarray.h>
 
-#include "intel_uncore.h"
+#include "intel_guc_ct.h"
 #include "intel_guc_fw.h"
 #include "intel_guc_fwif.h"
-#include "intel_guc_ct.h"
 #include "intel_guc_log.h"
 #include "intel_guc_reg.h"
 #include "intel_guc_slpc_types.h"
 #include "intel_uc_fw.h"
+#include "intel_uncore.h"
 #include "i915_utils.h"
 #include "i915_vma.h"
 
 struct __guc_ads_blob;
+struct intel_guc;
+struct intel_guc_state_capture;
+
+struct intel_guc_ops {
+	int (*init)(struct intel_guc *guc);
+	void (*fini)(struct intel_guc *guc);
+};
 
 /**
  * struct intel_guc - Top level structure of GuC.
@@ -30,6 +37,8 @@ struct __guc_ads_blob;
  * i915_sched_engine for submission.
  */
 struct intel_guc {
+	/** @ops: Operations to init / fini the GuC */
+	struct intel_guc_ops const *ops;
 	/** @fw: the GuC firmware */
 	struct intel_uc_fw fw;
 	/** @log: sub-structure containing GuC log related data and objects */
@@ -38,6 +47,8 @@ struct intel_guc {
 	struct intel_guc_ct ct;
 	/** @slpc: sub-structure containing SLPC related data and objects */
 	struct intel_guc_slpc slpc;
+	/** @capture: the error-state-capture module's data and objects */
+	struct intel_guc_state_capture *capture;
 
 	/** @sched_engine: Global engine used to submit requests to GuC */
 	struct i915_sched_engine *sched_engine;
@@ -74,6 +85,10 @@ struct intel_guc {
 	atomic_t outstanding_submission_g2h;
 
 	/** @interrupts: pointers to GuC interrupt-managing functions. */
+	struct xarray tlb_lookup;
+	u32 serial_slot;
+	u32 next_seqno;
+
 	struct {
 		void (*reset)(struct intel_guc *guc);
 		void (*enable)(struct intel_guc *guc);
@@ -97,7 +112,8 @@ struct intel_guc {
 		struct ida guc_ids;
 		/**
 		 * @num_guc_ids: Number of guc_ids, selftest feature to be able
-		 * to reduce this number while testing.
+		 * to reduce this number while testing. Also used on VFs to
+		 * reduce the pool of guc_ids.
 		 */
 		int num_guc_ids;
 		/**
@@ -138,6 +154,8 @@ struct intel_guc {
 	bool submission_supported;
 	/** @submission_selected: tracks whether the user enabled GuC submission */
 	bool submission_selected;
+	/** @submission_initialized: tracks whether GuC submission has been initialised */
+	bool submission_initialized;
 	/**
 	 * @rc_supported: tracks whether we support GuC rc on the current platform
 	 */
@@ -160,13 +178,10 @@ struct intel_guc {
 	struct guc_mmio_reg *ads_regset;
 	/** @ads_golden_ctxt_size: size of the golden contexts in the ADS */
 	u32 ads_golden_ctxt_size;
+	/** @ads_capture_size: size of register lists in the ADS used for error capture */
+	u32 ads_capture_size;
 	/** @ads_engine_usage_size: size of engine usage in the ADS */
 	u32 ads_engine_usage_size;
-
-	/** @lrc_desc_pool: object allocated to hold the GuC LRC descriptor pool */
-	struct i915_vma *lrc_desc_pool;
-	/** @lrc_desc_pool_vaddr: contents of the GuC LRC descriptor pool */
-	void *lrc_desc_pool_vaddr;
 
 	/**
 	 * @context_lookup: used to resolve intel_context from guc_id, if a
@@ -237,6 +252,11 @@ struct intel_guc {
 	int number_guc_id_stolen;
 #endif
 };
+
+struct intel_guc_tlb_wait {
+	struct wait_queue_head wq;
+	u8 status;
+} __aligned(4);
 
 static inline struct intel_guc *log_to_guc(struct intel_guc_log *log)
 {
@@ -333,6 +353,19 @@ static inline u32 intel_guc_ggtt_offset(struct intel_guc *guc,
 	return offset;
 }
 
+static inline int intel_guc_init(struct intel_guc *guc)
+{
+	if (guc->ops->init)
+		return guc->ops->init(guc);
+	return 0;
+}
+
+static inline void intel_guc_fini(struct intel_guc *guc)
+{
+	if (guc->ops->fini)
+		guc->ops->fini(guc);
+}
+
 void intel_guc_init_early(struct intel_guc *guc);
 void intel_guc_init_late(struct intel_guc *guc);
 void intel_guc_init_send_regs(struct intel_guc *guc);
@@ -353,6 +386,9 @@ int intel_guc_allocate_and_map_vma(struct intel_guc *guc, u32 size,
 int intel_guc_self_cfg32(struct intel_guc *guc, u16 key, u32 value);
 int intel_guc_self_cfg64(struct intel_guc *guc, u16 key, u64 value);
 
+int intel_guc_invalidate_tlb_guc(struct intel_guc *guc,
+				 enum intel_guc_tlb_inval_mode mode);
+
 static inline bool intel_guc_is_supported(struct intel_guc *guc)
 {
 	return intel_uc_fw_is_supported(&guc->fw);
@@ -366,7 +402,8 @@ static inline bool intel_guc_is_wanted(struct intel_guc *guc)
 static inline bool intel_guc_is_used(struct intel_guc *guc)
 {
 	GEM_BUG_ON(__intel_uc_fw_status(&guc->fw) == INTEL_UC_FIRMWARE_SELECTED);
-	return intel_uc_fw_is_available(&guc->fw);
+	return intel_uc_fw_is_available(&guc->fw) ||
+	       intel_uc_fw_is_preloaded(&guc->fw);
 }
 
 static inline bool intel_guc_is_fw_running(struct intel_guc *guc)
@@ -430,6 +467,10 @@ int intel_guc_engine_failure_process_msg(struct intel_guc *guc,
 					 const u32 *msg, u32 len);
 int intel_guc_error_capture_process_msg(struct intel_guc *guc,
 					const u32 *msg, u32 len);
+void intel_guc_tlb_invalidation_done(struct intel_guc *guc, u32 seqno);
+
+struct intel_engine_cs *
+intel_guc_lookup_engine(struct intel_guc *guc, u8 guc_class, u8 instance);
 
 void intel_guc_find_hung_context(struct intel_engine_cs *engine);
 
@@ -445,5 +486,7 @@ void intel_guc_submission_cancel_requests(struct intel_guc *guc);
 void intel_guc_load_status(struct intel_guc *guc, struct drm_printer *p);
 
 void intel_guc_write_barrier(struct intel_guc *guc);
+
+void intel_guc_dump_time_info(struct intel_guc *guc, struct drm_printer *p);
 
 #endif

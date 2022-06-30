@@ -33,8 +33,10 @@ subdir-ccflags-y += -I$(srctree)/$(src)
 
 # core driver code
 i915-y += i915_driver.o \
+	  i915_drm_client.o \
 	  i915_config.o \
 	  i915_getparam.o \
+	  i915_hwmon.o \
 	  i915_ioctl.o \
 	  i915_irq.o \
 	  i915_mitigations.o \
@@ -45,6 +47,7 @@ i915-y += i915_driver.o \
 	  i915_suspend.o \
 	  i915_switcheroo.o \
 	  i915_sysfs.o \
+	  i915_sysrq.o \
 	  i915_utils.o \
 	  intel_device_info.o \
 	  intel_dram.o \
@@ -76,6 +79,10 @@ i915-$(CONFIG_DEBUG_FS) += \
 	i915_debugfs_params.o \
 	display/intel_display_debugfs.o \
 	display/intel_pipe_crc.o
+
+i915-$(CONFIG_DRM_I915_TRACK_WAKEREF) += \
+	intel_wakeref_tracker.o
+
 i915-$(CONFIG_PERF_EVENTS) += i915_pmu.o
 
 # "Graphics Technology" (aka we talk to the gpu)
@@ -106,6 +113,8 @@ gt-y += \
 	gt/intel_gt_pm_debugfs.o \
 	gt/intel_gt_pm_irq.o \
 	gt/intel_gt_requests.o \
+	gt/intel_gt_sysfs.o \
+	gt/intel_gt_sysfs_pm.o \
 	gt/intel_gtt.o \
 	gt/intel_llc.o \
 	gt/intel_lrc.o \
@@ -177,6 +186,7 @@ i915-y += \
 	  i915_ttm_buddy_manager.o \
 	  i915_vma.o \
 	  i915_vma_resource.o \
+	  intel_pagefault.o \
 	  intel_wopcm.o
 
 # general-purpose microcontroller (GuC) support
@@ -185,9 +195,11 @@ i915-y += gt/uc/intel_uc.o \
 	  gt/uc/intel_uc_fw.o \
 	  gt/uc/intel_guc.o \
 	  gt/uc/intel_guc_ads.o \
+	  gt/uc/intel_guc_capture.o \
 	  gt/uc/intel_guc_ct.o \
 	  gt/uc/intel_guc_debugfs.o \
 	  gt/uc/intel_guc_fw.o \
+	  gt/uc/intel_guc_hwconfig.o \
 	  gt/uc/intel_guc_log.o \
 	  gt/uc/intel_guc_log_debugfs.o \
 	  gt/uc/intel_guc_rc.o \
@@ -196,6 +208,28 @@ i915-y += gt/uc/intel_uc.o \
 	  gt/uc/intel_huc.o \
 	  gt/uc/intel_huc_debugfs.o \
 	  gt/uc/intel_huc_fw.o
+
+# graphics system controller (GSC) support
+i915-y += gt/intel_gsc.o
+
+# Virtualization support
+iov-y += \
+	i915_sriov.o \
+	i915_sriov_sysfs.o \
+	gt/iov/intel_iov.o \
+	gt/iov/intel_iov_debugfs.o \
+	gt/iov/intel_iov_event.o \
+	gt/iov/intel_iov_provisioning.o \
+	gt/iov/intel_iov_query.o \
+	gt/iov/intel_iov_relay.o \
+	gt/iov/intel_iov_service.o \
+	gt/iov/intel_iov_state.o \
+	gt/iov/intel_iov_sysfs.o
+i915-y += $(iov-y)
+
+iov-$(CONFIG_DRM_I915_SELFTEST) += \
+	gt/iov/selftests/iov_selftest_actions.o
+i915-y += $(iov-$(CONFIG_DRM_I915_SELFTEST))
 
 # modesetting core code
 i915-y += \
@@ -213,6 +247,7 @@ i915-y += \
 	display/intel_cursor.o \
 	display/intel_display.o \
 	display/intel_display_power.o \
+	display/intel_display_power_well.o \
 	display/intel_dmc.o \
 	display/intel_dpio_phy.o \
 	display/intel_dpll.o \

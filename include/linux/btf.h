@@ -344,6 +344,8 @@ bool btf_kfunc_id_set_contains(const struct btf *btf,
 			       enum btf_kfunc_type type, u32 kfunc_btf_id);
 int register_btf_kfunc_id_set(enum bpf_prog_type prog_type,
 			      const struct btf_kfunc_id_set *s);
+struct btf *btf_register(const char *name, void *btf_data, u32 btf_data_size);
+void btf_unregister(struct btf *btf);
 #else
 static inline const struct btf_type *btf_type_by_id(const struct btf *btf,
 						    u32 type_id)
@@ -367,6 +369,13 @@ static inline int register_btf_kfunc_id_set(enum bpf_prog_type prog_type,
 {
 	return 0;
 }
+static inline struct btf *
+btf_register(const char *name, void *btf_data, u32 btf_data_size)
+{
+	return NULL;
+}
+
+static inline void btf_unregister(struct btf *btf) { }
 #endif
 
 #endif

@@ -5,6 +5,7 @@
 
 #include <linux/bitfield.h>
 #include <linux/firmware.h>
+#include <linux/highmem.h>
 
 #include <drm/drm_cache.h>
 #include <drm/drm_print.h>
@@ -52,21 +53,21 @@ void intel_uc_fw_change_status(struct intel_uc_fw *uc_fw,
  * firmware as TGL.
  */
 #define INTEL_GUC_FIRMWARE_DEFS(fw_def, guc_def) \
-	fw_def(ALDERLAKE_P,  0, guc_def(adlp, 69, 0, 3)) \
-	fw_def(ALDERLAKE_S,  0, guc_def(tgl,  69, 0, 3)) \
-	fw_def(DG1,          0, guc_def(dg1,  69, 0, 3)) \
-	fw_def(ROCKETLAKE,   0, guc_def(tgl,  69, 0, 3)) \
-	fw_def(TIGERLAKE,    0, guc_def(tgl,  69, 0, 3)) \
-	fw_def(JASPERLAKE,   0, guc_def(ehl,  69, 0, 3)) \
-	fw_def(ELKHARTLAKE,  0, guc_def(ehl,  69, 0, 3)) \
-	fw_def(ICELAKE,      0, guc_def(icl,  69, 0, 3)) \
-	fw_def(COMETLAKE,    5, guc_def(cml,  69, 0, 3)) \
-	fw_def(COMETLAKE,    0, guc_def(kbl,  69, 0, 3)) \
-	fw_def(COFFEELAKE,   0, guc_def(kbl,  69, 0, 3)) \
-	fw_def(GEMINILAKE,   0, guc_def(glk,  69, 0, 3)) \
-	fw_def(KABYLAKE,     0, guc_def(kbl,  69, 0, 3)) \
-	fw_def(BROXTON,      0, guc_def(bxt,  69, 0, 3)) \
-	fw_def(SKYLAKE,      0, guc_def(skl,  69, 0, 3))
+	fw_def(ALDERLAKE_P,  0, guc_def(adlp, 70, 1, 1)) \
+	fw_def(ALDERLAKE_S,  0, guc_def(tgl,  70, 1, 1)) \
+	fw_def(DG1,          0, guc_def(dg1,  70, 1, 1)) \
+	fw_def(ROCKETLAKE,   0, guc_def(tgl,  70, 1, 1)) \
+	fw_def(TIGERLAKE,    0, guc_def(tgl,  70, 1, 1)) \
+	fw_def(JASPERLAKE,   0, guc_def(ehl,  70, 1, 1)) \
+	fw_def(ELKHARTLAKE,  0, guc_def(ehl,  70, 1, 1)) \
+	fw_def(ICELAKE,      0, guc_def(icl,  70, 1, 1)) \
+	fw_def(COMETLAKE,    5, guc_def(cml,  70, 1, 1)) \
+	fw_def(COMETLAKE,    0, guc_def(kbl,  70, 1, 1)) \
+	fw_def(COFFEELAKE,   0, guc_def(kbl,  70, 1, 1)) \
+	fw_def(GEMINILAKE,   0, guc_def(glk,  70, 1, 1)) \
+	fw_def(KABYLAKE,     0, guc_def(kbl,  70, 1, 1)) \
+	fw_def(BROXTON,      0, guc_def(bxt,  70, 1, 1)) \
+	fw_def(SKYLAKE,      0, guc_def(skl,  70, 1, 1))
 
 #define INTEL_HUC_FIRMWARE_DEFS(fw_def, huc_def) \
 	fw_def(ALDERLAKE_P,  0, huc_def(tgl,  7, 9, 3)) \
@@ -260,6 +261,24 @@ void intel_uc_fw_init_early(struct intel_uc_fw *uc_fw,
 				  INTEL_UC_FIRMWARE_SELECTED :
 				  INTEL_UC_FIRMWARE_DISABLED :
 				  INTEL_UC_FIRMWARE_NOT_SUPPORTED);
+}
+
+/**
+ * intel_uc_fw_set_preloaded() - set uC firmware as pre-loaded
+ * @uc_fw: uC firmware structure
+ * @major: major version of the pre-loaded firmware
+ * @minor: minor version of the pre-loaded firmware
+ *
+ * If the uC firmware was loaded to h/w by other entity, just
+ * mark it as loaded.
+ */
+void intel_uc_fw_set_preloaded(struct intel_uc_fw *uc_fw, u16 major, u16 minor)
+{
+	uc_fw->path = "PRELOADED";
+	uc_fw->major_ver_found = major;
+	uc_fw->minor_ver_found = minor;
+
+	intel_uc_fw_change_status(uc_fw, INTEL_UC_FIRMWARE_PRELOADED);
 }
 
 static void __force_fw_fetch_failures(struct intel_uc_fw *uc_fw, int e)

@@ -219,6 +219,14 @@ i915_gem_object_fence_prepare(struct drm_i915_gem_object *obj,
 	return ret;
 }
 
+bool i915_gem_object_needs_bit17_swizzle(struct drm_i915_gem_object *obj)
+{
+	struct drm_i915_private *i915 = to_i915(obj->base.dev);
+
+	return to_gt(i915)->ggtt->bit_6_swizzle_x == I915_BIT_6_SWIZZLE_9_10_17 &&
+		i915_gem_object_is_tiled(obj);
+}
+
 int
 i915_gem_object_set_tiling(struct drm_i915_gem_object *obj,
 			   unsigned int tiling, unsigned int stride)
@@ -339,7 +347,7 @@ i915_gem_set_tiling_ioctl(struct drm_device *dev, void *data,
 	struct drm_i915_gem_object *obj;
 	int err;
 
-	if (!to_gt(dev_priv)->ggtt->num_fences)
+	if (!to_gt(dev_priv)->ggtt->num_fences && !IS_SRIOV_VF(dev_priv))
 		return -EOPNOTSUPP;
 
 	obj = i915_gem_object_lookup(file, args->handle);
@@ -422,7 +430,7 @@ i915_gem_get_tiling_ioctl(struct drm_device *dev, void *data,
 	struct drm_i915_gem_object *obj;
 	int err = -ENOENT;
 
-	if (!to_gt(dev_priv)->ggtt->num_fences)
+	if (!to_gt(dev_priv)->ggtt->num_fences && !IS_SRIOV_VF(dev_priv))
 		return -EOPNOTSUPP;
 
 	rcu_read_lock();

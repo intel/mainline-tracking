@@ -46,6 +46,7 @@
 #define   GEN8_MCR_SLICE_MASK			GEN8_MCR_SLICE(3)
 #define   GEN8_MCR_SUBSLICE(subslice)		(((subslice) & 3) << 24)
 #define   GEN8_MCR_SUBSLICE_MASK		GEN8_MCR_SUBSLICE(3)
+#define   GEN11_MCR_MULTICAST			REG_BIT(31)
 #define   GEN11_MCR_SLICE(slice)		(((slice) & 0xf) << 27)
 #define   GEN11_MCR_SLICE_MASK			GEN11_MCR_SLICE(0xf)
 #define   GEN11_MCR_SUBSLICE(subslice)		(((subslice) & 0x7) << 24)
@@ -840,6 +841,24 @@
 #define   CTC_SHIFT_PARAMETER_SHIFT		1
 #define   CTC_SHIFT_PARAMETER_MASK		(0x3 << CTC_SHIFT_PARAMETER_SHIFT)
 
+/* GPM MSG_IDLE */
+#define MSG_IDLE_CS		_MMIO(0x8000)
+#define MSG_IDLE_VCS0		_MMIO(0x8004)
+#define MSG_IDLE_VCS1		_MMIO(0x8008)
+#define MSG_IDLE_BCS		_MMIO(0x800C)
+#define MSG_IDLE_VECS0		_MMIO(0x8010)
+#define MSG_IDLE_VCS2		_MMIO(0x80C0)
+#define MSG_IDLE_VCS3		_MMIO(0x80C4)
+#define MSG_IDLE_VCS4		_MMIO(0x80C8)
+#define MSG_IDLE_VCS5		_MMIO(0x80CC)
+#define MSG_IDLE_VCS6		_MMIO(0x80D0)
+#define MSG_IDLE_VCS7		_MMIO(0x80D4)
+#define MSG_IDLE_VECS1		_MMIO(0x80D8)
+#define MSG_IDLE_VECS2		_MMIO(0x80DC)
+#define MSG_IDLE_VECS3		_MMIO(0x80E0)
+#define  MSG_IDLE_FW_MASK	REG_GENMASK(13, 9)
+#define  MSG_IDLE_FW_SHIFT	9
+
 #define FORCEWAKE_MEDIA_GEN9			_MMIO(0xa270)
 #define FORCEWAKE_RENDER_GEN9			_MMIO(0xa278)
 
@@ -961,6 +980,8 @@
 #define   GEN11_LSN_UNSLCVC_GAFS_HALF_CL2_MAXALLOC	(1 << 9)
 #define   GEN11_LSN_UNSLCVC_GAFS_HALF_SF_MAXALLOC	(1 << 7)
 
+#define GUCPMTIMESTAMP				_MMIO(0xc3e8)
+
 #define __GEN9_RCS0_MOCS0			0xc800
 #define GEN9_GFX_MOCS(i)			_MMIO(__GEN9_RCS0_MOCS0 + (i) * 4)
 #define __GEN9_VCS0_MOCS0			0xc900
@@ -978,10 +999,12 @@
 #define   FAULT_GTT_SEL				(1 << 4)
 
 #define GEN12_RING_FAULT_REG			_MMIO(0xcec4)
+#define   GEN12_RING_FAULT_FAULT_TYPE(x)	(((x) >> 18) & 0x3)
+#define   GEN12_RING_FAULT_ACCESS_TYPE		(1 << 17)
 #define   GEN8_RING_FAULT_ENGINE_ID(x)		(((x) >> 12) & 0x7)
 #define   RING_FAULT_GTTSEL_MASK		(1 << 11)
 #define   RING_FAULT_SRCID(x)			(((x) >> 3) & 0xff)
-#define   RING_FAULT_FAULT_TYPE(x)		(((x) >> 1) & 0x3)
+#define   RING_FAULT_LEVEL(x)			(((x) >> 1) & 0x3)
 #define   RING_FAULT_VALID			(1 << 0)
 
 #define GEN12_GFX_TLB_INV_CR			_MMIO(0xced8)
@@ -1087,6 +1110,7 @@
 #define EU_PERF_CNTL3				_MMIO(0xe758)
 
 #define LSC_CHICKEN_BIT_0			_MMIO(0xe7c8)
+#define   DISABLE_D8_D16_COASLESCE		REG_BIT(30)
 #define   FORCE_1_SUB_MESSAGE_PER_FRAGMENT	REG_BIT(15)
 #define LSC_CHICKEN_BIT_0_UDW			_MMIO(0xe7c8 + 4)
 #define   DIS_CHAIN_2XSIMD8			REG_BIT(55 - 32)
@@ -1440,7 +1464,6 @@
 #define   VLV_MEDIA_RC6_COUNT_EN		(1 << 1)
 #define   VLV_RENDER_RC6_COUNT_EN		(1 << 0)
 #define GEN6_GT_GFX_RC6				_MMIO(0x138108)
-#define VLV_GT_RENDER_RC6			_MMIO(0x138108)
 #define VLV_GT_MEDIA_RC6			_MMIO(0x13810c)
 
 #define GEN6_GT_GFX_RC6p			_MMIO(0x13810c)
@@ -1483,6 +1506,7 @@
 #define   OTHER_GUC_INSTANCE			0
 #define   OTHER_GTPM_INSTANCE			1
 #define   OTHER_KCR_INSTANCE			4
+#define   OTHER_GSC_INSTANCE			6
 
 #define GEN11_IIR_REG_SELECTOR(x)		_MMIO(0x190070 + ((x) * 4))
 

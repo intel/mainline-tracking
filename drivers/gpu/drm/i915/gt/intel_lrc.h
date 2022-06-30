@@ -11,9 +11,10 @@
 #include <linux/bitfield.h>
 #include <linux/types.h>
 
+#include "intel_context.h"
+
 struct drm_i915_gem_object;
 struct i915_gem_ww_ctx;
-struct intel_context;
 struct intel_engine_cs;
 struct intel_ring;
 struct kref;
@@ -101,6 +102,8 @@ enum {
 #define GEN8_CTX_ID_WIDTH			21
 #define GEN11_SW_CTX_ID_SHIFT			37
 #define GEN11_SW_CTX_ID_WIDTH			11
+#define GEN11_SW_COUNTER_SHIFT			55
+#define GEN11_SW_COUNTER_WIDTH			6
 #define GEN11_ENGINE_CLASS_SHIFT		61
 #define GEN11_ENGINE_CLASS_WIDTH		3
 #define GEN11_ENGINE_INSTANCE_SHIFT		48
@@ -118,6 +121,30 @@ static inline u32 lrc_desc_priority(int prio)
 		return GEN12_CTX_PRIORITY_LOW;
 	else
 		return GEN12_CTX_PRIORITY_NORMAL;
+}
+
+static inline void lrc_runtime_start(struct intel_context *ce)
+{
+	struct intel_context_stats *stats = &ce->stats;
+
+	if (intel_context_is_barrier(ce))
+		return;
+
+	if (stats->active)
+		return;
+
+	WRITE_ONCE(stats->active, intel_context_clock());
+}
+
+static inline void lrc_runtime_stop(struct intel_context *ce)
+{
+	struct intel_context_stats *stats = &ce->stats;
+
+	if (!stats->active)
+		return;
+
+	lrc_update_runtime(ce);
+	WRITE_ONCE(stats->active, 0);
 }
 
 #endif /* __INTEL_LRC_H__ */

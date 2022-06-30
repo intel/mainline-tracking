@@ -5,6 +5,7 @@
 
 #include <linux/sched/mm.h>
 #include <linux/stop_machine.h>
+#include <linux/string_helpers.h>
 
 #include "display/intel_display.h"
 #include "display/intel_overlay.h"
@@ -137,7 +138,7 @@ void __i915_request_reset(struct i915_request *rq, bool guilty)
 {
 	bool banned = false;
 
-	RQ_TRACE(rq, "guilty? %s\n", yesno(guilty));
+	RQ_TRACE(rq, "guilty? %s\n", str_yes_no(guilty));
 	GEM_BUG_ON(__i915_request_is_complete(rq));
 
 	rcu_read_lock(); /* protect the GEM context */
@@ -625,6 +626,49 @@ skip_reset:
 	return ret;
 }
 
+static int gen12_vf_reset(struct intel_gt *gt,
+			  intel_engine_mask_t mask,
+			  unsigned int retry)
+{
+	struct intel_uncore *uncore = gt->uncore;
+	u32 request[VF2GUC_VF_RESET_REQUEST_MSG_LEN] = {
+		FIELD_PREP(GUC_HXG_MSG_0_ORIGIN, GUC_HXG_ORIGIN_HOST) |
+		FIELD_PREP(GUC_HXG_MSG_0_TYPE, GUC_HXG_TYPE_REQUEST) |
+		FIELD_PREP(GUC_HXG_REQUEST_MSG_0_ACTION, GUC_ACTION_VF2GUC_VF_RESET),
+	};
+	const i915_reg_t reg = GEN11_SOFT_SCRATCH(0);
+	u32 response;
+	int err;
+
+	/* No engine reset since VFs always run with GuC submission enabled */
+	if (GEM_WARN_ON(mask != ALL_ENGINES))
+		return -ENODEV;
+
+	/*
+	 * Can't use intel_guc_send_mmio() since it uses mutex,
+	 * but we don't expect any other MMIO action in flight,
+	 * as we use them only during init and teardown.
+	 */
+	GEM_WARN_ON(mutex_is_locked(&gt->uc.guc.send_mutex));
+
+	intel_uncore_write_fw(uncore, reg, request[0]);
+	intel_uncore_write_fw(uncore, GEN11_GUC_HOST_INTERRUPT, 1);
+
+	err = __intel_wait_for_register_fw(uncore, reg,
+					   GUC_HXG_MSG_0_ORIGIN,
+					   FIELD_PREP(GUC_HXG_MSG_0_ORIGIN,
+						      GUC_HXG_ORIGIN_GUC),
+					   1000, 0, &response);
+	if (unlikely(err)) {
+		drm_dbg(&gt->i915->drm, "VF reset not completed (%pe)\n",
+			ERR_PTR(err));
+	} else if (FIELD_GET(GUC_HXG_MSG_0_TYPE, response) != GUC_HXG_TYPE_RESPONSE_SUCCESS) {
+		drm_dbg(&gt->i915->drm, "VF reset not completed (%#x)\n",
+			response);
+	}
+	return 0;
+}
+
 static int mock_reset(struct intel_gt *gt,
 		      intel_engine_mask_t mask,
 		      unsigned int retry)
@@ -642,6 +686,8 @@ static reset_func intel_get_gpu_reset(const struct intel_gt *gt)
 
 	if (is_mock_gt(gt))
 		return mock_reset;
+	else if (IS_SRIOV_VF(i915))
+		return gen12_vf_reset;
 	else if (GRAPHICS_VER(i915) >= 8)
 		return gen8_reset_engines;
 	else if (GRAPHICS_VER(i915) >= 6)
@@ -771,13 +817,14 @@ static intel_engine_mask_t reset_prepare(struct intel_gt *gt)
 	intel_engine_mask_t awake = 0;
 	enum intel_engine_id id;
 
+	/* For GuC mode, ensure submission is disabled before stopping ring */
+	intel_uc_reset_prepare(&gt->uc);
+
 	for_each_engine(engine, gt, id) {
 		if (intel_engine_pm_get_if_awake(engine))
 			awake |= engine->mask;
 		reset_prepare_engine(engine);
 	}
-
-	intel_uc_reset_prepare(&gt->uc);
 
 	return awake;
 }
@@ -1318,7 +1365,7 @@ void intel_gt_handle_error(struct intel_gt *gt,
 	engine_mask &= gt->info.engine_mask;
 
 	if (flags & I915_ERROR_CAPTURE) {
-		i915_capture_error_state(gt, engine_mask);
+		i915_capture_error_state(gt, engine_mask, CORE_DUMP_FLAG_NONE);
 		intel_gt_clear_error_registers(gt, engine_mask);
 	}
 

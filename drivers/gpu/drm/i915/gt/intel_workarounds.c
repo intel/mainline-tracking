@@ -763,6 +763,9 @@ __intel_engine_init_ctx_wa(struct intel_engine_cs *engine,
 {
 	struct drm_i915_private *i915 = engine->i915;
 
+	if (IS_SRIOV_VF(i915))
+		return;
+
 	wa_init_start(wal, name, engine->name);
 
 	/* Applies to all engines */
@@ -1072,9 +1075,15 @@ static void __set_mcr_steering(struct i915_wa_list *wal,
 static void __add_mcr_wa(struct intel_gt *gt, struct i915_wa_list *wal,
 			 unsigned int slice, unsigned int subslice)
 {
-	drm_dbg(&gt->i915->drm, "MCR slice=0x%x, subslice=0x%x\n", slice, subslice);
+	struct drm_printer p = drm_debug_printer("MCR Steering:");
 
 	__set_mcr_steering(wal, GEN8_MCR_SELECTOR, slice, subslice);
+
+	gt->default_steering.groupid = slice;
+	gt->default_steering.instanceid = subslice;
+
+	if (drm_debug_enabled(DRM_UT_DRIVER))
+		intel_gt_report_steering(&p, gt, false);
 }
 
 static void
@@ -1534,6 +1543,9 @@ void intel_gt_init_workarounds(struct intel_gt *gt)
 {
 	struct i915_wa_list *wal = &gt->wa_list;
 
+	if (IS_SRIOV_VF(gt->i915))
+		return;
+
 	wa_init_start(wal, "GT", "global");
 	gt_init_workarounds(gt, wal);
 	wa_init_finish(wal);
@@ -1923,6 +1935,9 @@ void intel_engine_init_whitelist(struct intel_engine_cs *engine)
 	struct drm_i915_private *i915 = engine->i915;
 	struct i915_wa_list *w = &engine->whitelist;
 
+	if (IS_SRIOV_VF(engine->i915))
+		return;
+
 	wa_init_start(w, "whitelist", engine->name);
 
 	if (IS_DG2(i915))
@@ -2188,11 +2203,15 @@ rcs_engine_wa_init(struct intel_engine_cs *engine, struct i915_wa_list *wal)
 		 */
 		wa_write_or(wal, GEN7_FF_THREAD_MODE,
 			    GEN12_FF_TESSELATION_DOP_GATE_DISABLE);
+	}
 
+	if (IS_ALDERLAKE_P(i915) || IS_DG2(i915) || IS_ALDERLAKE_S(i915) ||
+	    IS_DG1(i915) || IS_ROCKETLAKE(i915) || IS_TIGERLAKE(i915)) {
 		/*
 		 * Wa_1606700617:tgl,dg1,adl-p
 		 * Wa_22010271021:tgl,rkl,dg1,adl-s,adl-p
 		 * Wa_14010826681:tgl,dg1,rkl,adl-p
+		 * Wa_18019627453:dg2
 		 */
 		wa_masked_en(wal,
 			     GEN9_CS_DEBUG_MODE1,
@@ -2310,7 +2329,7 @@ rcs_engine_wa_init(struct intel_engine_cs *engine, struct i915_wa_list *wal)
 			     FF_DOP_CLOCK_GATE_DISABLE);
 	}
 
-	if (IS_GRAPHICS_VER(i915, 9, 12)) {
+	if (HAS_PERCTX_PREEMPT_CTRL(i915)) {
 		/* FtrPerCtxtPreemptionGranularityControl:skl,bxt,kbl,cfl,cnl,icl,tgl */
 		wa_masked_en(wal,
 			     GEN7_FF_SLICE_CS_CHICKEN1,
@@ -2618,6 +2637,11 @@ general_render_compute_wa_init(struct intel_engine_cs *engine, struct i915_wa_li
 		wa_write_or(wal, GEN12_GAMCNTRL_CTRL, INVALIDATION_BROADCAST_MODE_DIS |
 				GLOBAL_INVALIDATION_MODE);
 	}
+
+	if (IS_DG2(i915)) {
+		/* Wa_22014226127:dg2 */
+		wa_write_or(wal, LSC_CHICKEN_BIT_0, DISABLE_D8_D16_COASLESCE);
+	}
 }
 
 static void
@@ -2633,7 +2657,7 @@ engine_init_workarounds(struct intel_engine_cs *engine, struct i915_wa_list *wal
 	 * to a single RCS/CCS engine's workaround list since
 	 * they're reset as part of the general render domain reset.
 	 */
-	if (engine->class == RENDER_CLASS)
+	if (engine->flags & I915_ENGINE_FIRST_RENDER_COMPUTE)
 		general_render_compute_wa_init(engine, wal);
 
 	if (engine->class == RENDER_CLASS)
@@ -2645,6 +2669,9 @@ engine_init_workarounds(struct intel_engine_cs *engine, struct i915_wa_list *wal
 void intel_engine_init_workarounds(struct intel_engine_cs *engine)
 {
 	struct i915_wa_list *wal = &engine->wa_list;
+
+	if (IS_SRIOV_VF(engine->i915))
+		return;
 
 	if (GRAPHICS_VER(engine->i915) < 4)
 		return;
