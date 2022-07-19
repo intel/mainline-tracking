@@ -127,6 +127,8 @@ static void check_hung_task(struct task_struct *t, unsigned long timeout)
 	 * complain:
 	 */
 	if (sysctl_hung_task_warnings) {
+		printk_prefer_direct_enter();
+
 		if (sysctl_hung_task_warnings > 0)
 			sysctl_hung_task_warnings--;
 		pr_err("INFO: task %s:%d blocked for more than %ld seconds.\n",
@@ -144,6 +146,7 @@ static void check_hung_task(struct task_struct *t, unsigned long timeout)
 			hung_task_show_all_bt = true;
 		if (!sysctl_hung_task_warnings)
 			pr_info("Future hung task reports are suppressed, see sysctl kernel.hung_task_warnings\n");
+		printk_prefer_direct_exit();
 	}
 
 	touch_nmi_watchdog();
@@ -214,12 +217,17 @@ static void check_hung_uninterruptible_tasks(unsigned long timeout)
 	}
  unlock:
 	rcu_read_unlock();
-	if (hung_task_show_lock)
+	if (hung_task_show_lock) {
+		printk_prefer_direct_enter();
 		debug_show_all_locks();
+		printk_prefer_direct_exit();
+	}
 
 	if (hung_task_show_all_bt) {
 		hung_task_show_all_bt = false;
+		printk_prefer_direct_enter();
 		trigger_all_cpu_backtrace();
+		printk_prefer_direct_exit();
 	}
 
 	if (hung_task_call_panic)
