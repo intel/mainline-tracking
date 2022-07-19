@@ -1611,7 +1611,9 @@ void xhci_handle_command_timeout(struct work_struct *work)
 	    xhci_pending_command_completion(xhci)) {
 		xhci_dbg(xhci, "Command timeout with unhandled command completion\n");
 		xhci_mod_cmd_timer(xhci, XHCI_CMD_DEFAULT_TIMEOUT);
-		goto time_out_completed;
+		spin_unlock_irqrestore(&xhci->lock, flags);
+		xhci_irq(xhci_to_hcd(xhci));
+		return;
 	}
 
 	/* Bail out and tear down xhci if a stop endpoint command failed */
