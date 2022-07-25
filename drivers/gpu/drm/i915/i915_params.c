@@ -73,8 +73,12 @@ i915_param_named_unsafe(enable_dc, int, 0400,
 	"3=up to DC5 with DC3CO; 4=up to DC6 with DC3CO)");
 
 i915_param_named_unsafe(enable_fbc, int, 0400,
-	"Enable frame buffer compression for power savings "
+	"Enable frame buffer compression for power savings; "
 	"(default: -1 (use per-chip default))");
+
+i915_param_named_unsafe(enable_rc6, bool, 0400,
+	"Enable power-saving render C-state 6; "
+	"(default: true)");
 
 i915_param_named_unsafe(lvds_channel_mode, int, 0400,
 	 "Specify LVDS channel mode "
