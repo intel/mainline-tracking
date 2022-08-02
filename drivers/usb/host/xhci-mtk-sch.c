@@ -764,8 +764,7 @@ int xhci_mtk_drop_ep(struct usb_hcd *hcd, struct usb_device *udev,
 	if (ret)
 		return ret;
 
-	if (ep->hcpriv)
-		drop_ep_quirk(hcd, udev, ep);
+	drop_ep_quirk(hcd, udev, ep);
 
 	return 0;
 }
