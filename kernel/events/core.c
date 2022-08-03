@@ -54,6 +54,7 @@
 #include <linux/highmem.h>
 #include <linux/pgtable.h>
 #include <linux/buildid.h>
+#include <linux/percpu-rwsem.h>
 
 #include "internal.h"
 
@@ -1179,26 +1180,11 @@ static void get_ctx(struct perf_event_context *ctx)
 	refcount_inc(&ctx->refcount);
 }
 
-static void *alloc_task_ctx_data(struct pmu *pmu)
-{
-	if (pmu->task_ctx_cache)
-		return kmem_cache_zalloc(pmu->task_ctx_cache, GFP_KERNEL);
-
-	return NULL;
-}
-
-static void free_task_ctx_data(struct pmu *pmu, void *task_ctx_data)
-{
-	if (pmu->task_ctx_cache && task_ctx_data)
-		kmem_cache_free(pmu->task_ctx_cache, task_ctx_data);
-}
-
 static void free_ctx(struct rcu_head *head)
 {
 	struct perf_event_context *ctx;
 
 	ctx = container_of(head, struct perf_event_context, rcu_head);
-	free_task_ctx_data(ctx->pmu, ctx->task_ctx_data);
 	kfree(ctx);
 }
 
@@ -3423,27 +3409,15 @@ static void perf_event_context_sched_out(struct task_struct *task, int ctxn,
 			perf_pmu_disable(pmu);
 
 			if (cpuctx->sched_cb_usage && pmu->sched_task)
-				pmu->sched_task(ctx, false);
-
-			/*
-			 * PMU specific parts of task perf context can require
-			 * additional synchronization. As an example of such
-			 * synchronization see implementation details of Intel
-			 * LBR call stack data profiling;
-			 */
-			if (pmu->swap_task_ctx)
-				pmu->swap_task_ctx(ctx, next_ctx);
-			else
-				swap(ctx->task_ctx_data, next_ctx->task_ctx_data);
+				pmu->sched_task(ctx, task, false);
 
 			perf_pmu_enable(pmu);
 
 			/*
 			 * RCU_INIT_POINTER here is safe because we've not
 			 * modified the ctx and the above modification of
-			 * ctx->task and ctx->task_ctx_data are immaterial
-			 * since those values are always verified under
-			 * ctx->lock which we're now holding.
+			 * ctx->task is immaterial since this value is always
+			 * verified under ctx->lock which we're now holding.
 			 */
 			RCU_INIT_POINTER(task->perf_event_ctxp[ctxn], next_ctx);
 			RCU_INIT_POINTER(next->perf_event_ctxp[ctxn], ctx);
@@ -3463,7 +3437,7 @@ unlock:
 		perf_pmu_disable(pmu);
 
 		if (cpuctx->sched_cb_usage && pmu->sched_task)
-			pmu->sched_task(ctx, false);
+			pmu->sched_task(ctx, task, false);
 		task_ctx_sched_out(cpuctx, ctx, EVENT_ALL);
 
 		perf_pmu_enable(pmu);
@@ -3502,7 +3476,8 @@ void perf_sched_cb_inc(struct pmu *pmu)
  * PEBS requires this to provide PID/TID information. This requires we flush
  * all queued PEBS records before we context switch to a new task.
  */
-static void __perf_pmu_sched_task(struct perf_cpu_context *cpuctx, bool sched_in)
+static void __perf_pmu_sched_task(struct perf_cpu_context *cpuctx,
+				  struct task_struct *task, bool sched_in)
 {
 	struct pmu *pmu;
 
@@ -3514,7 +3489,7 @@ static void __perf_pmu_sched_task(struct perf_cpu_context *cpuctx, bool sched_in
 	perf_ctx_lock(cpuctx, cpuctx->task_ctx);
 	perf_pmu_disable(pmu);
 
-	pmu->sched_task(cpuctx->task_ctx, sched_in);
+	pmu->sched_task(cpuctx->task_ctx, task, sched_in);
 
 	perf_pmu_enable(pmu);
 	perf_ctx_unlock(cpuctx, cpuctx->task_ctx);
@@ -3534,7 +3509,7 @@ static void perf_pmu_sched_task(struct task_struct *prev,
 		if (cpuctx->task_ctx)
 			continue;
 
-		__perf_pmu_sched_task(cpuctx, sched_in);
+		__perf_pmu_sched_task(cpuctx, sched_in ? next : prev, sched_in);
 	}
 }
 
@@ -3838,7 +3813,7 @@ static void perf_event_context_sched_in(struct perf_event_context *ctx,
 
 	if (cpuctx->task_ctx == ctx) {
 		if (cpuctx->sched_cb_usage)
-			__perf_pmu_sched_task(cpuctx, true);
+			__perf_pmu_sched_task(cpuctx, task, true);
 		return;
 	}
 
@@ -3864,7 +3839,7 @@ static void perf_event_context_sched_in(struct perf_event_context *ctx,
 	perf_event_sched_in(cpuctx, ctx);
 
 	if (cpuctx->sched_cb_usage && pmu->sched_task)
-		pmu->sched_task(cpuctx->task_ctx, true);
+		pmu->sched_task(cpuctx->task_ctx, task, true);
 
 	perf_pmu_enable(pmu);
 
@@ -4607,7 +4582,6 @@ find_get_context(struct pmu *pmu, struct task_struct *task,
 {
 	struct perf_event_context *ctx, *clone_ctx = NULL;
 	struct perf_cpu_context *cpuctx;
-	void *task_ctx_data = NULL;
 	unsigned long flags;
 	int ctxn, err;
 	int cpu = event->cpu;
@@ -4633,24 +4607,12 @@ find_get_context(struct pmu *pmu, struct task_struct *task,
 	if (ctxn < 0)
 		goto errout;
 
-	if (event->attach_state & PERF_ATTACH_TASK_DATA) {
-		task_ctx_data = alloc_task_ctx_data(pmu);
-		if (!task_ctx_data) {
-			err = -ENOMEM;
-			goto errout;
-		}
-	}
-
 retry:
 	ctx = perf_lock_task_context(task, ctxn, &flags);
 	if (ctx) {
 		clone_ctx = unclone_ctx(ctx);
 		++ctx->pin_count;
 
-		if (task_ctx_data && !ctx->task_ctx_data) {
-			ctx->task_ctx_data = task_ctx_data;
-			task_ctx_data = NULL;
-		}
 		raw_spin_unlock_irqrestore(&ctx->lock, flags);
 
 		if (clone_ctx)
@@ -4660,11 +4622,6 @@ retry:
 		err = -ENOMEM;
 		if (!ctx)
 			goto errout;
-
-		if (task_ctx_data) {
-			ctx->task_ctx_data = task_ctx_data;
-			task_ctx_data = NULL;
-		}
 
 		err = 0;
 		mutex_lock(&task->perf_event_mutex);
@@ -4692,11 +4649,9 @@ retry:
 		}
 	}
 
-	free_task_ctx_data(pmu, task_ctx_data);
 	return ctx;
 
 errout:
-	free_task_ctx_data(pmu, task_ctx_data);
 	return ERR_PTR(err);
 }
 
@@ -4781,6 +4736,224 @@ static void unaccount_freq_event(void)
 		atomic_dec(&nr_freq_events);
 }
 
+
+static struct perf_ctx_data *
+alloc_perf_ctx_data(struct kmem_cache *ctx_cache, bool global)
+{
+	struct perf_ctx_data *cd;
+
+	cd = kzalloc(sizeof(*cd), GFP_KERNEL);
+	if (!cd)
+		return NULL;
+
+	cd->data = kmem_cache_zalloc(ctx_cache, GFP_KERNEL);
+	if (!cd->data) {
+		kfree(cd);
+		return NULL;
+	}
+
+	cd->global = global;
+	cd->ctx_cache = ctx_cache;
+	refcount_set(&cd->refcount, 1);
+
+	return cd;
+}
+
+static void free_perf_ctx_data(struct perf_ctx_data *cd)
+{
+	kmem_cache_free(cd->ctx_cache, cd->data);
+	kfree(cd);
+}
+
+static void __free_perf_ctx_data_rcu(struct rcu_head *rcu_head)
+{
+	struct perf_ctx_data *cd;
+
+	cd = container_of(rcu_head, struct perf_ctx_data, rcu_head);
+	free_perf_ctx_data(cd);
+}
+
+static inline void perf_free_ctx_data_rcu(struct perf_ctx_data *cd)
+{
+	call_rcu(&cd->rcu_head, __free_perf_ctx_data_rcu);
+}
+
+static int
+attach_task_ctx_data(struct task_struct *task, struct kmem_cache *ctx_cache,
+		     bool global)
+{
+	struct perf_ctx_data *cd, *old = NULL;
+
+	cd = alloc_perf_ctx_data(ctx_cache, global);
+	if (!cd)
+		return -ENOMEM;
+
+	for (;;) {
+		if (try_cmpxchg((struct perf_ctx_data **)&task->perf_ctx_data,
+		    &old,
+		    cd)) {
+			if (old)
+				perf_free_ctx_data_rcu(old);
+			return 0;
+		}
+
+		if (!old) {
+			/*
+			 * After seeing a dead @old, we raced with
+			 * removal and lost, try again to install @cd.
+			 */
+			continue;
+		}
+
+		if (refcount_inc_not_zero(&old->refcount)) {
+			free_perf_ctx_data(cd); /* unused */
+			return 0;
+		}
+
+		/*
+		 * @old is a dead object, refcount==0 is stable, try and
+		 * replace it with @cd.
+		 */
+	}
+	return 0;
+}
+
+static void __detach_global_ctx_data(void);
+DEFINE_STATIC_PERCPU_RWSEM(global_ctx_data_rwsem);
+static refcount_t global_ctx_data_ref;
+
+static int
+attach_global_ctx_data(struct kmem_cache *ctx_cache)
+{
+	if (refcount_inc_not_zero(&global_ctx_data_ref))
+		return 0;
+
+	percpu_down_write(&global_ctx_data_rwsem);
+	if (!refcount_inc_not_zero(&global_ctx_data_ref)) {
+		struct task_struct *g, *p;
+		struct perf_ctx_data *cd;
+		int ret;
+
+again:
+		/* Allocate everything */
+		rcu_read_lock();
+		for_each_process_thread(g, p) {
+			cd = rcu_dereference(p->perf_ctx_data);
+			if (cd && !cd->global) {
+				cd->global = 1;
+				if (!refcount_inc_not_zero(&cd->refcount))
+					cd = NULL;
+			}
+			if (!cd) {
+				get_task_struct(p);
+				rcu_read_unlock();
+
+				ret = attach_task_ctx_data(p, ctx_cache, true);
+				put_task_struct(p);
+				if (ret) {
+					__detach_global_ctx_data();
+					return ret;
+				}
+				goto again;
+			}
+		}
+		rcu_read_unlock();
+
+		refcount_set(&global_ctx_data_ref, 1);
+	}
+	percpu_up_write(&global_ctx_data_rwsem);
+
+	return 0;
+}
+
+static int
+attach_perf_ctx_data(struct perf_event *event)
+{
+	struct task_struct *task = event->hw.target;
+	struct kmem_cache *ctx_cache = event->pmu->task_ctx_cache;
+
+	if (!ctx_cache)
+		return -ENOMEM;
+
+	if (task)
+		return attach_task_ctx_data(task, ctx_cache, false);
+	else
+		return attach_global_ctx_data(ctx_cache);
+}
+
+static void
+detach_task_ctx_data(struct task_struct *p)
+{
+	struct perf_ctx_data *cd;
+
+	rcu_read_lock();
+	cd = rcu_dereference(p->perf_ctx_data);
+	if (!cd || !refcount_dec_and_test(&cd->refcount)) {
+		rcu_read_unlock();
+		return;
+	}
+	rcu_read_unlock();
+
+	/*
+	 * The old ctx_data may be lost because of the race.
+	 * Nothing is required to do for the case.
+	 * See attach_task_ctx_data().
+	 */
+	if (try_cmpxchg((struct perf_ctx_data **)&p->perf_ctx_data, &cd, NULL))
+		perf_free_ctx_data_rcu(cd);
+}
+
+static void __detach_global_ctx_data(void)
+{
+	struct task_struct *g, *p;
+	struct perf_ctx_data *cd;
+
+again:
+	rcu_read_lock();
+	for_each_process_thread(g, p) {
+		cd = rcu_dereference(p->perf_ctx_data);
+		if (!cd || !cd->global)
+			continue;
+		cd->global = 0;
+		get_task_struct(p);
+		rcu_read_unlock();
+
+		detach_task_ctx_data(p);
+		put_task_struct(p);
+		goto again;
+	}
+	rcu_read_unlock();
+}
+
+static void detach_global_ctx_data(void)
+{
+	if (refcount_dec_not_one(&global_ctx_data_ref))
+		return;
+
+	percpu_down_write(&global_ctx_data_rwsem);
+	if (!refcount_dec_and_test(&global_ctx_data_ref))
+		goto unlock;
+
+	/* remove everything */
+	__detach_global_ctx_data();
+
+unlock:
+	percpu_up_write(&global_ctx_data_rwsem);
+}
+
+static void detach_perf_ctx_data(struct perf_event *event)
+{
+	struct task_struct *task = event->hw.target;
+
+	if (!event->pmu->task_ctx_cache)
+		return;
+
+	if (task)
+		detach_task_ctx_data(task);
+	else
+		detach_global_ctx_data();
+}
+
 static void unaccount_event(struct perf_event *event)
 {
 	bool dec = false;
@@ -4818,6 +4991,8 @@ static void unaccount_event(struct perf_event *event)
 		atomic_dec(&nr_bpf_events);
 	if (event->attr.text_poke)
 		atomic_dec(&nr_text_poke_events);
+	if (event->attach_state & PERF_ATTACH_TASK_DATA)
+		detach_perf_ctx_data(event);
 
 	if (dec) {
 		if (!atomic_add_unless(&perf_sched_count, -1, 1))
@@ -7872,10 +8047,62 @@ static void perf_event_task(struct task_struct *task,
 		       task_ctx);
 }
 
+/*
+ * Allocate data for a new task when profiling system-wide
+ * events which require PMU specific data
+ */
+static void
+perf_event_alloc_task_data(struct task_struct *child,
+			   struct task_struct *parent)
+{
+	struct kmem_cache *ctx_cache = NULL;
+	struct perf_ctx_data *cd;
+
+	if (!refcount_read(&global_ctx_data_ref))
+		return;
+
+	rcu_read_lock();
+	cd = rcu_dereference(parent->perf_ctx_data);
+	if (cd)
+		ctx_cache = cd->ctx_cache;
+	rcu_read_unlock();
+
+	if (!ctx_cache)
+		return;
+
+	percpu_down_read(&global_ctx_data_rwsem);
+
+	rcu_read_lock();
+	cd = rcu_dereference(child->perf_ctx_data);
+
+	if (!cd) {
+		/*
+		 * A system-wide event may be unaccount,
+		 * when attaching the perf_ctx_data.
+		 */
+		if (!refcount_read(&global_ctx_data_ref))
+			goto rcu_unlock;
+		rcu_read_unlock();
+		attach_task_ctx_data(child, ctx_cache, true);
+		goto up_rwsem;
+	}
+
+	if (!cd->global) {
+		cd->global = 1;
+		refcount_inc(&cd->refcount);
+	}
+
+rcu_unlock:
+	rcu_read_unlock();
+up_rwsem:
+	percpu_up_read(&global_ctx_data_rwsem);
+}
+
 void perf_event_fork(struct task_struct *task)
 {
 	perf_event_task(task, NULL, 1);
 	perf_event_namespaces(task);
+	perf_event_alloc_task_data(task, current);
 }
 
 /*
@@ -11667,11 +11894,17 @@ perf_event_alloc(struct perf_event_attr *attr, int cpu,
 	if (err)
 		goto err_callchain_buffer;
 
+	if ((event->attach_state & PERF_ATTACH_TASK_DATA) &&
+	    attach_perf_ctx_data(event))
+		goto err_task_ctx_data;
+
 	/* symmetric to unaccount_event() in _free_event() */
 	account_event(event);
 
 	return event;
 
+err_task_ctx_data:
+	security_perf_event_free(event);
 err_callchain_buffer:
 	if (!event->parent) {
 		if (event->attr.sample_type & PERF_SAMPLE_CALLCHAIN)
@@ -12812,6 +13045,13 @@ void perf_event_exit_task(struct task_struct *child)
 	 * At this point we need to send EXIT events to cpu contexts.
 	 */
 	perf_event_task(child, NULL, 0);
+
+	/*
+	 * Detach the perf_ctx_data for the system-wide event.
+	 */
+	percpu_down_read(&global_ctx_data_rwsem);
+	detach_task_ctx_data(child);
+	percpu_up_read(&global_ctx_data_rwsem);
 }
 
 static void perf_free_event(struct perf_event *event,
@@ -12965,18 +13205,6 @@ inherit_event(struct perf_event *parent_event,
 	if (IS_ERR(child_event))
 		return child_event;
 
-
-	if ((child_event->attach_state & PERF_ATTACH_TASK_DATA) &&
-	    !child_ctx->task_ctx_data) {
-		struct pmu *pmu = child_event->pmu;
-
-		child_ctx->task_ctx_data = alloc_task_ctx_data(pmu);
-		if (!child_ctx->task_ctx_data) {
-			free_event(child_event);
-			return ERR_PTR(-ENOMEM);
-		}
-	}
-
 	/*
 	 * is_orphaned_event() and list_add_tail(&parent_event->child_list)
 	 * must be under the same lock in order to serialize against
@@ -12987,7 +13215,6 @@ inherit_event(struct perf_event *parent_event,
 	if (is_orphaned_event(parent_event) ||
 	    !atomic_long_inc_not_zero(&parent_event->refcount)) {
 		mutex_unlock(&parent_event->child_mutex);
-		/* task_ctx_data is freed with child_ctx */
 		free_event(child_event);
 		return NULL;
 	}
@@ -13247,6 +13474,7 @@ int perf_event_init_task(struct task_struct *child, u64 clone_flags)
 	memset(child->perf_event_ctxp, 0, sizeof(child->perf_event_ctxp));
 	mutex_init(&child->perf_event_mutex);
 	INIT_LIST_HEAD(&child->perf_event_list);
+	child->perf_ctx_data = NULL;
 
 	for_each_task_context_nr(ctxn) {
 		ret = perf_event_init_context(child, ctxn, clone_flags);

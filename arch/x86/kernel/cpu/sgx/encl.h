@@ -27,7 +27,8 @@
 
 struct sgx_encl_page {
 	unsigned long desc;
-	unsigned long vm_max_prot_bits;
+	unsigned long vm_max_prot_bits:8;
+	enum sgx_page_type type:16;
 	struct sgx_epc_page *epc_page;
 	struct sgx_encl *encl;
 	struct sgx_va_page *va_page;
@@ -110,14 +111,22 @@ int sgx_encl_lookup_backing(struct sgx_encl *encl, unsigned long page_index,
 			    struct sgx_backing *backing);
 int sgx_encl_alloc_backing(struct sgx_encl *encl, unsigned long page_index,
 			   struct sgx_backing *backing);
+const cpumask_t *sgx_encl_cpumask(struct sgx_encl *encl);
 void sgx_encl_put_backing(struct sgx_backing *backing);
 int sgx_encl_test_and_clear_young(struct mm_struct *mm,
 				  struct sgx_encl_page *page);
-
-struct sgx_epc_page *sgx_alloc_va_page(void);
+struct sgx_encl_page *sgx_encl_page_alloc(struct sgx_encl *encl,
+					  unsigned long offset,
+					  u64 secinfo_flags);
+void sgx_zap_enclave_ptes(struct sgx_encl *encl, unsigned long addr);
+struct sgx_epc_page *sgx_alloc_va_page(bool reclaim);
 unsigned int sgx_alloc_va_slot(struct sgx_va_page *va_page);
 void sgx_free_va_slot(struct sgx_va_page *va_page, unsigned int offset);
 bool sgx_va_page_full(struct sgx_va_page *va_page);
 void sgx_encl_free_epc_page(struct sgx_epc_page *page);
+struct sgx_encl_page *sgx_encl_load_page(struct sgx_encl *encl,
+					 unsigned long addr);
+struct sgx_va_page *sgx_encl_grow(struct sgx_encl *encl, bool reclaim);
+void sgx_encl_shrink(struct sgx_encl *encl, struct sgx_va_page *va_page);
 
 #endif /* _X86_ENCL_H */
