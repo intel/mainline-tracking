@@ -7080,6 +7080,14 @@ int stmmac_reinit_queues(struct net_device *dev, u32 rx_cnt, u32 tx_cnt)
 			priv->rss.table[i] = ethtool_rxfh_indir_default(i,
 									rx_cnt);
 
+	/* Half-Duplex can only work with single queue */
+	if (priv->plat->tx_queues_to_use > 1)
+		priv->phylink_config.mac_capabilities &=
+		~(MAC_10HD | MAC_100HD);
+	else
+		priv->phylink_config.mac_capabilities |=
+		(MAC_10HD | MAC_100HD);
+
 	stmmac_napi_add(dev);
 
 	if (netif_running(dev))
