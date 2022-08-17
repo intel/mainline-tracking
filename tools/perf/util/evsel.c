@@ -3063,7 +3063,8 @@ int evsel__open_strerror(struct evsel *evsel, struct target *target,
 		break;
 	case ENODATA:
 		return scnprintf(msg, size, "Cannot collect data source with the load latency event alone. "
-				 "Please add an auxiliary event in front of the load latency event.");
+				 "Please add an auxiliary event in front of the load latency event. "
+				 "For example, -e {mem-loads-aux,%s}.", evsel__name(evsel));
 	default:
 		break;
 	}
