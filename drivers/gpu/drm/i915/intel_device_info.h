@@ -217,6 +217,8 @@ struct intel_runtime_info {
 
 	u16 device_id;
 
+	intel_engine_mask_t platform_engine_mask; /* Engines supported by the HW */
+
 	u32 rawclk_freq;
 
 	struct intel_step_info step;
@@ -241,8 +243,6 @@ struct intel_runtime_info {
 
 struct intel_device_info {
 	struct ip_version media;
-
-	intel_engine_mask_t platform_engine_mask; /* Engines supported by the HW */
 
 	enum intel_platform platform;
 
