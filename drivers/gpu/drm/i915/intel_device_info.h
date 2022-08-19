@@ -186,7 +186,6 @@ enum intel_ppgtt_type {
 	func(has_dsc); \
 	func(has_fpga_dbg); \
 	func(has_gmch); \
-	func(has_hdcp); \
 	func(has_hotplug); \
 	func(has_hti); \
 	func(has_ipc); \
@@ -241,6 +240,8 @@ struct intel_runtime_info {
 		u8 num_scalers[I915_MAX_PIPES];
 
 		u8 fbc_mask;
+
+		bool has_hdcp;
 	};
 };
 
