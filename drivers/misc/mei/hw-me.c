@@ -483,6 +483,39 @@ static int mei_me_hw_ready_wait(struct mei_device *dev)
 }
 
 /**
+ * mei_me_check_fw_reset - check for the firmware reset error and exception conditions
+ *
+ * @dev: mei device
+ */
+static void mei_me_check_fw_reset(struct mei_device *dev)
+{
+	struct mei_fw_status fw_status;
+	int ret;
+	u32 fw_pm_event;
+
+	ret = mei_fw_status(dev, &fw_status);
+	if (ret) {
+		dev_err(dev->dev, "failed to read firmware status: %d\n", ret);
+		goto end;
+	}
+	fw_pm_event = fw_status.status[1] & FW_PM_EVENT_MASK;
+	if (fw_pm_event == FW_PM_CMOFF_TO_CMX_ERROR || fw_pm_event == FW_PM_CM_RESET_ERROR) {
+		if (dev->saved_fw_status_flag) {
+			char fw_sts_str[MEI_FW_STATUS_STR_SZ] = {0};
+
+			mei_fw_status2str(&dev->saved_fw_status, fw_sts_str, sizeof(fw_sts_str));
+			dev_warn(dev->dev, "unexpected reset: fw_pm_event = 0x%x, dev_state = %u fw status = %s\n",
+				 fw_pm_event, dev->saved_dev_state, fw_sts_str);
+		} else {
+			dev_warn(dev->dev, "unexpected reset: fw_pm_event = 0x%x\n", fw_pm_event);
+		}
+	}
+
+end:
+	dev->saved_fw_status_flag = false;
+}
+
+/**
  * mei_me_hw_start - hw start routine
  *
  * @dev: mei device
@@ -490,8 +523,12 @@ static int mei_me_hw_ready_wait(struct mei_device *dev)
  */
 static int mei_me_hw_start(struct mei_device *dev)
 {
-	int ret = mei_me_hw_ready_wait(dev);
+	int ret;
 
+	if (kind_is_gsc(dev) || kind_is_gscfi(dev))
+		mei_me_check_fw_reset(dev);
+
+	ret = mei_me_hw_ready_wait(dev);
 	if (ret)
 		return ret;
 	dev_dbg(dev->dev, "hw is ready\n");
@@ -1300,8 +1337,13 @@ irqreturn_t mei_me_irq_thread_handler(int irq, void *dev_id)
 
 	/* check if ME wants a reset */
 	if (!mei_hw_is_ready(dev) && dev->dev_state != MEI_DEV_RESETTING) {
-		dev_warn(dev->dev, "FW not ready: resetting: dev_state = %d pxp = %d\n",
-			 dev->dev_state, dev->pxp_mode);
+		if (kind_is_gsc(dev) || kind_is_gscfi(dev)) {
+			dev_dbg(dev->dev, "FW not ready: resetting: dev_state = %d\n",
+				dev->dev_state);
+		} else {
+			dev_warn(dev->dev, "FW not ready: resetting: dev_state = %d\n",
+				 dev->dev_state);
+		}
 		if (dev->dev_state == MEI_DEV_POWERING_DOWN ||
 		    dev->dev_state == MEI_DEV_POWER_DOWN)
 			mei_cl_all_disconnect(dev);

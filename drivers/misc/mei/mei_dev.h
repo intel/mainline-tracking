@@ -528,6 +528,10 @@ struct mei_dev_timeouts {
  *
  * @dbgfs_dir   : debugfs mei root directory
  *
+ * @saved_fw_status      : saved firmware status
+ * @saved_dev_state      : saved device state
+ * @saved_fw_status_flag : flag indicating that firmware status was saved
+ *
  * @ops:        : hw specific operations
  * @hw          : hw specific data
  */
@@ -622,6 +626,10 @@ struct mei_device {
 #if IS_ENABLED(CONFIG_DEBUG_FS)
 	struct dentry *dbgfs_dir;
 #endif /* CONFIG_DEBUG_FS */
+
+	struct mei_fw_status saved_fw_status;
+	enum mei_dev_state saved_dev_state;
+	bool saved_fw_status_flag;
 
 	const struct mei_hw_ops *ops;
 	char hw[] __aligned(sizeof(void *));
@@ -850,8 +858,7 @@ ssize_t mei_fw_status2str(struct mei_fw_status *fw_sts, char *buf, size_t len);
  *
  * Return: number of bytes written or < 0 on failure
  */
-static inline ssize_t mei_fw_status_str(struct mei_device *dev,
-					char *buf, size_t len)
+static inline ssize_t mei_fw_status_str(struct mei_device *dev, char *buf, size_t len)
 {
 	struct mei_fw_status fw_status;
 	int ret;
@@ -867,5 +874,29 @@ static inline ssize_t mei_fw_status_str(struct mei_device *dev,
 	return ret;
 }
 
+/**
+ * kind_is_gsc - checks whether the device is gsc
+ *
+ * @dev: the device structure
+ *
+ * Return: whether the device is gsc
+ */
+static inline bool kind_is_gsc(struct mei_device *dev)
+{
+	/* check kind for NULL because it may be not set, like at the fist call to hw_start */
+	return dev->kind && (strcmp(dev->kind, "gsc") == 0);
+}
 
+/**
+ * kind_is_gscfi - checks whether the device is gscfi
+ *
+ * @dev: the device structure
+ *
+ * Return: whether the device is gscfi
+ */
+static inline bool kind_is_gscfi(struct mei_device *dev)
+{
+	/* check kind for NULL because it may be not set, like at the fist call to hw_start */
+	return dev->kind && (strcmp(dev->kind, "gscfi") == 0);
+}
 #endif

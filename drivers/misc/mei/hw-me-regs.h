@@ -211,4 +211,8 @@ access to ME_CBD */
 #define H_D0I3C_I3       0x00000004
 #define H_D0I3C_RR       0x00000008
 
+#define FW_PM_CMOFF_TO_CMX_ERROR       0x1000000 /* CMoff->CMx wake after an error */
+#define FW_PM_CM_RESET_ERROR           0x5000000 /* CME reset due to exception */
+#define FW_PM_EVENT_MASK               0xf000000
+
 #endif /* _MEI_HW_MEI_REGS_H_ */
