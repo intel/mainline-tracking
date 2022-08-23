@@ -7081,7 +7081,8 @@ int stmmac_reinit_queues(struct net_device *dev, u32 rx_cnt, u32 tx_cnt)
 									rx_cnt);
 
 	/* Half-Duplex can only work with single queue */
-	if (priv->plat->tx_queues_to_use > 1)
+	if (priv->plat->tx_queues_to_use > 1 &&
+	    !priv->plat->fixed_2G5_clock_rate)
 		priv->phylink_config.mac_capabilities &=
 		~(MAC_10HD | MAC_100HD);
 	else
