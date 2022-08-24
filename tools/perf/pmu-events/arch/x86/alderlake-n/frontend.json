@@ -1,0 +1,35 @@
+[
+    {
+        "BriefDescription": "Counts the total number of BACLEARS due to all branch types including conditional and unconditional jumps, returns, and indirect branches.",
+        "CollectPEBSRecord": "2",
+        "Counter": "0,1,2,3,4,5",
+        "EventCode": "0xe6",
+        "EventName": "BACLEARS.ANY",
+        "PEBScounters": "0,1,2,3,4,5",
+        "SampleAfterValue": "100003",
+        "Speculative": "1",
+        "UMask": "0x1"
+    },
+    {
+        "BriefDescription": "Counts the number of requests to the instruction cache for one or more bytes of a cache line.",
+        "CollectPEBSRecord": "2",
+        "Counter": "0,1,2,3,4,5",
+        "EventCode": "0x80",
+        "EventName": "ICACHE.ACCESSES",
+        "PEBScounters": "0,1,2,3,4,5",
+        "SampleAfterValue": "200003",
+        "Speculative": "1",
+        "UMask": "0x3"
+    },
+    {
+        "BriefDescription": "Counts the number of instruction cache misses.",
+        "CollectPEBSRecord": "2",
+        "Counter": "0,1,2,3,4,5",
+        "EventCode": "0x80",
+        "EventName": "ICACHE.MISSES",
+        "PEBScounters": "0,1,2,3,4,5",
+        "SampleAfterValue": "200003",
+        "Speculative": "1",
+        "UMask": "0x2"
+    }
+]
