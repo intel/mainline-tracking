@@ -824,7 +824,7 @@ static int fill_sched_entry(struct taprio_sched *q, struct nlattr **tb,
 		return -EINVAL;
 	}
 
-	if (entry->gate_mask >= BIT_MASK(mqprio->num_tc)) {
+	if (mqprio && entry->gate_mask >= BIT_MASK(mqprio->num_tc)) {
 		NL_SET_ERR_MSG(extack, "Traffic Class defined less than gatemask");
 		return -EINVAL;
 	}
