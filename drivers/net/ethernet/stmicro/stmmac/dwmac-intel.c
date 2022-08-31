@@ -5,6 +5,7 @@
 #include <linux/clk-provider.h>
 #include <linux/pci.h>
 #include <linux/dmi.h>
+#include <linux/pm_runtime.h>
 #include "dwmac-intel.h"
 #include "dwmac4.h"
 #include "stmmac.h"
@@ -249,10 +250,12 @@ static void intel_speed_mode_2500(struct net_device *ndev, void *intel_data)
 		priv->plat->max_speed = 2500;
 		priv->plat->phy_interface = PHY_INTERFACE_MODE_2500BASEX;
 		priv->plat->mdio_bus_data->xpcs_an_inband = false;
+		priv->plat->fixed_2G5_clock_rate = true;
 	} else {
 		priv->plat->max_speed = 1000;
 		priv->plat->phy_interface = PHY_INTERFACE_MODE_SGMII;
 		priv->plat->mdio_bus_data->xpcs_an_inband = true;
+		priv->plat->fixed_2G5_clock_rate = false;
 	}
 }
 
@@ -592,6 +595,8 @@ static int intel_mgbe_common_data(struct pci_dev *pdev,
 	plat->msi_rx_base_vec = 0;
 	plat->msi_tx_base_vec = 1;
 
+	plat->use_hw_vlan = true;
+
 	return 0;
 }
 
@@ -600,7 +605,6 @@ static int ehl_common_data(struct pci_dev *pdev,
 {
 	plat->rx_queues_to_use = 8;
 	plat->tx_queues_to_use = 8;
-	plat->clk_ptp_rate = 200000000;
 	plat->use_phy_wol = 1;
 
 	plat->safety_feat_cfg->tsoee = 1;
@@ -625,6 +629,13 @@ static int ehl_sgmii_data(struct pci_dev *pdev,
 	plat->serdes_powerup = intel_serdes_powerup;
 	plat->serdes_powerdown = intel_serdes_powerdown;
 
+	plat->clk_ptp_rate = 204860000;
+
+	if (pdev->revision == PCI_PCH_A0 ||
+	    pdev->revision == PCI_PCH_A1 ||
+	    pdev->revision == PCI_PCH_B0)
+		plat->dma_cfg->pch_intr_wa = 1;
+
 	return ehl_common_data(pdev, plat);
 }
 
@@ -637,6 +648,13 @@ static int ehl_rgmii_data(struct pci_dev *pdev,
 {
 	plat->bus_id = 1;
 	plat->phy_interface = PHY_INTERFACE_MODE_RGMII;
+
+	plat->clk_ptp_rate = 204860000;
+
+	if (pdev->revision == PCI_PCH_A0 ||
+	    pdev->revision == PCI_PCH_A1 ||
+	    pdev->revision == PCI_PCH_B0)
+		plat->dma_cfg->pch_intr_wa = 1;
 
 	return ehl_common_data(pdev, plat);
 }
@@ -653,6 +671,8 @@ static int ehl_pse0_common_data(struct pci_dev *pdev,
 	intel_priv->is_pse = true;
 	plat->bus_id = 2;
 	plat->addr64 = 32;
+
+	plat->clk_ptp_rate = 200000000;
 
 	intel_mgbe_pse_crossts_adj(intel_priv, EHL_PSE_ART_MHZ);
 
@@ -693,6 +713,8 @@ static int ehl_pse1_common_data(struct pci_dev *pdev,
 	plat->bus_id = 3;
 	plat->addr64 = 32;
 
+	plat->clk_ptp_rate = 200000000;
+
 	intel_mgbe_pse_crossts_adj(intel_priv, EHL_PSE_ART_MHZ);
 
 	return ehl_common_data(pdev, plat);
@@ -728,7 +750,7 @@ static int tgl_common_data(struct pci_dev *pdev,
 {
 	plat->rx_queues_to_use = 6;
 	plat->tx_queues_to_use = 4;
-	plat->clk_ptp_rate = 200000000;
+	plat->clk_ptp_rate = 204800000;
 	plat->speed_mode_2500 = intel_speed_mode_2500;
 
 	plat->safety_feat_cfg->tsoee = 1;
@@ -748,6 +770,7 @@ static int tgl_sgmii_phy0_data(struct pci_dev *pdev,
 			       struct plat_stmmacenet_data *plat)
 {
 	plat->bus_id = 1;
+	plat->dma_cfg->pch_intr_wa = 1;
 	plat->phy_interface = PHY_INTERFACE_MODE_SGMII;
 	plat->serdes_powerup = intel_serdes_powerup;
 	plat->serdes_powerdown = intel_serdes_powerdown;
@@ -762,6 +785,7 @@ static int tgl_sgmii_phy1_data(struct pci_dev *pdev,
 			       struct plat_stmmacenet_data *plat)
 {
 	plat->bus_id = 2;
+	plat->dma_cfg->pch_intr_wa = 1;
 	plat->phy_interface = PHY_INTERFACE_MODE_SGMII;
 	plat->serdes_powerup = intel_serdes_powerup;
 	plat->serdes_powerdown = intel_serdes_powerdown;
@@ -775,12 +799,23 @@ static struct stmmac_pci_info tgl_sgmii1g_phy1_info = {
 static int adls_sgmii_phy0_data(struct pci_dev *pdev,
 				struct plat_stmmacenet_data *plat)
 {
+	int ret;
+
 	plat->bus_id = 1;
 	plat->phy_interface = PHY_INTERFACE_MODE_SGMII;
+	plat->skip_reset = 1;
 
 	/* SerDes power up and power down are done in BIOS for ADL */
 
-	return tgl_common_data(pdev, plat);
+	ret = tgl_common_data(pdev, plat);
+	if (ret)
+		return ret;
+
+	/* Override: Only perform workaround on A0 & A1 stepping for ADL */
+	if (pdev->revision == PCI_PCH_A0 || pdev->revision == PCI_PCH_A1)
+		plat->dma_cfg->pch_intr_wa = 1;
+
+	return 0;
 }
 
 static struct stmmac_pci_info adls_sgmii1g_phy0_info = {
@@ -790,17 +825,43 @@ static struct stmmac_pci_info adls_sgmii1g_phy0_info = {
 static int adls_sgmii_phy1_data(struct pci_dev *pdev,
 				struct plat_stmmacenet_data *plat)
 {
+	int ret;
+
 	plat->bus_id = 2;
 	plat->phy_interface = PHY_INTERFACE_MODE_SGMII;
+	plat->skip_reset = 1;
 
 	/* SerDes power up and power down are done in BIOS for ADL */
 
-	return tgl_common_data(pdev, plat);
+	ret = tgl_common_data(pdev, plat);
+	if (ret)
+		return ret;
+
+	/* Override: Only perform workaround on A0 & A1 stepping for ADL */
+	if (pdev->revision == PCI_PCH_A0 || pdev->revision == PCI_PCH_A1)
+		plat->dma_cfg->pch_intr_wa = 1;
+
+	return 0;
 }
 
 static struct stmmac_pci_info adls_sgmii1g_phy1_info = {
 	.setup = adls_sgmii_phy1_data,
 };
+
+static int adln_sgmii_phy0_data(struct pci_dev *pdev,
+				struct plat_stmmacenet_data *plat)
+{
+	plat->bus_id = 1;
+	plat->phy_interface = PHY_INTERFACE_MODE_SGMII;
+	plat->serdes_powerup = intel_serdes_powerup;
+	plat->serdes_powerdown = intel_serdes_powerdown;
+	return tgl_common_data(pdev, plat);
+}
+
+static struct stmmac_pci_info adln_sgmii1g_phy0_info = {
+	.setup = adln_sgmii_phy0_data,
+};
+
 static const struct stmmac_pci_func_data galileo_stmmac_func_data[] = {
 	{
 		.func = 6,
@@ -1144,8 +1205,112 @@ static int __maybe_unused intel_eth_pci_resume(struct device *dev)
 	return stmmac_resume(dev);
 }
 
-static SIMPLE_DEV_PM_OPS(intel_eth_pm_ops, intel_eth_pci_suspend,
-			 intel_eth_pci_resume);
+static int __maybe_unused intel_eth_runtime_suspend(struct device *dev)
+{
+	struct pci_dev *pdev = to_pci_dev(dev);
+	struct net_device *ndev = dev_get_drvdata(&pdev->dev);
+	struct stmmac_priv *priv = netdev_priv(ndev);
+	struct ethtool_wolinfo wol;
+	int ret;
+
+	rtnl_lock();
+	/* Save current WoL operation */
+	phylink_ethtool_get_wol(priv->phylink, &wol);
+#ifdef CONFIG_PM
+	priv->saved_wolopts = wol.wolopts;
+#endif
+	/* Enable WoL to wake on PHY activity */
+	wol.wolopts = WAKE_PHY;
+	phylink_ethtool_set_wol(priv->phylink, &wol);
+	rtnl_unlock();
+
+	device_set_wakeup_enable(priv->device, 1);
+
+	ret = intel_eth_pci_suspend(dev);
+	if (!ret)
+		dev_info(dev, "%s: Device is runtime suspended.\n", __func__);
+
+	return ret;
+}
+
+static int __maybe_unused intel_eth_runtime_resume(struct device *dev)
+{
+	struct ethtool_wolinfo wol;
+	struct pci_dev *pdev = to_pci_dev(dev);
+	struct net_device *ndev = dev_get_drvdata(&pdev->dev);
+	struct stmmac_priv *priv = netdev_priv(ndev);
+	bool lock;
+	int ret;
+
+	lock = !!rtnl_is_locked();
+
+	pci_restore_state(pdev);
+	pci_set_power_state(pdev, PCI_D0);
+
+	ret = pcim_enable_device(pdev);
+	if (ret)
+		return ret;
+
+	pci_set_master(pdev);
+
+	ret = stmmac_resume_runtime(dev, lock);
+	if (!ret)
+		dev_info(dev, "%s: Device is runtime resumed.\n", __func__);
+
+	if (!lock)
+		rtnl_lock();
+	/* Restore saved WoL operation */
+#ifdef CONFIG_PM
+	wol.wolopts = priv->saved_wolopts;
+#endif
+	phylink_ethtool_set_wol(priv->phylink, &wol);
+#ifdef CONFIG_PM
+	priv->saved_wolopts = 0;
+#endif
+	if (!lock)
+		rtnl_unlock();
+
+	if (!wol.wolopts)
+		device_set_wakeup_enable(priv->device, 0);
+
+	return ret;
+}
+
+/* Runtime suspend delay set to 10000 millisecond */
+#define INTEL_RUNTIME_SUSPEND_DELAY	10000
+
+static int __maybe_unused intel_eth_runtime_idle(struct device *dev)
+{
+	struct ethtool_wolinfo wol;
+	struct pci_dev *pdev = to_pci_dev(dev);
+	struct net_device *ndev = dev_get_drvdata(&pdev->dev);
+	struct stmmac_priv *priv = netdev_priv(ndev);
+
+#ifdef CONFIG_PM
+	/* Allow runtime suspend only if link is down */
+	if (priv->phylink_up)
+		return -EBUSY;
+#endif
+
+	/* Allow runtime suspend only if PHY support wake on PHY activity */
+	rtnl_lock();
+	phylink_ethtool_get_wol(priv->phylink, &wol);
+	rtnl_unlock();
+	if (!(wol.supported & WAKE_PHY))
+		return -EBUSY;
+
+	/* Schedule the execution of delayed runtime suspend */
+	pm_schedule_suspend(dev, INTEL_RUNTIME_SUSPEND_DELAY);
+
+	/* Return non-zero value to prevent PM core from calling autosuspend */
+	return -EBUSY;
+}
+
+static const struct dev_pm_ops intel_eth_pm_ops = {
+	SET_SYSTEM_SLEEP_PM_OPS(intel_eth_pci_suspend, intel_eth_pci_resume)
+	SET_RUNTIME_PM_OPS(intel_eth_runtime_suspend, intel_eth_runtime_resume,
+			   intel_eth_runtime_idle)
+};
 
 #define PCI_DEVICE_ID_INTEL_QUARK		0x0937
 #define PCI_DEVICE_ID_INTEL_EHL_RGMII1G		0x4b30
@@ -1184,8 +1349,8 @@ static const struct pci_device_id intel_eth_pci_id_table[] = {
 	{ PCI_DEVICE_DATA(INTEL, TGLH_SGMII1G_1, &tgl_sgmii1g_phy1_info) },
 	{ PCI_DEVICE_DATA(INTEL, ADLS_SGMII1G_0, &adls_sgmii1g_phy0_info) },
 	{ PCI_DEVICE_DATA(INTEL, ADLS_SGMII1G_1, &adls_sgmii1g_phy1_info) },
-	{ PCI_DEVICE_DATA(INTEL, ADLN_SGMII1G, &tgl_sgmii1g_phy0_info) },
-	{ PCI_DEVICE_DATA(INTEL, RPLP_SGMII1G, &tgl_sgmii1g_phy0_info) },
+	{ PCI_DEVICE_DATA(INTEL, ADLN_SGMII1G, &adln_sgmii1g_phy0_info) },
+	{ PCI_DEVICE_DATA(INTEL, RPLP_SGMII1G, &adln_sgmii1g_phy0_info) },
 	{}
 };
 MODULE_DEVICE_TABLE(pci, intel_eth_pci_id_table);

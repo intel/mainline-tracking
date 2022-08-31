@@ -71,6 +71,7 @@
 #include "gt/intel_gt.h"
 #include "gt/intel_gt_pm.h"
 #include "gt/intel_rc6.h"
+#include "gt/iov/intel_iov.h"
 
 #include "pxp/intel_pxp_pm.h"
 
@@ -80,6 +81,7 @@
 #include "i915_drm_client.h"
 #include "i915_drv.h"
 #include "i915_getparam.h"
+#include "i915_hwmon.h"
 #include "i915_ioc32.h"
 #include "i915_ioctl.h"
 #include "i915_irq.h"
@@ -90,6 +92,7 @@
 #include "i915_switcheroo.h"
 #include "i915_sysfs.h"
 #include "i915_utils.h"
+#include "i915_sysrq.h"
 #include "i915_vgpu.h"
 #include "intel_dram.h"
 #include "intel_gvt.h"
@@ -441,6 +444,8 @@ static int i915_driver_mmio_probe(struct drm_i915_private *dev_priv)
 	if (ret)
 		goto err_uncore;
 
+	intel_power_domains_prune(dev_priv);
+
 	/* As early as possible, scrub existing GPU state before clobbering */
 	sanitize_gpu(dev_priv);
 
@@ -600,6 +605,10 @@ static int i915_driver_hw_probe(struct drm_i915_private *dev_priv)
 
 	pci_set_master(pdev);
 
+	/* Assume that VF is up, otherwise we may end with unknown state */
+	if (IS_SRIOV_VF(dev_priv))
+		ret = pci_set_power_state(pdev, PCI_D0);
+
 	/* On the 945G/GM, the chipset reports the MSI capability on the
 	 * integrated graphics even though the support isn't actually there
 	 * according to the published specs.  It doesn't appear to function
@@ -711,11 +720,15 @@ static void i915_driver_register(struct drm_i915_private *dev_priv)
 
 	i915_debugfs_register(dev_priv);
 	i915_setup_sysfs(dev_priv);
+	i915_register_sysrq(dev_priv);
 
 	/* Depends on sysfs having been initialized */
 	i915_perf_register(dev_priv);
 
 	intel_gt_driver_register(to_gt(dev_priv));
+
+	if (!IS_SRIOV_VF(dev_priv))
+		i915_hwmon_register(dev_priv);
 
 	intel_display_driver_register(dev_priv);
 
@@ -743,11 +756,14 @@ static void i915_driver_unregister(struct drm_i915_private *dev_priv)
 
 	intel_display_driver_unregister(dev_priv);
 
+	i915_hwmon_unregister(dev_priv);
+
 	intel_gt_driver_unregister(to_gt(dev_priv));
 
 	i915_perf_unregister(dev_priv);
 	i915_pmu_unregister(dev_priv);
 
+	i915_unregister_sysrq(dev_priv);
 	i915_teardown_sysfs(dev_priv);
 	drm_dev_unplug(&dev_priv->drm);
 
@@ -778,6 +794,8 @@ static void i915_welcome_messages(struct drm_i915_private *dev_priv)
 		intel_device_info_print_runtime(RUNTIME_INFO(dev_priv), &p);
 		i915_print_iommu_status(dev_priv, &p);
 		intel_gt_info_print(&to_gt(dev_priv)->info, &p);
+
+		drm_printf(&p, "mode: %s\n", i915_iov_mode_to_string(IOV_MODE(dev_priv)));
 	}
 
 	if (IS_ENABLED(CONFIG_DRM_I915_DEBUG))
@@ -815,6 +833,29 @@ i915_driver_create(struct pci_dev *pdev, const struct pci_device_id *ent)
 	return i915;
 }
 
+static void i915_virtualization_probe(struct drm_i915_private *i915)
+{
+	GEM_BUG_ON(i915->__mode);
+
+	intel_vgpu_detect(i915);
+	if (intel_vgpu_active(i915))
+		i915->__mode = I915_IOV_MODE_GVT_VGPU;
+	else
+		i915->__mode = i915_sriov_probe(i915);
+
+	GEM_BUG_ON(!i915->__mode);
+
+	if (IS_IOV_ACTIVE(i915))
+		dev_info(i915->drm.dev, "Running in %s mode\n",
+			 i915_iov_mode_to_string(IOV_MODE(i915)));
+}
+
+static void i915_virtualization_commit(struct drm_i915_private *i915)
+{
+	if (IS_SRIOV_PF(i915))
+		i915_sriov_pf_confirm(i915);
+}
+
 /**
  * i915_driver_probe - setup chip and create an initial config
  * @pdev: PCI device
@@ -837,6 +878,21 @@ int i915_driver_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 	if (IS_ERR(i915))
 		return PTR_ERR(i915);
 
+	/*
+	 * Hack to enable CCS and set ppgtt_size to 47
+	 * on TGL and DG1 for testing purpose
+	 *
+	 */
+	if ((match_info->platform == INTEL_DG1 ||
+	    match_info->platform == INTEL_TIGERLAKE ||
+		match_info->platform == INTEL_ALDERLAKE_S ||
+		match_info->platform == INTEL_ALDERLAKE_P) &&
+	    (i915->params.enable_guc & ENABLE_GUC_SUBMISSION)
+	    && i915->params.enable_guc != -1) {
+		mkwrite_device_info(i915)->ppgtt_size = 47;
+		mkwrite_device_info(i915)->platform_engine_mask |= BIT(CCS0);
+	}
+
 	/* Disable nuclear pageflip by default on pre-ILK */
 	if (!i915->params.nuclear_pageflip && match_info->graphics.ver < 5)
 		i915->drm.driver_features &= ~DRIVER_ATOMIC;
@@ -851,7 +907,15 @@ int i915_driver_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 
 	disable_rpm_wakeref_asserts(&i915->runtime_pm);
 
-	intel_vgpu_detect(i915);
+	/* This must be called before any calls to IS/IOV_MODE() macros */
+	i915_virtualization_probe(i915);
+
+	ret = i915_sriov_early_tweaks(i915);
+	if (ret < 0)
+		goto out_pci_disable;
+
+	/* XXX find better place */
+	intel_iov_init_early(&to_gt(i915)->iov);
 
 	ret = intel_gt_probe_all(i915);
 	if (ret < 0)
@@ -888,6 +952,8 @@ int i915_driver_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 	i915_driver_register(i915);
 
 	enable_rpm_wakeref_asserts(&i915->runtime_pm);
+
+	i915_virtualization_commit(i915);
 
 	i915_welcome_messages(i915);
 
@@ -1387,7 +1453,10 @@ static int i915_drm_resume_early(struct drm_device *dev)
 
 	intel_power_domains_resume(dev_priv);
 
+	intel_iov_resume(&to_gt(dev_priv)->iov);
+
 	enable_rpm_wakeref_asserts(&dev_priv->runtime_pm);
+
 
 	return ret;
 }
