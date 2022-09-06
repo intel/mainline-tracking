@@ -358,6 +358,8 @@ int register_btf_kfunc_id_set(enum bpf_prog_type prog_type,
 s32 btf_find_dtor_kfunc(struct btf *btf, u32 btf_id);
 int register_btf_id_dtor_kfuncs(const struct btf_id_dtor_kfunc *dtors, u32 add_cnt,
 				struct module *owner);
+struct btf *btf_register(const char *name, void *btf_data, u32 btf_data_size);
+void btf_unregister(struct btf *btf);
 #else
 static inline const struct btf_type *btf_type_by_id(const struct btf *btf,
 						    u32 type_id)
@@ -369,6 +371,7 @@ static inline const char *btf_name_by_offset(const struct btf *btf,
 {
 	return NULL;
 }
+
 static inline bool btf_kfunc_id_set_contains(const struct btf *btf,
 					     enum bpf_prog_type prog_type,
 					     enum btf_kfunc_type type,
@@ -390,6 +393,12 @@ static inline int register_btf_id_dtor_kfuncs(const struct btf_id_dtor_kfunc *dt
 {
 	return 0;
 }
+static inline struct btf *
+btf_register(const char *name, void *btf_data, u32 btf_data_size)
+{
+	return NULL;
+}
+static inline void btf_unregister(struct btf *btf) { }
 #endif
 
 #endif
