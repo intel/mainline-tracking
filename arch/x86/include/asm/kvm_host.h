@@ -1091,6 +1091,11 @@ struct kvm_vcpu_arch {
 #if IS_ENABLED(CONFIG_HYPERV)
 	hpa_t hv_root_tdp;
 #endif
+	/*
+	 * Stores the FRED SSP0 MSR when CET is not supported, prompting KVM
+	 * to intercept its accesses.
+	 */
+	u64 fred_ssp0_fallback;
 };
 
 struct kvm_lpage_info {
