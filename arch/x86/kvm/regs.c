@@ -429,6 +429,13 @@ int kvm_set_cr4(struct kvm_vcpu *vcpu, unsigned long cr4)
 			return 1;
 	}
 
+	/*
+	 * FRED can not be enabled when EFER.LMA=0.  Note, MOV to CR4 outside
+	 * 64-bit mode clears CR4[63:32] so only emulation can get here.
+	 */
+	if ((cr4 & X86_CR4_FRED) && !is_long_mode(vcpu))
+		return 1;
+
 	if ((cr4 & X86_CR4_CET) && !kvm_is_cr0_bit_set(vcpu, X86_CR0_WP))
 		return 1;
 
