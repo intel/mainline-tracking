@@ -64,6 +64,8 @@
 #define MSR_IA32_FRED_SSP3	0x1d3			/* Level 3 shadow stack pointer */
 #define MSR_IA32_FRED_CONFIG	0x1d4			/* Entrypoint and interrupt stack level */
 
+#define FRED_CONFIG_RESERVED	(BIT_ULL(2) | GENMASK_ULL(5, 4) | BIT_ULL(11))
+
 /* Intel MSRs. Some also available on other CPUs */
 #define MSR_TEST_CTRL				0x00000033
 #define MSR_TEST_CTRL_SPLIT_LOCK_DETECT_BIT	29
