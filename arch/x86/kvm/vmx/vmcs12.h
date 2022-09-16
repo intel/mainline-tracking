@@ -191,6 +191,25 @@ struct __packed vmcs12 {
 	u16 host_gs_selector;
 	u16 host_tr_selector;
 	u16 guest_pml_index;
+	u16 padding16[1]; /* align to 64-bit boundary */
+	u64 guest_ia32_fred_config;
+	u64 guest_ia32_fred_rsp1;
+	u64 guest_ia32_fred_rsp2;
+	u64 guest_ia32_fred_rsp3;
+	u64 guest_ia32_fred_stklvls;
+	u64 guest_ia32_fred_ssp1;
+	u64 guest_ia32_fred_ssp2;
+	u64 guest_ia32_fred_ssp3;
+	u64 host_ia32_fred_config;
+	u64 host_ia32_fred_rsp1;
+	u64 host_ia32_fred_rsp2;
+	u64 host_ia32_fred_rsp3;
+	u64 host_ia32_fred_stklvls;
+	u64 host_ia32_fred_ssp1;
+	u64 host_ia32_fred_ssp2;
+	u64 host_ia32_fred_ssp3;
+	u64 injected_event_data;
+	u64 original_event_data;
 };
 
 /*
@@ -373,6 +392,24 @@ static inline void vmx_check_vmcs12_offsets(void)
 	CHECK_OFFSET(host_gs_selector, 992);
 	CHECK_OFFSET(host_tr_selector, 994);
 	CHECK_OFFSET(guest_pml_index, 996);
+	CHECK_OFFSET(guest_ia32_fred_config, 1000);
+	CHECK_OFFSET(guest_ia32_fred_rsp1, 1008);
+	CHECK_OFFSET(guest_ia32_fred_rsp2, 1016);
+	CHECK_OFFSET(guest_ia32_fred_rsp3, 1024);
+	CHECK_OFFSET(guest_ia32_fred_stklvls, 1032);
+	CHECK_OFFSET(guest_ia32_fred_ssp1, 1040);
+	CHECK_OFFSET(guest_ia32_fred_ssp2, 1048);
+	CHECK_OFFSET(guest_ia32_fred_ssp3, 1056);
+	CHECK_OFFSET(host_ia32_fred_config, 1064);
+	CHECK_OFFSET(host_ia32_fred_rsp1, 1072);
+	CHECK_OFFSET(host_ia32_fred_rsp2, 1080);
+	CHECK_OFFSET(host_ia32_fred_rsp3, 1088);
+	CHECK_OFFSET(host_ia32_fred_stklvls, 1096);
+	CHECK_OFFSET(host_ia32_fred_ssp1, 1104);
+	CHECK_OFFSET(host_ia32_fred_ssp2, 1112);
+	CHECK_OFFSET(host_ia32_fred_ssp3, 1120);
+	CHECK_OFFSET(injected_event_data, 1128);
+	CHECK_OFFSET(original_event_data, 1136);
 }
 
 extern const unsigned short vmcs12_field_offsets[];
