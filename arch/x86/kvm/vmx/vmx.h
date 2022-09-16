@@ -182,6 +182,29 @@ struct nested_vmx {
 	u64 pre_vmenter_ssp;
 	u64 pre_vmenter_ssp_tbl;
 
+	/*
+	 * Used to snapshot FRED MSRs that may NOT be saved to vmcs12 as specified
+	 * in the VM-Exit controls of vmcs12 configured by L1 VMM.
+	 *
+	 * FRED MSRs are *always* saved into vmcs02 because KVM always sets
+	 * SECONDARY_VM_EXIT_SAVE_IA32_FRED.  However an L1 VMM may choose to clear
+	 * this bit, resulting in FRED MSRs not being propagated to vmcs12 from
+	 * vmcs02.  When the L1 VMM sets SECONDARY_VM_EXIT_LOAD_IA32_FRED, this is
+	 * not a problem, since KVM then immediately loads the host FRED MSRs of
+	 * vmcs12 to the guest FRED MSRs of vmcs01.
+	 *
+	 * But if the L1 VMM clears SECONDARY_VM_EXIT_LOAD_IA32_FRED, KVM should
+	 * retain the FRED MSRs, i.e., propagate the guest FRED MSRs of vmcs02 to
+	 * the guest FRED MSRs of vmcs01.
+	 *
+	 * This structure stores guest FRED MSRs that an L1 VMM opts not to save
+	 * during VM-Exits from L2 to L1.  These MSRs may still be retained for
+	 * running the L1 VMM if SECONDARY_VM_EXIT_LOAD_IA32_FRED is cleared in
+	 * vmcs12.
+	 */
+	struct vmcs_fred_msrs pre_vmenter_fred_msrs;
+	struct vmcs_fred_msrs at_vmexit_fred_msrs;
+
 	u16 vpid02;
 	u16 last_vpid;
 
