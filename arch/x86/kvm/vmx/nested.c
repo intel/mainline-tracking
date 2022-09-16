@@ -812,6 +812,15 @@ static inline bool nested_vmx_prepare_msr_bitmap(struct kvm_vcpu *vcpu,
 	nested_vmx_merge_msr_bitmaps_rw(MSR_FS_BASE);
 	nested_vmx_merge_msr_bitmaps_rw(MSR_GS_BASE);
 	nested_vmx_merge_msr_bitmaps_rw(MSR_KERNEL_GS_BASE);
+	nested_vmx_merge_msr_bitmaps_rw(MSR_IA32_FRED_RSP0);
+	nested_vmx_merge_msr_bitmaps_rw(MSR_IA32_FRED_RSP1);
+	nested_vmx_merge_msr_bitmaps_rw(MSR_IA32_FRED_RSP2);
+	nested_vmx_merge_msr_bitmaps_rw(MSR_IA32_FRED_RSP3);
+	nested_vmx_merge_msr_bitmaps_rw(MSR_IA32_FRED_STKLVLS);
+	nested_vmx_merge_msr_bitmaps_rw(MSR_IA32_FRED_SSP1);
+	nested_vmx_merge_msr_bitmaps_rw(MSR_IA32_FRED_SSP2);
+	nested_vmx_merge_msr_bitmaps_rw(MSR_IA32_FRED_SSP3);
+	nested_vmx_merge_msr_bitmaps_rw(MSR_IA32_FRED_CONFIG);
 #endif
 	nested_vmx_merge_msr_bitmaps_rw(MSR_IA32_SPEC_CTRL);
 	nested_vmx_merge_msr_bitmaps_write(MSR_IA32_PRED_CMD);
@@ -1356,9 +1365,11 @@ static int vmx_restore_vmx_basic(struct vcpu_vmx *vmx, u64 data)
 	const u64 feature_bits = VMX_BASIC_DUAL_MONITOR_TREATMENT |
 				 VMX_BASIC_INOUT |
 				 VMX_BASIC_TRUE_CTLS |
-				 VMX_BASIC_NO_HW_ERROR_CODE_CC;
+				 VMX_BASIC_NO_HW_ERROR_CODE_CC |
+				 VMX_BASIC_NESTED_EXCEPTION;
 
-	const u64 reserved_bits = GENMASK_ULL(63, 57) |
+	const u64 reserved_bits = GENMASK_ULL(63, 59) |
+				  BIT_ULL(57) |
 				  GENMASK_ULL(47, 45) |
 				  BIT_ULL(31);
 
@@ -2605,6 +2616,8 @@ static void prepare_vmcs02_early(struct vcpu_vmx *vmx, struct loaded_vmcs *vmcs0
 			     vmcs12->vm_entry_instruction_len);
 		vmcs_write32(GUEST_INTERRUPTIBILITY_INFO,
 			     vmcs12->guest_interruptibility_info);
+		if (cpu_has_vmx_fred())
+			vmcs_write64(INJECTED_EVENT_DATA, vmcs12->injected_event_data);
 		vmx->loaded_vmcs->nmi_known_unmasked =
 			!(vmcs12->guest_interruptibility_info & GUEST_INTR_STATE_NMI);
 	} else {
@@ -2636,6 +2649,30 @@ static void vmcs_write_cet_state(struct kvm_vcpu *vcpu, u64 s_cet,
 		vmcs_writel(GUEST_SSP, ssp);
 		vmcs_writel(GUEST_INTR_SSP_TABLE, ssp_tbl);
 	}
+}
+
+static void vmcs_read_fred_msrs(struct vmcs_fred_msrs *msrs)
+{
+	msrs->fred_config = vmcs_read64(GUEST_IA32_FRED_CONFIG);
+	msrs->fred_rsp1 = vmcs_read64(GUEST_IA32_FRED_RSP1);
+	msrs->fred_rsp2 = vmcs_read64(GUEST_IA32_FRED_RSP2);
+	msrs->fred_rsp3 = vmcs_read64(GUEST_IA32_FRED_RSP3);
+	msrs->fred_stklvls = vmcs_read64(GUEST_IA32_FRED_STKLVLS);
+	msrs->fred_ssp1 = vmcs_read64(GUEST_IA32_FRED_SSP1);
+	msrs->fred_ssp2 = vmcs_read64(GUEST_IA32_FRED_SSP2);
+	msrs->fred_ssp3 = vmcs_read64(GUEST_IA32_FRED_SSP3);
+}
+
+static void vmcs_write_fred_msrs(struct vmcs_fred_msrs *msrs)
+{
+	vmcs_write64(GUEST_IA32_FRED_CONFIG, msrs->fred_config);
+	vmcs_write64(GUEST_IA32_FRED_RSP1, msrs->fred_rsp1);
+	vmcs_write64(GUEST_IA32_FRED_RSP2, msrs->fred_rsp2);
+	vmcs_write64(GUEST_IA32_FRED_RSP3, msrs->fred_rsp3);
+	vmcs_write64(GUEST_IA32_FRED_STKLVLS, msrs->fred_stklvls);
+	vmcs_write64(GUEST_IA32_FRED_SSP1, msrs->fred_ssp1);
+	vmcs_write64(GUEST_IA32_FRED_SSP2, msrs->fred_ssp2);
+	vmcs_write64(GUEST_IA32_FRED_SSP3, msrs->fred_ssp3);
 }
 
 static void prepare_vmcs02_rare(struct vcpu_vmx *vmx, struct vmcs12 *vmcs12)
@@ -2761,6 +2798,10 @@ static void prepare_vmcs02_rare(struct vcpu_vmx *vmx, struct vmcs12 *vmcs12)
 				     vmcs12->guest_ssp, vmcs12->guest_ssp_tbl);
 
 	set_cr4_guest_host_mask(vmx);
+
+	if (guest_cpu_cap_has(&vmx->vcpu, X86_FEATURE_FRED) &&
+	    nested_cpu_load_guest_fred_state(vmcs12))
+		vmcs_write_fred_msrs(&vmcs12->guest_fred_msrs);
 }
 
 /*
@@ -2826,6 +2867,10 @@ static int prepare_vmcs02(struct kvm_vcpu *vcpu, struct vmcs12 *vmcs12,
 	} else if (vmcs_config.vmentry_ctrl & VM_ENTRY_LOAD_IA32_PAT) {
 		vmcs_write64(GUEST_IA32_PAT, vcpu->arch.pat);
 	}
+
+	if (guest_cpu_cap_has(vcpu, X86_FEATURE_FRED) &&
+	    (!vmx->vcpu.arch.nested_run_pending || !nested_cpu_load_guest_fred_state(vmcs12)))
+		vmcs_write_fred_msrs(&vmx->nested.pre_vmenter_fred_msrs);
 
 	vcpu->arch.tsc_offset = kvm_calc_nested_tsc_offset(
 			vcpu->arch.l1_tsc_offset,
@@ -3627,7 +3672,8 @@ static int nested_vmx_check_permission(struct kvm_vcpu *vcpu)
 }
 
 static void load_vmcs12_host_state(struct kvm_vcpu *vcpu,
-				   struct vmcs12 *vmcs12);
+				   struct vmcs12 *vmcs12,
+				   bool from_failed_vmentry);
 
 /*
  * If from_vmentry is false, this is being called from state restore (either RSM
@@ -3676,6 +3722,10 @@ enum nvmx_vmentry_status nested_vmx_enter_non_root_mode(struct kvm_vcpu *vcpu,
 		vmcs_read_cet_state(vcpu, &vmx->nested.pre_vmenter_s_cet,
 				    &vmx->nested.pre_vmenter_ssp,
 				    &vmx->nested.pre_vmenter_ssp_tbl);
+
+	if (guest_cpu_cap_has(vcpu, X86_FEATURE_FRED) &&
+	    (!vmx->vcpu.arch.nested_run_pending || !nested_cpu_load_guest_fred_state(vmcs12)))
+		vmcs_read_fred_msrs(&vmx->nested.pre_vmenter_fred_msrs);
 
 	/*
 	 * Stash L1's CR3, so that in the event of a "late" VM-Fail, i.e. a
@@ -3793,7 +3843,7 @@ vmentry_fail_vmexit:
 
 	nested_put_vmcs12_pages(vcpu);
 
-	load_vmcs12_host_state(vcpu, vmcs12);
+	load_vmcs12_host_state(vcpu, vmcs12, true);
 	vmcs12->vm_exit_reason = exit_reason.full;
 	if (enable_shadow_vmcs || nested_vmx_is_evmptr12_valid(vmx))
 		vmx->nested.need_vmcs12_to_shadow_sync = true;
@@ -3986,6 +4036,8 @@ static void vmcs12_save_pending_event(struct kvm_vcpu *vcpu,
 	u32 idt_vectoring;
 	unsigned int nr;
 
+	vmcs12->original_event_data = 0;
+
 	/*
 	 * Per the SDM, VM-Exits due to double and triple faults are never
 	 * considered to occur during event delivery, even if the double/triple
@@ -4023,6 +4075,13 @@ static void vmcs12_save_pending_event(struct kvm_vcpu *vcpu,
 			vmcs12->idt_vectoring_error_code =
 				vcpu->arch.exception.error_code;
 		}
+
+		if ((vmcs12->vm_entry_controls & VM_ENTRY_IA32E_MODE) &&
+		    (vmcs12->guest_cr4 & X86_CR4_FRED) &&
+		    (vcpu->arch.exception.is_nested))
+			idt_vectoring |= VECTORING_INFO_NESTED_EXCEPTION_MASK;
+
+		vmcs12->original_event_data = vcpu->arch.exception.event_data;
 
 		vmcs12->idt_vectoring_info_field = idt_vectoring;
 	} else if (vcpu->arch.nmi_injected) {
@@ -4747,6 +4806,15 @@ static void sync_vmcs02_to_vmcs12(struct kvm_vcpu *vcpu, struct vmcs12 *vmcs12)
 	vmcs_read_cet_state(&vmx->vcpu, &vmcs12->guest_s_cet,
 			    &vmcs12->guest_ssp,
 			    &vmcs12->guest_ssp_tbl);
+
+	if (guest_cpu_cap_has(vcpu, X86_FEATURE_FRED)) {
+		vmcs_read_fred_msrs(&vmx->nested.at_vmexit_fred_msrs);
+
+		if (nested_cpu_save_guest_fred_state(vmcs12))
+			memcpy(&vmcs12->guest_fred_msrs,
+			       &vmx->nested.at_vmexit_fred_msrs,
+			       sizeof(struct vmcs_fred_msrs));
+	}
 }
 
 /*
@@ -4791,6 +4859,21 @@ static void prepare_vmcs12(struct kvm_vcpu *vcpu, struct vmcs12 *vmcs12,
 
 		vmcs12->vm_exit_intr_info = exit_intr_info;
 		vmcs12->vm_exit_instruction_len = exit_insn_len;
+
+		/*
+		 * When there is a valid original event, the exiting event is a nested
+		 * event during delivery of the earlier original event.
+		 *
+		 * FRED event delivery reflects this relationship by setting the value
+		 * of the nested exception bit of VM-exit interruption information
+		 * (aka exiting-event identification) to that of the valid bit of the
+		 * IDT-vectoring information (aka original-event identification).
+		 */
+		if ((vmcs12->idt_vectoring_info_field & VECTORING_INFO_VALID_MASK) &&
+		    (vmcs12->vm_entry_controls & VM_ENTRY_IA32E_MODE) &&
+		    (vmcs12->guest_cr4 & X86_CR4_FRED))
+			vmcs12->vm_exit_intr_info |= INTR_INFO_NESTED_EXCEPTION_MASK;
+
 		vmcs12->vmx_instruction_info = vmcs_read32(VMX_INSTRUCTION_INFO);
 
 		/*
@@ -4817,8 +4900,10 @@ static void prepare_vmcs12(struct kvm_vcpu *vcpu, struct vmcs12 *vmcs12,
  * This function should be called when the active VMCS is L1's (vmcs01).
  */
 static void load_vmcs12_host_state(struct kvm_vcpu *vcpu,
-				   struct vmcs12 *vmcs12)
+				   struct vmcs12 *vmcs12,
+				   bool from_failed_vmentry)
 {
+	struct vcpu_vmx *vmx = to_vmx(vcpu);
 	enum vm_entry_failure_code ignored;
 	struct kvm_segment seg;
 
@@ -4892,6 +4977,14 @@ static void load_vmcs12_host_state(struct kvm_vcpu *vcpu,
 	    kvm_pmu_has_perf_global_ctrl(vcpu_to_pmu(vcpu)))
 		WARN_ON_ONCE(__kvm_emulate_msr_write(vcpu, MSR_CORE_PERF_GLOBAL_CTRL,
 						     vmcs12->host_ia32_perf_global_ctrl));
+
+	if (guest_cpu_cap_has(vcpu, X86_FEATURE_FRED)) {
+		if (nested_cpu_load_host_fred_state(vmcs12)) {
+			vmcs_write_fred_msrs(&vmcs12->host_fred_msrs);
+		} else if (!from_failed_vmentry) {
+			vmcs_write_fred_msrs(&vmx->nested.at_vmexit_fred_msrs);
+		}
+	}
 
 	/* Set L1 segment info according to Intel SDM
 	    27.5.2 Loading Host Segment and Descriptor-Table Registers */
@@ -5212,7 +5305,7 @@ void __nested_vmx_vmexit(struct kvm_vcpu *vcpu, u32 vm_exit_reason,
 						       vmcs12->vm_exit_intr_error_code,
 						       KVM_ISA_VMX);
 
-		load_vmcs12_host_state(vcpu, vmcs12);
+		load_vmcs12_host_state(vcpu, vmcs12, false);
 
 		/*
 		 * Process events if an injectable IRQ or NMI is pending, even
@@ -7373,6 +7466,8 @@ static void nested_vmx_setup_basic(struct nested_vmx_msrs *msrs)
 		msrs->basic |= VMX_BASIC_INOUT;
 	if (cpu_has_vmx_basic_no_hw_errcode_cc())
 		msrs->basic |= VMX_BASIC_NO_HW_ERROR_CODE_CC;
+	if (cpu_has_vmx_nested_exception())
+		msrs->basic |= VMX_BASIC_NESTED_EXCEPTION;
 }
 
 static void nested_vmx_setup_cr_fixed(struct nested_vmx_msrs *msrs)

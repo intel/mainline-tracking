@@ -52,6 +52,17 @@ struct vmcs_controls_shadow {
 	u64 tertiary_exec;
 };
 
+struct vmcs_fred_msrs {
+	u64 fred_config;
+	u64 fred_rsp1;
+	u64 fred_rsp2;
+	u64 fred_rsp3;
+	u64 fred_stklvls;
+	u64 fred_ssp1;
+	u64 fred_ssp2;
+	u64 fred_ssp3;
+};
+
 /*
  * Track a VMCS that may be loaded on a certain CPU. If it is (cpu!=-1), also
  * remember whether it was VMLAUNCHed, and maintain a linked list of all VMCSs
