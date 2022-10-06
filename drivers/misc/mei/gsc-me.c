@@ -485,6 +485,7 @@ static int mei_gsc_probe(struct auxiliary_device *aux_dev,
 
 	pm_runtime_set_autosuspend_delay(device, MEI_GSC_RPM_TIMEOUT);
 	pm_runtime_use_autosuspend(device);
+	dev_pm_set_driver_flags(device, DPM_FLAG_NO_DIRECT_COMPLETE);
 
 	ret = mei_register(dev, device);
 	if (ret)
@@ -555,11 +556,17 @@ static int __maybe_unused mei_gsc_pm_resume(struct device *device)
 	struct mei_device *dev = dev_get_drvdata(device);
 	struct auxiliary_device *aux_dev;
 	struct mei_aux_device *adev;
-	int err;
+	int ret;
 	struct mei_me_hw *hw;
 
 	if (!dev)
 		return -ENODEV;
+
+	mutex_lock(&dev->device_lock);
+	ret = mei_gsc_forcewake_get_and_wait(dev, false);
+	mutex_unlock(&dev->device_lock);
+	if (ret)
+		return ret;
 
 	hw = to_me_hw(dev);
 	aux_dev = to_auxiliary_dev(device);
@@ -569,9 +576,9 @@ static int __maybe_unused mei_gsc_pm_resume(struct device *device)
 		dev->pxp_mode = MEI_DEV_PXP_INIT;
 	}
 
-	err = mei_restart(dev);
-	if (err)
-		return err;
+	ret = mei_restart(dev);
+	if (ret)
+		return ret;
 
 	/* Start timer if stopped in suspend */
 	schedule_delayed_work(&dev->timer_work, HZ);
