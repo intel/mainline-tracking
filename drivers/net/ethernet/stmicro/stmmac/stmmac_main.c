@@ -1222,6 +1222,7 @@ static int stmmac_phy_setup(struct stmmac_priv *priv)
 	if (priv->plat->tx_queues_to_use > 1)
 		priv->phylink_config.mac_capabilities &=
 			~(MAC_10HD | MAC_100HD | MAC_1000HD);
+	priv->phylink_config.mac_managed_pm = true;
 
 	/* In the case where kernel driver has no access to modify the clock
 	 * rate after it is increased by 2.5 times in the BIOS to support 2.5G
