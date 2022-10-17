@@ -567,36 +567,44 @@ int tb_wait_for_port(struct tb_port *port, bool wait_if_unplugged)
 
 	while (retries--) {
 		state = tb_port_state(port);
-		if (state < 0)
-			return state;
-		if (state == TB_PORT_DISABLED) {
+		switch (state) {
+		case TB_PORT_DISABLED:
 			tb_port_dbg(port, "is disabled (state: 0)\n");
 			return 0;
-		}
-		if (state == TB_PORT_UNPLUGGED) {
+
+		case TB_PORT_UNPLUGGED:
 			if (wait_if_unplugged) {
 				/* used during resume */
 				tb_port_dbg(port,
 					    "is unplugged (state: 7), retrying...\n");
 				msleep(100);
-				continue;
+				break;
 			}
 			tb_port_dbg(port, "is unplugged (state: 7)\n");
 			return 0;
-		}
-		if (state == TB_PORT_UP) {
-			tb_port_dbg(port, "is connected, link is up (state: 2)\n");
+
+		case TB_PORT_UP:
+		case TB_PORT_TX_CL0S:
+		case TB_PORT_RX_CL0S:
+		case TB_PORT_CL1:
+		case TB_PORT_CL2:
+			tb_port_dbg(port, "is connected, link is up (state: %d)\n", state);
 			return 1;
+
+		default:
+			if (state < 0)
+				return state;
+
+			/*
+			 * After plug-in the state is TB_PORT_CONNECTING. Give it some
+			 * time.
+			 */
+			tb_port_dbg(port,
+				    "is connected, link is not up (state: %d), retrying...\n",
+				    state);
+			msleep(100);
 		}
 
-		/*
-		 * After plug-in the state is TB_PORT_CONNECTING. Give it some
-		 * time.
-		 */
-		tb_port_dbg(port,
-			    "is connected, link is not up (state: %d), retrying...\n",
-			    state);
-		msleep(100);
 	}
 	tb_port_warn(port,
 		     "failed to reach state TB_PORT_UP. Ignoring port...\n");
@@ -1227,6 +1235,135 @@ int tb_port_update_credits(struct tb_port *port)
 	if (ret)
 		return ret;
 	return tb_port_do_update_credits(port->dual_link_port);
+}
+
+static int __tb_port_pm_secondary_set(struct tb_port *port, bool secondary)
+{
+	u32 phy;
+	int ret;
+
+	ret = tb_port_read(port, &phy, TB_CFG_PORT,
+			   port->cap_phy + LANE_ADP_CS_1, 1);
+	if (ret)
+		return ret;
+
+	if (secondary)
+		phy |= LANE_ADP_CS_1_PMS;
+	else
+		phy &= ~LANE_ADP_CS_1_PMS;
+
+	return tb_port_write(port, &phy, TB_CFG_PORT,
+			     port->cap_phy + LANE_ADP_CS_1, 1);
+}
+
+static int tb_port_pm_secondary_enable(struct tb_port *port)
+{
+	return __tb_port_pm_secondary_set(port, true);
+}
+
+static int tb_port_pm_secondary_disable(struct tb_port *port)
+{
+	return __tb_port_pm_secondary_set(port, false);
+}
+
+/* Called for USB4 or Titan Ridge routers only */
+static bool tb_port_clx_supported(struct tb_port *port, enum tb_clx clx)
+{
+	u32 mask, val;
+	bool ret;
+
+	/* Don't enable CLx in case of two single-lane links */
+	if (!port->bonded && port->dual_link_port)
+		return false;
+
+	/* Don't enable CLx in case of inter-domain link */
+	if (port->xdomain)
+		return false;
+
+	if (tb_switch_is_usb4(port->sw)) {
+		if (!usb4_port_clx_supported(port))
+			return false;
+	} else if (!tb_lc_is_clx_supported(port)) {
+		return false;
+	}
+
+	switch (clx) {
+	case TB_CL1:
+		/* CL0s and CL1 are enabled and supported together */
+		mask = LANE_ADP_CS_0_CL0S_SUPPORT | LANE_ADP_CS_0_CL1_SUPPORT;
+		break;
+
+	/* For now we support only CL0s and CL1. Not CL2 */
+	case TB_CL2:
+	default:
+		return false;
+	}
+
+	ret = tb_port_read(port, &val, TB_CFG_PORT,
+			   port->cap_phy + LANE_ADP_CS_0, 1);
+	if (ret)
+		return false;
+
+	return !!(val & mask);
+}
+
+static int __tb_port_clx_set(struct tb_port *port, enum tb_clx clx, bool enable)
+{
+	u32 phy, mask;
+	int ret;
+
+	/* CL0s and CL1 are enabled and supported together */
+	if (clx == TB_CL1)
+		mask = LANE_ADP_CS_1_CL0S_ENABLE | LANE_ADP_CS_1_CL1_ENABLE;
+	else
+		/* For now we support only CL0s and CL1. Not CL2 */
+		return -EOPNOTSUPP;
+
+	ret = tb_port_read(port, &phy, TB_CFG_PORT,
+			   port->cap_phy + LANE_ADP_CS_1, 1);
+	if (ret)
+		return ret;
+
+	if (enable)
+		phy |= mask;
+	else
+		phy &= ~mask;
+
+	return tb_port_write(port, &phy, TB_CFG_PORT,
+			     port->cap_phy + LANE_ADP_CS_1, 1);
+}
+
+static int tb_port_clx_disable(struct tb_port *port, enum tb_clx clx)
+{
+	return __tb_port_clx_set(port, clx, false);
+}
+
+static int tb_port_clx_enable(struct tb_port *port, enum tb_clx clx)
+{
+	return __tb_port_clx_set(port, clx, true);
+}
+
+/**
+ * tb_port_is_clx_enabled() - Is given CL state enabled
+ * @port: USB4 port to check
+ * @clx: CL state to check
+ *
+ * Returns true if given CL state is enabled for @port.
+ */
+bool tb_port_is_clx_enabled(struct tb_port *port, enum tb_clx clx)
+{
+	u32 phy, mask = LANE_ADP_CS_1_CL0S_ENABLE | LANE_ADP_CS_1_CL1_ENABLE;
+	int ret;
+
+	if (!tb_port_clx_supported(port, clx))
+		return false;
+
+	ret = tb_port_read(port, &phy, TB_CFG_PORT,
+			   port->cap_phy + LANE_ADP_CS_1, 1);
+	if (ret)
+		return false;
+
+	return (phy & mask) == mask;
 }
 
 static int tb_port_start_lane_initialization(struct tb_port *port)
@@ -3362,35 +3499,6 @@ struct tb_port *tb_switch_find_port(struct tb_switch *sw,
 	return NULL;
 }
 
-static int __tb_port_pm_secondary_set(struct tb_port *port, bool secondary)
-{
-	u32 phy;
-	int ret;
-
-	ret = tb_port_read(port, &phy, TB_CFG_PORT,
-			   port->cap_phy + LANE_ADP_CS_1, 1);
-	if (ret)
-		return ret;
-
-	if (secondary)
-		phy |= LANE_ADP_CS_1_PMS;
-	else
-		phy &= ~LANE_ADP_CS_1_PMS;
-
-	return tb_port_write(port, &phy, TB_CFG_PORT,
-			     port->cap_phy + LANE_ADP_CS_1, 1);
-}
-
-static int tb_port_pm_secondary_enable(struct tb_port *port)
-{
-	return __tb_port_pm_secondary_set(port, true);
-}
-
-static int tb_port_pm_secondary_disable(struct tb_port *port)
-{
-	return __tb_port_pm_secondary_set(port, false);
-}
-
 static int tb_switch_pm_secondary_resolve(struct tb_switch *sw)
 {
 	struct tb_switch *parent = tb_switch_parent(sw);
@@ -3407,83 +3515,6 @@ static int tb_switch_pm_secondary_resolve(struct tb_switch *sw)
 		return ret;
 
 	return tb_port_pm_secondary_disable(down);
-}
-
-/* Called for USB4 or Titan Ridge routers only */
-static bool tb_port_clx_supported(struct tb_port *port, enum tb_clx clx)
-{
-	u32 mask, val;
-	bool ret;
-
-	/* Don't enable CLx in case of two single-lane links */
-	if (!port->bonded && port->dual_link_port)
-		return false;
-
-	/* Don't enable CLx in case of inter-domain link */
-	if (port->xdomain)
-		return false;
-
-	if (tb_switch_is_usb4(port->sw)) {
-		if (!usb4_port_clx_supported(port))
-			return false;
-	} else if (!tb_lc_is_clx_supported(port)) {
-		return false;
-	}
-
-	switch (clx) {
-	case TB_CL1:
-		/* CL0s and CL1 are enabled and supported together */
-		mask = LANE_ADP_CS_0_CL0S_SUPPORT | LANE_ADP_CS_0_CL1_SUPPORT;
-		break;
-
-	/* For now we support only CL0s and CL1. Not CL2 */
-	case TB_CL2:
-	default:
-		return false;
-	}
-
-	ret = tb_port_read(port, &val, TB_CFG_PORT,
-			   port->cap_phy + LANE_ADP_CS_0, 1);
-	if (ret)
-		return false;
-
-	return !!(val & mask);
-}
-
-static int __tb_port_clx_set(struct tb_port *port, enum tb_clx clx, bool enable)
-{
-	u32 phy, mask;
-	int ret;
-
-	/* CL0s and CL1 are enabled and supported together */
-	if (clx == TB_CL1)
-		mask = LANE_ADP_CS_1_CL0S_ENABLE | LANE_ADP_CS_1_CL1_ENABLE;
-	else
-		/* For now we support only CL0s and CL1. Not CL2 */
-		return -EOPNOTSUPP;
-
-	ret = tb_port_read(port, &phy, TB_CFG_PORT,
-			   port->cap_phy + LANE_ADP_CS_1, 1);
-	if (ret)
-		return ret;
-
-	if (enable)
-		phy |= mask;
-	else
-		phy &= ~mask;
-
-	return tb_port_write(port, &phy, TB_CFG_PORT,
-			     port->cap_phy + LANE_ADP_CS_1, 1);
-}
-
-static int tb_port_clx_disable(struct tb_port *port, enum tb_clx clx)
-{
-	return __tb_port_clx_set(port, clx, false);
-}
-
-static int tb_port_clx_enable(struct tb_port *port, enum tb_clx clx)
-{
-	return __tb_port_clx_set(port, clx, true);
 }
 
 static int __tb_switch_enable_clx(struct tb_switch *sw, enum tb_clx clx)
