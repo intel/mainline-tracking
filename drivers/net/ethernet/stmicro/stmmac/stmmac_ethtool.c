@@ -843,19 +843,28 @@ static int stmmac_ethtool_op_set_eee(struct net_device *dev,
 		stmmac_disable_eee_mode(priv);
 	} else {
 		__ETHTOOL_DECLARE_LINK_MODE_MASK(supported);
+		__ETHTOOL_DECLARE_LINK_MODE_MASK(advertised);
 
 		struct ethtool_link_ksettings link_ks = {};
 
 		ethtool_convert_legacy_u32_to_link_mode(supported,
 							edata->supported);
+		ethtool_convert_legacy_u32_to_link_mode(advertised,
+							edata->advertised);
 
 		/* Get the current phy link settings */
 		stmmac_ethtool_get_link_ksettings(dev, &link_ks);
 
-		/* Check if the request is supported */
-		if (!bitmap_subset(supported,
-				   link_ks.link_modes.supported,
-				   __ETHTOOL_LINK_MODE_MASK_NBITS)) {
+		/* Check if the current speed and duplex are supported by EEE */
+		if (!phy_lookup_setting(link_ks.base.speed, link_ks.base.duplex,
+					supported, true)) {
+			return -EOPNOTSUPP;
+		}
+
+		/*Check if the advertise speed is supported.*/
+		if (!bitmap_subset(advertised,
+				   supported,
+				   __ETHTOOL_LINK_MODE_MASK_NBITS)){
 			return -EOPNOTSUPP;
 		}
 	}
