@@ -193,7 +193,7 @@ out:
  */
 
 static struct acpi_device *
-usb_acpi_get_companion_for_port(struct usb_port *port_dev)
+usb_acpi_find_companion_for_port(struct usb_port *port_dev)
 {
 	struct usb_device *udev;
 	struct acpi_device *adev;
@@ -226,20 +226,6 @@ usb_acpi_get_companion_for_port(struct usb_port *port_dev)
 }
 
 static struct acpi_device *
-usb_acpi_find_companion_for_port(struct usb_port *port_dev)
-{
-	struct acpi_device *adev;
-
-	adev = usb_acpi_get_companion_for_port(port_dev);
-	if (!adev)
-		return NULL;
-
-	usb_acpi_get_connect_type(port_dev, adev->handle);
-
-	return adev;
-}
-
-static struct acpi_device *
 usb_acpi_find_companion_for_device(struct usb_device *udev)
 {
 	struct acpi_device *adev;
@@ -264,11 +250,13 @@ usb_acpi_find_companion_for_device(struct usb_device *udev)
 	 * devices share port's ACPI companion.
 	 */
 	port_dev = hub->ports[udev->portnum - 1];
-	return usb_acpi_get_companion_for_port(port_dev);
+	return usb_acpi_find_companion_for_port(port_dev);
 }
 
 static struct acpi_device *usb_acpi_find_companion(struct device *dev)
 {
+	struct acpi_device *adev;
+
 	/*
 	 * The USB hierarchy like following:
 	 *
@@ -297,11 +285,14 @@ static struct acpi_device *usb_acpi_find_companion(struct device *dev)
 	 * devices yet, for that we would need to assign companions to
 	 * devices corresponding to USB interfaces.
 	 */
-	if (is_usb_device(dev))
+	if (is_usb_device(dev)) {
 		return usb_acpi_find_companion_for_device(to_usb_device(dev));
-	else if (is_usb_port(dev))
-		return usb_acpi_find_companion_for_port(to_usb_port(dev));
-
+	} else if (is_usb_port(dev)) {
+		adev = usb_acpi_find_companion_for_port(to_usb_port(dev));
+		if (adev)
+			usb_acpi_get_connect_type(to_usb_port(dev), adev->handle);
+		return adev;
+	}
 	return NULL;
 }
 
