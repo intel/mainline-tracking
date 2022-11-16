@@ -1546,8 +1546,13 @@ int usb4_port_sw_margin(struct tb_port *port, unsigned int lanes, bool timing,
 	if (ret)
 		return ret;
 
-	return usb4_port_sb_op(port, USB4_SB_TARGET_ROUTER, 0,
-			       USB4_SB_OPCODE_RUN_SW_LANE_MARGINING, 2500);
+	ret = usb4_port_sb_op(port, USB4_SB_TARGET_ROUTER, 0,
+			      USB4_SB_OPCODE_RUN_SW_LANE_MARGINING, 2500);
+	if (ret)
+		return ret;
+
+	return usb4_port_sb_read(port, USB4_SB_TARGET_ROUTER, 0, USB4_SB_DATA,
+				 &val, sizeof(val));
 }
 
 /**
