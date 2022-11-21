@@ -176,7 +176,7 @@ static int pcie_port_enable_irq_vec(struct pci_dev *dev, int *irqs, int mask)
  */
 static int pcie_init_service_irqs(struct pci_dev *dev, int *irqs, int mask)
 {
-	int ret, i;
+	int ret, i, type;
 
 	for (i = 0; i < PCIE_PORT_DEVICE_MAXSERVICES; i++)
 		irqs[i] = -1;
@@ -188,6 +188,19 @@ static int pcie_init_service_irqs(struct pci_dev *dev, int *irqs, int mask)
 	 */
 	if ((mask & PCIE_PORT_SERVICE_PME) && pcie_pme_no_msi())
 		goto intx_irq;
+
+	/*
+	 * Only root ports and event collectors use MSI for errors. Endpoints,
+	 * switch ports send messages to them but don't use MSI for that (PCIe
+	 * 5.0 sec 6.2.3.2).
+	 */
+	type = pci_pcie_type(dev);
+	if ((mask & PCIE_PORT_SERVICE_AER) &&
+	    type != PCI_EXP_TYPE_ROOT_PORT && type != PCI_EXP_TYPE_RC_EC)
+		mask &= ~PCIE_PORT_SERVICE_AER;
+
+	if (!mask)
+		return 0;
 
 	/* Try to use MSI-X or MSI if supported */
 	if (pcie_port_enable_irq_vec(dev, irqs, mask) == 0)
