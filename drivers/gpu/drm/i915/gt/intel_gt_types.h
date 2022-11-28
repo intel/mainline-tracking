@@ -15,7 +15,6 @@
 #include <linux/types.h>
 #include <linux/workqueue.h>
 
-#include "iov/intel_iov_types.h"
 #include "uc/intel_uc.h"
 #include "intel_gsc.h"
 
@@ -76,7 +75,6 @@ struct intel_gt {
 
 	struct intel_uc uc;
 	struct intel_gsc gsc;
-	struct intel_iov iov;
 
 	struct mutex tlb_invalidate_lock;
 
