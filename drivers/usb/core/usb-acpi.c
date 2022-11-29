@@ -148,9 +148,8 @@ static void
 usb_acpi_get_connect_type(struct usb_port *port_dev, acpi_handle *handle)
 {
 	enum usb_port_connect_type connect_type = USB_PORT_CONNECT_TYPE_UNKNOWN;
-	struct acpi_buffer buffer = { ACPI_ALLOCATE_BUFFER, NULL };
-	union acpi_object *upc = NULL;
 	struct acpi_pld_info *pld;
+	struct acpi_upc_info *upc;
 	acpi_status status;
 
 	/*
@@ -169,24 +168,22 @@ usb_acpi_get_connect_type(struct usb_port *port_dev, acpi_handle *handle)
 	port_dev->location = USB_ACPI_LOCATION_VALID |
 		pld->group_token << 8 | pld->group_position;
 
-	status = acpi_evaluate_object(handle, "_UPC", NULL, &buffer);
+	status = acpi_get_usb_port_capabilities(handle, &upc);
 	if (ACPI_FAILURE(status))
 		goto out;
 
-	upc = buffer.pointer;
-	if (!upc || (upc->type != ACPI_TYPE_PACKAGE) || upc->package.count != 4)
-		goto out;
-
-	if (upc->package.elements[0].integer.value)
+	if (upc->connectable)
 		if (pld->user_visible)
 			connect_type = USB_PORT_CONNECT_TYPE_HOT_PLUG;
 		else
 			connect_type = USB_PORT_CONNECT_TYPE_HARD_WIRED;
 	else if (!pld->user_visible)
 		connect_type = USB_PORT_NOT_USED;
+
+	ACPI_FREE(upc);
 out:
 	port_dev->connect_type = connect_type;
-	kfree(upc);
+
 	ACPI_FREE(pld);
 }
 
