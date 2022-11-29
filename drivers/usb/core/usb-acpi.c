@@ -99,6 +99,60 @@ int usb_acpi_port_lpm_incapable(struct usb_device *hdev, int index)
 EXPORT_SYMBOL_GPL(usb_acpi_port_lpm_incapable);
 
 /**
+ * usb_acpi_intel_port_lpm_incapable - check if LPM should be disabled for a port.
+ * @hdev: USB device belonging to the hub
+ * @index: zero based port index
+ *
+ * Intel Type-C USB4 ports have retimers designed for USB4, which cause too
+ * long latency for native USB 3 LPM U1 U2 usage.
+ * Normally USB 3 LPM incapable ports are identified in ACPI by their _DSM
+ * return value, but some of the platforms lack the _DSM method.
+ * Check _UPC values to find USB4 Type-c ports with retimers in case _DSM is
+ * missing
+ *
+ * Return 1 if USB3 port is LPM incapable, negative on error, otherwise 0
+ */
+
+int usb_acpi_intel_port_lpm_incapable(struct usb_device *hdev, int index)
+{
+	struct acpi_upc_info *upc;
+	acpi_handle port_handle;
+	int port1 = index + 1;
+	acpi_status status;
+	int ret;
+
+	ret = usb_acpi_port_lpm_incapable(hdev, index);
+
+	if (ret >= 0)
+		return ret;
+	/*
+	 * No _DSM found above, check _UPC instead. USB4 capable type-c ports
+	 * on Intel hosts don't support native USB 3 lpm.
+	 */
+
+	ret = 0;
+	port_handle = usb_get_hub_port_acpi_handle(hdev, port1);
+	if (!port_handle) {
+		dev_dbg(&hdev->dev, "port-%d has no acpi handle\n", port1);
+		return -ENODEV;
+	}
+
+	status = acpi_get_usb_port_capabilities(port_handle, &upc);
+	if (ACPI_FAILURE(status))
+		return -ENODEV;
+
+	if ((upc->type == ACPI_UPC_TYPE_USBC_SS_SWITCH ||
+	     upc->type == ACPI_UPC_TYPE_USBC_SS_NO_SWITCH) &&
+	    ACPI_UPC_USBC_USB4(upc->usbc_capabilities))
+		ret = 1;
+
+	ACPI_FREE(upc);
+
+	return ret;
+}
+EXPORT_SYMBOL_GPL(usb_acpi_intel_port_lpm_incapable);
+
+/**
  * usb_acpi_set_power_state - control usb port's power via acpi power
  * resource
  * @hdev: USB device belonging to the usb hub
