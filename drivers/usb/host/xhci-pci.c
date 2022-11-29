@@ -571,7 +571,10 @@ static void xhci_find_lpm_incapable_ports(struct usb_hcd *hcd, struct usb_device
 	}
 
 	for (i = 0; i < hdev->maxchild; i++) {
-		ret = usb_acpi_port_lpm_incapable(hdev, i);
+		if (xhci->quirks & XHCI_INTEL_HOST)
+			ret = usb_acpi_intel_port_lpm_incapable(hdev, i);
+		else
+			ret = usb_acpi_port_lpm_incapable(hdev, i);
 
 		dev_dbg(&hdev->dev, "port-%d disable U1/U2 _DSM: %d\n", i + 1, ret);
 
