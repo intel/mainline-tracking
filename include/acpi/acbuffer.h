@@ -12,7 +12,7 @@
 
 /*
  * Contains buffer structures for these predefined names:
- * _FDE, _GRT, _GTM, _PLD, _SRT
+ * _FDE, _GRT, _GTM, _PLD, _SRT, _UPC
  */
 
 /*
@@ -63,6 +63,15 @@ struct acpi_gtm_info {
 	u32 pio_speed1;
 	u32 dma_speed1;
 	u32 flags;
+};
+
+/* _UPC USB Port Capabilities return value */
+
+struct acpi_upc_info {
+	u8 connectable;
+	u8 type;
+	u32 usbc_capabilities;
+	u32 reserved1;
 };
 
 /*
@@ -216,5 +225,28 @@ struct acpi_pld_info {
 #define ACPI_PLD_PANEL_FRONT    4
 #define ACPI_PLD_PANEL_BACK     5
 #define ACPI_PLD_PANEL_UNKNOWN  6
+
+/* ACPI _UPC USB Port Capabilities macros */
+
+/* _UPC second byte, USB port connector type definitions */
+#define ACPI_UPC_TYPE_A			0x00
+#define ACPI_UPC_TYPE_MINI_AB		0x01
+#define ACPI_UPC_TYPE_EXPRESSCARD	0x02
+#define ACPI_UPC_TYPE_USB3_A		0x03
+#define ACPI_UPC_TYPE_USB3_B		0x04
+#define ACPI_UPC_TYPE_USB3_MICRO_B	0x05
+#define ACPI_UPC_TYPE_USB3_MICRO_AB	0x06
+#define ACPI_UPC_TYPE_POWER_B		0x07
+#define ACPI_UPC_TYPE_USBC_USB2		0x08
+#define ACPI_UPC_TYPE_USBC_SS_SWITCH	0x09
+#define ACPI_UPC_TYPE_USBC_SS_NO_SWITCH	0x0a
+#define ACPI_UPC_TYPE_PROPPRIETARY	0xff
+
+/* _UPC third integer, Macros to check USB-C port capabilities */
+#define ACPI_UPC_USBC_RETIMER_COUNT(dword)	((dword) & 0x03)
+#define ACPI_UPC_USBC_PCIE(dword)		((dword) & BIT(2))
+#define ACPI_UPC_USBC_DISPLAY_PORT(dword)	((dword) & BIT(3))
+#define ACPI_UPC_USBC_USB4(dword)		((dword) & BIT(4))
+#define ACPI_UPC_USBC_TBT3(dword)		((dword) & BIT(5))
 
 #endif				/* ACBUFFER_H */

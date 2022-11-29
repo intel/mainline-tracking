@@ -446,6 +446,51 @@ out:
 EXPORT_SYMBOL(acpi_get_physical_device_location);
 
 /**
+ * acpi_get_usb_port_capabilities: Evaluate _UPC for usb ports
+ * @handle: ACPI device handle
+ * @upc: upc double pointer to be set to allocated and filled struct acpi_upc_info
+ *
+ * Evaluate _UPC and set the passed upc double pointer to an allocated and filled
+ * acpi_upc_info struct. Caller needs to free the allocated struct acpi_upc_info
+ *
+ * Returns: acpi_status
+ */
+acpi_status
+acpi_get_usb_port_capabilities(acpi_handle handle, struct acpi_upc_info **upc)
+{
+	struct acpi_buffer buffer = { ACPI_ALLOCATE_BUFFER, NULL };
+	struct acpi_upc_info *upc_info;
+	union acpi_object *obj = NULL;
+	acpi_status status;
+
+	status = acpi_evaluate_object(handle, "_UPC", NULL, &buffer);
+	if (ACPI_FAILURE(status))
+		goto out;
+
+	obj = buffer.pointer;
+	if (!obj || (obj->type != ACPI_TYPE_PACKAGE) || obj->package.count != 4) {
+		status = AE_TYPE;
+		goto out;
+	}
+
+	upc_info = ACPI_ALLOCATE_ZEROED(sizeof(struct acpi_upc_info));
+	if (!upc_info) {
+		status = AE_NO_MEMORY;
+		goto out;
+	}
+
+	upc_info->connectable = obj->package.elements[0].integer.value;
+	upc_info->type = obj->package.elements[1].integer.value;
+	upc_info->usbc_capabilities = obj->package.elements[2].integer.value;
+
+	*upc = upc_info;
+out:
+	kfree(obj);
+	return status;
+}
+EXPORT_SYMBOL(acpi_get_usb_port_capabilities);
+
+/**
  * acpi_evaluate_ost: Evaluate _OST for hotplug operations
  * @handle: ACPI device handle
  * @source_event: source event code
