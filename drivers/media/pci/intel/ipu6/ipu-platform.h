@@ -12,8 +12,11 @@
 #define IPU6_FIRMWARE_NAME		"intel/ipu6_fw.bin"
 #define IPU6EPMTL_FIRMWARE_NAME		"intel/ipu6epmtl_fw.bin"
 
+#if IS_ENABLED(CONFIG_VIDEO_INTEL_IPU_USE_PLATFORMDATA) \
+	&& IS_ENABLED(CONFIG_VIDEO_INTEL_IPU_PDATA_DYNAMIC_LOADING)
 /* array of struct ipu_spdata_rep terminated by NULL */
 #define IPU_SPDATA_NAME		"ipu6v1_spdata.bin"
+#endif
 
 /*
  * The following definitions are encoded to the media_device's model field so
@@ -22,8 +25,8 @@
  */
 #define IPU_MEDIA_DEV_MODEL_NAME		"ipu6"
 
-#define IPU6SE_ISYS_NUM_STREAMS          IPU6SE_NONSECURE_STREAM_ID_MAX
-#define IPU6_ISYS_NUM_STREAMS            IPU6_NONSECURE_STREAM_ID_MAX
+#define IPU6SE_ISYS_NUM_STREAMS		IPU6SE_NONSECURE_STREAM_ID_MAX
+#define IPU6_ISYS_NUM_STREAMS		IPU6_NONSECURE_STREAM_ID_MAX
 
 /* declearations, definitions in ipu6.c */
 extern struct ipu_isys_internal_pdata isys_ipdata;

@@ -22,6 +22,7 @@
 #include "ipu-bus.h"
 #include "ipu-cpd.h"
 #include "ipu-isys.h"
+#include "ipu-buttress.h"
 #include "ipu-isys-video.h"
 #include "ipu-platform.h"
 #include "ipu-platform-regs.h"
@@ -605,6 +606,7 @@ static void get_stream_opened(struct ipu_isys_video *av)
 	spin_lock_irqsave(&av->isys->lock, flags);
 	av->isys->stream_opened++;
 	spin_unlock_irqrestore(&av->isys->lock, flags);
+
 }
 
 static void put_stream_opened(struct ipu_isys_video *av)
@@ -614,6 +616,7 @@ static void put_stream_opened(struct ipu_isys_video *av)
 	spin_lock_irqsave(&av->isys->lock, flags);
 	av->isys->stream_opened--;
 	spin_unlock_irqrestore(&av->isys->lock, flags);
+
 }
 
 static int get_stream_handle(struct ipu_isys_video *av)

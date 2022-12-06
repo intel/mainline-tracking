@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0
-// Copyright (C) 2013 - 2021 Intel Corporation
+// Copyright (C) 2013 - 2022 Intel Corporation
 
 #include <linux/debugfs.h>
 #include <linux/delay.h>
@@ -16,6 +16,14 @@
 #include <media/ipu-isys.h>
 #include <media/v4l2-mc.h>
 #include <media/v4l2-subdev.h>
+#if !IS_ENABLED(CONFIG_VIDEO_INTEL_IPU_USE_PLATFORMDATA)
+#include <media/v4l2-fwnode.h>
+#include <media/v4l2-ctrls.h>
+#include <media/v4l2-device.h>
+#include <media/v4l2-event.h>
+#include <media/v4l2-ioctl.h>
+#include <media/v4l2-async.h>
+#endif
 #include "ipu.h"
 #include "ipu-bus.h"
 #include "ipu-cpd.h"
@@ -30,6 +38,7 @@
 #include "ipu-platform-buttress-regs.h"
 
 #define ISYS_PM_QOS_VALUE	300
+#if IS_ENABLED(CONFIG_VIDEO_INTEL_IPU_USE_PLATFORMDATA)
 /*
  * The param was passed from module to indicate if port
  * could be optimized.
@@ -37,11 +46,12 @@
 static bool csi2_port_optimized = true;
 module_param(csi2_port_optimized, bool, 0660);
 MODULE_PARM_DESC(csi2_port_optimized, "IPU CSI2 port optimization");
+#endif
 
-#define IPU_BUTTRESS_FABIC_CONTROL	    0x68
-#define GDA_ENABLE_IWAKE_INDEX		    2
-#define GDA_IWAKE_THRESHOLD_INDEX           1
-#define GDA_IRQ_CRITICAL_THRESHOLD_INDEX    0
+#define IPU_BUTTRESS_FABIC_CONTROL		0x68
+#define GDA_ENABLE_IWAKE_INDEX			2
+#define GDA_IWAKE_THRESHOLD_INDEX		1
+#define GDA_IRQ_CRITICAL_THRESHOLD_INDEX	0
 
 /* LTR & DID value are 10 bit at most */
 #define LTR_DID_VAL_MAX		1023
@@ -91,6 +101,7 @@ enum ltr_did_type {
 	LTR_TYPE_MAX
 };
 
+#if IS_ENABLED(CONFIG_VIDEO_INTEL_IPU_USE_PLATFORMDATA)
 struct isys_i2c_test {
 	u8 bus_nr;
 	u16 addr;
@@ -130,6 +141,7 @@ i2c_client *isys_find_i2c_subdev(struct i2c_adapter *adapter,
 		return NULL;
 	return test.client;
 }
+#endif
 static int
 isys_complete_ext_device_registration(struct ipu_isys *isys,
 				      struct v4l2_subdev *sd,
@@ -167,7 +179,7 @@ skip_unregister_subdev:
 	v4l2_device_unregister_subdev(sd);
 	return rval;
 }
-
+#if IS_ENABLED(CONFIG_VIDEO_INTEL_IPU_USE_PLATFORMDATA)
 static int isys_register_ext_subdev(struct ipu_isys *isys,
 				    struct ipu_isys_subdev_info *sd_info)
 {
@@ -181,9 +193,16 @@ static int isys_register_ext_subdev(struct ipu_isys *isys,
 			sd_info->i2c.i2c_adapter_bdf,
 			sizeof(sd_info->i2c.i2c_adapter_bdf));
 	if (bus < 0) {
-		dev_err(&isys->adev->dev, "Failed to find adapter!");
+		dev_err(&isys->adev->dev,
+			"getting i2c bus id for adapter %d (bdf %s) failed",
+			sd_info->i2c.i2c_adapter_id,
+			sd_info->i2c.i2c_adapter_bdf);
 		return -ENOENT;
 	}
+	dev_info(&isys->adev->dev,
+		 "got i2c bus id %d for adapter %d (bdf %s)", bus,
+		 sd_info->i2c.i2c_adapter_id,
+		 sd_info->i2c.i2c_adapter_bdf);
 	adapter = i2c_get_adapter(bus);
 	if (!adapter) {
 		dev_warn(&isys->adev->dev, "can't find adapter\n");
@@ -247,6 +266,7 @@ static void isys_register_ext_subdevs(struct ipu_isys *isys)
 	for (sd_info = spdata->subdevs; *sd_info; sd_info++)
 		isys_register_ext_subdev(isys, *sd_info);
 }
+#endif
 
 static void isys_unregister_subdevices(struct ipu_isys *isys)
 {
@@ -267,12 +287,15 @@ static int isys_register_subdevices(struct ipu_isys *isys)
 	const struct ipu_isys_internal_csi2_pdata *csi2 =
 	    &isys->pdata->ipdata->csi2;
 	struct ipu_isys_csi2_be_soc *csi2_be_soc;
+#if IS_ENABLED(CONFIG_VIDEO_INTEL_IPU_USE_PLATFORMDATA)
 	struct ipu_isys_subdev_pdata *spdata = isys->pdata->spdata;
 	struct ipu_isys_subdev_info **sd_info;
 	DECLARE_BITMAP(csi2_enable, 32);
+#endif
 	unsigned int i, k;
 	int rval;
 
+#if IS_ENABLED(CONFIG_VIDEO_INTEL_IPU_USE_PLATFORMDATA)
 	/*
 	 * Here is somewhat a workaround, let each platform decide
 	 * if csi2 port can be optimized, which means only registered
@@ -294,6 +317,7 @@ static int isys_register_subdevices(struct ipu_isys *isys)
 	} else {
 		bitmap_fill(csi2_enable, 32);
 	}
+#endif
 	isys->csi2 = devm_kcalloc(&isys->adev->dev, csi2->nports,
 				  sizeof(*isys->csi2), GFP_KERNEL);
 	if (!isys->csi2) {
@@ -302,8 +326,10 @@ static int isys_register_subdevices(struct ipu_isys *isys)
 	}
 
 	for (i = 0; i < csi2->nports; i++) {
+#if IS_ENABLED(CONFIG_VIDEO_INTEL_IPU_USE_PLATFORMDATA)
 		if (!test_bit(i, csi2_enable))
 			continue;
+#endif
 		rval = ipu_isys_csi2_init(&isys->csi2[i], isys,
 					  isys->pdata->base +
 					  csi2->offsets[i], i);
@@ -331,8 +357,10 @@ static int isys_register_subdevices(struct ipu_isys *isys)
 	}
 
 	for (i = 0; i < csi2->nports; i++) {
+#if IS_ENABLED(CONFIG_VIDEO_INTEL_IPU_USE_PLATFORMDATA)
 		if (!test_bit(i, csi2_enable))
 			continue;
+#endif
 		rval = media_create_pad_link(&isys->csi2[i].asd.sd.entity,
 					     CSI2_PAD_SOURCE,
 					     &isys->csi2_be.asd.sd.entity,
@@ -608,6 +636,103 @@ static int isys_iwake_watermark_cleanup(struct ipu_isys *isys)
 	return 0;
 }
 
+#if !IS_ENABLED(CONFIG_VIDEO_INTEL_IPU_USE_PLATFORMDATA)
+/* The .bound() notifier callback when a match is found */
+static int isys_notifier_bound(struct v4l2_async_notifier *notifier,
+			       struct v4l2_subdev *sd,
+			       struct v4l2_async_subdev *asd)
+{
+	struct ipu_isys *isys = container_of(notifier,
+					struct ipu_isys, notifier);
+	struct sensor_async_subdev *s_asd = container_of(asd,
+				struct sensor_async_subdev, asd);
+
+	dev_info(&isys->adev->dev, "bind %s nlanes is %d port is %d\n",
+		sd->name, s_asd->csi2.nlanes, s_asd->csi2.port);
+	isys_complete_ext_device_registration(isys, sd, &s_asd->csi2);
+
+	return v4l2_device_register_subdev_nodes(&isys->v4l2_dev);
+}
+
+static void isys_notifier_unbind(struct v4l2_async_notifier *notifier,
+				 struct v4l2_subdev *sd,
+				 struct v4l2_async_subdev *asd)
+{
+	struct ipu_isys *isys = container_of(notifier,
+					struct ipu_isys, notifier);
+
+	dev_info(&isys->adev->dev, "unbind %s\n", sd->name);
+}
+
+static int isys_notifier_complete(struct v4l2_async_notifier *notifier)
+{
+	struct ipu_isys *isys = container_of(notifier,
+					struct ipu_isys, notifier);
+
+	dev_info(&isys->adev->dev, "All sensor registration completed.\n");
+
+	return v4l2_device_register_subdev_nodes(&isys->v4l2_dev);
+}
+
+static const struct v4l2_async_notifier_operations isys_async_ops = {
+	.bound = isys_notifier_bound,
+	.unbind = isys_notifier_unbind,
+	.complete = isys_notifier_complete,
+};
+
+static int isys_fwnode_parse(struct device *dev,
+			     struct v4l2_fwnode_endpoint *vep,
+			     struct v4l2_async_subdev *asd)
+{
+	struct sensor_async_subdev *s_asd =
+			container_of(asd, struct sensor_async_subdev, asd);
+
+	s_asd->csi2.port = vep->base.port;
+	s_asd->csi2.nlanes = vep->bus.mipi_csi2.num_data_lanes;
+
+	return 0;
+}
+
+static int isys_notifier_init(struct ipu_isys *isys)
+{
+	struct ipu_device *isp = isys->adev->isp;
+	size_t asd_struct_size = sizeof(struct sensor_async_subdev);
+	int ret;
+
+	v4l2_async_nf_init(&isys->notifier);
+	ret = v4l2_async_nf_parse_fwnode_endpoints(&isp->pdev->dev,
+						   &isys->notifier,
+						   asd_struct_size,
+						   isys_fwnode_parse);
+	if (ret < 0) {
+		dev_err(&isys->adev->dev,
+			"v4l2 parse_fwnode_endpoints() failed: %d\n", ret);
+		return ret;
+	}
+	if (list_empty(&isys->notifier.asd_list)) {
+		/* isys probe could continue with async subdevs missing */
+		dev_warn(&isys->adev->dev, "no subdev found in graph\n");
+		return 0;
+	}
+
+	isys->notifier.ops = &isys_async_ops;
+	ret = v4l2_async_nf_register(&isys->v4l2_dev, &isys->notifier);
+	if (ret) {
+		dev_err(&isys->adev->dev,
+			"failed to register async notifier : %d\n", ret);
+			v4l2_async_nf_cleanup(&isys->notifier);
+	}
+
+	return ret;
+}
+
+static void isys_notifier_cleanup(struct ipu_isys *isys)
+{
+	v4l2_async_nf_unregister(&isys->notifier);
+	v4l2_async_nf_cleanup(&isys->notifier);
+}
+#endif
+
 static struct media_device_ops isys_mdev_ops = {
 	.link_notify = v4l2_pipeline_link_notify,
 };
@@ -645,7 +770,13 @@ static int isys_register_devices(struct ipu_isys *isys)
 	if (rval)
 		goto out_v4l2_device_unregister;
 
+#if !IS_ENABLED(CONFIG_VIDEO_INTEL_IPU_USE_PLATFORMDATA)
+	rval = isys_notifier_init(isys);
+	if (rval)
+		goto out_isys_unregister_subdevices;
+#else
 	isys_register_ext_subdevs(isys);
+#endif
 
 	rval = v4l2_device_register_subdev_nodes(&isys->v4l2_dev);
 	if (rval)
@@ -654,8 +785,16 @@ static int isys_register_devices(struct ipu_isys *isys)
 	return 0;
 
 out_isys_notifier_cleanup:
+#if !IS_ENABLED(CONFIG_VIDEO_INTEL_IPU_USE_PLATFORMDATA)
+	isys_notifier_cleanup(isys);
+#endif
 
+#if !IS_ENABLED(CONFIG_VIDEO_INTEL_IPU_USE_PLATFORMDATA)
+out_isys_unregister_subdevices:
 	isys_unregister_subdevices(isys);
+#else
+	isys_unregister_subdevices(isys);
+#endif
 
 out_v4l2_device_unregister:
 	v4l2_device_unregister(&isys->v4l2_dev);
@@ -798,6 +937,9 @@ static void isys_remove(struct ipu_bus_device *adev)
 	isys_iwake_watermark_cleanup(isys);
 
 	ipu_trace_uninit(&adev->dev);
+#if !IS_ENABLED(CONFIG_VIDEO_INTEL_IPU_USE_PLATFORMDATA)
+	isys_notifier_cleanup(isys);
+#endif
 	isys_unregister_devices(isys);
 
 	cpu_latency_qos_remove_request(&isys->pm_qos);

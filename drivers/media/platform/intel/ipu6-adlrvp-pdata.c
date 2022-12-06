@@ -7,14 +7,30 @@
 #include <linux/pci.h>
 
 #include <media/ipu-isys.h>
+#if IS_ENABLED(CONFIG_VIDEO_TI960)
 #include <media/ti960.h>
+#endif
+#if IS_ENABLED(CONFIG_VIDEO_AR0234)
 #include <media/ar0234.h>
+#endif
+#if IS_ENABLED(CONFIG_VIDEO_IMX390)
 #include <media/imx390.h>
+#endif
+#if IS_ENABLED(CONFIG_VIDEO_LT6911UXC)
 #include <media/lt6911uxc.h>
+#endif
+#if IS_ENABLED(CONFIG_VIDEO_D4XX)
 #include <media/d4xx.h>
+#endif
 
 #include "ipu.h"
 
+#if IS_ENABLED(CONFIG_VIDEO_AR0234)
+#define AR0234_LANES       2
+#define AR0234_I2C_ADDRESS 0x10
+
+#if IS_ENABLED(CONFIG_VIDEO_INTEL_IPU_USE_PLATFORMDATA) \
+	&& IS_ENABLED(CONFIG_VIDEO_INTEL_IPU_PDATA_DYNAMIC_LOADING)
 static void ar0234_fixup_spdata(const void *spdata_rep, void *spdata)
 {
 	const struct ipu_spdata_rep *rep = spdata_rep;
@@ -31,23 +47,7 @@ static void ar0234_fixup_spdata(const void *spdata_rep, void *spdata)
 		platform->suffix = rep->suffix;
 	}
 }
-
-static void lt6911uxc_fixup_spdata(const void *spdata_rep, void *spdata)
-{
-	const struct ipu_spdata_rep *rep = spdata_rep;
-	struct lt6911uxc_platform_data *platform = spdata;
-
-	if (spdata_rep && spdata) {
-		platform->port = rep->port_n;
-		platform->lanes = rep->lanes;
-		platform->i2c_slave_address = rep->slave_addr_n;
-		platform->gpios[0] = rep->gpios[0];
-		platform->irq_pin = rep->irq_pin;
-		platform->irq_pin_flags = rep->irq_pin_flags;
-		strcpy(platform->irq_pin_name, rep->irq_pin_name);
-		platform->suffix = rep->suffix;
-	}
-}
+#endif
 
 #define AR0234_LANES       2
 #define AR0234_I2C_ADDRESS 0x10
@@ -78,7 +78,10 @@ static struct ipu_isys_subdev_info ar0234_sd_1 = {
 	},
 	.i2c_adapter_bdf = "0000:00:15.1",
 	},
+#if IS_ENABLED(CONFIG_VIDEO_INTEL_IPU_USE_PLATFORMDATA) \
+	&& IS_ENABLED(CONFIG_VIDEO_INTEL_IPU_PDATA_DYNAMIC_LOADING)
 	.fixup_spdata = ar0234_fixup_spdata,
+#endif
 };
 
 static struct ipu_isys_csi2_config ar0234_csi2_cfg_2 = {
@@ -107,8 +110,12 @@ static struct ipu_isys_subdev_info ar0234_sd_2 = {
 	},
 	.i2c_adapter_bdf = "0000:00:19.1",
 	},
+#if IS_ENABLED(CONFIG_VIDEO_INTEL_IPU_USE_PLATFORMDATA) \
+	&& IS_ENABLED(CONFIG_VIDEO_INTEL_IPU_PDATA_DYNAMIC_LOADING)
 	.fixup_spdata = ar0234_fixup_spdata,
+#endif
 };
+#endif
 
 #if IS_ENABLED(CONFIG_VIDEO_IMX390)
 #define IMX390_LANES       4
@@ -215,10 +222,9 @@ static struct ipu_isys_subdev_info imx390_sd_4 = {
 #endif
 
 #if IS_ENABLED(CONFIG_VIDEO_TI960)
-#define TI960_I2C_ADAPTER	2
-#define TI960_I2C_ADAPTER_2	4
 #define TI960_LANES	4
 
+#if IS_ENABLED(CONFIG_VIDEO_IMX390)
 #define IMX390A_ADDRESS		0x44
 #define IMX390B_ADDRESS		0x45
 #define IMX390C_ADDRESS		0x46
@@ -244,10 +250,16 @@ static struct ti960_subdev_pdata imx390_d3cm_pdata_stub = {
 	.module_name = "imx390",
 	.fsin = 3, /* gpio 3 used for FSIN */
 };
+#endif
 
-static struct ipu_isys_csi2_config ti960_csi2_cfg = {
+static struct ipu_isys_csi2_config ti960_csi2_cfg_1 = {
 	.nlanes = TI960_LANES,
 	.port = 1,
+};
+
+static struct ipu_isys_csi2_config ti960_csi2_cfg_2 = {
+	.nlanes = TI960_LANES,
+	.port = 2,
 };
 
 static struct ti960_subdev_info ti960_subdevs[] = {
@@ -345,29 +357,70 @@ static struct ti960_subdev_info ti960_subdevs[] = {
 #endif
 };
 
-static struct ti960_pdata ti960_pdata = {
+static struct ti960_pdata ti960_pdata_1 = {
 	.subdev_info = ti960_subdevs,
 	.subdev_num = ARRAY_SIZE(ti960_subdevs),
 	.reset_gpio = 0,
-	.FPD_gpio = 175,
+	.FPD_gpio = -1,
 	.suffix = 'a',
 };
 
-static struct ipu_isys_subdev_info ti960_sd = {
-	.csi2 = &ti960_csi2_cfg,
+static struct ti960_pdata ti960_pdata_2 = {
+	.subdev_info = ti960_subdevs,
+	.subdev_num = ARRAY_SIZE(ti960_subdevs),
+	.reset_gpio = 0,
+	.FPD_gpio = -1,
+	.suffix = 'b',
+};
+
+static struct ipu_isys_subdev_info ti960_sd_1 = {
+	.csi2 = &ti960_csi2_cfg_1,
 	.i2c = {
 		.board_info = {
 			 .type = "ti960",
-			 .addr = TI960_I2C_ADDRESS,
-			 .platform_data = &ti960_pdata,
+			 .addr = TI960_I2C_ADDRESS_2,
+			 .platform_data = &ti960_pdata_1,
 		},
 		.i2c_adapter_bdf = "0000:00:15.1",
 	}
 };
+
+static struct ipu_isys_subdev_info ti960_sd_2 = {
+	.csi2 = &ti960_csi2_cfg_2,
+	.i2c = {
+		.board_info = {
+			 .type = "ti960",
+			 .addr = TI960_I2C_ADDRESS_2,
+			 .platform_data = &ti960_pdata_2,
+		},
+		.i2c_adapter_bdf = "0000:00:19.1",
+	}
+};
 #endif
 
+#if IS_ENABLED(CONFIG_VIDEO_LT6911UXC)
 #define LT6911UXC_LANES       4
 #define LT6911UXC_I2C_ADDRESS 0x2B
+
+#if IS_ENABLED(CONFIG_VIDEO_INTEL_IPU_USE_PLATFORMDATA) \
+	&& IS_ENABLED(CONFIG_VIDEO_INTEL_IPU_PDATA_DYNAMIC_LOADING)
+static void lt6911uxc_fixup_spdata(const void *spdata_rep, void *spdata)
+{
+	const struct ipu_spdata_rep *rep = spdata_rep;
+	struct lt6911uxc_platform_data *platform = spdata;
+
+	if (spdata_rep && spdata) {
+		platform->port = rep->port_n;
+		platform->lanes = rep->lanes;
+		platform->i2c_slave_address = rep->slave_addr_n;
+		platform->gpios[0] = rep->gpios[0];
+		platform->irq_pin = rep->irq_pin;
+		platform->irq_pin_flags = rep->irq_pin_flags;
+		strcpy(platform->irq_pin_name, rep->irq_pin_name);
+		platform->suffix = rep->suffix;
+	}
+}
+#endif
 
 static struct ipu_isys_csi2_config lt6911uxc_csi2_cfg_1 = {
 	.nlanes = LT6911UXC_LANES,
@@ -397,7 +450,10 @@ static struct ipu_isys_subdev_info  lt6911uxc_sd_1 = {
 	},
 	.i2c_adapter_bdf = "0000:00:15.1",
 	},
+#if IS_ENABLED(CONFIG_VIDEO_INTEL_IPU_USE_PLATFORMDATA) \
+	&& IS_ENABLED(CONFIG_VIDEO_INTEL_IPU_PDATA_DYNAMIC_LOADING)
 	.fixup_spdata = lt6911uxc_fixup_spdata,
+#endif
 };
 
 static struct ipu_isys_csi2_config lt6911uxc_csi2_cfg_2 = {
@@ -428,8 +484,12 @@ static struct ipu_isys_subdev_info lt6911uxc_sd_2 = {
 	},
 	.i2c_adapter_bdf = "0000:00:19.1",
 	},
+#if IS_ENABLED(CONFIG_VIDEO_INTEL_IPU_USE_PLATFORMDATA) \
+	&& IS_ENABLED(CONFIG_VIDEO_INTEL_IPU_PDATA_DYNAMIC_LOADING)
 	.fixup_spdata = lt6911uxc_fixup_spdata,
+#endif
 };
+#endif
 
 #if IS_ENABLED(CONFIG_VIDEO_D4XX)
 #define D4XX_LANES       2
@@ -528,14 +588,18 @@ static struct ipu_isys_clk_mapping clk_mapping[] = {
 
 static struct ipu_isys_subdev_pdata pdata = {
 	.subdevs = (struct ipu_isys_subdev_info *[]) {
+#if IS_ENABLED(CONFIG_VIDEO_AR0234)
 		&ar0234_sd_1,
 		&ar0234_sd_2,
-#if IS_ENABLED(CONFIG_VIDEO_TI960)
-		//&ti960_sd,
-		//&ti960_sd_2,
 #endif
+#if IS_ENABLED(CONFIG_VIDEO_TI960)
+		&ti960_sd_1,
+		&ti960_sd_2,
+#endif
+#if IS_ENABLED(CONFIG_VIDEO_LT6911UXC)
 		&lt6911uxc_sd_1,
 		&lt6911uxc_sd_2,
+#endif
 #if IS_ENABLED(CONFIG_VIDEO_D4XX)
 		&d4xx_sd_0,
 		&d4xx_sd_1,
@@ -556,3 +620,5 @@ static void ipu6_quirk(struct pci_dev *pci_dev)
 DECLARE_PCI_FIXUP_EARLY(PCI_VENDOR_ID_INTEL, IPU6EP_ADL_P_PCI_ID, ipu6_quirk);
 DECLARE_PCI_FIXUP_EARLY(PCI_VENDOR_ID_INTEL, IPU6EP_ADL_N_PCI_ID, ipu6_quirk);
 DECLARE_PCI_FIXUP_EARLY(PCI_VENDOR_ID_INTEL, IPU6EP_RPL_P_PCI_ID, ipu6_quirk);
+
+MODULE_LICENSE("GPL");
