@@ -42,7 +42,8 @@
 			    (pdev)->device == 0x9a39 ||		\
 			    (pdev)->device == 0x4e19 ||		\
 			    (pdev)->device == 0x465d ||		\
-			    (pdev)->device == 0x1919 ||         \
+			    (pdev)->device == 0x1919 ||		\
+			    (pdev)->device == 0x7d19 ||		\
 			    (pdev)->device == 0xa75d))
 #define IS_AZALIA(pdev) ((pdev)->vendor == 0x8086 && (pdev)->device == 0x3a3e)
 
