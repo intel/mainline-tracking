@@ -46,6 +46,16 @@ static inline struct intel_guc *ct_to_guc(struct intel_guc_ct *ct)
 	return container_of(ct, struct intel_guc, ct);
 }
 
+static inline struct intel_gt *ct_to_gt(struct intel_guc_ct *ct)
+{
+	return guc_to_gt(ct_to_guc(ct));
+}
+
+static inline struct drm_i915_private *ct_to_i915(struct intel_guc_ct *ct)
+{
+	return ct_to_gt(ct)->i915;
+}
+
 #define CT_ERROR(_ct, _fmt, ...) \
 	guc_err(ct_to_guc(_ct), "CT: " _fmt, ##__VA_ARGS__)
 #ifdef CONFIG_DRM_I915_DEBUG_GUC
@@ -134,6 +144,8 @@ long intel_guc_ct_max_queue_time_jiffies(void)
 	return (CTB_H2G_BUFFER_SIZE * HZ) / SZ_2K;
 }
 
+/* FIXME: MTL cache coherency issue - HSD 22016122933 */
+static noinline void mtl_workaround_worker_func(struct work_struct *wrk);
 static void ct_receive_tasklet_func(struct tasklet_struct *t);
 static void ct_incoming_request_worker_func(struct work_struct *w);
 
@@ -164,6 +176,13 @@ void intel_guc_ct_init_early(struct intel_guc_ct *ct)
 
 	tasklet_setup(&ct->receive_tasklet, ct_receive_tasklet_func);
 	init_waitqueue_head(&ct->wq);
+
+	/* FIXME: MTL cache coherency issue - HSD 22016122933 */
+	if (IS_METEORLAKE(ct_to_i915(ct))) {
+		ct->mtl_workaround.delay = msecs_to_jiffies(100); /* 100 ms */
+		INIT_DELAYED_WORK(&ct->mtl_workaround.work,
+				  mtl_workaround_worker_func);
+	}
 }
 
 static void guc_ct_buffer_desc_init(struct guc_ct_buffer_desc *desc)
@@ -320,6 +339,15 @@ int intel_guc_ct_init(struct intel_guc_ct *ct)
 	return 0;
 }
 
+void intel_guc_ct_sanitize(struct intel_guc_ct *ct)
+{
+	ct->enabled = false;
+
+	/* FIXME: MTL cache coherency issue - HSD 22016122933 */
+	if (IS_METEORLAKE(ct_to_i915(ct)) && ct->mtl_workaround.work.wq)
+		cancel_delayed_work_sync(&ct->mtl_workaround.work);
+}
+
 /**
  * intel_guc_ct_fini - Fini buffer-based communication
  * @ct: pointer to CT struct
@@ -329,6 +357,10 @@ int intel_guc_ct_init(struct intel_guc_ct *ct)
 void intel_guc_ct_fini(struct intel_guc_ct *ct)
 {
 	GEM_BUG_ON(ct->enabled);
+
+	/* FIXME: MTL cache coherency issue - HSD 22016122933 */
+	if (IS_METEORLAKE(ct_to_i915(ct)) && ct->mtl_workaround.work.wq)
+		cancel_delayed_work_sync(&ct->mtl_workaround.work);
 
 	tasklet_kill(&ct->receive_tasklet);
 	i915_vma_unpin_and_release(&ct->vma, I915_VMA_RELEASE_MAP);
@@ -392,6 +424,11 @@ int intel_guc_ct_enable(struct intel_guc_ct *ct)
 	ct->dead_ct_reason = CT_DEAD_ALIVE;
 #endif
 
+	/* FIXME: MTL cache coherency issue - HSD 22016122933 */
+	if (IS_METEORLAKE(ct_to_i915(ct)))
+		mod_delayed_work(system_highpri_wq, &ct->mtl_workaround.work,
+				 ct->mtl_workaround.delay);
+
 	return 0;
 
 err_out:
@@ -411,6 +448,9 @@ void intel_guc_ct_disable(struct intel_guc_ct *ct)
 	GEM_BUG_ON(!ct->enabled);
 
 	ct->enabled = false;
+	/* FIXME: MTL cache coherency issue - HSD 22016122933 */
+	if (IS_METEORLAKE(ct_to_i915(ct)))
+		cancel_delayed_work_sync(&ct->mtl_workaround.work);
 
 	if (intel_guc_is_fw_running(guc)) {
 		ct_control_enable(ct, false);
@@ -524,6 +564,18 @@ static int ct_write(struct intel_guc_ct *ct,
 
 	/* now update descriptor */
 	WRITE_ONCE(desc->tail, tail);
+	/* FIXME: MTL cache coherency issue - HSD 22016122933 */
+	if (IS_METEORLAKE(ct_to_i915(ct))) {
+		u32 desc_tail = READ_ONCE(desc->tail);
+
+		if (tail != desc_tail) {
+			CT_ERROR(ct, "Lost H2G: %u/%u\n", tail, desc_tail);
+			WRITE_ONCE(desc->tail, tail);
+			READ_ONCE(desc->tail);
+			intel_uncore_read(ct_to_gt(ct)->uncore,
+					  ct_to_guc(ct)->notify_reg);
+		}
+	}
 
 	return 0;
 
@@ -1399,6 +1451,43 @@ void intel_guc_ct_event_handler(struct intel_guc_ct *ct)
 	}
 
 	ct_try_receive_message(ct);
+}
+
+/* FIXME: There is an known H2G loss issue that may be
+ * caused by MTL cache coherence issue. This temporary WA will:
+ * 1. Detect H2G loss and print to dmesg.
+ * 2. When triggered, rewrite CTB to resume communication
+ * HSD: 22016122933
+ */
+static noinline void mtl_workaround_worker_func(struct work_struct *wrk)
+{
+	struct intel_guc_ct *ct = container_of(wrk, typeof(*ct),
+					     mtl_workaround.work.work);
+
+	if (ct->enabled) {
+		struct intel_guc_ct_buffer *send_ctb = &ct->ctbs.send;
+		struct guc_ct_buffer_desc *send_desc = send_ctb->desc;
+		u32 send_tail;
+		u32 desc_tail;
+		unsigned long spin_flags;
+
+		spin_lock_irqsave(&send_ctb->lock, spin_flags);
+
+		send_tail = send_ctb->tail;
+		desc_tail = READ_ONCE(send_desc->tail);
+		if (send_tail != desc_tail) {
+			CT_ERROR(ct, "Lost H2G: %u/%u\n", send_tail, desc_tail);
+			WRITE_ONCE(send_desc->tail, send_tail);
+			READ_ONCE(send_desc->tail);
+			intel_uncore_read(ct_to_gt(ct)->uncore,
+					  ct_to_guc(ct)->notify_reg);
+			intel_guc_notify(ct_to_guc(ct));
+		}
+		spin_unlock_irqrestore(&send_ctb->lock, spin_flags);
+
+		mod_delayed_work(system_highpri_wq, &ct->mtl_workaround.work,
+				 ct->mtl_workaround.delay);
+	}
 }
 
 void intel_guc_ct_print_info(struct intel_guc_ct *ct,
