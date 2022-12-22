@@ -130,6 +130,9 @@ static const struct pci_device_id mipi_i3c_hci_pci_devices[] = {
 	{ PCI_VDEVICE(INTEL, 0x7f79), (kernel_ulong_t)&intel_info},
 	/* Lakefield */
 	{ PCI_VDEVICE(INTEL, 0x98ec), (kernel_ulong_t)&intel_info},
+	/* Lunar Lake-M */
+	{ PCI_VDEVICE(INTEL, 0xa87c), (kernel_ulong_t)&intel_info},
+	{ PCI_VDEVICE(INTEL, 0xa877), (kernel_ulong_t)&intel_info},
 	{ },
 };
 MODULE_DEVICE_TABLE(pci, mipi_i3c_hci_pci_devices);
