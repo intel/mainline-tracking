@@ -1,0 +1,106 @@
+From 932e59cfc9b369a5c50ed65134f286a801fe3538 Mon Sep 17 00:00:00 2001
+From: Johannes Berg <johannes.berg@intel.com>
+Date: Wed, 28 Sep 2022 22:07:15 +0200
+Subject: [PATCH] wifi: mac80211: fix MBSSID parsing use-after-free
+
+When we parse a multi-BSSID element, we might point some
+element pointers into the allocated nontransmitted_profile.
+However, we free this before returning, causing UAF when the
+relevant pointers in the parsed elements are accessed.
+
+Fix this by not allocating the scratch buffer separately but
+as part of the returned structure instead, that way, there
+are no lifetime issues with it.
+
+The scratch buffer introduction as part of the returned data
+here is taken from MLO feature work done by Ilan.
+
+This fixes CVE-2022-42719.
+
+Fixes: 5023b14cf4df ("mac80211: support profile split between elements")
+Co-developed-by: Ilan Peer <ilan.peer@intel.com>
+Signed-off-by: Ilan Peer <ilan.peer@intel.com>
+Reviewed-by: Kees Cook <keescook@chromium.org>
+Signed-off-by: Johannes Berg <johannes.berg@intel.com>
+---
+ net/mac80211/ieee80211_i.h |  8 ++++++++
+ net/mac80211/util.c        | 32 ++++++++++++++++----------------
+ 2 files changed, 24 insertions(+), 16 deletions(-)
+
+diff --git a/net/mac80211/ieee80211_i.h b/net/mac80211/ieee80211_i.h
+index 86ef0a46a68c..2c0433bdd1dc 100644
+--- a/net/mac80211/ieee80211_i.h
++++ b/net/mac80211/ieee80211_i.h
+@@ -1640,6 +1640,14 @@ struct ieee802_11_elems {
+ 
+ 	/* whether a parse error occurred while retrieving these elements */
+ 	bool parse_error;
++
++	/*
++	 * scratch buffer that can be used for various element parsing related
++	 * tasks, e.g., element de-fragmentation etc.
++	 */
++	size_t scratch_len;
++	u8 *scratch_pos;
++	u8 scratch[];
+ };
+ 
+ static inline struct ieee80211_local *hw_to_local(
+diff --git a/net/mac80211/util.c b/net/mac80211/util.c
+index dad42d42aa84..2fb7def0eb82 100644
+--- a/net/mac80211/util.c
++++ b/net/mac80211/util.c
+@@ -1501,25 +1501,27 @@ struct ieee802_11_elems *ieee802_11_parse_elems_crc(const u8 *start, size_t len,
+ 	const struct element *non_inherit = NULL;
+ 	u8 *nontransmitted_profile;
+ 	int nontransmitted_profile_len = 0;
++	size_t scratch_len = len;
+ 
+-	elems = kzalloc(sizeof(*elems), GFP_ATOMIC);
++	elems = kzalloc(sizeof(*elems) + scratch_len, GFP_ATOMIC);
+ 	if (!elems)
+ 		return NULL;
+ 	elems->ie_start = start;
+ 	elems->total_len = len;
+-
+-	nontransmitted_profile = kmalloc(len, GFP_ATOMIC);
+-	if (nontransmitted_profile) {
+-		nontransmitted_profile_len =
+-			ieee802_11_find_bssid_profile(start, len, elems,
+-						      transmitter_bssid,
+-						      bss_bssid,
+-						      nontransmitted_profile);
+-		non_inherit =
+-			cfg80211_find_ext_elem(WLAN_EID_EXT_NON_INHERITANCE,
+-					       nontransmitted_profile,
+-					       nontransmitted_profile_len);
+-	}
++	elems->scratch_len = scratch_len;
++	elems->scratch_pos = elems->scratch;
++
++	nontransmitted_profile = elems->scratch_pos;
++	nontransmitted_profile_len =
++		ieee802_11_find_bssid_profile(start, len, elems,
++					      transmitter_bssid,
++					      bss_bssid,
++					      nontransmitted_profile);
++	elems->scratch_pos += nontransmitted_profile_len;
++	elems->scratch_len -= nontransmitted_profile_len;
++	non_inherit = cfg80211_find_ext_elem(WLAN_EID_EXT_NON_INHERITANCE,
++						nontransmitted_profile,
++						nontransmitted_profile_len);
+ 
+ 	crc = _ieee802_11_parse_elems_crc(start, len, action, elems, filter,
+ 					  crc, non_inherit);
+@@ -1548,8 +1550,6 @@ struct ieee802_11_elems *ieee802_11_parse_elems_crc(const u8 *start, size_t len,
+ 	    offsetofend(struct ieee80211_bssid_index, dtim_count))
+ 		elems->dtim_count = elems->bssid_index->dtim_count;
+ 
+-	kfree(nontransmitted_profile);
+-
+ 	elems->crc = crc;
+ 
+ 	return elems;
+-- 
+2.25.1
+

@@ -1,0 +1,30 @@
+From 57f97d3393d1f3213dc20b86415ef457a51a1f65 Mon Sep 17 00:00:00 2001
+From: Pablo Neira Ayuso <pablo@netfilter.org>
+Date: Mon, 22 Aug 2022 11:06:39 +0200
+Subject: [PATCH] netfilter: nf_tables: disallow binding to already bound chain
+
+Update nft_data_init() to report EINVAL if chain is already bound.
+
+Fixes: d0e2c7de92c7 ("netfilter: nf_tables: add NFT_CHAIN_BINDING")
+Reported-by: Gwangun Jung <exsociety@gmail.com>
+Signed-off-by: Pablo Neira Ayuso <pablo@netfilter.org>
+---
+ net/netfilter/nf_tables_api.c | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/net/netfilter/nf_tables_api.c b/net/netfilter/nf_tables_api.c
+index 9f976b11d896..ff5d4a38cd44 100644
+--- a/net/netfilter/nf_tables_api.c
++++ b/net/netfilter/nf_tables_api.c
+@@ -9617,6 +9617,8 @@ static int nft_verdict_init(const struct nft_ctx *ctx, struct nft_data *data,
+ 			return PTR_ERR(chain);
+ 		if (nft_is_base_chain(chain))
+ 			return -EOPNOTSUPP;
++		if (nft_chain_is_bound(chain))
++			return -EINVAL;
+ 
+ 		chain->use++;
+ 		data->verdict.chain = chain;
+-- 
+2.25.1
+

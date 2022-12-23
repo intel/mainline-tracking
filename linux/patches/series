@@ -1,0 +1,150 @@
+# CVE Patches to apply
+
+# CVE-2022-41218
+0001-media-dvb-core-Fix-UAF-due-to-refcount-races-at-rele.patch
+
+# CVE-2022-40307
+0001-efi-capsule-loader-Fix-use-after-free-in-efi_capsule.patch
+
+# CVE-2022-26373
+0001-x86-speculation-Add-RSB-VM-Exit-protections.patch
+0002-x86-speculation-Add-LFENCE-to-RSB-fill-sequence.patch
+
+# CVE-2022-42720
+0001-wifi-cfg80211-fix-BSS-refcounting-bugs.patch
+
+# CVE-2022-42719
+0001-wifi-mac80211-fix-MBSSID-parsing-use-after-free.patch
+
+# CVE-2022-41674
+0001-wifi-cfg80211-fix-u8-overflow-in-cfg80211_update_not.patch
+
+# CVE-2022-42721
+0001-wifi-cfg80211-avoid-nontransmitted-BSS-list-corrupti.patch
+
+# CVE-2022-42722
+0001-wifi-mac80211-fix-crash-in-beacon-protection-for-P2P.patch
+
+# CVE-2022-2978
+0001-fs-fix-UAF-GPF-bug-in-nilfs_mdt_destroy.patch
+
+# CVE-2022-3028
+0001-af_key-Do-not-call-xfrm_probe_algs-in-parallel.patch
+
+# CVE-2022-2590
+0001-mm-gup-fix-FOLL_FORCE-COW-security-issue-and-remove-.patch
+
+# CVE-2022-3524
+0001-tcp-udp-Fix-memory-leak-in-ipv6_renew_options.patch
+
+# CVE-2022-3522
+0001-mm-hugetlb-use-hugetlb_pte_stable-in-migration-race-.patch
+0002-mm-hugetlb-fix-race-condition-of-uffd-missing-minor-.patch
+0003-mm-selftest-uffd-explain-the-write-missing-fault-che.patch
+
+# CVE-2022-3541
+0001-eth-sp7021-fix-use-after-free-bug-in-spl2sw_nvmem_ge.patch
+
+# CVE-2022-3564
+0001-Bluetooth-L2CAP-Fix-use-after-free-caused-by-l2cap_r.patch
+
+# CVE-2022-3567
+0001-ipv6-Fix-data-races-around-sk-sk_prot.patch
+
+# CVE-2022-3594
+0001-r8152-Rate-limit-overflow-messages.patch
+
+# CVE-2022-3625
+0001-devlink-Fix-use-after-free-after-a-failed-reload.patch
+
+# CVE-2022-3623
+0001-mm-hugetlb-fix-races-when-looking-up-a-CONT-PTE-PMD-.patch
+
+# CVE-2022-3640
+0001-Bluetooth-L2CAP-fix-use-after-free-in-l2cap_conn_del.patch
+
+# CVE-2022-43750
+0001-usb-mon-make-mmapped-memory-read-only.patch
+
+# CVE-2022-43945
+0001-NFSD-Protect-against-send-buffer-overflow-in-NFSv2-R.patch
+0002-SUNRPC-Fix-svcxdr_init_decode-s-end-of-buffer-calcul.patch
+0003-SUNRPC-Fix-svcxdr_init_encode-s-buflen-calculation.patch
+0004-NFSD-Protect-against-send-buffer-overflow-in-NFSv3-R.patch
+0005-NFSD-Protect-against-send-buffer-overflow-in-NFSv2-R.patch
+0006-NFSD-Protect-against-send-buffer-overflow-in-NFSv3-R.patch
+
+# CVE-2022-42895
+0001-Bluetooth-L2CAP-Fix-attempting-to-access-uninitializ.patch
+
+# CVE-2022-42896
+0001-Bluetooth-L2CAP-Fix-accepting-connection-request-for.patch
+
+# CVE-2022-20422
+0001-arm64-fix-oops-in-concurrently-setting-insn_emulatio.patch
+
+# CVE-2022-20421
+0001-binder-fix-UAF-of-ref-proc-caused-by-race-condition.patch
+
+# CVE-2022-2663
+0001-netfilter-nf_conntrack_irc-Tighten-matching-on-DCC-m.patch
+0002-netfilter-nf_conntrack_irc-Fix-forged-IP-logic.patch
+
+# CVE-2022-39190
+0001-netfilter-nf_tables-disallow-binding-to-already-boun.patch
+
+# CVE-2022-2905
+0001-bpf-Don-t-use-tnum_range-on-array-range-checking-for.patch
+
+# CVE-2022-3169
+0001-nvme-ensure-subsystem-reset-is-single-threaded.patch
+
+# CVE-2022-2785
+0001-bpf-Disallow-bpf-programs-call-prog_run-command.patch
+
+# CVE-2022-3435
+0001-ipv4-Handle-attempt-to-delete-multipath-route-when-f.patch
+
+# CVE-2022-3028
+0001-mm-rmap-Fix-anon_vma-degree-ambiguity-leading-to-dou.patch
+
+# CVE-2022-3521
+0001-kcm-avoid-potential-race-in-kcm_tx_work.patch
+
+# CVE-2022-3543
+0001-af_unix-Fix-memory-leaks-of-the-whole-sk-due-to-OOB-.patch
+
+# CVE-2022-3542
+0001-bnx2x-fix-potential-memory-leak-in-bnx2x_tpa_stop.patch
+
+# CVE-2022-3633
+0001-can-j1939-j1939_session_destroy-fix-memory-leak-of-s.patch
+
+# CVE-2022-3619
+0001-Bluetooth-L2CAP-Fix-memory-leak-in-vhci_write.patch
+
+# CVE-2022-3630
+0001-fscache-don-t-leak-cookie-access-refs-if-invalidatio.patch
+
+# CVE-2022-3629
+0001-vsock-Fix-memory-leak-in-vsock_connect.patch
+0002-vsock-Set-socket-state-back-to-SS_UNCONNECTED-in-vso.patch
+
+# CVE-2022-41850
+0001-HID-roccat-Fix-use-after-free-in-roccat_read.patch
+
+# CVE-2022-3643
+0001-xen-netback-Ensure-protocol-headers-don-t-fall-in-th.patch
+
+# CVE-2022-45869
+0001-KVM-x86-mmu-Fix-race-condition-in-direct_page_fault.patch
+
+# CVE-2022-42328
+# CVE-2022-42329
+0001-xen-netback-don-t-call-kfree_skb-with-interrupts-dis.patch
+
+# CVE-2022-3344
+0001-KVM-x86-add-kvm_leave_nested.patch
+0002-KVM-x86-nSVM-leave-nested-mode-on-vCPU-free.patch
+0003-KVM-x86-nSVM-harden-svm_free_nested-against-freeing-.patch
+0004-KVM-x86-forcibly-leave-nested-mode-on-vCPU-reset.patch

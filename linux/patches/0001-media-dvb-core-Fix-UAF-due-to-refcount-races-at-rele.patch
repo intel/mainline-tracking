@@ -1,0 +1,41 @@
+From 147f3ab5810ef441e24a5253272b3322cd3496ba Mon Sep 17 00:00:00 2001
+From: Takashi Iwai <tiwai@suse.de>
+Date: Wed, 21 Sep 2022 15:24:28 +0200
+Subject: [PATCH] media: dvb-core: Fix UAF due to refcount races at releasing
+ (CVE-2022-41218 bsc#1202960).
+
+suse-commit: 260d9857f92ce083e1b970d0cb1dbf82af6d7d26
+---
+ drivers/media/dvb-core/dmxdev.c | 8 ++++++++
+ 1 file changed, 8 insertions(+)
+
+diff --git a/drivers/media/dvb-core/dmxdev.c b/drivers/media/dvb-core/dmxdev.c
+index f6ee678107d3..9ce5f010de3f 100644
+--- a/drivers/media/dvb-core/dmxdev.c
++++ b/drivers/media/dvb-core/dmxdev.c
+@@ -790,6 +790,11 @@ static int dvb_demux_open(struct inode *inode, struct file *file)
+ 	if (mutex_lock_interruptible(&dmxdev->mutex))
+ 		return -ERESTARTSYS;
+ 
++	if (dmxdev->exit) {
++		mutex_unlock(&dmxdev->mutex);
++		return -ENODEV;
++	}
++
+ 	for (i = 0; i < dmxdev->filternum; i++)
+ 		if (dmxdev->filter[i].state == DMXDEV_STATE_FREE)
+ 			break;
+@@ -1448,7 +1453,10 @@ EXPORT_SYMBOL(dvb_dmxdev_init);
+ 
+ void dvb_dmxdev_release(struct dmxdev *dmxdev)
+ {
++	mutex_lock(&dmxdev->mutex);
+ 	dmxdev->exit = 1;
++	mutex_unlock(&dmxdev->mutex);
++
+ 	if (dmxdev->dvbdev->users > 1) {
+ 		wait_event(dmxdev->dvbdev->wait_queue,
+ 				dmxdev->dvbdev->users == 1);
+-- 
+2.25.1
+
