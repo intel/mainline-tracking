@@ -22,6 +22,8 @@
 #define __AMDGPU_UMC_H__
 #include "amdgpu_ras.h"
 
+#define UMC_INVALID_ADDR 0x1ULL
+
 /*
  * (addr / 256) * 4096, the higher 26 bits in ErrorAddr
  * is the index of 4KB block
@@ -41,10 +43,20 @@
 #define LOOP_UMC_CH_INST(ch_inst) for ((ch_inst) = 0; (ch_inst) < adev->umc.channel_inst_num; (ch_inst)++)
 #define LOOP_UMC_INST_AND_CH(umc_inst, ch_inst) LOOP_UMC_INST((umc_inst)) LOOP_UMC_CH_INST((ch_inst))
 
+#define LOOP_UMC_NODE_INST(node_inst) \
+		for ((node_inst) = 0; (node_inst) < adev->umc.node_inst_num; (node_inst)++)
+
+#define LOOP_UMC_EACH_NODE_INST_AND_CH(node_inst, umc_inst, ch_inst) \
+		LOOP_UMC_NODE_INST((node_inst)) LOOP_UMC_INST_AND_CH((umc_inst), (ch_inst))
+
 struct amdgpu_umc_ras {
 	struct amdgpu_ras_block_object ras_block;
 	void (*err_cnt_init)(struct amdgpu_device *adev);
 	bool (*query_ras_poison_mode)(struct amdgpu_device *adev);
+	void (*convert_ras_error_address)(struct amdgpu_device *adev,
+						 struct ras_err_data *err_data,
+						 uint32_t umc_reg_offset, uint32_t ch_inst,
+						 uint32_t umc_inst, uint64_t mca_addr);
 	void (*ecc_info_query_ras_error_count)(struct amdgpu_device *adev,
 				      void *ras_error_status);
 	void (*ecc_info_query_ras_error_address)(struct amdgpu_device *adev,
@@ -62,6 +74,10 @@ struct amdgpu_umc {
 	uint32_t channel_inst_num;
 	/* number of umc instance with memory map register access */
 	uint32_t umc_inst_num;
+
+	/*number of umc node instance with memory map register access*/
+	uint32_t node_inst_num;
+
 	/* UMC regiser per channel offset */
 	uint32_t channel_offs;
 	/* channel index table of interleaved memory */

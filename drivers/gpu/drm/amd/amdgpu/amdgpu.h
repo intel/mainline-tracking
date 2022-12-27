@@ -197,6 +197,7 @@ extern uint amdgpu_smu_memory_pool_size;
 extern int amdgpu_smu_pptable_id;
 extern uint amdgpu_dc_feature_mask;
 extern uint amdgpu_dc_debug_mask;
+extern uint amdgpu_dc_visual_confirm;
 extern uint amdgpu_dm_abm_level;
 extern int amdgpu_backlight;
 extern struct amdgpu_mgpu_info mgpu_info;
@@ -222,6 +223,9 @@ extern bool no_system_mem_limit;
 static const int __maybe_unused sched_policy = KFD_SCHED_POLICY_HWS;
 static const bool __maybe_unused debug_evictions; /* = false */
 static const bool __maybe_unused no_system_mem_limit;
+#endif
+#ifdef CONFIG_HSA_AMD_P2P
+extern bool pcie_p2p;
 #endif
 
 extern int amdgpu_tmz;
@@ -270,11 +274,14 @@ extern int amdgpu_vcnfw_log;
 #define AMDGPU_RESET_VCE			(1 << 13)
 #define AMDGPU_RESET_VCE1			(1 << 14)
 
+#define AMDGPU_RESET_LEVEL_SOFT_RECOVERY (1 << 0)
+#define AMDGPU_RESET_LEVEL_MODE2 (1 << 1)
+
 /* max cursor sizes (in pixels) */
 #define CIK_CURSOR_WIDTH 128
 #define CIK_CURSOR_HEIGHT 128
 
-/* smasrt shift bias level limits */
+/* smart shift bias level limits */
 #define AMDGPU_SMARTSHIFT_MAX_BIAS (100)
 #define AMDGPU_SMARTSHIFT_MIN_BIAS (-100)
 
@@ -313,7 +320,7 @@ enum amdgpu_kiq_irq {
 	AMDGPU_CP_KIQ_IRQ_DRIVER0 = 0,
 	AMDGPU_CP_KIQ_IRQ_LAST
 };
-
+#define SRIOV_USEC_TIMEOUT  1200000 /* wait 12 * 100ms for SRIOV */
 #define MAX_KIQ_REG_WAIT       5000 /* in usecs, 5ms */
 #define MAX_KIQ_REG_BAILOUT_INTERVAL   5 /* in msecs, 5ms */
 #define MAX_KIQ_REG_TRY 1000
@@ -667,6 +674,7 @@ enum amd_hw_ip_block_type {
 	RSMU_HWIP,
 	XGMI_HWIP,
 	DCI_HWIP,
+	PCIE_HWIP,
 	MAX_HWIP
 };
 
@@ -877,6 +885,7 @@ struct amdgpu_device {
 	u64				fence_context;
 	unsigned			num_rings;
 	struct amdgpu_ring		*rings[AMDGPU_MAX_RINGS];
+	struct dma_fence __rcu		*gang_submit;
 	bool				ib_pool_ready;
 	struct amdgpu_sa_manager	ib_pools[AMDGPU_IB_POOL_MAX];
 	struct amdgpu_sched		gpu_sched[AMDGPU_HW_IP_NUM][AMDGPU_RING_PRIO_MAX];
@@ -1007,7 +1016,6 @@ struct amdgpu_device {
 	uint64_t	df_perfmon_config_assign_mask[AMDGPU_MAX_DF_PERFMONS];
 
 	/* enable runtime pm on the device */
-	bool                            runpm;
 	bool                            in_runpm;
 	bool                            has_pr3;
 
@@ -1016,7 +1024,7 @@ struct amdgpu_device {
 	bool                            psp_sysfs_en;
 
 	/* Chip product information */
-	char				product_number[16];
+	char				product_number[20];
 	char				product_name[AMDGPU_PRODUCT_NAME_LEN];
 	char				serial[20];
 
@@ -1044,10 +1052,21 @@ struct amdgpu_device {
 
 	/* reset dump register */
 	uint32_t                        *reset_dump_reg_list;
+	uint32_t			*reset_dump_reg_value;
 	int                             num_regs;
+#ifdef CONFIG_DEV_COREDUMP
+	struct amdgpu_task_info         reset_task_info;
+	bool                            reset_vram_lost;
+	struct timespec64               reset_time;
+#endif
 
 	bool                            scpm_enabled;
 	uint32_t                        scpm_status;
+
+	struct work_struct		reset_work;
+
+	uint32_t						amdgpu_reset_level_mask;
+	bool                            job_hang;
 };
 
 static inline struct amdgpu_device *drm_to_adev(struct drm_device *ddev)
@@ -1241,9 +1260,8 @@ int emu_soc_asic_init(struct amdgpu_device *adev);
 bool amdgpu_device_has_job_running(struct amdgpu_device *adev);
 bool amdgpu_device_should_recover_gpu(struct amdgpu_device *adev);
 int amdgpu_device_gpu_recover(struct amdgpu_device *adev,
-			      struct amdgpu_job* job);
-int amdgpu_device_gpu_recover_imp(struct amdgpu_device *adev,
-			      struct amdgpu_job *job);
+			      struct amdgpu_job *job,
+			      struct amdgpu_reset_context *reset_context);
 void amdgpu_device_pci_config_reset(struct amdgpu_device *adev);
 int amdgpu_device_pci_reset(struct amdgpu_device *adev);
 bool amdgpu_device_need_post(struct amdgpu_device *adev);
@@ -1277,6 +1295,8 @@ u32 amdgpu_device_pcie_port_rreg(struct amdgpu_device *adev,
 				u32 reg);
 void amdgpu_device_pcie_port_wreg(struct amdgpu_device *adev,
 				u32 reg, u32 v);
+struct dma_fence *amdgpu_device_switch_gang(struct amdgpu_device *adev,
+					    struct dma_fence *gang);
 
 /* atpx handler */
 #if defined(CONFIG_VGA_SWITCHEROO)

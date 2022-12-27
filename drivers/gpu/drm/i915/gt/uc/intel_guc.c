@@ -96,9 +96,9 @@ static void gen9_reset_guc_interrupts(struct intel_guc *guc)
 
 	assert_rpm_wakelock_held(&gt->i915->runtime_pm);
 
-	spin_lock_irq(&gt->irq_lock);
+	spin_lock_irq(gt->irq_lock);
 	gen6_gt_pm_reset_iir(gt, gt->pm_guc_events);
-	spin_unlock_irq(&gt->irq_lock);
+	spin_unlock_irq(gt->irq_lock);
 }
 
 static void gen9_enable_guc_interrupts(struct intel_guc *guc)
@@ -107,11 +107,11 @@ static void gen9_enable_guc_interrupts(struct intel_guc *guc)
 
 	assert_rpm_wakelock_held(&gt->i915->runtime_pm);
 
-	spin_lock_irq(&gt->irq_lock);
+	spin_lock_irq(gt->irq_lock);
 	WARN_ON_ONCE(intel_uncore_read(gt->uncore, GEN8_GT_IIR(2)) &
 		     gt->pm_guc_events);
 	gen6_gt_pm_enable_irq(gt, gt->pm_guc_events);
-	spin_unlock_irq(&gt->irq_lock);
+	spin_unlock_irq(gt->irq_lock);
 }
 
 static void gen9_disable_guc_interrupts(struct intel_guc *guc)
@@ -120,11 +120,11 @@ static void gen9_disable_guc_interrupts(struct intel_guc *guc)
 
 	assert_rpm_wakelock_held(&gt->i915->runtime_pm);
 
-	spin_lock_irq(&gt->irq_lock);
+	spin_lock_irq(gt->irq_lock);
 
 	gen6_gt_pm_disable_irq(gt, gt->pm_guc_events);
 
-	spin_unlock_irq(&gt->irq_lock);
+	spin_unlock_irq(gt->irq_lock);
 	intel_synchronize_irq(gt->i915);
 
 	gen9_reset_guc_interrupts(guc);
@@ -134,9 +134,9 @@ static void gen11_reset_guc_interrupts(struct intel_guc *guc)
 {
 	struct intel_gt *gt = guc_to_gt(guc);
 
-	spin_lock_irq(&gt->irq_lock);
+	spin_lock_irq(gt->irq_lock);
 	gen11_gt_reset_one_iir(gt, 0, GEN11_GUC);
-	spin_unlock_irq(&gt->irq_lock);
+	spin_unlock_irq(gt->irq_lock);
 }
 
 static void gen11_enable_guc_interrupts(struct intel_guc *guc)
@@ -144,25 +144,25 @@ static void gen11_enable_guc_interrupts(struct intel_guc *guc)
 	struct intel_gt *gt = guc_to_gt(guc);
 	u32 events = REG_FIELD_PREP(ENGINE1_MASK, GUC_INTR_GUC2HOST);
 
-	spin_lock_irq(&gt->irq_lock);
+	spin_lock_irq(gt->irq_lock);
 	WARN_ON_ONCE(gen11_gt_reset_one_iir(gt, 0, GEN11_GUC));
 	intel_uncore_write(gt->uncore,
 			   GEN11_GUC_SG_INTR_ENABLE, events);
 	intel_uncore_write(gt->uncore,
 			   GEN11_GUC_SG_INTR_MASK, ~events);
-	spin_unlock_irq(&gt->irq_lock);
+	spin_unlock_irq(gt->irq_lock);
 }
 
 static void gen11_disable_guc_interrupts(struct intel_guc *guc)
 {
 	struct intel_gt *gt = guc_to_gt(guc);
 
-	spin_lock_irq(&gt->irq_lock);
+	spin_lock_irq(gt->irq_lock);
 
 	intel_uncore_write(gt->uncore, GEN11_GUC_SG_INTR_MASK, ~0);
 	intel_uncore_write(gt->uncore, GEN11_GUC_SG_INTR_ENABLE, 0);
 
-	spin_unlock_irq(&gt->irq_lock);
+	spin_unlock_irq(gt->irq_lock);
 	intel_synchronize_irq(gt->i915);
 
 	gen11_reset_guc_interrupts(guc);
@@ -242,52 +242,21 @@ static u32 guc_ctl_feature_flags(struct intel_guc *guc)
 
 static u32 guc_ctl_log_params_flags(struct intel_guc *guc)
 {
-	u32 offset = intel_guc_ggtt_offset(guc, guc->log.vma) >> PAGE_SHIFT;
-	u32 flags;
+	struct intel_guc_log *log = &guc->log;
+	u32 offset, flags;
 
-	#if (((CRASH_BUFFER_SIZE) % SZ_1M) == 0)
-	#define LOG_UNIT SZ_1M
-	#define LOG_FLAG GUC_LOG_LOG_ALLOC_UNITS
-	#else
-	#define LOG_UNIT SZ_4K
-	#define LOG_FLAG 0
-	#endif
+	GEM_BUG_ON(!log->sizes_initialised);
 
-	#if (((CAPTURE_BUFFER_SIZE) % SZ_1M) == 0)
-	#define CAPTURE_UNIT SZ_1M
-	#define CAPTURE_FLAG GUC_LOG_CAPTURE_ALLOC_UNITS
-	#else
-	#define CAPTURE_UNIT SZ_4K
-	#define CAPTURE_FLAG 0
-	#endif
-
-	BUILD_BUG_ON(!CRASH_BUFFER_SIZE);
-	BUILD_BUG_ON(!IS_ALIGNED(CRASH_BUFFER_SIZE, LOG_UNIT));
-	BUILD_BUG_ON(!DEBUG_BUFFER_SIZE);
-	BUILD_BUG_ON(!IS_ALIGNED(DEBUG_BUFFER_SIZE, LOG_UNIT));
-	BUILD_BUG_ON(!CAPTURE_BUFFER_SIZE);
-	BUILD_BUG_ON(!IS_ALIGNED(CAPTURE_BUFFER_SIZE, CAPTURE_UNIT));
-
-	BUILD_BUG_ON((CRASH_BUFFER_SIZE / LOG_UNIT - 1) >
-			(GUC_LOG_CRASH_MASK >> GUC_LOG_CRASH_SHIFT));
-	BUILD_BUG_ON((DEBUG_BUFFER_SIZE / LOG_UNIT - 1) >
-			(GUC_LOG_DEBUG_MASK >> GUC_LOG_DEBUG_SHIFT));
-	BUILD_BUG_ON((CAPTURE_BUFFER_SIZE / CAPTURE_UNIT - 1) >
-			(GUC_LOG_CAPTURE_MASK >> GUC_LOG_CAPTURE_SHIFT));
+	offset = intel_guc_ggtt_offset(guc, log->vma) >> PAGE_SHIFT;
 
 	flags = GUC_LOG_VALID |
 		GUC_LOG_NOTIFY_ON_HALF_FULL |
-		CAPTURE_FLAG |
-		LOG_FLAG |
-		((CRASH_BUFFER_SIZE / LOG_UNIT - 1) << GUC_LOG_CRASH_SHIFT) |
-		((DEBUG_BUFFER_SIZE / LOG_UNIT - 1) << GUC_LOG_DEBUG_SHIFT) |
-		((CAPTURE_BUFFER_SIZE / CAPTURE_UNIT - 1) << GUC_LOG_CAPTURE_SHIFT) |
+		log->sizes[GUC_LOG_SECTIONS_DEBUG].flag |
+		log->sizes[GUC_LOG_SECTIONS_CAPTURE].flag |
+		(log->sizes[GUC_LOG_SECTIONS_CRASH].count << GUC_LOG_CRASH_SHIFT) |
+		(log->sizes[GUC_LOG_SECTIONS_DEBUG].count << GUC_LOG_DEBUG_SHIFT) |
+		(log->sizes[GUC_LOG_SECTIONS_CAPTURE].count << GUC_LOG_CAPTURE_SHIFT) |
 		(offset << GUC_LOG_BUF_ADDR_SHIFT);
-
-	#undef LOG_UNIT
-	#undef LOG_FLAG
-	#undef CAPTURE_UNIT
-	#undef CAPTURE_FLAG
 
 	return flags;
 }
@@ -344,6 +313,10 @@ static u32 guc_ctl_wa_flags(struct intel_guc *guc)
 	if (IS_DG2_GRAPHICS_STEP(gt->i915, G10, STEP_A0, STEP_C0) ||
 	    IS_DG2_GRAPHICS_STEP(gt->i915, G11, STEP_A0, STEP_FOREVER))
 		flags |= GUC_WA_CONTEXT_ISOLATION;
+
+	/* Wa_16015675438 */
+	if (!RCS_MASK(gt))
+		flags |= GUC_WA_RCS_REGS_IN_CCS_REGS_LIST;
 
 	return flags;
 }
@@ -408,14 +381,15 @@ void intel_guc_dump_time_info(struct intel_guc *guc, struct drm_printer *p)
 	struct intel_gt *gt = guc_to_gt(guc);
 	intel_wakeref_t wakeref;
 	u32 stamp = 0;
-
-	intel_device_info_print_runtime(RUNTIME_INFO(gt->i915), p);
+	u64 ktime;
 
 	with_intel_runtime_pm(&gt->i915->runtime_pm, wakeref)
 		stamp = intel_uncore_read(gt->uncore, GUCPMTIMESTAMP);
+	ktime = ktime_get_boottime_ns();
 
-	drm_printf(p, "GuC timestamp: 0x%08X\n", stamp);
-	drm_printf(p, "CS timestamp frequency: %u Hz, %d ns\n",
+	drm_printf(p, "Kernel timestamp: 0x%08llX [%llu]\n", ktime, ktime);
+	drm_printf(p, "GuC timestamp: 0x%08X [%u]\n", stamp, stamp);
+	drm_printf(p, "CS timestamp frequency: %u Hz, %u ns\n",
 		   gt->clock_frequency, gt->clock_period_ns);
 }
 
@@ -485,6 +459,7 @@ err_log:
 err_fw:
 	intel_uc_fw_fini(&guc->fw);
 out:
+	intel_uc_fw_change_status(&guc->fw, INTEL_UC_FIRMWARE_INIT_FAIL);
 	i915_probe_error(gt->i915, "failed with %d\n", ret);
 	return ret;
 }
@@ -950,6 +925,35 @@ int intel_guc_self_cfg64(struct intel_guc *guc, u16 key, u64 value)
 	return __guc_self_cfg(guc, key, 2, value);
 }
 
+static long must_wait_woken(struct wait_queue_entry *wq_entry, long timeout)
+{
+	/*
+	 * This is equivalent to wait_woken() with the exception that
+	 * we do not wake up early if the kthread task has been completed.
+	 * As we are called from page reclaim in any task context,
+	 * we may be invoked from stopped kthreads, but we *must*
+	 * complete the wait from the HW .
+	 *
+	 * A second problem is that since we are called under reclaim
+	 * and wait_woken() inspected the thread state, it makes an invalid
+	 * assumption that all PF_KTHREAD tasks have set_kthread_struct()
+	 * called upon them, and will trigger a GPF in is_kthread_should_stop().
+	 */
+	do {
+		set_current_state(TASK_UNINTERRUPTIBLE);
+		if (wq_entry->flags & WQ_FLAG_WOKEN)
+			break;
+
+		timeout = schedule_timeout(timeout);
+	} while (timeout);
+	__set_current_state(TASK_RUNNING);
+
+	/* See wait_woken() and woken_wake_function() */
+	smp_store_mb(wq_entry->flags, wq_entry->flags & ~WQ_FLAG_WOKEN);
+
+	return timeout;
+}
+
 static int guc_send_invalidate_tlb(struct intel_guc *guc, u32 *action, u32 size)
 {
 	struct intel_guc_tlb_wait _wq, *wq = &_wq;
@@ -1000,8 +1004,7 @@ static int guc_send_invalidate_tlb(struct intel_guc *guc, u32 *action, u32 size)
  * queued in CT buffer.
  */
 #define OUTSTANDING_GUC_TIMEOUT_PERIOD  (HZ)
-	if (!wait_woken(&wait, TASK_UNINTERRUPTIBLE,
-			OUTSTANDING_GUC_TIMEOUT_PERIOD)) {
+	if (!must_wait_woken(&wait, OUTSTANDING_GUC_TIMEOUT_PERIOD)) {
 		/*
 		 * XXX: Failure of tlb invalidation is critical and would
 		 * warrant a gt reset.

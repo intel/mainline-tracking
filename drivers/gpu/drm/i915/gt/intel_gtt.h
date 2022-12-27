@@ -105,6 +105,7 @@ typedef u64 gen8_pte_t;
 #define GEN12_GGTT_PTE_ADDR_MASK	GENMASK_ULL(45, 12)
 
 #define GEN12_PDE_64K BIT(6)
+#define GEN12_PTE_PS64 BIT(8)
 
 /*
  * Cacheability Control is a 4-bit value. The low three bits are stored in bits
@@ -318,6 +319,15 @@ struct i915_address_space {
 			       struct i915_vma_resource *vma_res,
 			       enum i915_cache_level cache_level,
 			       u32 flags);
+	void (*raw_insert_page)(struct i915_address_space *vm,
+				dma_addr_t addr,
+				u64 offset,
+				enum i915_cache_level cache_level,
+				u32 flags);
+	void (*raw_insert_entries)(struct i915_address_space *vm,
+				   struct i915_vma_resource *vma_res,
+				   enum i915_cache_level cache_level,
+				   u32 flags);
 	void (*cleanup)(struct i915_address_space *vm);
 
 	void (*foreach)(struct i915_address_space *vm,
@@ -357,6 +367,19 @@ struct i915_ggtt {
 
 	bool do_idle_maps;
 
+	/**
+	 * @pte_lost: Are ptes lost on resume?
+	 *
+	 * Whether the system was recently restored from hibernate and
+	 * thus may have lost pte content.
+	 */
+	bool pte_lost;
+
+	/**
+	 * @probed_pte: Probed pte value on suspend. Re-checked on resume.
+	 */
+	u64 probed_pte;
+
 	int mtrr;
 
 	/** Bit 6 swizzling required for X tiling */
@@ -375,9 +398,6 @@ struct i915_ggtt {
 	 * All objects within this list must also be on bound_list.
 	 */
 	struct list_head userfault_list;
-
-	/* Manual runtime pm autosuspend delay for user GGTT mmaps */
-	struct intel_wakeref_auto userfault_wakeref;
 
 	struct mutex error_mutex;
 	struct drm_mm_node error_capture;
@@ -561,6 +581,13 @@ i915_page_dir_dma_addr(const struct i915_ppgtt *ppgtt, const unsigned int n)
 
 void ppgtt_init(struct i915_ppgtt *ppgtt, struct intel_gt *gt,
 		unsigned long lmem_pt_obj_flags);
+void intel_ggtt_bind_vma(struct i915_address_space *vm,
+			 struct i915_vm_pt_stash *stash,
+			 struct i915_vma_resource *vma_res,
+			 enum i915_cache_level cache_level,
+			 u32 flags);
+void intel_ggtt_unbind_vma(struct i915_address_space *vm,
+			   struct i915_vma_resource *vma_res);
 
 int i915_ggtt_probe_hw(struct drm_i915_private *i915);
 int i915_ggtt_init_hw(struct drm_i915_private *i915);
@@ -603,6 +630,17 @@ void i915_ggtt_suspend_vm(struct i915_address_space *vm);
 bool i915_ggtt_resume_vm(struct i915_address_space *vm);
 void i915_ggtt_suspend(struct i915_ggtt *gtt);
 void i915_ggtt_resume(struct i915_ggtt *ggtt);
+
+/**
+ * i915_ggtt_mark_pte_lost - Mark ggtt ptes as lost or clear such a marking
+ * @i915 The device private.
+ * @val whether the ptes should be marked as lost.
+ *
+ * In some cases pte content is retained across suspend, but typically lost
+ * across hibernate. Typically they should be marked as lost on
+ * hibernation restore and such marking cleared on suspend.
+ */
+void i915_ggtt_mark_pte_lost(struct drm_i915_private *i915, bool val);
 
 void
 fill_page_dma(struct drm_i915_gem_object *p, const u64 val, unsigned int count);

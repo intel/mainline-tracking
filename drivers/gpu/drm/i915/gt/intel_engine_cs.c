@@ -21,8 +21,9 @@
 #include "intel_engine_user.h"
 #include "intel_execlists_submission.h"
 #include "intel_gt.h"
-#include "intel_gt_requests.h"
+#include "intel_gt_mcr.h"
 #include "intel_gt_pm.h"
+#include "intel_gt_requests.h"
 #include "intel_lrc.h"
 #include "intel_lrc_reg.h"
 #include "intel_reset.h"
@@ -69,6 +70,62 @@ static const struct engine_info intel_engines[] = {
 		.instance = 0,
 		.mmio_bases = {
 			{ .graphics_ver = 6, .base = BLT_RING_BASE }
+		},
+	},
+	[BCS1] = {
+		.class = COPY_ENGINE_CLASS,
+		.instance = 1,
+		.mmio_bases = {
+			{ .graphics_ver = 12, .base = XEHPC_BCS1_RING_BASE }
+		},
+	},
+	[BCS2] = {
+		.class = COPY_ENGINE_CLASS,
+		.instance = 2,
+		.mmio_bases = {
+			{ .graphics_ver = 12, .base = XEHPC_BCS2_RING_BASE }
+		},
+	},
+	[BCS3] = {
+		.class = COPY_ENGINE_CLASS,
+		.instance = 3,
+		.mmio_bases = {
+			{ .graphics_ver = 12, .base = XEHPC_BCS3_RING_BASE }
+		},
+	},
+	[BCS4] = {
+		.class = COPY_ENGINE_CLASS,
+		.instance = 4,
+		.mmio_bases = {
+			{ .graphics_ver = 12, .base = XEHPC_BCS4_RING_BASE }
+		},
+	},
+	[BCS5] = {
+		.class = COPY_ENGINE_CLASS,
+		.instance = 5,
+		.mmio_bases = {
+			{ .graphics_ver = 12, .base = XEHPC_BCS5_RING_BASE }
+		},
+	},
+	[BCS6] = {
+		.class = COPY_ENGINE_CLASS,
+		.instance = 6,
+		.mmio_bases = {
+			{ .graphics_ver = 12, .base = XEHPC_BCS6_RING_BASE }
+		},
+	},
+	[BCS7] = {
+		.class = COPY_ENGINE_CLASS,
+		.instance = 7,
+		.mmio_bases = {
+			{ .graphics_ver = 12, .base = XEHPC_BCS7_RING_BASE }
+		},
+	},
+	[BCS8] = {
+		.class = COPY_ENGINE_CLASS,
+		.instance = 8,
+		.mmio_bases = {
+			{ .graphics_ver = 12, .base = XEHPC_BCS8_RING_BASE }
 		},
 	},
 	[VCS0] = {
@@ -337,6 +394,14 @@ static u32 get_reset_domain(u8 ver, enum intel_engine_id id)
 		static const u32 engine_reset_domains[] = {
 			[RCS0]  = GEN11_GRDOM_RENDER,
 			[BCS0]  = GEN11_GRDOM_BLT,
+			[BCS1]  = XEHPC_GRDOM_BLT1,
+			[BCS2]  = XEHPC_GRDOM_BLT2,
+			[BCS3]  = XEHPC_GRDOM_BLT3,
+			[BCS4]  = XEHPC_GRDOM_BLT4,
+			[BCS5]  = XEHPC_GRDOM_BLT5,
+			[BCS6]  = XEHPC_GRDOM_BLT6,
+			[BCS7]  = XEHPC_GRDOM_BLT7,
+			[BCS8]  = XEHPC_GRDOM_BLT8,
 			[VCS0]  = GEN11_GRDOM_MEDIA,
 			[VCS1]  = GEN11_GRDOM_MEDIA2,
 			[VCS2]  = GEN11_GRDOM_MEDIA3,
@@ -592,80 +657,42 @@ bool gen11_vdbox_has_sfc(struct intel_gt *gt,
 	 */
 	if ((gt->info.sfc_mask & BIT(physical_vdbox / 2)) == 0)
 		return false;
-	else if (GRAPHICS_VER(i915) == 12)
+	else if (MEDIA_VER(i915) >= 12)
 		return (physical_vdbox % 2 == 0) ||
 			!(BIT(physical_vdbox - 1) & vdbox_mask);
-	else if (GRAPHICS_VER(i915) == 11)
+	else if (MEDIA_VER(i915) == 11)
 		return logical_vdbox % 2 == 0;
 
-	MISSING_CASE(GRAPHICS_VER(i915));
 	return false;
 }
 
-static void engine_mask_apply_compute_fuses(struct intel_gt *gt)
+static void engine_mask_apply_media_fuses(struct intel_gt *gt)
 {
 	struct drm_i915_private *i915 = gt->i915;
-	struct intel_gt_info *info = &gt->info;
-	int ss_per_ccs = info->sseu.max_subslices / I915_MAX_CCS;
-	unsigned long ccs_mask;
-	unsigned int i;
-
-	if (GRAPHICS_VER_FULL(i915) < IP_VER(12, 50))
-		return;
-
-	ccs_mask = intel_slicemask_from_dssmask(intel_sseu_get_compute_subslices(&info->sseu),
-						ss_per_ccs);
-	/*
-	 * If all DSS in a quadrant are fused off, the corresponding CCS
-	 * engine is not available for use.
-	 */
-	for_each_clear_bit(i, &ccs_mask, I915_MAX_CCS) {
-		info->engine_mask &= ~BIT(_CCS(i));
-		drm_dbg(&i915->drm, "ccs%u fused off\n", i);
-	}
-}
-
-/*
- * Determine which engines are fused off in our particular hardware.
- * Note that we have a catch-22 situation where we need to be able to access
- * the blitter forcewake domain to read the engine fuses, but at the same time
- * we need to know which engines are available on the system to know which
- * forcewake domains are present. We solve this by intializing the forcewake
- * domains based on the full engine mask in the platform capabilities before
- * calling this function and pruning the domains for fused-off engines
- * afterwards.
- */
-static intel_engine_mask_t init_engine_mask(struct intel_gt *gt)
-{
-	struct drm_i915_private *i915 = gt->i915;
-	struct intel_gt_info *info = &gt->info;
-	struct intel_uncore *uncore = gt->uncore;
 	unsigned int logical_vdbox = 0;
 	unsigned int i;
 	u32 media_fuse, fuse1;
 	u16 vdbox_mask;
 	u16 vebox_mask;
 
-	info->engine_mask = INTEL_INFO(i915)->platform_engine_mask;
-
-	if (GRAPHICS_VER(i915) < 11)
-		return info->engine_mask;
+	if (MEDIA_VER(gt->i915) < 11)
+		return;
 
 	/*
 	 * On newer platforms the fusing register is called 'enable' and has
 	 * enable semantics, while on older platforms it is called 'disable'
 	 * and bits have disable semantices.
 	 */
-	media_fuse = intel_uncore_read(uncore, GEN11_GT_VEBOX_VDBOX_DISABLE);
-	if (GRAPHICS_VER_FULL(i915) < IP_VER(12, 50))
+	media_fuse = intel_uncore_read(gt->uncore, GEN11_GT_VEBOX_VDBOX_DISABLE);
+	if (MEDIA_VER_FULL(i915) < IP_VER(12, 50))
 		media_fuse = ~media_fuse;
 
 	vdbox_mask = media_fuse & GEN11_GT_VDBOX_DISABLE_MASK;
 	vebox_mask = (media_fuse & GEN11_GT_VEBOX_DISABLE_MASK) >>
 		      GEN11_GT_VEBOX_DISABLE_SHIFT;
 
-	if (GRAPHICS_VER_FULL(i915) >= IP_VER(12, 50)) {
-		fuse1 = intel_uncore_read(uncore, HSW_PAVP_FUSE1);
+	if (MEDIA_VER_FULL(i915) >= IP_VER(12, 50)) {
+		fuse1 = intel_uncore_read(gt->uncore, HSW_PAVP_FUSE1);
 		gt->info.sfc_mask = REG_FIELD_GET(XEHP_SFC_ENABLE_MASK, fuse1);
 	} else {
 		gt->info.sfc_mask = ~0;
@@ -678,7 +705,7 @@ static intel_engine_mask_t init_engine_mask(struct intel_gt *gt)
 		}
 
 		if (!(BIT(i) & vdbox_mask)) {
-			info->engine_mask &= ~BIT(_VCS(i));
+			gt->info.engine_mask &= ~BIT(_VCS(i));
 			drm_dbg(&i915->drm, "vcs%u fused off\n", i);
 			continue;
 		}
@@ -698,15 +725,92 @@ static intel_engine_mask_t init_engine_mask(struct intel_gt *gt)
 		}
 
 		if (!(BIT(i) & vebox_mask)) {
-			info->engine_mask &= ~BIT(_VECS(i));
+			gt->info.engine_mask &= ~BIT(_VECS(i));
 			drm_dbg(&i915->drm, "vecs%u fused off\n", i);
 		}
 	}
 	drm_dbg(&i915->drm, "vebox enable: %04x, instances: %04lx\n",
 		vebox_mask, VEBOX_MASK(gt));
 	GEM_BUG_ON(vebox_mask != VEBOX_MASK(gt));
+}
 
+static void engine_mask_apply_compute_fuses(struct intel_gt *gt)
+{
+	struct drm_i915_private *i915 = gt->i915;
+	struct intel_gt_info *info = &gt->info;
+	int ss_per_ccs = info->sseu.max_subslices / I915_MAX_CCS;
+	unsigned long ccs_mask;
+	unsigned int i;
+
+	if (GRAPHICS_VER(i915) < 11)
+		return;
+
+	if (hweight32(CCS_MASK(gt)) <= 1)
+		return;
+
+	ccs_mask = intel_slicemask_from_xehp_dssmask(info->sseu.compute_subslice_mask,
+						     ss_per_ccs);
+	/*
+	 * If all DSS in a quadrant are fused off, the corresponding CCS
+	 * engine is not available for use.
+	 */
+	for_each_clear_bit(i, &ccs_mask, I915_MAX_CCS) {
+		info->engine_mask &= ~BIT(_CCS(i));
+		drm_dbg(&i915->drm, "ccs%u fused off\n", i);
+	}
+}
+
+static void engine_mask_apply_copy_fuses(struct intel_gt *gt)
+{
+	struct drm_i915_private *i915 = gt->i915;
+	struct intel_gt_info *info = &gt->info;
+	unsigned long meml3_mask;
+	unsigned long quad;
+
+	if (!(GRAPHICS_VER_FULL(i915) >= IP_VER(12, 60) &&
+	      GRAPHICS_VER_FULL(i915) < IP_VER(12, 70)))
+		return;
+
+	meml3_mask = intel_uncore_read(gt->uncore, GEN10_MIRROR_FUSE3);
+	meml3_mask = REG_FIELD_GET(GEN12_MEML3_EN_MASK, meml3_mask);
+
+	/*
+	 * Link Copy engines may be fused off according to meml3_mask. Each
+	 * bit is a quad that houses 2 Link Copy and two Sub Copy engines.
+	 */
+	for_each_clear_bit(quad, &meml3_mask, GEN12_MAX_MSLICES) {
+		unsigned int instance = quad * 2 + 1;
+		intel_engine_mask_t mask = GENMASK(_BCS(instance + 1),
+						   _BCS(instance));
+
+		if (mask & info->engine_mask) {
+			drm_dbg(&i915->drm, "bcs%u fused off\n", instance);
+			drm_dbg(&i915->drm, "bcs%u fused off\n", instance + 1);
+
+			info->engine_mask &= ~mask;
+		}
+	}
+}
+
+/*
+ * Determine which engines are fused off in our particular hardware.
+ * Note that we have a catch-22 situation where we need to be able to access
+ * the blitter forcewake domain to read the engine fuses, but at the same time
+ * we need to know which engines are available on the system to know which
+ * forcewake domains are present. We solve this by intializing the forcewake
+ * domains based on the full engine mask in the platform capabilities before
+ * calling this function and pruning the domains for fused-off engines
+ * afterwards.
+ */
+static intel_engine_mask_t init_engine_mask(struct intel_gt *gt)
+{
+	struct intel_gt_info *info = &gt->info;
+
+	GEM_BUG_ON(!info->engine_mask);
+
+	engine_mask_apply_media_fuses(gt);
 	engine_mask_apply_compute_fuses(gt);
+	engine_mask_apply_copy_fuses(gt);
 
 	return info->engine_mask;
 }
@@ -1421,20 +1525,11 @@ void intel_engine_wait_for_pending_mi_fw(struct intel_engine_cs *engine)
 		__gpm_wait_for_fw_complete(engine->gt, fw_pending);
 }
 
-static u32
-read_subslice_reg(const struct intel_engine_cs *engine,
-		  int slice, int subslice, i915_reg_t reg)
-{
-	return intel_uncore_read_with_mcr_steering(engine->uncore, reg,
-						   slice, subslice);
-}
-
 /* NB: please notice the memset */
 void intel_engine_get_instdone(const struct intel_engine_cs *engine,
 			       struct intel_instdone *instdone)
 {
 	struct drm_i915_private *i915 = engine->i915;
-	const struct sseu_dev_info *sseu = &engine->gt->info.sseu;
 	struct intel_uncore *uncore = engine->uncore;
 	u32 mmio_base = engine->mmio_base;
 	int slice;
@@ -1459,31 +1554,23 @@ void intel_engine_get_instdone(const struct intel_engine_cs *engine,
 				intel_uncore_read(uncore, GEN12_SC_INSTDONE_EXTRA2);
 		}
 
-		if (GRAPHICS_VER_FULL(i915) >= IP_VER(12, 50)) {
-			for_each_instdone_gslice_dss_xehp(i915, sseu, iter, slice, subslice) {
-				instdone->sampler[slice][subslice] =
-					read_subslice_reg(engine, slice, subslice,
-							  GEN7_SAMPLER_INSTDONE);
-				instdone->row[slice][subslice] =
-					read_subslice_reg(engine, slice, subslice,
-							  GEN7_ROW_INSTDONE);
-			}
-		} else {
-			for_each_instdone_slice_subslice(i915, sseu, slice, subslice) {
-				instdone->sampler[slice][subslice] =
-					read_subslice_reg(engine, slice, subslice,
-							  GEN7_SAMPLER_INSTDONE);
-				instdone->row[slice][subslice] =
-					read_subslice_reg(engine, slice, subslice,
-							  GEN7_ROW_INSTDONE);
-			}
+		for_each_ss_steering(iter, engine->gt, slice, subslice) {
+			instdone->sampler[slice][subslice] =
+				intel_gt_mcr_read(engine->gt,
+						  GEN7_SAMPLER_INSTDONE,
+						  slice, subslice);
+			instdone->row[slice][subslice] =
+				intel_gt_mcr_read(engine->gt,
+						  GEN7_ROW_INSTDONE,
+						  slice, subslice);
 		}
 
 		if (GRAPHICS_VER_FULL(i915) >= IP_VER(12, 55)) {
-			for_each_instdone_gslice_dss_xehp(i915, sseu, iter, slice, subslice)
+			for_each_ss_steering(iter, engine->gt, slice, subslice)
 				instdone->geom_svg[slice][subslice] =
-					read_subslice_reg(engine, slice, subslice,
-							  XEHPG_INSTDONE_GEOM_SVG);
+					intel_gt_mcr_read(engine->gt,
+							  XEHPG_INSTDONE_GEOM_SVG,
+							  slice, subslice);
 		}
 	} else if (GRAPHICS_VER(i915) >= 7) {
 		instdone->instdone =
@@ -1614,9 +1701,9 @@ bool intel_engine_irq_enable(struct intel_engine_cs *engine)
 		return false;
 
 	/* Caller disables interrupts */
-	spin_lock(&engine->gt->irq_lock);
+	spin_lock(engine->gt->irq_lock);
 	engine->irq_enable(engine);
-	spin_unlock(&engine->gt->irq_lock);
+	spin_unlock(engine->gt->irq_lock);
 
 	return true;
 }
@@ -1627,9 +1714,9 @@ void intel_engine_irq_disable(struct intel_engine_cs *engine)
 		return;
 
 	/* Caller disables interrupts */
-	spin_lock(&engine->gt->irq_lock);
+	spin_lock(engine->gt->irq_lock);
 	engine->irq_disable(engine);
-	spin_unlock(&engine->gt->irq_lock);
+	spin_unlock(engine->gt->irq_lock);
 }
 
 void intel_engines_reset_default_submission(struct intel_gt *gt)

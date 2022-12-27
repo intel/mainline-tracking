@@ -128,6 +128,7 @@ static inline const char *hxg_type_to_string(u32 type)
 #define   GUC_WA_PRE_PARSER		BIT(14)
 #define   GUC_WA_HOLD_CCS_SWITCHOUT	BIT(17)
 #define   GUC_WA_POLLCS			BIT(18)
+#define   GUC_WA_RCS_REGS_IN_CCS_REGS_LIST	BIT(21)
 
 #define GUC_CTL_FEATURE			2
 #define   GUC_CTL_ENABLE_SLPC		BIT(2)

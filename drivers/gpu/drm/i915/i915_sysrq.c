@@ -99,8 +99,8 @@ static void show_gpu_mem(struct drm_i915_private *i915, struct drm_printer *p)
 	enum intel_region_id id;
 
 	for_each_memory_region(mr, i915, id)
-		drm_printf(p, "%s: total:%pa, available:%pa bytes\n",
-			   mr->name, &mr->total, &mr->avail);
+		drm_printf(p, "%s: total:%pa bytes\n",
+			   mr->name, &mr->total);
 }
 
 static void show_gt(struct intel_gt *gt, struct drm_printer *p)
@@ -128,7 +128,7 @@ static void show_gt(struct intel_gt *gt, struct drm_printer *p)
 static void show_rpm(struct drm_i915_private *i915, struct drm_printer *p)
 {
 	drm_printf(p, "Runtime power status: %s\n",
-		   str_enabled_disabled(!i915->power_domains.init_wakeref));
+		   str_enabled_disabled(!(i915->display.power.domains.init_wakeref)));
 	drm_printf(p, "IRQs disabled: %s\n",
 		   str_yes_no(!intel_irqs_enabled(i915)));
 	print_intel_runtime_pm_wakeref(&i915->runtime_pm, p);

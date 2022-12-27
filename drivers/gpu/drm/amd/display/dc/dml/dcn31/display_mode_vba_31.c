@@ -26,6 +26,7 @@
 #include "dc.h"
 #include "dc_link.h"
 #include "../display_mode_lib.h"
+#include "../dcn30/display_mode_vba_30.h"
 #include "display_mode_vba_31.h"
 #include "../dml_inline_defs.h"
 
@@ -86,17 +87,6 @@ typedef struct {
 #define BPP_INVALID 0
 #define BPP_BLENDED_PIPE 0xffffffff
 
-static bool CalculateBytePerPixelAnd256BBlockSizes(
-		enum source_format_class SourcePixelFormat,
-		enum dm_swizzle_mode SurfaceTiling,
-		unsigned int *BytePerPixelY,
-		unsigned int *BytePerPixelC,
-		double *BytePerPixelDETY,
-		double *BytePerPixelDETC,
-		unsigned int *BlockHeight256BytesY,
-		unsigned int *BlockHeight256BytesC,
-		unsigned int *BlockWidth256BytesY,
-		unsigned int *BlockWidth256BytesC);
 static void DisplayPipeConfiguration(struct display_mode_lib *mode_lib);
 static void DISPCLKDPPCLKDCFCLKDeepSleepPrefetchParametersWatermarksAndPerformanceCalculation(struct display_mode_lib *mode_lib);
 static unsigned int dscceComputeDelay(
@@ -1117,10 +1107,10 @@ static bool CalculatePrefetchSchedule(
 		bytes_pp = myPipe->BytePerPixelY + myPipe->BytePerPixelC;
 	/*rev 99*/
 	prefetch_bw_pr = dml_min(1, bytes_pp * myPipe->PixelClock / (double) myPipe->DPPPerPlane);
-    max_Tsw = dml_max(PrefetchSourceLinesY, PrefetchSourceLinesC) * LineTime;
+	max_Tsw = dml_max(PrefetchSourceLinesY, PrefetchSourceLinesC) * LineTime;
 	prefetch_sw_bytes = PrefetchSourceLinesY * swath_width_luma_ub * myPipe->BytePerPixelY + PrefetchSourceLinesC * swath_width_chroma_ub * myPipe->BytePerPixelC;
 	prefetch_bw_oto = dml_max(bytes_pp * myPipe->PixelClock / myPipe->DPPPerPlane, prefetch_sw_bytes / (dml_max(PrefetchSourceLinesY, PrefetchSourceLinesC) * LineTime));
-    prefetch_bw_oto = dml_max(prefetch_bw_pr, prefetch_sw_bytes / max_Tsw);
+	prefetch_bw_oto = dml_max(prefetch_bw_pr, prefetch_sw_bytes / max_Tsw);
 
 	min_Lsw = dml_max(1, dml_max(PrefetchSourceLinesY, PrefetchSourceLinesC) / max_vratio_pre);
 	Lsw_oto = dml_ceil(4 * dml_max(prefetch_sw_bytes / prefetch_bw_oto / LineTime, min_Lsw), 1) / 4;
@@ -2220,7 +2210,7 @@ static void DISPCLKDPPCLKDCFCLKDeepSleepPrefetchParametersWatermarksAndPerforman
 	DTRACE("   return_bus_bw      = %f", v->ReturnBW);
 
 	for (k = 0; k < v->NumberOfActivePlanes; ++k) {
-		CalculateBytePerPixelAnd256BBlockSizes(
+		dml30_CalculateBytePerPixelAnd256BBlockSizes(
 				v->SourcePixelFormat[k],
 				v->SurfaceTiling[k],
 				&v->BytePerPixelY[k],
@@ -2996,7 +2986,7 @@ static void DISPCLKDPPCLKDCFCLKDeepSleepPrefetchParametersWatermarksAndPerforman
 				v->ImmediateFlipSupported)) ? true : false;
 #ifdef __DML_VBA_DEBUG__
 		dml_print("DML::%s: PrefetchModeSupported %d\n", __func__, v->PrefetchModeSupported);
-		dml_print("DML::%s: ImmediateFlipRequirement %d\n", __func__, v->ImmediateFlipRequirement == dm_immediate_flip_required);
+		dml_print("DML::%s: ImmediateFlipRequirement[0] %d\n", __func__, v->ImmediateFlipRequirement[0] == dm_immediate_flip_required);
 		dml_print("DML::%s: ImmediateFlipSupported %d\n", __func__, v->ImmediateFlipSupported);
 		dml_print("DML::%s: ImmediateFlipSupport %d\n", __func__, v->ImmediateFlipSupport);
 		dml_print("DML::%s: HostVMEnable %d\n", __func__, v->HostVMEnable);
@@ -3415,7 +3405,7 @@ static void DisplayPipeConfiguration(struct display_mode_lib *mode_lib)
 
 	for (k = 0; k < v->NumberOfActivePlanes; ++k) {
 
-		CalculateBytePerPixelAnd256BBlockSizes(
+		dml30_CalculateBytePerPixelAnd256BBlockSizes(
 				v->SourcePixelFormat[k],
 				v->SurfaceTiling[k],
 				&BytePerPixY[k],
@@ -3467,94 +3457,6 @@ static void DisplayPipeConfiguration(struct display_mode_lib *mode_lib)
 			v->DETBufferSizeC,
 			dummy7,
 			&dummysinglestring);
-}
-
-static bool CalculateBytePerPixelAnd256BBlockSizes(
-		enum source_format_class SourcePixelFormat,
-		enum dm_swizzle_mode SurfaceTiling,
-		unsigned int *BytePerPixelY,
-		unsigned int *BytePerPixelC,
-		double *BytePerPixelDETY,
-		double *BytePerPixelDETC,
-		unsigned int *BlockHeight256BytesY,
-		unsigned int *BlockHeight256BytesC,
-		unsigned int *BlockWidth256BytesY,
-		unsigned int *BlockWidth256BytesC)
-{
-	if (SourcePixelFormat == dm_444_64) {
-		*BytePerPixelDETY = 8;
-		*BytePerPixelDETC = 0;
-		*BytePerPixelY = 8;
-		*BytePerPixelC = 0;
-	} else if (SourcePixelFormat == dm_444_32 || SourcePixelFormat == dm_rgbe) {
-		*BytePerPixelDETY = 4;
-		*BytePerPixelDETC = 0;
-		*BytePerPixelY = 4;
-		*BytePerPixelC = 0;
-	} else if (SourcePixelFormat == dm_444_16) {
-		*BytePerPixelDETY = 2;
-		*BytePerPixelDETC = 0;
-		*BytePerPixelY = 2;
-		*BytePerPixelC = 0;
-	} else if (SourcePixelFormat == dm_444_8) {
-		*BytePerPixelDETY = 1;
-		*BytePerPixelDETC = 0;
-		*BytePerPixelY = 1;
-		*BytePerPixelC = 0;
-	} else if (SourcePixelFormat == dm_rgbe_alpha) {
-		*BytePerPixelDETY = 4;
-		*BytePerPixelDETC = 1;
-		*BytePerPixelY = 4;
-		*BytePerPixelC = 1;
-	} else if (SourcePixelFormat == dm_420_8) {
-		*BytePerPixelDETY = 1;
-		*BytePerPixelDETC = 2;
-		*BytePerPixelY = 1;
-		*BytePerPixelC = 2;
-	} else if (SourcePixelFormat == dm_420_12) {
-		*BytePerPixelDETY = 2;
-		*BytePerPixelDETC = 4;
-		*BytePerPixelY = 2;
-		*BytePerPixelC = 4;
-	} else {
-		*BytePerPixelDETY = 4.0 / 3;
-		*BytePerPixelDETC = 8.0 / 3;
-		*BytePerPixelY = 2;
-		*BytePerPixelC = 4;
-	}
-
-	if ((SourcePixelFormat == dm_444_64 || SourcePixelFormat == dm_444_32 || SourcePixelFormat == dm_444_16 || SourcePixelFormat == dm_444_8 || SourcePixelFormat == dm_mono_16
-			|| SourcePixelFormat == dm_mono_8 || SourcePixelFormat == dm_rgbe)) {
-		if (SurfaceTiling == dm_sw_linear) {
-			*BlockHeight256BytesY = 1;
-		} else if (SourcePixelFormat == dm_444_64) {
-			*BlockHeight256BytesY = 4;
-		} else if (SourcePixelFormat == dm_444_8) {
-			*BlockHeight256BytesY = 16;
-		} else {
-			*BlockHeight256BytesY = 8;
-		}
-		*BlockWidth256BytesY = 256U / *BytePerPixelY / *BlockHeight256BytesY;
-		*BlockHeight256BytesC = 0;
-		*BlockWidth256BytesC = 0;
-	} else {
-		if (SurfaceTiling == dm_sw_linear) {
-			*BlockHeight256BytesY = 1;
-			*BlockHeight256BytesC = 1;
-		} else if (SourcePixelFormat == dm_rgbe_alpha) {
-			*BlockHeight256BytesY = 8;
-			*BlockHeight256BytesC = 16;
-		} else if (SourcePixelFormat == dm_420_8) {
-			*BlockHeight256BytesY = 16;
-			*BlockHeight256BytesC = 8;
-		} else {
-			*BlockHeight256BytesY = 8;
-			*BlockHeight256BytesC = 8;
-		}
-		*BlockWidth256BytesY = 256U / *BytePerPixelY / *BlockHeight256BytesY;
-		*BlockWidth256BytesC = 256U / *BytePerPixelC / *BlockHeight256BytesC;
-	}
-	return true;
 }
 
 static double CalculateTWait(unsigned int PrefetchMode, double DRAMClockChangeLatency, double UrgentLatency, double SREnterPlusExitTime)
@@ -4066,7 +3968,7 @@ void dml31_ModeSupportAndSystemConfigurationFull(struct display_mode_lib *mode_l
 	/*Bandwidth Support Check*/
 
 	for (k = 0; k < v->NumberOfActivePlanes; k++) {
-		CalculateBytePerPixelAnd256BBlockSizes(
+		dml30_CalculateBytePerPixelAnd256BBlockSizes(
 				v->SourcePixelFormat[k],
 				v->SurfaceTiling[k],
 				&v->BytePerPixelY[k],
@@ -4310,6 +4212,7 @@ void dml31_ModeSupportAndSystemConfigurationFull(struct display_mode_lib *mode_l
 
 				if (v->ODMCombinePolicy == dm_odm_combine_policy_none
 						|| !(v->Output[k] == dm_dp ||
+						     v->Output[k] == dm_dp2p0 ||
 						     v->Output[k] == dm_edp)) {
 					v->ODMCombineEnablePerState[i][k] = dm_odm_combine_mode_disabled;
 					v->PlaneRequiredDISPCLK = v->PlaneRequiredDISPCLKWithoutODMCombine;
@@ -7030,8 +6933,6 @@ static void CalculateSwathWidth(
 		{
 		int surface_width_ub_l = dml_ceil(SurfaceWidthY[k], Read256BytesBlockWidthY[k]);
 		int surface_height_ub_l = dml_ceil(SurfaceHeightY[k], Read256BytesBlockHeightY[k]);
-		int surface_width_ub_c = dml_ceil(SurfaceWidthC[k], Read256BytesBlockWidthC[k]);
-		int surface_height_ub_c = dml_ceil(SurfaceHeightC[k], Read256BytesBlockHeightC[k]);
 
 #ifdef __DML_VBA_DEBUG__
 		dml_print("DML::%s: k=%d surface_width_ub_l=%0d\n", __func__, k, surface_width_ub_l);
@@ -7042,6 +6943,8 @@ static void CalculateSwathWidth(
 			MaximumSwathHeightC[k] = Read256BytesBlockHeightC[k];
 			swath_width_luma_ub[k] = dml_min(surface_width_ub_l, (int) dml_ceil(SwathWidthY[k] - 1, Read256BytesBlockWidthY[k]) + Read256BytesBlockWidthY[k]);
 			if (BytePerPixC[k] > 0) {
+				int surface_width_ub_c = dml_ceil(SurfaceWidthC[k], Read256BytesBlockWidthC[k]);
+
 				swath_width_chroma_ub[k] = dml_min(
 						surface_width_ub_c,
 						(int) dml_ceil(SwathWidthC[k] - 1, Read256BytesBlockWidthC[k]) + Read256BytesBlockWidthC[k]);
@@ -7053,6 +6956,8 @@ static void CalculateSwathWidth(
 			MaximumSwathHeightC[k] = Read256BytesBlockWidthC[k];
 			swath_width_luma_ub[k] = dml_min(surface_height_ub_l, (int) dml_ceil(SwathWidthY[k] - 1, Read256BytesBlockHeightY[k]) + Read256BytesBlockHeightY[k]);
 			if (BytePerPixC[k] > 0) {
+				int surface_height_ub_c = dml_ceil(SurfaceHeightC[k], Read256BytesBlockHeightC[k]);
+
 				swath_width_chroma_ub[k] = dml_min(
 						surface_height_ub_c,
 						(int) dml_ceil(SwathWidthC[k] - 1, Read256BytesBlockHeightC[k]) + Read256BytesBlockHeightC[k]);

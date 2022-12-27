@@ -8,7 +8,6 @@
 #include "dpu_hw_catalog.h"
 #include "dpu_hw_mdss.h"
 #include "dpu_hw_util.h"
-#include "dpu_hw_blk.h"
 #include "dpu_formats.h"
 
 struct dpu_hw_pipe;
@@ -360,7 +359,7 @@ struct dpu_hw_sspp_ops {
 struct dpu_hw_pipe {
 	struct dpu_hw_blk base;
 	struct dpu_hw_blk_reg_map hw;
-	struct dpu_mdss_cfg *catalog;
+	const struct dpu_mdss_cfg *catalog;
 	const struct dpu_mdp_cfg *mdp;
 
 	/* Pipe */
@@ -378,11 +377,9 @@ struct dpu_kms;
  * @idx:  Pipe index for which driver object is required
  * @addr: Mapped register io address of MDP
  * @catalog : Pointer to mdss catalog data
- * @is_virtual_pipe: is this pipe virtual pipe
  */
 struct dpu_hw_pipe *dpu_hw_sspp_init(enum dpu_sspp idx,
-		void __iomem *addr, struct dpu_mdss_cfg *catalog,
-		bool is_virtual_pipe);
+		void __iomem *addr, const struct dpu_mdss_cfg *catalog);
 
 /**
  * dpu_hw_sspp_destroy(): Destroys SSPP driver context

@@ -31,7 +31,7 @@ struct dpu_hw_dsc_ops {
 	 * @initial_lines: amount of initial lines to be used
 	 */
 	void (*dsc_config)(struct dpu_hw_dsc *hw_dsc,
-			   struct msm_display_dsc_config *dsc,
+			   struct drm_dsc_config *dsc,
 			   u32 mode,
 			   u32 initial_lines);
 
@@ -41,7 +41,7 @@ struct dpu_hw_dsc_ops {
 	 * @dsc: panel dsc parameters
 	 */
 	void (*dsc_config_thresh)(struct dpu_hw_dsc *hw_dsc,
-				  struct msm_display_dsc_config *dsc);
+				  struct drm_dsc_config *dsc);
 };
 
 struct dpu_hw_dsc {
@@ -64,7 +64,7 @@ struct dpu_hw_dsc {
  * Returns: Error code or allocated dpu_hw_dsc context
  */
 struct dpu_hw_dsc *dpu_hw_dsc_init(enum dpu_dsc idx, void __iomem *addr,
-				   struct dpu_mdss_cfg *m);
+				   const struct dpu_mdss_cfg *m);
 
 /**
  * dpu_hw_dsc_destroy - destroys dsc driver context

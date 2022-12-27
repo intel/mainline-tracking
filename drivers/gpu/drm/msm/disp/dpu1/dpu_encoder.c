@@ -162,7 +162,7 @@ enum dpu_enc_rc_states {
  * @vsync_event_work:		worker to handle vsync event for autorefresh
  * @topology:                   topology of the display
  * @idle_timeout:		idle timeout duration in milliseconds
- * @dsc:			msm_display_dsc_config pointer, for DSC-enabled encoders
+ * @dsc:			drm_dsc_config pointer, for DSC-enabled encoders
  */
 struct dpu_encoder_virt {
 	struct drm_encoder base;
@@ -208,7 +208,7 @@ struct dpu_encoder_virt {
 	bool wide_bus_en;
 
 	/* DSC configuration */
-	struct msm_display_dsc_config *dsc;
+	struct drm_dsc_config *dsc;
 };
 
 #define to_dpu_encoder_virt(x) container_of(x, struct dpu_encoder_virt, base)
@@ -223,6 +223,70 @@ bool dpu_encoder_is_widebus_enabled(const struct drm_encoder *drm_enc)
 	const struct dpu_encoder_virt *dpu_enc = to_dpu_encoder_virt(drm_enc);
 
 	return dpu_enc->wide_bus_en;
+}
+
+int dpu_encoder_get_crc_values_cnt(const struct drm_encoder *drm_enc)
+{
+	struct dpu_encoder_virt *dpu_enc;
+	int i, num_intf = 0;
+
+	dpu_enc = to_dpu_encoder_virt(drm_enc);
+
+	for (i = 0; i < dpu_enc->num_phys_encs; i++) {
+		struct dpu_encoder_phys *phys = dpu_enc->phys_encs[i];
+
+		if (phys->hw_intf && phys->hw_intf->ops.setup_misr
+				&& phys->hw_intf->ops.collect_misr)
+			num_intf++;
+	}
+
+	return num_intf;
+}
+
+void dpu_encoder_setup_misr(const struct drm_encoder *drm_enc)
+{
+	struct dpu_encoder_virt *dpu_enc;
+
+	int i;
+
+	dpu_enc = to_dpu_encoder_virt(drm_enc);
+
+	for (i = 0; i < dpu_enc->num_phys_encs; i++) {
+		struct dpu_encoder_phys *phys = dpu_enc->phys_encs[i];
+
+		if (!phys->hw_intf || !phys->hw_intf->ops.setup_misr)
+			continue;
+
+		phys->hw_intf->ops.setup_misr(phys->hw_intf, true, 1);
+	}
+}
+
+int dpu_encoder_get_crc(const struct drm_encoder *drm_enc, u32 *crcs, int pos)
+{
+	struct dpu_encoder_virt *dpu_enc;
+
+	int i, rc = 0, entries_added = 0;
+
+	if (!drm_enc->crtc) {
+		DRM_ERROR("no crtc found for encoder %d\n", drm_enc->index);
+		return -EINVAL;
+	}
+
+	dpu_enc = to_dpu_encoder_virt(drm_enc);
+
+	for (i = 0; i < dpu_enc->num_phys_encs; i++) {
+		struct dpu_encoder_phys *phys = dpu_enc->phys_encs[i];
+
+		if (!phys->hw_intf || !phys->hw_intf->ops.collect_misr)
+			continue;
+
+		rc = phys->hw_intf->ops.collect_misr(phys->hw_intf, &crcs[pos + entries_added]);
+		if (rc)
+			return rc;
+		entries_added++;
+	}
+
+	return entries_added;
 }
 
 static void _dpu_encoder_setup_dither(struct dpu_hw_pingpong *hw_pp, unsigned bpc)
@@ -634,7 +698,7 @@ static void _dpu_encoder_update_vsync_source(struct dpu_encoder_virt *dpu_enc,
 	}
 
 	if (hw_mdptop->ops.setup_vsync_source &&
-			disp_info->capabilities & MSM_DISPLAY_CAP_CMD_MODE) {
+			disp_info->is_cmd_mode) {
 		for (i = 0; i < dpu_enc->num_phys_encs; i++)
 			vsync_cfg.ppnumber[i] = dpu_enc->hw_pp[i]->idx;
 
@@ -718,8 +782,7 @@ static int dpu_encoder_resource_control(struct drm_encoder *drm_enc,
 	}
 	dpu_enc = to_dpu_encoder_virt(drm_enc);
 	priv = drm_enc->dev->dev_private;
-	is_vid_mode = dpu_enc->disp_info.capabilities &
-						MSM_DISPLAY_CAP_VID_MODE;
+	is_vid_mode = !dpu_enc->disp_info.is_cmd_mode;
 
 	/*
 	 * when idle_pc is not supported, process only KICKOFF, STOP and MODESET
@@ -1048,24 +1111,6 @@ static void dpu_encoder_virt_atomic_mode_set(struct drm_encoder *drm_enc,
 		phys->hw_pp = dpu_enc->hw_pp[i];
 		phys->hw_ctl = to_dpu_hw_ctl(hw_ctl[i]);
 
-		if (phys->intf_idx >= INTF_0 && phys->intf_idx < INTF_MAX)
-			phys->hw_intf = dpu_rm_get_intf(&dpu_kms->rm, phys->intf_idx);
-
-		if (phys->wb_idx >= WB_0 && phys->wb_idx < WB_MAX)
-			phys->hw_wb = dpu_rm_get_wb(&dpu_kms->rm, phys->wb_idx);
-
-		if (!phys->hw_intf && !phys->hw_wb) {
-			DPU_ERROR_ENC(dpu_enc,
-				      "no intf or wb block assigned at idx: %d\n", i);
-			return;
-		}
-
-		if (phys->hw_intf && phys->hw_wb) {
-			DPU_ERROR_ENC(dpu_enc,
-					"invalid phys both intf and wb block at idx: %d\n", i);
-			return;
-		}
-
 		phys->cached_mode = crtc_state->adjusted_mode;
 		if (phys->ops.atomic_mode_set)
 			phys->ops.atomic_mode_set(phys, crtc_state, conn_state);
@@ -1205,37 +1250,37 @@ static void dpu_encoder_virt_disable(struct drm_encoder *drm_enc)
 	mutex_unlock(&dpu_enc->enc_lock);
 }
 
-static enum dpu_intf dpu_encoder_get_intf(struct dpu_mdss_cfg *catalog,
+static enum dpu_intf dpu_encoder_get_intf(const struct dpu_mdss_cfg *catalog,
 		enum dpu_intf_type type, u32 controller_id)
 {
 	int i = 0;
 
-	if (type != INTF_WB) {
-		for (i = 0; i < catalog->intf_count; i++) {
-			if (catalog->intf[i].type == type
-				&& catalog->intf[i].controller_id == controller_id) {
-				return catalog->intf[i].id;
-			}
+	if (type == INTF_WB)
+		return INTF_MAX;
+
+	for (i = 0; i < catalog->intf_count; i++) {
+		if (catalog->intf[i].type == type
+		    && catalog->intf[i].controller_id == controller_id) {
+			return catalog->intf[i].id;
 		}
 	}
 
 	return INTF_MAX;
 }
 
-static enum dpu_wb dpu_encoder_get_wb(struct dpu_mdss_cfg *catalog,
+static enum dpu_wb dpu_encoder_get_wb(const struct dpu_mdss_cfg *catalog,
 		enum dpu_intf_type type, u32 controller_id)
 {
 	int i = 0;
 
 	if (type != INTF_WB)
-		goto end;
+		return WB_MAX;
 
 	for (i = 0; i < catalog->wb_count; i++) {
 		if (catalog->wb[i].id == controller_id)
 			return catalog->wb[i].id;
 	}
 
-end:
 	return WB_MAX;
 }
 
@@ -1603,7 +1648,7 @@ void dpu_encoder_trigger_kickoff_pending(struct drm_encoder *drm_enc)
 
 		/* update only for command mode primary ctl */
 		if ((phys == dpu_enc->cur_master) &&
-		   (disp_info->capabilities & MSM_DISPLAY_CAP_CMD_MODE)
+		    disp_info->is_cmd_mode
 		    && ctl->ops.trigger_pending)
 			ctl->ops.trigger_pending(ctl);
 	}
@@ -1746,12 +1791,12 @@ static void dpu_encoder_vsync_event_work_handler(struct kthread_work *work)
 }
 
 static u32
-dpu_encoder_dsc_initial_line_calc(struct msm_display_dsc_config *dsc,
+dpu_encoder_dsc_initial_line_calc(struct drm_dsc_config *dsc,
 				  u32 enc_ip_width)
 {
 	int ssm_delay, total_pixels, soft_slice_per_enc;
 
-	soft_slice_per_enc = enc_ip_width / dsc->drm->slice_width;
+	soft_slice_per_enc = enc_ip_width / dsc->slice_width;
 
 	/*
 	 * minimum number of initial line pixels is a sum of:
@@ -1763,16 +1808,16 @@ dpu_encoder_dsc_initial_line_calc(struct msm_display_dsc_config *dsc,
 	 * 5. 6 additional pixels as the output of the rate buffer is
 	 *    48 bits wide
 	 */
-	ssm_delay = ((dsc->drm->bits_per_component < 10) ? 84 : 92);
-	total_pixels = ssm_delay * 3 + dsc->drm->initial_xmit_delay + 47;
+	ssm_delay = ((dsc->bits_per_component < 10) ? 84 : 92);
+	total_pixels = ssm_delay * 3 + dsc->initial_xmit_delay + 47;
 	if (soft_slice_per_enc > 1)
 		total_pixels += (ssm_delay * 3);
-	return DIV_ROUND_UP(total_pixels, dsc->drm->slice_width);
+	return DIV_ROUND_UP(total_pixels, dsc->slice_width);
 }
 
 static void dpu_encoder_dsc_pipe_cfg(struct dpu_hw_dsc *hw_dsc,
 				     struct dpu_hw_pingpong *hw_pp,
-				     struct msm_display_dsc_config *dsc,
+				     struct drm_dsc_config *dsc,
 				     u32 common_mode,
 				     u32 initial_lines)
 {
@@ -1790,7 +1835,7 @@ static void dpu_encoder_dsc_pipe_cfg(struct dpu_hw_dsc *hw_dsc,
 }
 
 static void dpu_encoder_prep_dsc(struct dpu_encoder_virt *dpu_enc,
-				 struct msm_display_dsc_config *dsc)
+				 struct drm_dsc_config *dsc)
 {
 	/* coding only for 2LM, 2enc, 1 dsc config */
 	struct dpu_encoder_phys *enc_master = dpu_enc->cur_master;
@@ -1813,14 +1858,15 @@ static void dpu_encoder_prep_dsc(struct dpu_encoder_virt *dpu_enc,
 		}
 	}
 
-	pic_width = dsc->drm->pic_width;
+	dsc_common_mode = 0;
+	pic_width = dsc->pic_width;
 
 	dsc_common_mode = DSC_MODE_MULTIPLEX | DSC_MODE_SPLIT_PANEL;
 	if (enc_master->intf_mode == INTF_MODE_VIDEO)
 		dsc_common_mode |= DSC_MODE_VIDEO;
 
-	this_frame_slices = pic_width / dsc->drm->slice_width;
-	intf_ip_w = this_frame_slices * dsc->drm->slice_width;
+	this_frame_slices = pic_width / dsc->slice_width;
+	intf_ip_w = this_frame_slices * dsc->slice_width;
 
 	/*
 	 * dsc merge case: when using 2 encoders for the same stream,
@@ -1935,7 +1981,6 @@ static void dpu_encoder_helper_reset_mixers(struct dpu_encoder_phys *phys_enc)
 {
 	struct dpu_hw_mixer_cfg mixer;
 	int i, num_lm;
-	u32 flush_mask = 0;
 	struct dpu_global_state *global_state;
 	struct dpu_hw_blk *hw_lm[2];
 	struct dpu_hw_mixer *hw_mixer[2];
@@ -1954,9 +1999,8 @@ static void dpu_encoder_helper_reset_mixers(struct dpu_encoder_phys *phys_enc)
 
 	for (i = 0; i < num_lm; i++) {
 		hw_mixer[i] = to_dpu_hw_mixer(hw_lm[i]);
-		flush_mask = phys_enc->hw_ctl->ops.get_bitmask_mixer(ctl, hw_mixer[i]->idx);
-		if (phys_enc->hw_ctl->ops.update_pending_flush)
-			phys_enc->hw_ctl->ops.update_pending_flush(ctl, flush_mask);
+		if (phys_enc->hw_ctl->ops.update_pending_flush_mixer)
+			phys_enc->hw_ctl->ops.update_pending_flush_mixer(ctl, hw_mixer[i]->idx);
 
 		/* clear all blendstages */
 		if (phys_enc->hw_ctl->ops.setup_blendstage)
@@ -2016,6 +2060,12 @@ void dpu_encoder_helper_phys_cleanup(struct dpu_encoder_phys *phys_enc)
 
 	intf_cfg.stream_sel = 0; /* Don't care value for video mode */
 	intf_cfg.mode_3d = dpu_encoder_helper_get_3d_blend_mode(phys_enc);
+
+	if (phys_enc->hw_intf)
+		intf_cfg.intf = phys_enc->hw_intf->idx;
+	if (phys_enc->hw_wb)
+		intf_cfg.wb = phys_enc->hw_wb->idx;
+
 	if (phys_enc->hw_pp->merge_3d)
 		intf_cfg.merge_3d = phys_enc->hw_pp->merge_3d->idx;
 
@@ -2139,39 +2189,36 @@ static int dpu_encoder_virt_add_phys_encs(
 		return -EINVAL;
 	}
 
-	if (disp_info->capabilities & MSM_DISPLAY_CAP_VID_MODE) {
-		enc = dpu_encoder_phys_vid_init(params);
-
-		if (IS_ERR_OR_NULL(enc)) {
-			DPU_ERROR_ENC(dpu_enc, "failed to init vid enc: %ld\n",
-				PTR_ERR(enc));
-			return enc == NULL ? -EINVAL : PTR_ERR(enc);
-		}
-
-		dpu_enc->phys_encs[dpu_enc->num_phys_encs] = enc;
-		++dpu_enc->num_phys_encs;
-	}
-
-	if (disp_info->capabilities & MSM_DISPLAY_CAP_CMD_MODE) {
-		enc = dpu_encoder_phys_cmd_init(params);
-
-		if (IS_ERR_OR_NULL(enc)) {
-			DPU_ERROR_ENC(dpu_enc, "failed to init cmd enc: %ld\n",
-				PTR_ERR(enc));
-			return enc == NULL ? -EINVAL : PTR_ERR(enc);
-		}
-
-		dpu_enc->phys_encs[dpu_enc->num_phys_encs] = enc;
-		++dpu_enc->num_phys_encs;
-	}
 
 	if (disp_info->intf_type == DRM_MODE_ENCODER_VIRTUAL) {
 		enc = dpu_encoder_phys_wb_init(params);
 
-		if (IS_ERR_OR_NULL(enc)) {
+		if (IS_ERR(enc)) {
 			DPU_ERROR_ENC(dpu_enc, "failed to init wb enc: %ld\n",
-					PTR_ERR(enc));
-			return enc == NULL ? -EINVAL : PTR_ERR(enc);
+				PTR_ERR(enc));
+			return PTR_ERR(enc);
+		}
+
+		dpu_enc->phys_encs[dpu_enc->num_phys_encs] = enc;
+		++dpu_enc->num_phys_encs;
+	} else if (disp_info->is_cmd_mode) {
+		enc = dpu_encoder_phys_cmd_init(params);
+
+		if (IS_ERR(enc)) {
+			DPU_ERROR_ENC(dpu_enc, "failed to init cmd enc: %ld\n",
+				PTR_ERR(enc));
+			return PTR_ERR(enc);
+		}
+
+		dpu_enc->phys_encs[dpu_enc->num_phys_encs] = enc;
+		++dpu_enc->num_phys_encs;
+	} else {
+		enc = dpu_encoder_phys_vid_init(params);
+
+		if (IS_ERR(enc)) {
+			DPU_ERROR_ENC(dpu_enc, "failed to init vid enc: %ld\n",
+				PTR_ERR(enc));
+			return PTR_ERR(enc);
 		}
 
 		dpu_enc->phys_encs[dpu_enc->num_phys_encs] = enc;
@@ -2230,8 +2277,7 @@ static int dpu_encoder_setup_display(struct dpu_encoder_virt *dpu_enc,
 
 	DPU_DEBUG("dsi_info->num_of_h_tiles %d\n", disp_info->num_of_h_tiles);
 
-	if ((disp_info->capabilities & MSM_DISPLAY_CAP_CMD_MODE) ||
-	    (disp_info->capabilities & MSM_DISPLAY_CAP_VID_MODE))
+	if (disp_info->intf_type != DRM_MODE_ENCODER_VIRTUAL)
 		dpu_enc->idle_pc_supported =
 				dpu_kms->catalog->caps->has_idle_pc;
 
@@ -2294,7 +2340,25 @@ static int dpu_encoder_setup_display(struct dpu_encoder_virt *dpu_enc,
 		struct dpu_encoder_phys *phys = dpu_enc->phys_encs[i];
 		atomic_set(&phys->vsync_cnt, 0);
 		atomic_set(&phys->underrun_cnt, 0);
+
+		if (phys->intf_idx >= INTF_0 && phys->intf_idx < INTF_MAX)
+			phys->hw_intf = dpu_rm_get_intf(&dpu_kms->rm, phys->intf_idx);
+
+		if (phys->wb_idx >= WB_0 && phys->wb_idx < WB_MAX)
+			phys->hw_wb = dpu_rm_get_wb(&dpu_kms->rm, phys->wb_idx);
+
+		if (!phys->hw_intf && !phys->hw_wb) {
+			DPU_ERROR_ENC(dpu_enc, "no intf or wb block assigned at idx: %d\n", i);
+			ret = -EINVAL;
+		}
+
+		if (phys->hw_intf && phys->hw_wb) {
+			DPU_ERROR_ENC(dpu_enc,
+					"invalid phys both intf and wb block at idx: %d\n", i);
+			ret = -EINVAL;
+		}
 	}
+
 	mutex_unlock(&dpu_enc->enc_lock);
 
 	return ret;

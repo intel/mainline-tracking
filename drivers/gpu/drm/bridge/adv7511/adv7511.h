@@ -226,18 +226,6 @@
 #define ADV7511_REG_CEC_CLK_DIV		0x4e
 #define ADV7511_REG_CEC_SOFT_RESET	0x50
 
-static const u8 ADV7511_REG_CEC_RX_FRAME_HDR[] = {
-	ADV7511_REG_CEC_RX1_FRAME_HDR,
-	ADV7511_REG_CEC_RX2_FRAME_HDR,
-	ADV7511_REG_CEC_RX3_FRAME_HDR,
-};
-
-static const u8 ADV7511_REG_CEC_RX_FRAME_LEN[] = {
-	ADV7511_REG_CEC_RX1_FRAME_LEN,
-	ADV7511_REG_CEC_RX2_FRAME_LEN,
-	ADV7511_REG_CEC_RX3_FRAME_LEN,
-};
-
 #define ADV7533_REG_CEC_OFFSET		0x70
 
 enum adv7511_input_clock {
@@ -406,10 +394,7 @@ void adv7511_cec_irq_process(struct adv7511 *adv7511, unsigned int irq1);
 #else
 static inline int adv7511_cec_init(struct device *dev, struct adv7511 *adv7511)
 {
-	unsigned int offset = adv7511->type == ADV7533 ?
-						ADV7533_REG_CEC_OFFSET : 0;
-
-	regmap_write(adv7511->regmap, ADV7511_REG_CEC_CTRL + offset,
+	regmap_write(adv7511->regmap, ADV7511_REG_CEC_CTRL,
 		     ADV7511_CEC_CTRL_POWER_DOWN);
 	return 0;
 }

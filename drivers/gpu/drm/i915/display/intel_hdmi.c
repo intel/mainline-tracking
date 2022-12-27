@@ -50,6 +50,7 @@
 #include "intel_dp.h"
 #include "intel_gmbus.h"
 #include "intel_hdcp.h"
+#include "intel_hdcp_regs.h"
 #include "intel_hdmi.h"
 #include "intel_lspcon.h"
 #include "intel_panel.h"
@@ -1891,7 +1892,7 @@ int intel_hdmi_tmds_clock(int clock, int bpc, bool ycbcr420_output)
 	 *  1.5x for 12bpc
 	 *  1.25x for 10bpc
 	 */
-	return clock * bpc / 8;
+	return DIV_ROUND_CLOSEST(clock * bpc, 8);
 }
 
 static bool intel_hdmi_source_bpc_possible(struct drm_i915_private *i915, int bpc)
@@ -2000,6 +2001,15 @@ intel_hdmi_mode_valid(struct drm_connector *connector,
 			return MODE_CLOCK_LOW;
 		clock *= 2;
 	}
+
+	/*
+	 * HDMI2.1 requires higher resolution modes like 8k60, 4K120 to be
+	 * enumerated only if FRL is supported. Current platforms do not support
+	 * FRL so prune the higher resolution modes that require doctclock more
+	 * than 600MHz.
+	 */
+	if (clock > 600000)
+		return MODE_CLOCK_HIGH;
 
 	ycbcr_420_only = drm_mode_is_420_only(&connector->display_info, mode);
 
@@ -2852,7 +2862,7 @@ static u8 intel_hdmi_ddc_pin(struct intel_encoder *encoder)
 		ddc_pin = rkl_port_to_ddc_pin(dev_priv, port);
 	else if (DISPLAY_VER(dev_priv) == 9 && HAS_PCH_TGP(dev_priv))
 		ddc_pin = gen9bc_tgp_port_to_ddc_pin(dev_priv, port);
-	else if (HAS_PCH_MCC(dev_priv))
+	else if (IS_JSL_EHL(dev_priv) && HAS_PCH_TGP(dev_priv))
 		ddc_pin = mcc_port_to_ddc_pin(dev_priv, port);
 	else if (INTEL_PCH_TYPE(dev_priv) >= PCH_ICP)
 		ddc_pin = icl_port_to_ddc_pin(dev_priv, port);

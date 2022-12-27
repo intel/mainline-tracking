@@ -1040,7 +1040,6 @@ static int kfd_parse_subtype_iolink(struct crat_subtype_iolink *iolink,
 			props->rec_transfer_size =
 					iolink->recommended_transfer_size;
 
-			dev->io_link_count++;
 			dev->node_props.io_links_count++;
 			list_add_tail(&props->list, &dev->io_link_props);
 			break;
@@ -1067,7 +1066,6 @@ static int kfd_parse_subtype_iolink(struct crat_subtype_iolink *iolink,
 		props2->node_from = id_to;
 		props2->node_to = id_from;
 		props2->kobj = NULL;
-		to_dev->io_link_count++;
 		to_dev->node_props.io_links_count++;
 		list_add_tail(&props2->list, &to_dev->io_link_props);
 	}
@@ -1524,6 +1522,7 @@ static int kfd_fill_gpu_cache_info(struct kfd_dev *kdev,
 		case IP_VERSION(11, 0, 0):
 		case IP_VERSION(11, 0, 1):
 		case IP_VERSION(11, 0, 2):
+		case IP_VERSION(11, 0, 3):
 			pcache_info = cache_info;
 			num_of_cache_types =
 				kfd_fill_gpu_cache_info_from_gfx_config(kdev, pcache_info);
@@ -2285,7 +2284,7 @@ static int kfd_create_vcrat_image_gpu(void *pcrat_image,
 
 	/* Fill in Subtype: IO_LINKS
 	 *  Only direct links are added here which is Link from GPU to
-	 *  to its NUMA node. Indirect links are added by userspace.
+	 *  its NUMA node. Indirect links are added by userspace.
 	 */
 	sub_type_hdr = (typeof(sub_type_hdr))((char *)sub_type_hdr +
 		cache_mem_filled);

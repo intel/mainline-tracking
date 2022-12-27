@@ -165,10 +165,12 @@ static u32 preparser_disable(bool state)
 	return MI_ARB_CHECK | 1 << 8 | state;
 }
 
-u32 *gen12_emit_aux_table_inv(u32 *cs, const i915_reg_t inv_reg)
+u32 *gen12_emit_aux_table_inv(struct intel_gt *gt, u32 *cs, const i915_reg_t inv_reg)
 {
+	u32 gsi_offset = gt->uncore->gsi_offset;
+
 	*cs++ = MI_LOAD_REGISTER_IMM(1) | MI_LRI_MMIO_REMAP_EN;
-	*cs++ = i915_mmio_reg_offset(inv_reg);
+	*cs++ = i915_mmio_reg_offset(inv_reg) + gsi_offset;
 	*cs++ = AUX_INV;
 	*cs++ = MI_NOOP;
 
@@ -197,8 +199,10 @@ int gen12_emit_flush_rcs(struct i915_request *rq, u32 mode)
 
 		flags |= PIPE_CONTROL_CS_STALL;
 
-		if (engine->class == COMPUTE_CLASS)
-			flags &= ~PIPE_CONTROL_3D_FLAGS;
+		if (!HAS_3D_PIPELINE(engine->i915))
+			flags &= ~PIPE_CONTROL_3D_ARCH_FLAGS;
+		else if (engine->class == COMPUTE_CLASS)
+			flags &= ~PIPE_CONTROL_3D_ENGINE_FLAGS;
 
 		cs = intel_ring_begin(rq, 6);
 		if (IS_ERR(cs))
@@ -227,8 +231,10 @@ int gen12_emit_flush_rcs(struct i915_request *rq, u32 mode)
 
 		flags |= PIPE_CONTROL_CS_STALL;
 
-		if (engine->class == COMPUTE_CLASS)
-			flags &= ~PIPE_CONTROL_3D_FLAGS;
+		if (!HAS_3D_PIPELINE(engine->i915))
+			flags &= ~PIPE_CONTROL_3D_ARCH_FLAGS;
+		else if (engine->class == COMPUTE_CLASS)
+			flags &= ~PIPE_CONTROL_3D_ENGINE_FLAGS;
 
 		if (!HAS_FLAT_CCS(rq->engine->i915))
 			count = 8 + 4;
@@ -250,7 +256,8 @@ int gen12_emit_flush_rcs(struct i915_request *rq, u32 mode)
 
 		if (!HAS_FLAT_CCS(rq->engine->i915)) {
 			/* hsdes: 1809175790 */
-			cs = gen12_emit_aux_table_inv(cs, GEN12_GFX_CCS_AUX_NV);
+			cs = gen12_emit_aux_table_inv(rq->engine->gt,
+						      cs, GEN12_GFX_CCS_AUX_NV);
 		}
 
 		*cs++ = preparser_disable(false);
@@ -272,7 +279,8 @@ int gen12_emit_flush_xcs(struct i915_request *rq, u32 mode)
 		if (!HAS_FLAT_CCS(rq->engine->i915) &&
 		    (rq->engine->class == VIDEO_DECODE_CLASS ||
 		     rq->engine->class == VIDEO_ENHANCEMENT_CLASS)) {
-			aux_inv = rq->engine->mask & ~BIT(BCS0);
+			aux_inv = rq->engine->mask &
+				~GENMASK(_BCS(I915_MAX_BCS - 1), BCS0);
 			if (aux_inv)
 				cmd += 4;
 		}
@@ -308,9 +316,11 @@ int gen12_emit_flush_xcs(struct i915_request *rq, u32 mode)
 
 	if (aux_inv) { /* hsdes: 1809175790 */
 		if (rq->engine->class == VIDEO_DECODE_CLASS)
-			cs = gen12_emit_aux_table_inv(cs, GEN12_VD0_AUX_NV);
+			cs = gen12_emit_aux_table_inv(rq->engine->gt,
+						      cs, GEN12_VD0_AUX_NV);
 		else
-			cs = gen12_emit_aux_table_inv(cs, GEN12_VE0_AUX_NV);
+			cs = gen12_emit_aux_table_inv(rq->engine->gt,
+						      cs, GEN12_VE0_AUX_NV);
 	}
 
 	if (mode & EMIT_INVALIDATE)
@@ -716,8 +726,10 @@ u32 *gen12_emit_fini_breadcrumb_rcs(struct i915_request *rq, u32 *cs)
 		/* Wa_1409600907 */
 		flags |= PIPE_CONTROL_DEPTH_STALL;
 
-	if (rq->engine->class == COMPUTE_CLASS)
-		flags &= ~PIPE_CONTROL_3D_FLAGS;
+	if (!HAS_3D_PIPELINE(rq->engine->i915))
+		flags &= ~PIPE_CONTROL_3D_ARCH_FLAGS;
+	else if (rq->engine->class == COMPUTE_CLASS)
+		flags &= ~PIPE_CONTROL_3D_ENGINE_FLAGS;
 
 	cs = gen12_emit_ggtt_write_rcs(cs,
 				       rq->fence.seqno,

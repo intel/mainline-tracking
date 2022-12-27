@@ -62,6 +62,21 @@ enum mei_dev_state {
 	MEI_DEV_POWER_UP
 };
 
+/**
+ * enum mei_dev_pxp_mode - MEI PXP mode state
+ *
+ * @MEI_DEV_PXP_DEFAULT: PCH based device, no initailization required
+ * @MEI_DEV_PXP_INIT:    device requires initialization, send setup message to firmware
+ * @MEI_DEV_PXP_SETUP:   device is in setup stage, waiting for firmware repsonse
+ * @MEI_DEV_PXP_READY:   device initialized
+ */
+enum mei_dev_pxp_mode {
+	MEI_DEV_PXP_DEFAULT = 0,
+	MEI_DEV_PXP_INIT    = 1,
+	MEI_DEV_PXP_SETUP   = 2,
+	MEI_DEV_PXP_READY   = 3,
+};
+
 const char *mei_dev_state_str(int state);
 
 enum mei_file_transaction_states {
@@ -101,12 +116,16 @@ enum mei_cb_file_ops {
  * @MEI_CL_IO_TX_INTERNAL: internal communication between driver and FW
  *
  * @MEI_CL_IO_RX_NONBLOCK: recv is non-blocking
+ *
+ * @MEI_CL_IO_SGL: send command with sgl list.
  */
 enum mei_cl_io_mode {
 	MEI_CL_IO_TX_BLOCKING = BIT(0),
 	MEI_CL_IO_TX_INTERNAL = BIT(1),
 
 	MEI_CL_IO_RX_NONBLOCK = BIT(2),
+
+	MEI_CL_IO_SGL         = BIT(3),
 };
 
 /*
@@ -191,6 +210,7 @@ struct mei_cl;
  * @status: io status of the cb
  * @internal: communication between driver and FW flag
  * @blocking: transmission blocking mode
+ * @ext_hdr: extended header
  */
 struct mei_cl_cb {
 	struct list_head list;
@@ -203,6 +223,7 @@ struct mei_cl_cb {
 	int status;
 	u32 internal:1;
 	u32 blocking:1;
+	struct mei_ext_hdr *ext_hdr;
 };
 
 /**
@@ -443,6 +464,7 @@ struct mei_fw_version {
  * @reset_count : number of consecutive resets
  * @dev_state   : device state
  * @hbm_state   : state of host bus message protocol
+ * @pxp_mode    : PXP device mode
  * @init_clients_timer : HBM init handshake timeout
  *
  * @pg_event    : power gating event
@@ -467,6 +489,7 @@ struct mei_fw_version {
  * @hbm_f_vt_supported  : hbm feature vtag supported
  * @hbm_f_cap_supported : hbm feature capabilities message supported
  * @hbm_f_cd_supported  : hbm feature client dma supported
+ * @hbm_f_gsc_supported : hbm feature gsc supported
  *
  * @fw_ver : FW versions
  *
@@ -524,6 +547,7 @@ struct mei_device {
 	unsigned long reset_count;
 	enum mei_dev_state dev_state;
 	enum mei_hbm_state hbm_state;
+	enum mei_dev_pxp_mode pxp_mode;
 	u16 init_clients_timer;
 
 	/*
@@ -555,6 +579,7 @@ struct mei_device {
 	unsigned int hbm_f_vt_supported:1;
 	unsigned int hbm_f_cap_supported:1;
 	unsigned int hbm_f_cd_supported:1;
+	unsigned int hbm_f_gsc_supported:1;
 
 	struct mei_fw_version fw_ver[MEI_MAX_FW_VER_BLOCKS];
 
