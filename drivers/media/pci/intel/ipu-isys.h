@@ -194,6 +194,9 @@ struct ipu_isys {
 	spinlock_t listlock;	/* Protect framebuflist */
 	struct list_head framebuflist;
 	struct list_head framebuflist_fw;
+#if !IS_ENABLED(CONFIG_VIDEO_INTEL_IPU_USE_PLATFORMDATA)
+	struct v4l2_async_notifier notifier;
+#endif
 	struct isys_iwake_watermark *iwake_watermark;
 
 	struct mutex reset_mutex;
