@@ -10,7 +10,7 @@ config INTEL_IPU6_ADLRVP_PDATA
 	help
 	Pre-ACPI system platform data is compiled inside kernel
 config INTEL_IPU6_ACPI
-	bool "Enable IPU ACPI driver"
+	tristate "Enable IPU ACPI driver"
 	depends on VIDEO_INTEL_IPU6
 	depends on I2C
 	depends on ACPI
