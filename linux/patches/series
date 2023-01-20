@@ -148,3 +148,24 @@
 0002-KVM-x86-nSVM-leave-nested-mode-on-vCPU-free.patch
 0003-KVM-x86-nSVM-harden-svm_free_nested-against-freeing-.patch
 0004-KVM-x86-forcibly-leave-nested-mode-on-vCPU-reset.patch
+
+# CVE-2022-47943
+0001-ksmbd-prevent-out-of-bound-read-for-SMB2_WRITE.patch
+
+# CVE-2022-47942
+0001-ksmbd-fix-heap-based-overflow-in-set_ntacl_dacl.patch
+
+# CVE-2022-47941
+0001-ksmbd-fix-memory-leak-in-smb2_handle_negotiate.patch
+
+# CVE-2022-47939
+0001-ksmbd-fix-use-after-free-bug-in-smb2_tree_disconect.patch
+
+# CVE-2022-3977
+0001-mctp-prevent-double-key-removal-and-unref.patch
+
+# CVE-2022-3628
+0001-wifi-brcmfmac-Fix-potential-buffer-overflow-in-brcmf.patch
+
+# CVE-2022-47938
+0001-ksmbd-prevent-out-of-bound-read-for-SMB2_TREE_CONNNE.patch
