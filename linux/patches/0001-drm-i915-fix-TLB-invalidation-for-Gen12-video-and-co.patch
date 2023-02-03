@@ -1,0 +1,40 @@
+From 660a57a0bb45b75bc7a09b228ae40f11f1e427b5 Mon Sep 17 00:00:00 2001
+From: Andrzej Hajda <andrzej.hajda@intel.com>
+Date: Mon, 14 Nov 2022 11:38:24 +0100
+Subject: [PATCH] drm/i915: fix TLB invalidation for Gen12 video and compute
+ engines
+
+In case of Gen12 video and compute engines, TLB_INV registers are masked -
+to modify one bit, corresponding bit in upper half of the register must
+be enabled, otherwise nothing happens.
+
+CVE: CVE-2022-4139
+Suggested-by: Chris Wilson <chris.p.wilson@intel.com>
+Signed-off-by: Andrzej Hajda <andrzej.hajda@intel.com>
+Acked-by: Daniel Vetter <daniel.vetter@ffwll.ch>
+Fixes: 7938d61591d3 ("drm/i915: Flush TLBs before releasing backing store")
+Cc: stable@vger.kernel.org
+Signed-off-by: Linus Torvalds <torvalds@linux-foundation.org>
+---
+ drivers/gpu/drm/i915/gt/intel_gt.c | 5 +++++
+ 1 file changed, 5 insertions(+)
+
+diff --git a/drivers/gpu/drm/i915/gt/intel_gt.c b/drivers/gpu/drm/i915/gt/intel_gt.c
+index 3a8b33f8bd79..256745f04257 100644
+--- a/drivers/gpu/drm/i915/gt/intel_gt.c
++++ b/drivers/gpu/drm/i915/gt/intel_gt.c
+@@ -1053,6 +1053,11 @@ static void mmio_invalidate_full(struct intel_gt *gt)
+ 		if (!i915_mmio_reg_offset(rb.reg))
+ 			continue;
+ 
++		if (GRAPHICS_VER(i915) == 12 && (engine->class == VIDEO_DECODE_CLASS ||
++		    engine->class == VIDEO_ENHANCEMENT_CLASS ||
++		    engine->class == COMPUTE_CLASS))
++			rb.bit = _MASKED_BIT_ENABLE(rb.bit);
++
+ 		intel_uncore_write_fw(uncore, rb.reg, rb.bit);
+ 		awake |= engine->mask;
+ 	}
+-- 
+2.25.1
+
