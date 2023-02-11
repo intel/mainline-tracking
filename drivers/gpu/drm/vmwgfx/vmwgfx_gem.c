@@ -160,7 +160,7 @@ int vmw_gem_object_create_ioctl(struct drm_device *dev, void *data,
 	rep->cur_gmr_id = handle;
 	rep->cur_gmr_offset = 0;
 	/* drop reference from allocate - handle holds it now */
-	drm_gem_object_put(&vbo->base.base);
+	drm_gem_object_put(&vbo->tbo.base);
 out_no_bo:
 	return ret;
 }

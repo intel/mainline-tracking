@@ -686,7 +686,7 @@ static void vmw_user_surface_base_release(struct ttm_base_object **p_base)
 	    container_of(base, struct vmw_user_surface, prime.base);
 	struct vmw_resource *res = &user_srf->srf.res;
 
-	if (base->shareable && res && res->guest_memory_bo)
+	if (res->guest_memory_bo)
 		drm_gem_object_put(&res->guest_memory_bo->tbo.base);
 
 	*p_base = NULL;
