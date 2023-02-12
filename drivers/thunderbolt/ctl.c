@@ -15,6 +15,8 @@
 
 #include "ctl.h"
 
+#define CREATE_TRACE_POINTS
+#include "trace.h"
 
 #define TB_CTL_RX_PKG_COUNT	10
 #define TB_CTL_RETRIES		4
@@ -369,6 +371,9 @@ static int tb_ctl_tx(struct tb_ctl *ctl, const void *data, size_t len,
 	pkg->frame.size = len + 4;
 	pkg->frame.sof = type;
 	pkg->frame.eof = type;
+
+	trace_tb_tx(type, data, len);
+
 	cpu_to_be32_array(pkg->buffer, data, len / 4);
 	*(__be32 *) (pkg->buffer + len) = tb_crc(pkg->buffer, len);
 
@@ -384,6 +389,7 @@ static int tb_ctl_tx(struct tb_ctl *ctl, const void *data, size_t len,
 static bool tb_ctl_handle_event(struct tb_ctl *ctl, enum tb_cfg_pkg_type type,
 				struct ctl_pkg *pkg, size_t size)
 {
+	trace_tb_event(type, pkg->buffer, size);
 	return ctl->callback(ctl->callback_data, type, pkg->buffer, size);
 }
 
@@ -489,6 +495,9 @@ static void tb_ctl_rx_callback(struct tb_ring *ring, struct ring_frame *frame,
 	 * triggered from messing with the active requests.
 	 */
 	req = tb_cfg_request_find(pkg->ctl, pkg);
+
+	trace_tb_rx(frame->eof, pkg->buffer, frame->size, !req);
+
 	if (req) {
 		if (req->copy(req, pkg))
 			schedule_work(&req->work);
