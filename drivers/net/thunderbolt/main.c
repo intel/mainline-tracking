@@ -764,7 +764,7 @@ static bool tbnet_check_frame(struct tbnet *net, const struct tbnet_frame *tf,
 	 */
 	if (net->skb && net->rx_hdr.frame_count) {
 		/* Check the frame count fits the count field */
-		if (frame_count != net->rx_hdr.frame_count) {
+		if (frame_count != le32_to_cpu(net->rx_hdr.frame_count)) {
 			net->stats.rx_length_errors++;
 			return false;
 		}
@@ -772,8 +772,8 @@ static bool tbnet_check_frame(struct tbnet *net, const struct tbnet_frame *tf,
 		/* Check the frame identifiers are incremented correctly,
 		 * and id is matching.
 		 */
-		if (frame_index != net->rx_hdr.frame_index + 1 ||
-		    frame_id != net->rx_hdr.frame_id) {
+		if (frame_index != le16_to_cpu(net->rx_hdr.frame_index) + 1 ||
+		    frame_id != le16_to_cpu(net->rx_hdr.frame_id)) {
 			net->stats.rx_missed_errors++;
 			return false;
 		}
@@ -873,11 +873,12 @@ static int tbnet_poll(struct napi_struct *napi, int budget)
 					TBNET_RX_PAGE_SIZE - hdr_size);
 		}
 
-		net->rx_hdr.frame_size = frame_size;
-		net->rx_hdr.frame_count = le32_to_cpu(hdr->frame_count);
-		net->rx_hdr.frame_index = le16_to_cpu(hdr->frame_index);
-		net->rx_hdr.frame_id = le16_to_cpu(hdr->frame_id);
-		last = net->rx_hdr.frame_index == net->rx_hdr.frame_count - 1;
+		net->rx_hdr.frame_size = hdr->frame_size;
+		net->rx_hdr.frame_count = hdr->frame_count;
+		net->rx_hdr.frame_index = hdr->frame_index;
+		net->rx_hdr.frame_id = hdr->frame_id;
+		last = le16_to_cpu(net->rx_hdr.frame_index) ==
+		       le32_to_cpu(net->rx_hdr.frame_count) - 1;
 
 		rx_packets++;
 		net->stats.rx_bytes += frame_size;
@@ -990,8 +991,10 @@ static bool tbnet_xmit_csum_and_map(struct tbnet *net, struct sk_buff *skb,
 {
 	struct thunderbolt_ip_frame_header *hdr = page_address(frames[0]->page);
 	struct device *dma_dev = tb_ring_dma_device(net->tx_ring.ring);
-	__wsum wsum = htonl(skb->len - skb_transport_offset(skb));
 	unsigned int i, len, offset = skb_transport_offset(skb);
+	/* Remove payload length from checksum */
+	u32 paylen = skb->len - skb_transport_offset(skb);
+	__wsum wsum = (__force __wsum)htonl(paylen);
 	__be16 protocol = skb->protocol;
 	void *data = skb->data;
 	void *dest = hdr + 1;
