@@ -1030,7 +1030,7 @@ static bool tbnet_xmit_csum_and_map(struct tbnet *net, struct sk_buff *skb,
 	/* Data points on the beginning of packet.
 	 * Check is the checksum absolute place in the packet.
 	 * ipcso will update IP checksum.
-	 * tucso will update TCP/UPD checksum.
+	 * tucso will update TCP/UDP checksum.
 	 */
 	if (protocol == htons(ETH_P_IP)) {
 		__sum16 *ipcso = dest + ((void *)&(ip_hdr(skb)->check) - data);
