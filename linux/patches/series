@@ -178,3 +178,48 @@
 
 # CVE-2023-23455
 0001-net-sched-atm-dont-intepret-cls-results-when-asked-t.patch
+
+# CVE-2022-3534
+0001-libbpf-Fix-use-after-free-in-btf_dump_name_dups.patch
+
+# CVE-2022-45934
+0001-Bluetooth-L2CAP-Fix-u8-overflow.patch
+
+# CVE-2022-2196
+0001-KVM-VMX-Execute-IBPB-on-emulated-VM-exit-when-guest-.patch
+
+# CVE-2022-4378
+0001-proc-proc_skip_spaces-shouldn-t-think-it-is-working-.patch
+
+# CVE-2022-4379
+0001-NFSD-fix-use-after-free-in-__nfs42_ssc_open.patch
+
+# CVE-2023-23559
+0001-wifi-rndis_wlan-Prevent-buffer-overflow-in-rndis_que.patch
+
+# CVE-2023-20928
+0001-android-binder-stop-saving-a-pointer-to-the-VMA.patch
+
+# CVE-2023-0266
+0001-ALSA-pcm-Move-rwsem-lock-inside-snd_ctl_elem_read-to.patch
+
+# CVE-2022-36280
+0001-drm-vmwgfx-Validate-the-box-size-for-the-snooped-cur.patch
+
+# CVE-2022-4129
+0001-l2tp-Serialize-access-to-sk_user_data-with-sk_callba.patch
+
+# CVE-2022-4662
+0001-USB-core-Prevent-nested-device-reset-calls.patch
+
+# CVE-2022-4842
+0001-fs-ntfs3-Fix-attr_punch_hole-null-pointer-derenferen.patch
+
+# CVE-2023-0394
+0001-ipv6-raw-Deduct-extension-header-length-in-rawv6_pus.patch
+
+# CVE-2023-0179
+0001-netfilter-nft_payload-incorrect-arithmetics-when-fet.patch
+
+# CVE-2023-0590
+0001-net-sched-fix-race-condition-in-qdisc_graft.patch
