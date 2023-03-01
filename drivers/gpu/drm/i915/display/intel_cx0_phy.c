@@ -2065,7 +2065,7 @@ int intel_c20pll_calc_port_clock(struct intel_encoder *encoder,
 				 const struct intel_c20pll_state *pll_state)
 {
 	unsigned int frac_quot = 0, frac_rem = 0, frac_den = 1;
-	unsigned int multiplier, tx_clk_div, refclk = 38400;
+	unsigned int multiplier = 0, tx_clk_div = 0, refclk = 38400;
 
 	if (pll_state->mpllb[6] & C20_MPLLB_FRACEN) {
 		frac_quot = pll_state->mpllb[8];
