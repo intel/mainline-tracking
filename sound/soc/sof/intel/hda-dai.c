@@ -94,11 +94,10 @@ static int hda_link_dma_cleanup(struct snd_pcm_substream *substream,
 }
 
 static int hda_link_dma_hw_params(struct snd_pcm_substream *substream,
-				  struct snd_pcm_hw_params *params)
+				  struct snd_pcm_hw_params *params, struct snd_soc_dai *cpu_dai)
 {
 	const struct hda_dai_widget_dma_ops *ops = hda_dai_get_ops(substream, cpu_dai);
 	struct snd_soc_pcm_runtime *rtd = asoc_substream_to_rtd(substream);
-	struct snd_soc_dai *cpu_dai = asoc_rtd_to_cpu(rtd, 0);
 	struct snd_soc_dai *codec_dai = asoc_rtd_to_codec(rtd, 0);
 	struct hdac_ext_stream *hext_stream;
 	struct hdac_stream *hstream;
@@ -152,15 +151,16 @@ static int hda_link_dma_hw_params(struct snd_pcm_substream *substream,
 	return 0;
 }
 
-static int hda_link_dma_prepare(struct snd_pcm_substream *substream)
+static int hda_link_dma_prepare(struct snd_pcm_substream *substream, struct snd_soc_dai *cpu_dai)
 {
 	struct snd_soc_pcm_runtime *rtd = asoc_substream_to_rtd(substream);
 	int stream = substream->stream;
 
-	return hda_link_dma_hw_params(substream, &rtd->dpcm[stream].hw_params);
+	return hda_link_dma_hw_params(substream, &rtd->dpcm[stream].hw_params, cpu_dai);
 }
 
-static int hda_link_dma_trigger(struct snd_pcm_substream *substream, int cmd)
+static int hda_link_dma_trigger(struct snd_pcm_substream *substream, struct snd_soc_dai *cpu_dai,
+				int cmd)
 {
 	const struct hda_dai_widget_dma_ops *ops = hda_dai_get_ops(substream, cpu_dai);
 	struct snd_soc_pcm_runtime *rtd = asoc_substream_to_rtd(substream);
@@ -196,12 +196,11 @@ static int hda_link_dma_trigger(struct snd_pcm_substream *substream, int cmd)
 	return 0;
 }
 
-static int hda_link_dma_hw_free(struct snd_pcm_substream *substream)
+static int hda_link_dma_hw_free(struct snd_pcm_substream *substream, struct snd_soc_dai *cpu_dai)
 {
 	struct snd_sof_dev *sdev = snd_soc_component_get_drvdata(cpu_dai->component);
 	const struct hda_dai_widget_dma_ops *ops = hda_dai_get_ops(substream, cpu_dai);
 	struct snd_soc_pcm_runtime *rtd = asoc_substream_to_rtd(substream);
-	struct snd_soc_dai *cpu_dai = asoc_rtd_to_cpu(rtd, 0);
 	struct snd_soc_dai *codec_dai = asoc_rtd_to_codec(rtd, 0);
 	struct hdac_ext_stream *hext_stream;
 
@@ -269,7 +268,7 @@ static int hda_dai_hw_params(struct snd_pcm_substream *substream,
 	if (hext_stream && hext_stream->link_prepared)
 		return 0;
 
-	ret = hda_link_dma_hw_params(substream, params);
+	ret = hda_link_dma_hw_params(substream, params, dai);
 	if (ret < 0)
 		return ret;
 
@@ -310,7 +309,7 @@ static int hda_dai_prepare(struct snd_pcm_substream *substream, struct snd_soc_d
 
 	dev_dbg(sdev->dev, "prepare stream dir %d\n", substream->stream);
 
-	ret = hda_link_dma_prepare(substream);
+	ret = hda_link_dma_prepare(substream, dai);
 	if (ret < 0)
 		return ret;
 
@@ -337,7 +336,7 @@ static int ipc3_hda_dai_trigger(struct snd_pcm_substream *substream,
 	dev_dbg(dai->dev, "cmd=%d dai %s direction %d\n", cmd,
 		dai->name, substream->stream);
 
-	ret = hda_link_dma_trigger(substream, cmd);
+	ret = hda_link_dma_trigger(substream, dai, cmd);
 	if (ret < 0)
 		return ret;
 
@@ -465,7 +464,7 @@ static int hda_dai_hw_free(struct snd_pcm_substream *substream,
 {
 	int ret;
 
-	ret = hda_link_dma_hw_free(substream);
+	ret = hda_link_dma_hw_free(substream, dai);
 	if (ret < 0)
 		return ret;
 
