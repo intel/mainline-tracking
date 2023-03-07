@@ -378,7 +378,6 @@ static int ipc4_hda_dai_trigger(struct snd_pcm_substream *substream,
 	struct sof_ipc4_pipeline *pipeline = pipe_widget->private;
 	struct snd_soc_pcm_runtime *rtd;
 	struct snd_soc_dai *codec_dai;
-	struct snd_soc_dai *cpu_dai;
 	int ret;
 
 	dev_dbg(dai->dev, "cmd=%d dai %s direction %d\n", cmd,
@@ -389,7 +388,6 @@ static int ipc4_hda_dai_trigger(struct snd_pcm_substream *substream,
 		return -EINVAL;
 
 	rtd = asoc_substream_to_rtd(substream);
-	cpu_dai = asoc_rtd_to_cpu(rtd, 0);
 	codec_dai = asoc_rtd_to_codec(rtd, 0);
 
 	switch (cmd) {
@@ -429,7 +427,7 @@ static int ipc4_hda_dai_trigger(struct snd_pcm_substream *substream,
 
 		pipeline->state = SOF_IPC4_PIPE_RESET;
 
-		ret = hda_link_dma_cleanup(substream, hext_stream, cpu_dai, codec_dai);
+		ret = hda_link_dma_cleanup(substream, hext_stream, dai, codec_dai);
 		if (ret < 0) {
 			dev_err(sdev->dev, "%s: failed to clean up link DMA\n", __func__);
 			return ret;
