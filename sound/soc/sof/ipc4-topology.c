@@ -1023,7 +1023,7 @@ static int sof_ipc4_init_audio_fmt(struct snd_sof_dev *sdev,
 	int sample_valid_bits;
 	int i;
 
-	if (!pin_fmt) {
+	if (!pin_fmts) {
 		dev_err(sdev->dev, "no reference formats for %s\n", swidget->widget->name);
 		return -EINVAL;
 	}
@@ -1666,7 +1666,6 @@ static int sof_ipc4_prepare_src_module(struct snd_sof_widget *swidget,
 				      pipeline_params, available_fmt,
 				      available_fmt->input_pin_fmts,
 				      available_fmt->num_input_formats);
-
 	if (ret < 0)
 		return ret;
 
