@@ -413,7 +413,7 @@ static int sof_ipc4_widget_kcontrol_setup(struct snd_sof_dev *sdev, struct snd_s
 	struct snd_sof_control *scontrol;
 	int ret = 0;
 
-	list_for_each_entry(scontrol, &sdev->kcontrol_list, list)
+	list_for_each_entry(scontrol, &sdev->kcontrol_list, list) {
 		if (scontrol->comp_id == swidget->comp_id) {
 			switch (scontrol->info_type) {
 			case SND_SOC_TPLG_CTL_VOLSW:
@@ -421,22 +421,18 @@ static int sof_ipc4_widget_kcontrol_setup(struct snd_sof_dev *sdev, struct snd_s
 			case SND_SOC_TPLG_CTL_VOLSW_XR_SX:
 				ret = sof_ipc4_set_volume_data(sdev, swidget,
 							       scontrol, false);
-				break;
-			case SND_SOC_TPLG_CTL_BYTES:
-				ret = sof_ipc4_set_get_bytes_data(sdev, scontrol,
-								  true, false);
+
+				if (ret < 0) {
+					dev_err(sdev->dev, "kcontrol %d set up failed for widget %s\n",
+						scontrol->comp_id, swidget->widget->name);
+					return ret;
+				}
 				break;
 			default:
 				break;
 			}
-
-			if (ret < 0) {
-				dev_err(sdev->dev,
-					"kcontrol %d set up failed for widget %s\n",
-					scontrol->comp_id, swidget->widget->name);
-				return ret;
-			}
 		}
+	}
 
 	return 0;
 }
