@@ -211,6 +211,7 @@ static int sof_ipc4_get_audio_fmt(struct snd_soc_component *scomp,
 				  struct sof_ipc4_available_audio_format *available_fmt,
 				  struct sof_ipc4_base_module_cfg *module_base_cfg)
 {
+
 	struct sof_ipc4_pin_format *in_format = NULL;
 	struct sof_ipc4_pin_format *out_format;
 	int ret;
@@ -235,6 +236,7 @@ static int sof_ipc4_get_audio_fmt(struct snd_soc_component *scomp,
 	/* set cpc and is_pages in the module's base_config */
 	ret = sof_update_ipc_object(scomp, module_base_cfg, SOF_COMP_TOKENS, swidget->tuples,
 				    swidget->num_tuples, sizeof(*module_base_cfg), 1);
+
 	if (ret) {
 		dev_err(scomp->dev, "parse comp tokens for %s failed, error: %d\n",
 			swidget->widget->name, ret);
@@ -1014,6 +1016,7 @@ static int sof_ipc4_init_audio_fmt(struct snd_sof_dev *sdev,
 				   struct sof_ipc4_available_audio_format *available_fmt,
 				   struct sof_ipc4_pin_format *pin_fmts, u32 pin_fmts_size)
 {
+
 	u32 valid_bits;
 	u32 channels;
 	u32 rate;
@@ -1663,6 +1666,7 @@ static int sof_ipc4_prepare_src_module(struct snd_sof_widget *swidget,
 				      pipeline_params, available_fmt,
 				      available_fmt->input_pin_fmts,
 				      available_fmt->num_input_formats);
+
 	if (ret < 0)
 		return ret;
 
