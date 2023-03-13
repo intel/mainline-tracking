@@ -11,8 +11,6 @@
 
 #include "framebuffer.h"
 #include "psb_drv.h"
-#include "psb_intel_drv.h"
-#include "psb_intel_reg.h"
 
 static const struct drm_framebuffer_funcs psb_fb_funcs = {
 	.destroy = drm_gem_fb_destroy,
