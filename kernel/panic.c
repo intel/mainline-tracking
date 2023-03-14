@@ -178,7 +178,6 @@ void __weak crash_smp_send_stop(void)
 	 * unfortunately means it may not be hardened to work in a panic
 	 * situation.
 	 */
-	try_block_console_kthreads(10000);
 	smp_send_stop();
 	cpus_stopped = 1;
 }
@@ -260,7 +259,6 @@ static void panic_other_cpus_shutdown(bool crash_kexec)
 	 * bits in addition to stopping other CPUs, hence we rely on
 	 * crash_smp_send_stop() for that.
 	 */
-	try_block_console_kthreads(10000);
 	if (!crash_kexec)
 		smp_send_stop();
 	else
@@ -277,6 +275,7 @@ static void panic_other_cpus_shutdown(bool crash_kexec)
  */
 void panic(const char *fmt, ...)
 {
+	enum cons_prio prev_prio;
 	static char buf[1024];
 	va_list args;
 	long i, i_next = 0, len;
@@ -324,7 +323,10 @@ void panic(const char *fmt, ...)
 	if (old_cpu != PANIC_CPU_INVALID && old_cpu != this_cpu)
 		panic_smp_self_stop();
 
+	prev_prio = cons_atomic_enter(CONS_PRIO_PANIC);
+
 	console_verbose();
+	bust_spinlocks(1);
 	va_start(args, fmt);
 	len = vscnprintf(buf, sizeof(buf), fmt, args);
 	va_end(args);
@@ -340,11 +342,6 @@ void panic(const char *fmt, ...)
 	if (!test_taint(TAINT_DIE) && oops_in_progress <= 1)
 		dump_stack();
 #endif
-
-	/* If atomic consoles are available, flush the kernel log. */
-	console_flush_on_panic(CONSOLE_ATOMIC_FLUSH_PENDING);
-
-	bust_spinlocks(1);
 
 	/*
 	 * If kgdb is enabled, give it a chance to run before we stop all
@@ -388,6 +385,8 @@ void panic(const char *fmt, ...)
 	if (_crash_kexec_post_notifiers)
 		__crash_kexec(NULL);
 
+	cons_atomic_flush(NULL, true);
+
 	console_unblank();
 
 	/*
@@ -412,6 +411,7 @@ void panic(const char *fmt, ...)
 		 * We can't use the "normal" timers since we just panicked.
 		 */
 		pr_emerg("Rebooting in %d seconds..\n", panic_timeout);
+		cons_atomic_flush(NULL, true);
 
 		for (i = 0; i < panic_timeout * 1000; i += PANIC_TIMER_STEP) {
 			touch_nmi_watchdog();
@@ -430,6 +430,7 @@ void panic(const char *fmt, ...)
 		 */
 		if (panic_reboot_mode != REBOOT_UNDEFINED)
 			reboot_mode = panic_reboot_mode;
+		cons_atomic_flush(NULL, true);
 		emergency_restart();
 	}
 #ifdef __sparc__
@@ -442,12 +443,16 @@ void panic(const char *fmt, ...)
 	}
 #endif
 #if defined(CONFIG_S390)
+	cons_atomic_flush(NULL, true);
 	disabled_wait();
 #endif
 	pr_emerg("---[ end Kernel panic - not syncing: %s ]---\n", buf);
 
 	/* Do not scroll important messages printed above */
 	suppress_printk = 1;
+
+	cons_atomic_exit(CONS_PRIO_PANIC, prev_prio);
+
 	local_irq_enable();
 	for (i = 0; ; i += PANIC_TIMER_STEP) {
 		touch_softlockup_watchdog();
@@ -658,9 +663,11 @@ struct warn_args {
 void __warn(const char *file, int line, void *caller, unsigned taint,
 	    struct pt_regs *regs, struct warn_args *args)
 {
-	disable_trace_on_warning();
+	enum cons_prio prev_prio;
 
-	printk_prefer_direct_enter();
+	prev_prio = cons_atomic_enter(CONS_PRIO_EMERGENCY);
+
+	disable_trace_on_warning();
 
 	if (file)
 		pr_warn("WARNING: CPU: %d PID: %d at %s:%d %pS\n",
@@ -691,7 +698,7 @@ void __warn(const char *file, int line, void *caller, unsigned taint,
 	/* Just a warning, don't kill lockdep. */
 	add_taint(taint, LOCKDEP_STILL_OK);
 
-	printk_prefer_direct_exit();
+	cons_atomic_exit(CONS_PRIO_EMERGENCY, prev_prio);
 }
 
 #ifndef __WARN_FLAGS

@@ -8,24 +8,43 @@
 #include <linux/smp.h>
 #include <linux/cpumask.h>
 #include <linux/printk.h>
-#include <linux/console.h>
 #include <linux/kprobes.h>
-#include <linux/delay.h>
 
 #include "internal.h"
 
-static DEFINE_PER_CPU(int, printk_context);
+struct printk_context {
+	local_lock_t cpu;
+	int recursion;
+};
+
+static DEFINE_PER_CPU(struct printk_context, printk_context) = {
+	.cpu = INIT_LOCAL_LOCK(cpu),
+};
 
 /* Can be preempted by NMI. */
-void __printk_safe_enter(void)
+void __printk_safe_enter(unsigned long *flags)
 {
-	this_cpu_inc(printk_context);
+	local_lock_irqsave(&printk_context.cpu, *flags);
+	this_cpu_inc(printk_context.recursion);
 }
 
 /* Can be preempted by NMI. */
-void __printk_safe_exit(void)
+void __printk_safe_exit(unsigned long *flags)
 {
-	this_cpu_dec(printk_context);
+	this_cpu_dec(printk_context.recursion);
+	local_unlock_irqrestore(&printk_context.cpu, *flags);
+}
+
+void __printk_deferred_enter(void)
+{
+	WARN_ON_ONCE(!in_atomic());
+	this_cpu_inc(printk_context.recursion);
+}
+
+void __printk_deferred_exit(void)
+{
+	WARN_ON_ONCE(!in_atomic());
+	this_cpu_dec(printk_context.recursion);
 }
 
 asmlinkage int vprintk(const char *fmt, va_list args)
@@ -40,45 +59,10 @@ asmlinkage int vprintk(const char *fmt, va_list args)
 	 * Use the main logbuf even in NMI. But avoid calling console
 	 * drivers that might have their own locks.
 	 */
-	if (this_cpu_read(printk_context) || in_nmi()) {
-		int len;
-
-		len = vprintk_store(0, LOGLEVEL_DEFAULT, NULL, fmt, args);
-		defer_console_output();
-		return len;
-	}
+	if (this_cpu_read(printk_context.recursion) || in_nmi())
+		return vprintk_deferred(fmt, args);
 
 	/* No obstacles. */
 	return vprintk_default(fmt, args);
 }
 EXPORT_SYMBOL(vprintk);
-
-/**
- * try_block_console_kthreads() - Try to block console kthreads and
- *	make the global console_lock() avaialble
- *
- * @timeout_ms:        The maximum time (in ms) to wait.
- *
- * Prevent console kthreads from starting processing new messages. Wait
- * until the global console_lock() become available.
- *
- * Context: Can be called in any context.
- */
-void try_block_console_kthreads(int timeout_ms)
-{
-	block_console_kthreads = true;
-
-	/* Do not wait when the console lock could not be safely taken. */
-	if (this_cpu_read(printk_context) || in_nmi())
-		return;
-
-	while (timeout_ms > 0) {
-		if (console_trylock()) {
-			console_unlock();
-			return;
-		}
-
-		udelay(1000);
-		timeout_ms -= 1;
-	}
-}

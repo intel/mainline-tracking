@@ -606,8 +606,10 @@ static int brcmuart_startup(struct uart_port *port)
 	 * Disable the Receive Data Interrupt because the DMA engine
 	 * will handle this.
 	 */
+	spin_lock_irq(&port->lock);
 	up->ier &= ~UART_IER_RDI;
 	serial8250_set_IER(up, up->ier);
+	spin_unlock_irq(&port->lock);
 
 	priv->tx_running = false;
 	priv->dma.rx_dma = NULL;
@@ -773,12 +775,10 @@ static int brcmuart_handle_irq(struct uart_port *p)
 	unsigned int iir = serial_port_in(p, UART_IIR);
 	struct brcmuart_priv *priv = p->private_data;
 	struct uart_8250_port *up = up_to_u8250p(p);
-	unsigned long cs_flags;
 	unsigned int status;
 	unsigned long flags;
 	unsigned int ier;
 	unsigned int mcr;
-	bool is_console;
 	int handled = 0;
 
 	/*
@@ -789,10 +789,12 @@ static int brcmuart_handle_irq(struct uart_port *p)
 		spin_lock_irqsave(&p->lock, flags);
 		status = serial_port_in(p, UART_LSR);
 		if ((status & UART_LSR_DR) == 0) {
-			is_console = uart_console(p);
+			bool is_console;
+
+			is_console = serial8250_is_console(p);
 
 			if (is_console)
-				printk_cpu_sync_get_irqsave(cs_flags);
+				serial8250_enter_unsafe(up);
 
 			ier = serial_port_in(p, UART_IER);
 			/*
@@ -814,7 +816,7 @@ static int brcmuart_handle_irq(struct uart_port *p)
 			}
 
 			if (is_console)
-				printk_cpu_sync_put_irqrestore(cs_flags);
+				serial8250_exit_unsafe(up);
 
 			handled = 1;
 		}
@@ -830,10 +832,8 @@ static enum hrtimer_restart brcmuart_hrtimer_func(struct hrtimer *t)
 	struct brcmuart_priv *priv = container_of(t, struct brcmuart_priv, hrt);
 	struct uart_port *p = priv->up;
 	struct uart_8250_port *up = up_to_u8250p(p);
-	unsigned long cs_flags;
 	unsigned int status;
 	unsigned long flags;
-	bool is_console;
 
 	if (priv->shutdown)
 		return HRTIMER_NORESTART;
@@ -855,10 +855,12 @@ static enum hrtimer_restart brcmuart_hrtimer_func(struct hrtimer *t)
 	/* re-enable receive unless upper layer has disabled it */
 	if ((up->ier & (UART_IER_RLSI | UART_IER_RDI)) ==
 	    (UART_IER_RLSI | UART_IER_RDI)) {
-		is_console = uart_console(p);
+		bool is_console;
+
+		is_console = serial8250_is_console(p);
 
 		if (is_console)
-			printk_cpu_sync_get_irqsave(cs_flags);
+			serial8250_enter_unsafe(up);
 
 		status = serial_port_in(p, UART_IER);
 		status |= (UART_IER_RLSI | UART_IER_RDI);
@@ -868,7 +870,7 @@ static enum hrtimer_restart brcmuart_hrtimer_func(struct hrtimer *t)
 		serial_port_out(p, UART_MCR, status);
 
 		if (is_console)
-			printk_cpu_sync_put_irqrestore(cs_flags);
+			serial8250_exit_unsafe(up);
 	}
 	spin_unlock_irqrestore(&p->lock, flags);
 	return HRTIMER_NORESTART;

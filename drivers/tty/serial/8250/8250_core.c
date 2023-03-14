@@ -258,9 +258,7 @@ static void serial8250_backup_timeout(struct timer_list *t)
 	struct uart_8250_port *up = from_timer(up, t, timer);
 	struct uart_port *port = &up->port;
 	unsigned int iir, ier = 0, lsr;
-	unsigned long cs_flags;
 	unsigned long flags;
-	bool is_console;
 
 	spin_lock_irqsave(&up->port.lock, flags);
 
@@ -269,16 +267,23 @@ static void serial8250_backup_timeout(struct timer_list *t)
 	 * based handler.
 	 */
 	if (up->port.irq) {
-		is_console = uart_console(port);
+		bool is_console;
+
+		/*
+		 * Do not use serial8250_clear_IER() because this code
+		 * ignores capabilties.
+		 */
+
+		is_console = serial8250_is_console(port);
 
 		if (is_console)
-			printk_cpu_sync_get_irqsave(cs_flags);
+			serial8250_enter_unsafe(up);
 
 		ier = serial_in(up, UART_IER);
 		serial_out(up, UART_IER, 0);
 
 		if (is_console)
-			printk_cpu_sync_put_irqrestore(cs_flags);
+			serial8250_exit_unsafe(up);
 	}
 
 	iir = serial_in(up, UART_IIR);
@@ -587,20 +592,30 @@ serial8250_register_ports(struct uart_driver *drv, struct device *dev)
 
 #ifdef CONFIG_SERIAL_8250_CONSOLE
 
-static void univ8250_console_write_atomic(struct console *co, const char *s,
-					  unsigned int count)
+static void univ8250_console_port_lock(struct console *con, bool do_lock, unsigned long *flags)
 {
-	struct uart_8250_port *up = &serial8250_ports[co->index];
+	struct uart_8250_port *up = &serial8250_ports[con->index];
 
-	serial8250_console_write_atomic(up, s, count);
+	if (do_lock)
+		spin_lock_irqsave(&up->port.lock, *flags);
+	else
+		spin_unlock_irqrestore(&up->port.lock, *flags);
 }
 
-static void univ8250_console_write(struct console *co, const char *s,
-				   unsigned int count)
+static bool univ8250_console_write_atomic(struct console *co,
+					  struct cons_write_context *wctxt)
 {
 	struct uart_8250_port *up = &serial8250_ports[co->index];
 
-	serial8250_console_write(up, s, count);
+	return serial8250_console_write_atomic(up, wctxt);
+}
+
+static bool univ8250_console_write_thread(struct console *co,
+					  struct cons_write_context *wctxt)
+{
+	struct uart_8250_port *up = &serial8250_ports[co->index];
+
+	return serial8250_console_write_thread(up, wctxt);
 }
 
 static int univ8250_console_setup(struct console *co, char *options)
@@ -689,12 +704,13 @@ static int univ8250_console_match(struct console *co, char *name, int idx,
 static struct console univ8250_console = {
 	.name		= "ttyS",
 	.write_atomic	= univ8250_console_write_atomic,
-	.write		= univ8250_console_write,
+	.write_thread	= univ8250_console_write_thread,
+	.port_lock	= univ8250_console_port_lock,
 	.device		= uart_console_device,
 	.setup		= univ8250_console_setup,
 	.exit		= univ8250_console_exit,
 	.match		= univ8250_console_match,
-	.flags		= CON_PRINTBUFFER | CON_ANYTIME,
+	.flags		= CON_PRINTBUFFER | CON_ANYTIME | CON_NO_BKL,
 	.index		= -1,
 	.data		= &serial8250_reg,
 };

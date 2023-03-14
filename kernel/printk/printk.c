@@ -44,7 +44,6 @@
 #include <linux/irq_work.h>
 #include <linux/ctype.h>
 #include <linux/uio.h>
-#include <linux/clocksource.h>
 #include <linux/sched/clock.h>
 #include <linux/sched/debug.h>
 #include <linux/sched/task_stack.h>
@@ -306,36 +305,6 @@ void console_srcu_read_unlock(int cookie)
 EXPORT_SYMBOL(console_srcu_read_unlock);
 
 /*
- * Used to synchronize printing kthreads against direct printing via
- * console_trylock/console_unlock.
- *
- * Values:
- * -1 = console kthreads atomically blocked (via global trylock)
- *  0 = no kthread printing, console not locked (via trylock)
- * >0 = kthread(s) actively printing
- *
- * Note: For synchronizing against direct printing via
- *       console_lock/console_unlock, see the @lock variable in
- *       struct console.
- */
-static atomic_t console_kthreads_active = ATOMIC_INIT(0);
-
-#define console_kthreads_atomic_tryblock() \
-       (atomic_cmpxchg(&console_kthreads_active, 0, -1) == 0)
-#define console_kthreads_atomic_unblock() \
-       atomic_cmpxchg(&console_kthreads_active, -1, 0)
-#define console_kthreads_atomically_blocked() \
-       (atomic_read(&console_kthreads_active) == -1)
-
-#define console_kthread_printing_tryenter() \
-       atomic_inc_unless_negative(&console_kthreads_active)
-#define console_kthread_printing_exit() \
-       atomic_dec(&console_kthreads_active)
-
-/* Block console kthreads to avoid processing new messages. */
-bool block_console_kthreads;
-
-/*
  * Helper macros to handle lockdep when locking/unlocking console_sem. We use
  * macros instead of functions so that _RET_IP_ contains useful information.
  */
@@ -348,6 +317,10 @@ static int __down_trylock_console_sem(unsigned long ip)
 {
 	int lock_failed;
 	unsigned long flags;
+
+	/* Semaphores are not NMI-safe. */
+	if (in_nmi())
+		return 1;
 
 	/*
 	 * Here and in __up_console_sem() we need to be in safe mode,
@@ -383,54 +356,14 @@ static bool panic_in_progress(void)
 }
 
 /*
- * Tracks whether kthread printers are all blocked. A value of true implies
- * that the console is locked via console_lock() or the console is suspended.
- * Writing to this variable requires holding @console_sem.
+ * This is used for debugging the mess that is the VT code by
+ * keeping track if we have the console semaphore held. It's
+ * definitely not the perfect debug tool (we don't know if _WE_
+ * hold it and are racing, but it helps tracking those weird code
+ * paths in the console code where we end up in places I want
+ * locked without the console semaphore held).
  */
-static bool console_kthreads_blocked;
-
-/*
- * Block all kthread printers from a schedulable context.
- *
- * Requires holding @console_sem.
- */
-static void console_kthreads_block(void)
-{
-	struct console *con;
-	int cookie;
-
-	cookie = console_srcu_read_lock();
-	for_each_console_srcu(con) {
-		mutex_lock(&con->lock);
-		con->blocked = true;
-		mutex_unlock(&con->lock);
-	}
-	console_srcu_read_unlock(cookie);
-
-	console_kthreads_blocked = true;
-}
-
-/*
- * Unblock all kthread printers from a schedulable context.
- *
- * Requires holding @console_sem.
- */
-static void console_kthreads_unblock(void)
-{
-	struct console *con;
-	int cookie;
-
-	cookie = console_srcu_read_lock();
-	for_each_console_srcu(con) {
-		mutex_lock(&con->lock);
-		con->blocked = false;
-		mutex_unlock(&con->lock);
-	}
-	console_srcu_read_unlock(cookie);
-	console_kthreads_blocked = false;
-}
-
-static int console_suspended;
+static int console_locked, console_suspended;
 
 /*
  *	Array of consoles built from command line options (console=)
@@ -514,74 +447,21 @@ static int console_msg_format = MSG_FORMAT_DEFAULT;
 static DEFINE_MUTEX(syslog_lock);
 
 /*
- * A flag to signify if printk_activate_kthreads() has already started the
- * kthread printers. If true, any later registered consoles must start their
- * own kthread directly. The flag is write protected by the console_lock.
+ * Specifies if a BKL console was ever registered. Used to determine if the
+ * console lock/unlock dance is needed for console printing.
  */
-static bool printk_kthreads_available;
-
-#ifdef CONFIG_PRINTK
-static atomic_t printk_prefer_direct = ATOMIC_INIT(0);
-
-/**
- * printk_prefer_direct_enter - cause printk() calls to attempt direct
- *                              printing to all enabled consoles
- *
- * Since it is not possible to call into the console printing code from any
- * context, there is no guarantee that direct printing will occur.
- *
- * This globally effects all printk() callers.
- *
- * Context: Any context.
- */
-void printk_prefer_direct_enter(void)
-{
-	atomic_inc(&printk_prefer_direct);
-}
-
-/**
- * printk_prefer_direct_exit - restore printk() behavior
- *
- * Context: Any context.
- */
-void printk_prefer_direct_exit(void)
-{
-	WARN_ON(atomic_dec_if_positive(&printk_prefer_direct) < 0);
-}
+bool have_bkl_console;
 
 /*
- * Calling printk() always wakes kthread printers so that they can
- * flush the new message to their respective consoles. Also, if direct
- * printing is allowed, printk() tries to flush the messages directly.
- *
- * Direct printing is allowed in situations when the kthreads
- * are not available or the system is in a problematic state.
- *
- * See the implementation about possible races.
+ * Specifies if a boot console is registered. Used to determine if NOBKL
+ * consoles may be used since NOBKL consoles cannot synchronize with boot
+ * consoles.
  */
-static inline bool allow_direct_printing(void)
-{
-	/*
-	 * Checking kthread availability is a possible race because the
-	 * kthread printers can become permanently disabled during runtime.
-	 * However, doing that requires holding the console_lock, so any
-	 * pending messages will be direct printed by console_unlock().
-	 */
-	if (!printk_kthreads_available)
-		return true;
+bool have_boot_console;
 
-	/*
-	 * Prefer direct printing when the system is in a problematic state.
-	 * The context that sets this state will always see the updated value.
-	 * The other contexts do not care. Anyway, direct printing is just a
-	 * best effort. The direct output is only possible when console_lock
-	 * is not already taken and no kthread printers are actively printing.
-	 */
-	return (system_state > SYSTEM_RUNNING ||
-		oops_in_progress ||
-		atomic_read(&printk_prefer_direct));
-}
+static int unregister_console_locked(struct console *console);
 
+#ifdef CONFIG_PRINTK
 DECLARE_WAIT_QUEUE_HEAD(log_wait);
 /* All 3 protected by @syslog_lock. */
 /* the next printk record to read by syslog(READ) or /proc/kmsg */
@@ -631,7 +511,7 @@ _DEFINE_PRINTKRB(printk_rb_static, CONFIG_LOG_BUF_SHIFT - PRB_AVGBITS,
 
 static struct printk_ringbuffer printk_rb_dynamic;
 
-static struct printk_ringbuffer *prb = &printk_rb_static;
+struct printk_ringbuffer *prb = &printk_rb_static;
 
 /*
  * We cannot access per-CPU data (e.g. per-CPU flush irq_work) before
@@ -834,9 +714,6 @@ static ssize_t msg_print_ext_body(char *buf, size_t size,
 out:
 	return len;
 }
-
-static bool printk_get_next_message(struct printk_message *pmsg, u64 seq,
-				    bool is_extended, bool may_supress);
 
 /* /dev/kmsg - userspace message inject/listen interface */
 struct devkmsg_user {
@@ -1239,7 +1116,19 @@ static inline void log_buf_add_cpu(void) {}
 
 static void __init set_percpu_data_ready(void)
 {
+	struct hlist_node *tmp;
+	struct console *con;
+
+	console_list_lock();
+
+	hlist_for_each_entry_safe(con, tmp, &console_list, node) {
+		if (!cons_alloc_percpu_data(con))
+			unregister_console_locked(con);
+	}
+
 	__printk_percpu_data_ready = true;
+
+	console_list_unlock();
 }
 
 static unsigned int __init add_to_rb(struct printk_ringbuffer *rb,
@@ -2055,7 +1944,6 @@ static int console_lock_spinning_disable_and_check(int cookie)
 	return 1;
 }
 
-#if !IS_ENABLED(CONFIG_PREEMPT_RT)
 /**
  * console_trylock_spinning - try to get console_lock by busy waiting
  *
@@ -2129,7 +2017,6 @@ static int console_trylock_spinning(void)
 
 	return 1;
 }
-#endif /* CONFIG_PREEMPT_RT */
 
 /*
  * Recursion is tracked separately on each CPU. If NMIs are supported, an
@@ -2417,6 +2304,7 @@ asmlinkage int vprintk_emit(int facility, int level,
 			    const struct dev_printk_info *dev_info,
 			    const char *fmt, va_list args)
 {
+	struct cons_write_context wctxt = { };
 	int printed_len;
 	bool in_sched = false;
 
@@ -2437,28 +2325,25 @@ asmlinkage int vprintk_emit(int facility, int level,
 
 	printed_len = vprintk_store(facility, level, dev_info, fmt, args);
 
+	/*
+	 * The caller may be holding system-critical or
+	 * timing-sensitive locks. Disable preemption during
+	 * printing of all remaining records to all consoles so that
+	 * this context can return as soon as possible. Hopefully
+	 * another printk() caller will take over the printing.
+	 */
+	preempt_disable();
+
+	/*
+	 * Flush the non-BKL consoles. This only leads to direct atomic
+	 * printing for non-BKL consoles that do not have a printer
+	 * thread available. Otherwise the printer thread will perform
+	 * the printing.
+	 */
+	cons_atomic_flush(&wctxt, true);
+
 	/* If called from the scheduler, we can not call up(). */
-	if (!in_sched && allow_direct_printing()) {
-#if IS_ENABLED(CONFIG_PREEMPT_RT)
-		/*
-		 * Use the non-spinning trylock since PREEMPT_RT does not
-		 * support console lock handovers.
-		 *
-		 * Direct printing will most likely involve taking spinlocks.
-		 * For PREEMPT_RT, this is only allowed if in a preemptible
-		 * context.
-		 */
-		if (preemptible() && console_trylock())
-			console_unlock();
-#else
-		/*
-		 * The caller may be holding system-critical or
-		 * timing-sensitive locks. Disable preemption during direct
-		 * printing of all remaining records to all consoles so that
-		 * this context can return as soon as possible. Hopefully
-		 * another printk() caller will take over the printing.
-		 */
-		preempt_disable();
+	if (!in_sched && have_bkl_console && !IS_ENABLED(CONFIG_PREEMPT_RT)) {
 		/*
 		 * Try to acquire and then immediately release the console
 		 * semaphore. The release will print out buffers. With the
@@ -2467,11 +2352,15 @@ asmlinkage int vprintk_emit(int facility, int level,
 		 */
 		if (console_trylock_spinning())
 			console_unlock();
-		preempt_enable();
-#endif
 	}
 
-	wake_up_klogd();
+	preempt_enable();
+
+	cons_wake_threads();
+	if (in_sched)
+		defer_console_output();
+	else
+		wake_up_klogd();
 	return printed_len;
 }
 EXPORT_SYMBOL(vprintk_emit);
@@ -2495,63 +2384,8 @@ asmlinkage __visible int _printk(const char *fmt, ...)
 }
 EXPORT_SYMBOL(_printk);
 
-#ifdef CONFIG_HAVE_ATOMIC_CONSOLE
-static void __free_atomic_data(struct console_atomic_data *d)
-{
-}
-
-static void free_atomic_data(struct console_atomic_data *d)
-{
-	int count = 1;
-	int i;
-
-	if (!d)
-		return;
-
-#ifdef CONFIG_HAVE_NMI
-	count = 2;
-#endif
-
-	for (i = 0; i < count; i++)
-		__free_atomic_data(&d[i]);
-	kfree(d);
-}
-
-static int __alloc_atomic_data(struct console_atomic_data *d, short flags)
-{
-	return 0;
-}
-
-static struct console_atomic_data *alloc_atomic_data(short flags)
-{
-	struct console_atomic_data *d;
-	int count = 1;
-	int i;
-
-#ifdef CONFIG_HAVE_NMI
-	count = 2;
-#endif
-
-	d = kzalloc(sizeof(*d) * count, GFP_KERNEL);
-	if (!d)
-		goto err_out;
-
-	for (i = 0; i < count; i++) {
-		if (__alloc_atomic_data(&d[i], flags) != 0)
-			goto err_out;
-	}
-
-	return d;
-err_out:
-	free_atomic_data(d);
-	return NULL;
-}
-#endif /* CONFIG_HAVE_ATOMIC_CONSOLE */
-
 static bool pr_flush(int timeout_ms, bool reset_on_progress);
 static bool __pr_flush(struct console *con, int timeout_ms, bool reset_on_progress);
-
-static void printk_start_kthread(struct console *con);
 
 #else /* CONFIG_PRINTK */
 
@@ -2560,8 +2394,6 @@ static void printk_start_kthread(struct console *con);
 #define prb_read_valid(rb, seq, r)	false
 #define prb_first_valid_seq(rb)		0
 #define prb_next_seq(rb)		0
-
-#define free_atomic_data(d)
 
 static u64 syslog_seq;
 
@@ -2583,8 +2415,6 @@ static int console_lock_spinning_disable_and_check(int cookie) { return 0; }
 static bool suppress_message_printing(int level) { return false; }
 static bool pr_flush(int timeout_ms, bool reset_on_progress) { return true; }
 static bool __pr_flush(struct console *con, int timeout_ms, bool reset_on_progress) { return true; }
-static void printk_start_kthread(struct console *con) { }
-static bool allow_direct_printing(void) { return true; }
 
 #endif /* CONFIG_PRINTK */
 
@@ -2769,10 +2599,26 @@ MODULE_PARM_DESC(console_no_auto_verbose, "Disable console loglevel raise to hig
  */
 void suspend_console(void)
 {
+	struct console *con;
+
 	if (!console_suspend_enabled)
 		return;
 	pr_info("Suspending console(s) (use no_console_suspend to debug)\n");
 	pr_flush(1000, true);
+
+	console_list_lock();
+	for_each_console(con)
+		console_srcu_write_flags(con, con->flags | CON_SUSPENDED);
+	console_list_unlock();
+
+	/*
+	 * Ensure that all SRCU list walks have completed. All printing
+	 * contexts must be able to see that they are suspended so that it
+	 * is guaranteed that all printing has stopped when this function
+	 * completes.
+	 */
+	synchronize_srcu(&console_srcu);
+
 	console_lock();
 	console_suspended = 1;
 	up_console_sem();
@@ -2780,11 +2626,39 @@ void suspend_console(void)
 
 void resume_console(void)
 {
+	struct console *con;
+	short flags;
+	int cookie;
+
 	if (!console_suspend_enabled)
 		return;
 	down_console_sem();
 	console_suspended = 0;
 	console_unlock();
+
+	console_list_lock();
+	for_each_console(con)
+		console_srcu_write_flags(con, con->flags & ~CON_SUSPENDED);
+	console_list_unlock();
+
+	/*
+	 * Ensure that all SRCU list walks have completed. All printing
+	 * contexts must be able to see they are no longer suspended so
+	 * that they are guaranteed to wake up and resume printing.
+	 */
+	synchronize_srcu(&console_srcu);
+
+	cookie = console_srcu_read_lock();
+	for_each_console_srcu(con) {
+		flags = console_srcu_read_flags(con);
+		if (flags & CON_NO_BKL)
+			cons_kthread_wake(con);
+	}
+	console_srcu_read_unlock(cookie);
+
+	if (IS_ENABLED(CONFIG_PREEMPT_RT) && have_bkl_console)
+		wake_up_interruptible(&log_wait);
+
 	pr_flush(1000, true);
 }
 
@@ -2799,18 +2673,10 @@ void resume_console(void)
  */
 static int console_cpu_notify(unsigned int cpu)
 {
-	if (!cpuhp_tasks_frozen) {
+	if (!cpuhp_tasks_frozen && have_bkl_console) {
 		/* If trylock fails, someone else is doing the printing */
 		if (console_trylock())
 			console_unlock();
-		else {
-			/*
-			 * If a new CPU comes online, the conditions for
-			 * printer_should_wake() may have changed for some
-			 * kthread printer with !CON_ANYTIME.
-			 */
-			wake_up_klogd();
-		}
 	}
 	return 0;
 }
@@ -2830,7 +2696,7 @@ void console_lock(void)
 	down_console_sem();
 	if (console_suspended)
 		return;
-	console_kthreads_block();
+	console_locked = 1;
 	console_may_schedule = 1;
 }
 EXPORT_SYMBOL(console_lock);
@@ -2851,30 +2717,15 @@ int console_trylock(void)
 		up_console_sem();
 		return 0;
 	}
-	if (!console_kthreads_atomic_tryblock()) {
-		up_console_sem();
-		return 0;
-	}
+	console_locked = 1;
 	console_may_schedule = 0;
 	return 1;
 }
 EXPORT_SYMBOL(console_trylock);
 
-/*
- * This is used to help to make sure that certain paths within the VT code are
- * running with the console lock held. It is definitely not the perfect debug
- * tool (it is not known if the VT code is the task holding the console lock),
- * but it helps tracking those weird code paths in the console code such as
- * when the console is suspended: where the console is not locked but no
- * console printing may occur.
- *
- * Note: This returns true when the console is suspended but is not locked.
- *       This is intentional because the VT code must consider that situation
- *       the same as if the console was locked.
- */
 int is_console_locked(void)
 {
-	return (console_kthreads_blocked || atomic_read(&console_kthreads_active));
+	return console_locked;
 }
 EXPORT_SYMBOL(is_console_locked);
 
@@ -2897,135 +2748,10 @@ static bool abandon_console_lock_in_panic(void)
 	return atomic_read(&panic_cpu) != raw_smp_processor_id();
 }
 
-/*
- * Check if the given console is currently capable and allowed to print
- * records.
- *
- * Requires the console_srcu_read_lock.
- */
-static inline bool console_is_usable(struct console *con, bool atomic_printing)
-{
-	short flags;
-
-	if (atomic_printing) {
-#ifdef CONFIG_HAVE_ATOMIC_CONSOLE
-		if (!con->write_atomic)
-			return false;
-		if (!con->atomic_data)
-			return false;
-#else
-		return false;
-#endif
-	}
-	flags = console_srcu_read_flags(con);
-
-	if (!(flags & CON_ENABLED))
-		return false;
-
-	if (!con->write)
-		return false;
-
-	/*
-	 * Console drivers may assume that per-cpu resources have been
-	 * allocated. So unless they're explicitly marked as being able to
-	 * cope (CON_ANYTIME) don't call them until this CPU is officially up.
-	 */
-	if (!cpu_online(raw_smp_processor_id()) && !(flags & CON_ANYTIME))
-		return false;
-
-	return true;
-}
-
-static bool console_is_usable_unlocked(struct console *con)
-{
-	int cookie;
-	bool ret;
-
-	cookie = console_srcu_read_lock();
-	ret = console_is_usable(con, false);
-	console_srcu_read_unlock(cookie);
-
-	return ret;
-}
-
 static void __console_unlock(void)
 {
-	/*
-	 * Depending on whether console_lock() or console_trylock() was used,
-	 * appropriately allow the kthread printers to continue.
-	 */
-	if (console_kthreads_blocked)
-		console_kthreads_unblock();
-	else
-		console_kthreads_atomic_unblock();
-
-	/*
-	 * New records may have arrived while the console was locked.
-	 * Wake the kthread printers to print them.
-	 */
-	wake_up_klogd();
-
+	console_locked = 0;
 	up_console_sem();
-}
-
-static u64 read_console_seq(struct console *con)
-{
-#ifdef CONFIG_HAVE_ATOMIC_CONSOLE
-	unsigned long flags;
-	u64 seq2;
-	u64 seq;
-
-	if (!con->atomic_data)
-		return con->seq;
-
-	printk_cpu_sync_get_irqsave(flags);
-
-	seq = con->seq;
-	seq2 = con->atomic_data[0].seq;
-	if (seq2 > seq)
-		seq = seq2;
-#ifdef CONFIG_HAVE_NMI
-	seq2 = con->atomic_data[1].seq;
-	if (seq2 > seq)
-		seq = seq2;
-#endif
-
-	printk_cpu_sync_put_irqrestore(flags);
-
-	return seq;
-#else /* CONFIG_HAVE_ATOMIC_CONSOLE */
-	return con->seq;
-#endif
-}
-
-static void write_console_seq(struct console *con, u64 val, bool atomic_printing)
-{
-#ifdef CONFIG_HAVE_ATOMIC_CONSOLE
-	unsigned long flags;
-	u64 *seq;
-
-	if (!con->atomic_data) {
-		con->seq = val;
-		return;
-	}
-
-	printk_cpu_sync_get_irqsave(flags);
-
-	if (atomic_printing) {
-		seq = &con->atomic_data[0].seq;
-#ifdef CONFIG_HAVE_NMI
-		if (in_nmi())
-			seq = &con->atomic_data[1].seq;
-#endif
-	} else {
-		seq = &con->seq;
-	}
-	*seq = val;
-
-	printk_cpu_sync_put_irqrestore(flags);
-#else /* CONFIG_HAVE_ATOMIC_CONSOLE */
-	con->seq = val;
-#endif
 }
 
 /*
@@ -3043,7 +2769,7 @@ static void write_console_seq(struct console *con, u64 val, bool atomic_printing
  * If @pmsg->pbufs->outbuf is modified, @pmsg->outbuf_len is updated.
  */
 #ifdef CONFIG_PRINTK
-static void console_prepend_dropped(struct printk_message *pmsg, unsigned long dropped)
+void console_prepend_dropped(struct printk_message *pmsg, unsigned long dropped)
 {
 	struct printk_buffers *pbufs = pmsg->pbufs;
 	const size_t scratchbuf_sz = sizeof(pbufs->scratchbuf);
@@ -3075,7 +2801,8 @@ static void console_prepend_dropped(struct printk_message *pmsg, unsigned long d
 	pmsg->outbuf_len += len;
 }
 #else
-#define console_prepend_dropped(pmsg, dropped)
+static inline void console_prepend_dropped(struct printk_message *pmsg,
+					   unsigned long dropped) { }
 #endif /* CONFIG_PRINTK */
 
 /*
@@ -3097,10 +2824,10 @@ static void console_prepend_dropped(struct printk_message *pmsg, unsigned long d
  * of @pmsg are valid. (See the documentation of struct printk_message
  * for information about the @pmsg fields.)
  */
-static bool printk_get_next_message(struct printk_message *pmsg, u64 seq,
-				    bool is_extended, bool may_suppress)
+bool printk_get_next_message(struct printk_message *pmsg, u64 seq,
+			     bool is_extended, bool may_suppress)
 {
-	static atomic_t panic_console_dropped = ATOMIC_INIT(0);
+	static int panic_console_dropped;
 
 	struct printk_buffers *pbufs = pmsg->pbufs;
 	const size_t scratchbuf_sz = sizeof(pbufs->scratchbuf);
@@ -3135,7 +2862,7 @@ static bool printk_get_next_message(struct printk_message *pmsg, u64 seq,
 	 */
 	if (pmsg->dropped &&
 	    panic_in_progress() &&
-	    atomic_fetch_inc_relaxed(&panic_console_dropped) > 10) {
+	    panic_console_dropped++ > 10) {
 		suppress_panic_printk = 1;
 		pr_warn_once("Too many dropped messages. Suppress messages on non-panic CPUs to prevent livelock.\n");
 	}
@@ -3171,100 +2898,62 @@ out:
  *
  * Requires the console_lock and the SRCU read lock.
  */
-static bool __console_emit_next_record(struct console *con, bool *handover,
-				       int cookie, bool atomic_printing)
+static bool console_emit_next_record(struct console *con, bool *handover, int cookie)
 {
 	static struct printk_buffers pbufs;
 
-	bool is_extended = con->flags & CON_EXTENDED;
+	bool is_extended = console_srcu_read_flags(con) & CON_EXTENDED;
 	char *outbuf = &pbufs.outbuf[0];
 	struct printk_message pmsg = {
 		.pbufs = &pbufs,
 	};
 	unsigned long flags;
-	unsigned long dropped = 0;
-	u64 seq;
 
-	if (handover)
-		*handover = false;
+	*handover = false;
 
-	seq = read_console_seq(con);
-	if (!printk_get_next_message(&pmsg, seq, is_extended, true))
+	if (!printk_get_next_message(&pmsg, con->seq, is_extended, true))
 		return false;
 
-	atomic_long_add((unsigned long)(pmsg.dropped), &con->dropped);
+	con->dropped += pmsg.dropped;
 
 	/* Skip messages of formatted length 0. */
 	if (pmsg.outbuf_len == 0) {
-		write_console_seq(con, pmsg.seq + 1, atomic_printing);
+		con->seq = pmsg.seq + 1;
 		goto skip;
 	}
 
-	dropped = atomic_long_xchg_relaxed(&con->dropped, 0);
-	if (dropped && !is_extended)
-		console_prepend_dropped(&pmsg, dropped);
-
-	if (handover) {
-		/*
-		 * While actively printing out messages, if another printk()
-		 * were to occur on another CPU, it may wait for this one to
-		 * finish. This task can not be preempted if there is a
-		 * waiter waiting to take over.
-		 *
-		 * Interrupts are disabled because the hand over to a waiter
-		 * must not be interrupted until the hand over is completed
-		 * (@console_waiter is cleared).
-		 */
-		printk_safe_enter_irqsave(flags);
-		console_lock_spinning_enable();
-
-		/* Do not trace print latency. */
-		stop_critical_timings();
+	if (con->dropped && !is_extended) {
+		console_prepend_dropped(&pmsg, con->dropped);
+		con->dropped = 0;
 	}
+
+	/*
+	 * While actively printing out messages, if another printk()
+	 * were to occur on another CPU, it may wait for this one to
+	 * finish. This task can not be preempted if there is a
+	 * waiter waiting to take over.
+	 *
+	 * Interrupts are disabled because the hand over to a waiter
+	 * must not be interrupted until the hand over is completed
+	 * (@console_waiter is cleared).
+	 */
+	printk_safe_enter_irqsave(flags);
+	console_lock_spinning_enable();
+
+	/* Do not trace print latency. */
+	stop_critical_timings();
 
 	/* Write everything out to the hardware. */
-	if (atomic_printing)
-		con->write_atomic(con, outbuf, pmsg.outbuf_len);
-	else
-		con->write(con, outbuf, pmsg.outbuf_len);
+	con->write(con, outbuf, pmsg.outbuf_len);
 
-	write_console_seq(con, pmsg.seq + 1, atomic_printing);
-	if (handover) {
-		start_critical_timings();
+	start_critical_timings();
 
-		*handover = console_lock_spinning_disable_and_check(cookie);
-		printk_safe_exit_irqrestore(flags);
-	}
+	con->seq = pmsg.seq + 1;
+
+	*handover = console_lock_spinning_disable_and_check(cookie);
+	printk_safe_exit_irqrestore(flags);
 skip:
 	return true;
-}
-
-/*
- * Print a record for a given console, but allow another printk() caller to
- * take over the console_lock and continue printing.
- *
- * Requires the console_lock, but depending on @handover after the call, the
- * caller may no longer have the console_lock.
- *
- * See __console_emit_next_record() for argument and return details.
- */
-static bool console_emit_next_record_transferable(struct console *con,
-						  bool *handover, int cookie)
-{
-	/*
-	 * Handovers are only supported if threaded printers are atomically
-	 * blocked. The context taking over the console_lock may be atomic.
-	 *
-	 * PREEMPT_RT also does not support handovers because the spinning
-	 * waiter can cause large latencies.
-	 */
-	if (!console_kthreads_atomically_blocked() ||
-	    IS_ENABLED(CONFIG_PREEMPT_RT)) {
-		*handover = false;
-		handover = NULL;
-	}
-
-	return __console_emit_next_record(con, handover, cookie, false);
 }
 
 /*
@@ -3285,8 +2974,8 @@ static bool console_emit_next_record_transferable(struct console *con,
  * were flushed to all usable consoles. A returned false informs the caller
  * that everything was not flushed (either there were no usable consoles or
  * another context has taken over printing or it is a panic situation and this
- * is not the panic CPU or direct printing is not preferred). Regardless the
- * reason, the caller should assume it is not useful to immediately try again.
+ * is not the panic CPU). Regardless the reason, the caller should assume it
+ * is not useful to immediately try again.
  *
  * Requires the console_lock.
  */
@@ -3301,21 +2990,22 @@ static bool console_flush_all(bool do_cond_resched, u64 *next_seq, bool *handove
 	*handover = false;
 
 	do {
-		/* Let the kthread printers do the work if they can. */
-		if (!allow_direct_printing())
-			return false;
-
 		any_progress = false;
 
 		cookie = console_srcu_read_lock();
 		for_each_console_srcu(con) {
+			short flags = console_srcu_read_flags(con);
 			bool progress;
 
-			if (!console_is_usable(con, false))
+			/* console_flush_all() is only for legacy consoles. */
+			if (flags & CON_NO_BKL)
+				continue;
+
+			if (!console_is_usable(con, flags))
 				continue;
 			any_usable = true;
 
-			progress = console_emit_next_record_transferable(con, handover, cookie);
+			progress = console_emit_next_record(con, handover, cookie);
 
 			/*
 			 * If a handover has occurred, the SRCU read lock
@@ -3349,80 +3039,12 @@ abandon:
 	return false;
 }
 
-#if defined(CONFIG_HAVE_ATOMIC_CONSOLE) && defined(CONFIG_PRINTK)
-static bool console_emit_next_record(struct console *con, bool atomic_printing);
-
-static void atomic_console_flush_all(void)
-{
-	unsigned long flags;
-	struct console *con;
-	bool any_progress;
-	int index = 0;
-
-	if (console_suspended)
-		return;
-
-#ifdef CONFIG_HAVE_NMI
-	if (in_nmi())
-		index = 1;
-#endif
-
-	printk_cpu_sync_get_irqsave(flags);
-
-	do {
-		int cookie;
-
-		any_progress = false;
-
-		cookie = console_srcu_read_lock();
-		for_each_console_srcu(con) {
-			bool progress;
-
-			if (!console_is_usable(con, true))
-				continue;
-
-			progress = console_emit_next_record(con, true);
-			if (!progress)
-				continue;
-			any_progress = true;
-
-			touch_softlockup_watchdog_sync();
-			clocksource_touch_watchdog();
-			rcu_cpu_stall_reset();
-			touch_nmi_watchdog();
-		}
-		console_srcu_read_unlock(cookie);
-	} while (any_progress);
-
-	printk_cpu_sync_put_irqrestore(flags);
-}
-#else /* CONFIG_HAVE_ATOMIC_CONSOLE && CONFIG_PRINTK */
-#define atomic_console_flush_all()
-#endif
-
-/**
- * console_unlock - unblock the console subsystem from printing
- *
- * Releases the console_lock which the caller holds to block printing of
- * the console subsystem.
- *
- * While the console_lock was held, console output may have been buffered
- * by printk().  If this is the case, console_unlock(); emits
- * the output prior to releasing the lock.
- *
- * console_unlock(); may be called from any context.
- */
-void console_unlock(void)
+static u64 console_flush_and_unlock(void)
 {
 	bool do_cond_resched;
 	bool handover;
 	bool flushed;
 	u64 next_seq;
-
-	if (console_suspended) {
-		up_console_sem();
-		return;
-	}
 
 	/*
 	 * Console drivers are called with interrupts disabled, so
@@ -3460,6 +3082,39 @@ void console_unlock(void)
 		 * fails, another context is already handling the printing.
 		 */
 	} while (prb_read_valid(prb, next_seq, NULL) && console_trylock());
+
+	return next_seq;
+}
+
+/**
+ * console_unlock - unblock the console subsystem from printing
+ *
+ * Releases the console_lock which the caller holds to block printing of
+ * the console subsystem.
+ *
+ * While the console_lock was held, console output may have been buffered
+ * by printk().  If this is the case, console_unlock(); emits
+ * the output prior to releasing the lock.
+ *
+ * console_unlock(); may be called from any context.
+ */
+void console_unlock(void)
+{
+	if (console_suspended) {
+		up_console_sem();
+		return;
+	}
+
+	/*
+	 * PREEMPT_RT relies on kthread and atomic consoles for printing.
+	 * It never attempts to print from console_unlock().
+	 */
+	if (IS_ENABLED(CONFIG_PREEMPT_RT)) {
+		__console_unlock();
+		return;
+	}
+
+	console_flush_and_unlock();
 }
 EXPORT_SYMBOL(console_unlock);
 
@@ -3484,6 +3139,9 @@ void console_unblank(void)
 	struct console *c;
 	int cookie;
 
+	if (!have_bkl_console)
+		return;
+
 	/*
 	 * Stop console printing because the unblank() callback may
 	 * assume the console is not within its write() callback.
@@ -3494,13 +3152,10 @@ void console_unblank(void)
 	if (oops_in_progress) {
 		if (down_trylock_console_sem() != 0)
 			return;
-		if (!console_kthreads_atomic_tryblock()) {
-			up_console_sem();
-			return;
-		}
 	} else
 		console_lock();
 
+	console_locked = 1;
 	console_may_schedule = 0;
 
 	cookie = console_srcu_read_lock();
@@ -3524,10 +3179,30 @@ void console_unblank(void)
  */
 void console_flush_on_panic(enum con_flush_mode mode)
 {
-	if (mode == CONSOLE_ATOMIC_FLUSH_PENDING) {
-		atomic_console_flush_all();
-		return;
+	struct console *c;
+	short flags;
+	int cookie;
+	u64 seq;
+
+	seq = prb_first_valid_seq(prb);
+
+	/*
+	 * Safely flush the atomic consoles before trying to flush any
+	 * BKL/legacy consoles.
+	 */
+	if (mode == CONSOLE_REPLAY_ALL) {
+		cookie = console_srcu_read_lock();
+		for_each_console_srcu(c) {
+			flags = console_srcu_read_flags(c);
+			if (flags & CON_NO_BKL)
+				cons_force_seq(c, seq);
+		}
+		console_srcu_read_unlock(cookie);
 	}
+	cons_atomic_flush(NULL, true);
+
+	if (!have_bkl_console)
+		return;
 
 	/*
 	 * If someone else is holding the console lock, trylock will fail
@@ -3540,12 +3215,6 @@ void console_flush_on_panic(enum con_flush_mode mode)
 	console_may_schedule = 0;
 
 	if (mode == CONSOLE_REPLAY_ALL) {
-		struct console *c;
-		int cookie;
-		u64 seq;
-
-		seq = prb_first_valid_seq(prb);
-
 		cookie = console_srcu_read_lock();
 		for_each_console_srcu(c) {
 			/*
@@ -3553,7 +3222,7 @@ void console_flush_on_panic(enum con_flush_mode mode)
 			 * unsynchronized assignment. But in that case, the
 			 * kernel is in "hope and pray" mode anyway.
 			 */
-			write_console_seq(c, seq, false);
+			c->seq = seq;
 		}
 		console_srcu_read_unlock(cookie);
 	}
@@ -3614,12 +3283,117 @@ EXPORT_SYMBOL(console_stop);
 
 void console_start(struct console *console)
 {
+	short flags;
+
 	console_list_lock();
 	console_srcu_write_flags(console, console->flags | CON_ENABLED);
+	flags = console->flags;
 	console_list_unlock();
+
+	/*
+	 * Ensure that all SRCU list walks have completed. The related
+	 * printing context must be able to see it is enabled so that
+	 * it is guaranteed to wake up and resume printing.
+	 */
+	synchronize_srcu(&console_srcu);
+
+	if (flags & CON_NO_BKL)
+		cons_kthread_wake(console);
+	else if (IS_ENABLED(CONFIG_PREEMPT_RT))
+		wake_up_interruptible(&log_wait);
+
 	__pr_flush(console, 1000, true);
 }
 EXPORT_SYMBOL(console_start);
+
+static struct task_struct *console_bkl_kthread;
+
+static bool printer_should_wake(u64 seq)
+{
+	bool available = false;
+	struct console *con;
+	int cookie;
+
+	if (kthread_should_stop())
+		return true;
+
+	cookie = console_srcu_read_lock();
+	for_each_console_srcu(con) {
+		short flags = console_srcu_read_flags(con);
+
+		if (flags & CON_NO_BKL)
+			continue;
+		if (!console_is_usable(con, flags))
+			continue;
+		/*
+		 * It is safe to read @seq because only this
+		 * thread context updates @seq.
+		 */
+		if (prb_read_valid(prb, con->seq, NULL)) {
+			available = true;
+			break;
+		}
+	}
+	console_srcu_read_unlock(cookie);
+
+	return available;
+}
+
+static int console_bkl_kthread_func(void *unused)
+{
+	u64 seq = 0;
+	int error;
+
+	for (;;) {
+		error = wait_event_interruptible(log_wait, printer_should_wake(seq));
+
+		if (kthread_should_stop())
+			break;
+
+		if (error)
+			continue;
+
+		console_lock();
+		if (console_suspended)
+			up_console_sem();
+		else
+			seq = console_flush_and_unlock();
+	}
+	return 0;
+}
+
+void console_bkl_kthread_create(void)
+{
+	struct task_struct *kt;
+	struct console *c;
+
+	lockdep_assert_held(&console_mutex);
+
+	if (!IS_ENABLED(CONFIG_PREEMPT_RT))
+		return;
+
+	if (!printk_threads_enabled || console_bkl_kthread)
+		return;
+
+	for_each_console(c) {
+		if (c->flags & CON_BOOT)
+			return;
+	}
+
+	kt = kthread_run(console_bkl_kthread_func, NULL, "pr/bkl");
+	if (IS_ERR(kt)) {
+		pr_err("unable to start BKL printing thread\n");
+		return;
+	}
+
+	console_bkl_kthread = kt;
+
+	/*
+	 * It is important that console printing threads are scheduled
+	 * shortly after a printk call and with generous runtime budgets.
+	 */
+	sched_set_normal(console_bkl_kthread, -20);
+}
 
 static int __read_mostly keep_bootcon;
 
@@ -3704,11 +3478,6 @@ static void try_enable_default_console(struct console *newcon)
 		newcon->flags |= CON_CONSDEV;
 }
 
-#define con_printk(lvl, con, fmt, ...)			\
-	printk(lvl pr_fmt("%sconsole [%s%d] " fmt),	\
-	       (con->flags & CON_BOOT) ? "boot" : "",	\
-	       con->name, con->index, ##__VA_ARGS__)
-
 static void console_init_seq(struct console *newcon, bool bootcon_registered)
 {
 	struct console *con;
@@ -3717,11 +3486,11 @@ static void console_init_seq(struct console *newcon, bool bootcon_registered)
 	if (newcon->flags & (CON_PRINTBUFFER | CON_BOOT)) {
 		/* Get a consistent copy of @syslog_seq. */
 		mutex_lock(&syslog_lock);
-		write_console_seq(newcon, syslog_seq, false);
+		newcon->seq = syslog_seq;
 		mutex_unlock(&syslog_lock);
 	} else {
 		/* Begin with next message added to ringbuffer. */
-		write_console_seq(newcon, prb_next_seq(prb), false);
+		newcon->seq = prb_next_seq(prb);
 
 		/*
 		 * If any enabled boot consoles are due to be unregistered
@@ -3772,8 +3541,6 @@ static void console_init_seq(struct console *newcon, bool bootcon_registered)
 
 #define console_first()				\
 	hlist_entry(console_list.first, struct console, node)
-
-static int unregister_console_locked(struct console *console);
 
 /*
  * The console driver calls this routine during kernel initialization
@@ -3863,15 +3630,18 @@ void register_console(struct console *newcon)
 		newcon->flags &= ~CON_PRINTBUFFER;
 	}
 
-	atomic_long_set(&newcon->dropped, 0);
-	newcon->thread = NULL;
-	newcon->blocked = true;
-	mutex_init(&newcon->lock);
-#ifdef CONFIG_HAVE_ATOMIC_CONSOLE
-	newcon->atomic_data = NULL;
-#endif
-
+	newcon->dropped = 0;
 	console_init_seq(newcon, bootcon_registered);
+
+	if (!(newcon->flags & CON_NO_BKL)) {
+		have_bkl_console = true;
+		console_bkl_kthread_create();
+	} else if (!cons_nobkl_init(newcon)) {
+		goto unlock;
+	}
+
+	if (newcon->flags & CON_BOOT)
+		have_boot_console = true;
 
 	/*
 	 * Put this console in the list - keep the
@@ -3890,9 +3660,6 @@ void register_console(struct console *newcon)
 	} else {
 		hlist_add_behind_rcu(&newcon->node, console_list.first);
 	}
-
-	if (printk_kthreads_available)
-		printk_start_kthread(newcon);
 
 	/*
 	 * No need to synchronize SRCU here! The caller does not rely
@@ -3919,6 +3686,9 @@ void register_console(struct console *newcon)
 			if (con->flags & CON_BOOT)
 				unregister_console_locked(con);
 		}
+
+		/* All boot consoles have been unregistered. */
+		have_boot_console = false;
 	}
 unlock:
 	console_list_unlock();
@@ -3928,12 +3698,13 @@ EXPORT_SYMBOL(register_console);
 /* Must be called under console_list_lock(). */
 static int unregister_console_locked(struct console *console)
 {
-	struct task_struct *thd;
+	struct console *c;
+	bool is_boot_con;
 	int res;
 
 	lockdep_assert_console_list_lock_held();
 
-	con_printk(KERN_INFO, console, "disabled\n");
+	is_boot_con = console->flags & CON_BOOT;
 
 	res = _braille_unregister_console(console);
 	if (res < 0)
@@ -3941,21 +3712,14 @@ static int unregister_console_locked(struct console *console)
 	if (res > 0)
 		return 0;
 
-	/* Disable it unconditionally */
-	console_srcu_write_flags(console, console->flags & ~CON_ENABLED);
-
 	if (!console_is_registered_locked(console))
 		return -ENODEV;
 
-	hlist_del_init_rcu(&console->node);
+	console_srcu_write_flags(console, console->flags & ~CON_ENABLED);
 
-	/*
-	 * console->thread can only be cleared under the console lock. But
-	 * stopping the thread must be done without the console lock. The
-	 * task that clears @thread is the task that stops the kthread.
-	 */
-	thd = console->thread;
-	console->thread = NULL;
+	con_printk(KERN_INFO, console, "disabled\n");
+
+	hlist_del_init_rcu(&console->node);
 
 	/*
 	 * <HISTORICAL>
@@ -3976,17 +3740,22 @@ static int unregister_console_locked(struct console *console)
 	 */
 	synchronize_srcu(&console_srcu);
 
+	if (console->flags & CON_NO_BKL)
+		cons_nobkl_cleanup(console);
+
 	console_sysfs_notify();
-
-	if (thd)
-		kthread_stop(thd);
-
-#ifdef CONFIG_HAVE_ATOMIC_CONSOLE
-	free_atomic_data(console->atomic_data);
-#endif
 
 	if (console->exit)
 		res = console->exit(console);
+
+	/*
+	 * Each time a boot console unregisters, try to start up the printing
+	 * threads. They will only start if this was the last boot console.
+	 */
+	if (is_boot_con) {
+		for_each_console(c)
+			cons_kthread_create(c);
+	}
 
 	return res;
 }
@@ -4128,22 +3897,6 @@ static int __init printk_late_init(void)
 }
 late_initcall(printk_late_init);
 
-static int __init printk_activate_kthreads(void)
-{
-	struct console *con;
-	int cookie;
-
-	printk_kthreads_available = true;
-
-	cookie = console_srcu_read_lock();
-	for_each_console_srcu(con)
-		printk_start_kthread(con);
-	console_srcu_read_unlock(cookie);
-
-	return 0;
-}
-early_initcall(printk_activate_kthreads);
-
 #if defined CONFIG_PRINTK
 /* If @con is specified, only wait for that console. Otherwise wait for all. */
 static bool __pr_flush(struct console *con, int timeout_ms, bool reset_on_progress)
@@ -4165,31 +3918,36 @@ static bool __pr_flush(struct console *con, int timeout_ms, bool reset_on_progre
 
 		/*
 		 * Hold the console_lock to guarantee safe access to
-		 * console->seq and to prevent changes to @console_suspended
-		 * until all consoles have been processed.
+		 * console->seq.
 		 */
 		console_lock();
 
 		cookie = console_srcu_read_lock();
 		for_each_console_srcu(c) {
+			short flags;
+
 			if (con && con != c)
 				continue;
-			if (!console_is_usable(c, false))
+
+			flags = console_srcu_read_flags(c);
+
+			if (!console_is_usable(c, flags))
 				continue;
+
+			/*
+			 * Since the console is locked, use this opportunity
+			 * to update console->seq for NOBKL consoles.
+			 */
+			if (flags & CON_NO_BKL)
+				c->seq = cons_read_seq(c);
+
 			printk_seq = c->seq;
 			if (printk_seq < seq)
 				diff += seq - printk_seq;
 		}
 		console_srcu_read_unlock(cookie);
 
-		/*
-		 * If consoles are suspended, it cannot be expected that they
-		 * make forward progress, so timeout immediately. @diff is
-		 * still used to return a valid flush status.
-		 */
-		if (console_suspended)
-			remaining = 0;
-		else if (diff != last_diff && reset_on_progress)
+		if (diff != last_diff && reset_on_progress)
 			remaining = timeout_ms;
 
 		console_unlock();
@@ -4234,156 +3992,11 @@ static bool pr_flush(int timeout_ms, bool reset_on_progress)
 	return __pr_flush(NULL, timeout_ms, reset_on_progress);
 }
 
-static void __printk_fallback_preferred_direct(void)
-{
-	printk_prefer_direct_enter();
-	pr_err("falling back to preferred direct printing\n");
-	printk_kthreads_available = false;
-}
-
-/*
- * Print a record for a given console, not allowing another printk() caller
- * to take over. This is appropriate for contexts that do not have the
- * console_lock.
- *
- * See __console_emit_next_record() for argument and return details.
- */
-static bool console_emit_next_record(struct console *con, bool atomic_printing)
-{
-	return __console_emit_next_record(con, NULL, 0, atomic_printing);
-}
-
-static bool printer_should_wake(struct console *con, u64 seq)
-{
-	if (kthread_should_stop() || !printk_kthreads_available)
-		return true;
-
-	if (con->blocked ||
-	    console_kthreads_atomically_blocked() ||
-	    block_console_kthreads ||
-	    system_state > SYSTEM_RUNNING ||
-	    oops_in_progress) {
-		return false;
-	}
-
-	if (!console_is_usable_unlocked(con))
-		return false;
-
-	return prb_read_valid(prb, seq, NULL);
-}
-
-static int printk_kthread_func(void *data)
-{
-	struct console *con = data;
-	u64 seq = 0;
-	int error;
-
-#ifdef CONFIG_HAVE_ATOMIC_CONSOLE
-	if (con->write_atomic)
-		con->atomic_data = alloc_atomic_data(con->flags);
-#endif
-
-	con_printk(KERN_INFO, con, "printing thread started\n");
-	for (;;) {
-		/*
-		 * Guarantee this task is visible on the waitqueue before
-		 * checking the wake condition.
-		 *
-		 * The full memory barrier within set_current_state() of
-		 * prepare_to_wait_event() pairs with the full memory barrier
-		 * within wq_has_sleeper().
-		 *
-		 * This pairs with __wake_up_klogd:A.
-		 */
-		error = wait_event_interruptible(log_wait,
-						 printer_should_wake(con, seq)); /* LMM(printk_kthread_func:A) */
-
-		if (kthread_should_stop() || !printk_kthreads_available)
-			break;
-
-		if (error)
-			continue;
-
-		error = mutex_lock_interruptible(&con->lock);
-		if (error)
-			continue;
-
-		if (con->blocked ||
-		    !console_kthread_printing_tryenter()) {
-			/* Another context has locked the console_lock. */
-			mutex_unlock(&con->lock);
-			continue;
-		}
-
-		/*
-		 * Although this context has not locked the console_lock, it
-		 * is known that the console_lock is not locked and it is not
-		 * possible for any other context to lock the console_lock.
-		 * Therefore it is safe to read con->flags.
-		 */
-
-		if (!console_is_usable_unlocked(con)) {
-			console_kthread_printing_exit();
-			mutex_unlock(&con->lock);
-			continue;
-		}
-
-		/*
-		 * Even though the printk kthread is always preemptible, it is
-		 * still not allowed to call cond_resched() from within
-		 * console drivers. The task may become non-preemptible in the
-		 * console driver call chain. For example, vt_console_print()
-		 * takes a spinlock and then can call into fbcon_redraw(),
-		 * which can conditionally invoke cond_resched().
-		 */
-		console_may_schedule = 0;
-		console_emit_next_record(con, false);
-
-		seq = con->seq;
-
-		console_kthread_printing_exit();
-
-		mutex_unlock(&con->lock);
-	}
-
-	con_printk(KERN_INFO, con, "printing thread stopped\n");
-	console_lock();
-	/*
-	 * If this kthread is being stopped by another task, con->thread will
-	 * already be NULL. That is fine. The important thing is that it is
-	 * NULL after the kthread exits.
-	 */
-	con->thread = NULL;
-	console_unlock();
-
-	return 0;
-}
-
-/* Must be called under console_lock. */
-static void printk_start_kthread(struct console *con)
-{
-	/*
-	 * Do not start a kthread if there is no write() callback. The
-	 * kthreads assume the write() callback exists.
-	 */
-	if (!con->write)
-		return;
-
-	con->thread = kthread_run(printk_kthread_func, con,
-				  "pr/%s%d", con->name, con->index);
-	if (IS_ERR(con->thread)) {
-		con->thread = NULL;
-		con_printk(KERN_ERR, con, "unable to start printing thread\n");
-		__printk_fallback_preferred_direct();
-		return;
-	}
-}
-
 /*
  * Delayed printk version, for scheduler-internal messages:
  */
-#define PRINTK_PENDING_WAKEUP		0x01
-#define PRINTK_PENDING_DIRECT_OUTPUT	0x02
+#define PRINTK_PENDING_WAKEUP	0x01
+#define PRINTK_PENDING_OUTPUT	0x02
 
 static DEFINE_PER_CPU(int, printk_pending);
 
@@ -4391,14 +4004,18 @@ static void wake_up_klogd_work_func(struct irq_work *irq_work)
 {
 	int pending = this_cpu_xchg(printk_pending, 0);
 
-	if (pending & PRINTK_PENDING_DIRECT_OUTPUT) {
-		printk_prefer_direct_enter();
-
-		/* If trylock fails, someone else is doing the printing */
-		if (console_trylock())
-			console_unlock();
-
-		printk_prefer_direct_exit();
+	if (pending & PRINTK_PENDING_OUTPUT) {
+		if (IS_ENABLED(CONFIG_PREEMPT_RT)) {
+			/* The BKL thread waits on @log_wait. */
+			pending |= PRINTK_PENDING_WAKEUP;
+		} else {
+			/*
+			 * If trylock fails, some other context
+			 * will do the printing.
+			 */
+			if (console_trylock())
+				console_unlock();
+		}
 	}
 
 	if (pending & PRINTK_PENDING_WAKEUP)
@@ -4423,54 +4040,68 @@ static void __wake_up_klogd(int val)
 	 * prepare_to_wait_event(), which is called after ___wait_event() adds
 	 * the waiter but before it has checked the wait condition.
 	 *
-	 * This pairs with devkmsg_read:A, syslog_print:A, and
-	 * printk_kthread_func:A.
+	 * This pairs with devkmsg_read:A and syslog_print:A.
 	 */
 	if (wq_has_sleeper(&log_wait) || /* LMM(__wake_up_klogd:A) */
-	    (val & PRINTK_PENDING_DIRECT_OUTPUT)) {
+	    (val & PRINTK_PENDING_OUTPUT)) {
 		this_cpu_or(printk_pending, val);
 		irq_work_queue(this_cpu_ptr(&wake_up_klogd_work));
 	}
 	preempt_enable();
 }
 
+/**
+ * wake_up_klogd - Wake kernel logging daemon
+ *
+ * Use this function when new records have been added to the ringbuffer
+ * and the console printing for those records is handled elsewhere. In
+ * this case only the logging daemon needs to be woken.
+ *
+ * Context: Any context.
+ */
 void wake_up_klogd(void)
 {
 	__wake_up_klogd(PRINTK_PENDING_WAKEUP);
 }
 
+/**
+ * defer_console_output - Wake kernel logging daemon and trigger
+ *	console printing in a deferred context
+ *
+ * Use this function when new records have been added to the ringbuffer
+ * but the current context is unable to perform the console printing.
+ * This function also wakes the logging daemon.
+ *
+ * Context: Any context.
+ */
 void defer_console_output(void)
 {
+	int val = PRINTK_PENDING_WAKEUP;
+
 	/*
 	 * New messages may have been added directly to the ringbuffer
 	 * using vprintk_store(), so wake any waiters as well.
 	 */
-	int val = PRINTK_PENDING_WAKEUP;
-
-	/*
-	 * Make sure that some context will print the messages when direct
-	 * printing is allowed. This happens in situations when the kthreads
-	 * may not be as reliable or perhaps unusable.
-	 */
-	if (allow_direct_printing())
-		val |= PRINTK_PENDING_DIRECT_OUTPUT;
-
+	if (have_bkl_console)
+		val |= PRINTK_PENDING_OUTPUT;
 	__wake_up_klogd(val);
 }
 
 void printk_trigger_flush(void)
 {
+	struct cons_write_context wctxt = { };
+
+	preempt_disable();
+	cons_atomic_flush(&wctxt, true);
+	preempt_enable();
+
+	cons_wake_threads();
 	defer_console_output();
 }
 
 int vprintk_deferred(const char *fmt, va_list args)
 {
-	int r;
-
-	r = vprintk_emit(0, LOGLEVEL_SCHED, NULL, fmt, args);
-	defer_console_output();
-
-	return r;
+	return vprintk_emit(0, LOGLEVEL_SCHED, NULL, fmt, args);
 }
 
 int _printk_deferred(const char *fmt, ...)
