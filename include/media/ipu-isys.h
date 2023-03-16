@@ -21,10 +21,14 @@ struct ipu_isys_subdev_i2c_info {
 	char i2c_adapter_bdf[32];
 };
 
-#define IPU_SPDATA_NAME_LEN     20
-#define IPU_SPDATA_BDF_LEN      32
-#define IPU_SPLATA_GPIO_NUM 4
-#define IPU_SPLATA_IRQ_PIN_NAME_LEN 16
+#if (IS_ENABLED(CONFIG_VIDEO_INTEL_IPU_USE_PLATFORMDATA) \
+       && IS_ENABLED(CONFIG_VIDEO_INTEL_IPU_PDATA_DYNAMIC_LOADING)) \
+       || IS_ENABLED(CONFIG_INTEL_IPU6_ACPI)
+#define IPU_SPDATA_NAME_LEN    20
+#define IPU_SPDATA_BDF_LEN     32
+#define IPU_SPDATA_GPIO_NUM    4
+#define IPU_SPDATA_IRQ_PIN_NAME_LEN 16
+#endif
 
 #if IS_ENABLED(CONFIG_VIDEO_INTEL_IPU_USE_PLATFORMDATA) \
 	&& IS_ENABLED(CONFIG_VIDEO_INTEL_IPU_PDATA_DYNAMIC_LOADING)
@@ -54,10 +58,10 @@ struct ipu_spdata_rep {
 
 	/* sensor_platform */
 	unsigned int lanes;
-	int gpios[IPU_SPLATA_GPIO_NUM];
+	int gpios[IPU_SPDATA_GPIO_NUM];
 	int irq_pin;
 	unsigned int irq_pin_flags;
-	char irq_pin_name[IPU_SPLATA_IRQ_PIN_NAME_LEN];
+	char irq_pin_name[IPU_SPDATA_IRQ_PIN_NAME_LEN];
 	char suffix;
 };
 #endif
