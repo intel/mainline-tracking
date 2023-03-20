@@ -318,6 +318,7 @@ struct usb4_port {
  * @nvm: Pointer to the NVM if the retimer has one (%NULL otherwise)
  * @no_nvm_upgrade: Prevent NVM upgrade of this retimer
  * @auth_status: Status of last NVM authentication
+ * @debugfs_dir: Pointer to the debugfs structure
  */
 struct tb_retimer {
 	struct device dev;
@@ -329,6 +330,7 @@ struct tb_retimer {
 	struct tb_nvm *nvm;
 	bool no_nvm_upgrade;
 	u32 auth_status;
+	struct dentry *debugfs_dir;
 };
 
 /**
@@ -1296,6 +1298,24 @@ bool usb4_port_clx_supported(struct tb_port *port);
 bool usb4_port_asym_width_supported(struct tb_port *port, enum tb_link_width width);
 int usb4_port_asym_set_link_width(struct tb_port *port, enum tb_link_width width);
 int usb4_port_asym_start(struct tb_port *port);
+
+/**
+ * enum tb_sb_target - Sideband transaction target
+ * @USB4_SB_TARGET_ROUTER: Target is the router itself
+ * @USB4_SB_TARGET_PARTNER: Target is partner
+ * @USB4_SB_TARGET_RETIMER: Target is retimer
+ */
+enum usb4_sb_target {
+	USB4_SB_TARGET_ROUTER,
+	USB4_SB_TARGET_PARTNER,
+	USB4_SB_TARGET_RETIMER,
+};
+
+int usb4_port_sb_read(struct tb_port *port, enum usb4_sb_target target, u8 index,
+		      u8 reg, void *buf, u8 size);
+int usb4_port_sb_write(struct tb_port *port, enum usb4_sb_target target,
+		       u8 index, u8 reg, const void *buf, u8 size);
+
 int usb4_port_margining_caps(struct tb_port *port, u32 *caps);
 int usb4_port_hw_margin(struct tb_port *port, unsigned int lanes,
 			unsigned int ber_level, bool timing, bool right_high,
@@ -1306,10 +1326,6 @@ int usb4_port_sw_margin_errors(struct tb_port *port, u32 *errors);
 
 int usb4_port_retimer_set_inbound_sbtx(struct tb_port *port, u8 index);
 int usb4_port_retimer_unset_inbound_sbtx(struct tb_port *port, u8 index);
-int usb4_port_retimer_read(struct tb_port *port, u8 index, u8 reg, void *buf,
-			   u8 size);
-int usb4_port_retimer_write(struct tb_port *port, u8 index, u8 reg,
-			    const void *buf, u8 size);
 int usb4_port_retimer_is_last(struct tb_port *port, u8 index);
 int usb4_port_retimer_nvm_sector_size(struct tb_port *port, u8 index);
 int usb4_port_retimer_nvm_set_offset(struct tb_port *port, u8 index,
@@ -1409,6 +1425,8 @@ void tb_xdomain_debugfs_init(struct tb_xdomain *xd);
 void tb_xdomain_debugfs_remove(struct tb_xdomain *xd);
 void tb_service_debugfs_init(struct tb_service *svc);
 void tb_service_debugfs_remove(struct tb_service *svc);
+void tb_retimer_debugfs_init(struct tb_retimer *rt);
+void tb_retimer_debugfs_remove(struct tb_retimer *rt);
 #else
 static inline void tb_debugfs_init(void) { }
 static inline void tb_debugfs_exit(void) { }
@@ -1418,6 +1436,8 @@ static inline void tb_xdomain_debugfs_init(struct tb_xdomain *xd) { }
 static inline void tb_xdomain_debugfs_remove(struct tb_xdomain *xd) { }
 static inline void tb_service_debugfs_init(struct tb_service *svc) { }
 static inline void tb_service_debugfs_remove(struct tb_service *svc) { }
+static inline void tb_retimer_debugfs_init(struct tb_retimer *rt) { }
+static inline void tb_retimer_debugfs_remove(struct tb_retimer *rt) { }
 #endif
 
 #endif

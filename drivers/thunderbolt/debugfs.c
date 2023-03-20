@@ -33,6 +33,23 @@
 
 #define COUNTER_SET_LEN		3
 
+struct sb_reg {
+	unsigned int reg;
+	unsigned int size;
+};
+
+/* Sideband registers and their sizes as defined in the USB4 spec */
+static const struct sb_reg sb_regs[] = {
+	{ USB4_SB_VENDOR_ID, 4 },
+	{ USB4_SB_PRODUCT_ID, 4 },
+	{ USB4_SB_OPCODE, 4 },
+	{ USB4_SB_METADATA, 4 },
+	{ USB4_SB_LINK_CONF, 3 },
+	{ USB4_SB_TXFFE, 4 },
+	{ USB4_SB_VERSION, 4 },
+	{ USB4_SB_DATA, 64 },
+};
+
 #define DEBUGFS_ATTR(__space, __write)					\
 static int __space ## _open(struct inode *inode, struct file *file)	\
 {									\
@@ -184,10 +201,156 @@ static ssize_t switch_regs_write(struct file *file, const char __user *user_buf,
 
 	return regs_write(sw, NULL, user_buf, count, ppos);
 }
+
+static bool parse_sb_line(char **line, u32 *reg, u32 *offs, u32 *val,
+			  unsigned int *size)
+{
+	char *token;
+	int i, ret;
+	u32 v[3];
+
+	token = strsep(line, "\n");
+	if (!token)
+		return false;
+
+	/*
+	 * Sideband register write we expect either
+	 * # register value
+	 *   v[0]     v[1]\n
+	 *
+	 * or
+	 *
+	 * # register offset value
+	 *   v[0]     v[1]   v[2]\n
+	 *
+	 * Here offset is double word index.
+	 */
+	ret = sscanf(token, "%i %i %i", &v[0], &v[1], &v[2]);
+	if (ret == 3) {
+		*offs = v[1];
+		*val = v[2];
+	} else if (ret == 2) {
+		*offs = 0;
+		*val = v[1];
+	} else {
+		return false;
+	}
+
+	*reg = v[0];
+
+	for (i = 0; i < ARRAY_SIZE(sb_regs); i++) {
+		if (*reg == sb_regs[i].reg) {
+			if (*offs >= DIV_ROUND_UP(sb_regs[i].size, 4))
+				return false;
+			*size = sb_regs[i].size;
+			return true;
+		}
+	}
+
+	return false;
+}
+
+static ssize_t sb_regs_write(struct tb_port *port, enum usb4_sb_target target,
+			     u8 index, char *buf, size_t count, loff_t *ppos)
+{
+	u32 reg, val, offset, size;
+	char *line = buf;
+
+	/* User did hardware changes behind the driver's back */
+	add_taint(TAINT_USER, LOCKDEP_STILL_OK);
+
+	while (parse_sb_line(&line, &reg, &offset, &val, &size)) {
+		u32 data[16];
+		int ret;
+
+		memset(data, 0, sizeof(data));
+
+		/* Read the whole register if larger than one double  word */
+		if (size > 1) {
+			ret = usb4_port_sb_read(port, target, index, reg, data,
+						size);
+			if (ret)
+				return ret;
+		}
+
+		data[offset] = val;
+
+		ret = usb4_port_sb_write(port, target, index, reg, data, size);
+		if (ret)
+			return ret;
+	}
+
+	return 0;
+}
+
+static ssize_t port_sb_regs_write(struct file *file, const char __user *user_buf,
+				  size_t count, loff_t *ppos)
+{
+	struct seq_file *s = file->private_data;
+	struct tb_port *port = s->private;
+	struct tb_switch *sw = port->sw;
+	struct tb *tb = sw->tb;
+	char *buf;
+	int ret;
+
+	buf = validate_and_copy_from_user(user_buf, &count);
+	if (IS_ERR(buf))
+		return PTR_ERR(buf);
+
+	pm_runtime_get_sync(&sw->dev);
+
+	if (mutex_lock_interruptible(&tb->lock)) {
+		ret = -ERESTARTSYS;
+		goto out_rpm_put;
+	}
+
+	ret = sb_regs_write(port, USB4_SB_TARGET_ROUTER, 0, buf, count, ppos);
+
+	mutex_unlock(&tb->lock);
+out_rpm_put:
+	pm_runtime_mark_last_busy(&sw->dev);
+	pm_runtime_put_autosuspend(&sw->dev);
+
+	return ret < 0 ? ret : count;
+}
+
+static ssize_t retimer_sb_regs_write(struct file *file,
+				     const char __user *user_buf,
+				     size_t count, loff_t *ppos)
+{
+	struct seq_file *s = file->private_data;
+	struct tb_retimer *rt = s->private;
+	struct tb *tb = rt->tb;
+	char *buf;
+	int ret;
+
+	buf = validate_and_copy_from_user(user_buf, &count);
+	if (IS_ERR(buf))
+		return PTR_ERR(buf);
+
+	pm_runtime_get_sync(&rt->dev);
+
+	if (mutex_lock_interruptible(&tb->lock)) {
+		ret = -ERESTARTSYS;
+		goto out_rpm_put;
+	}
+
+	ret = sb_regs_write(rt->port, USB4_SB_TARGET_RETIMER, rt->index, buf,
+			    count, ppos);
+
+	mutex_unlock(&tb->lock);
+out_rpm_put:
+	pm_runtime_mark_last_busy(&rt->dev);
+	pm_runtime_put_autosuspend(&rt->dev);
+
+	return ret < 0 ? ret : count;
+}
 #define DEBUGFS_MODE		0600
 #else
 #define port_regs_write		NULL
 #define switch_regs_write	NULL
+#define port_sb_regs_write	NULL
+#define retimer_sb_regs_write	NULL
 #define DEBUGFS_MODE		0400
 #endif
 
@@ -1494,6 +1657,58 @@ out:
 }
 DEBUGFS_ATTR_RW(counters);
 
+static int sb_regs_show(struct tb_port *port, enum usb4_sb_target target,
+			u8 index, struct seq_file *s)
+{
+	int ret, i;
+
+	seq_puts(s, "# register value\n");
+
+	for (i = 0; i < ARRAY_SIZE(sb_regs); i++) {
+		const struct sb_reg *regs = &sb_regs[i];
+		u32 data[16];
+		int j;
+
+		memset(data, 0, sizeof(data));
+		ret = usb4_port_sb_read(port, target, index, regs->reg, data,
+					regs->size);
+		if (ret)
+			return ret;
+
+		seq_printf(s, "0x%04x", regs->reg);
+		for (j = 0; j < DIV_ROUND_UP(regs->size, 4); j++)
+			seq_printf(s, " 0x%08x", data[j]);
+		seq_puts(s, "\n");
+	}
+
+	return 0;
+}
+
+static int port_sb_regs_show(struct seq_file *s, void *not_used)
+{
+	struct tb_port *port = s->private;
+	struct tb_switch *sw = port->sw;
+	struct tb *tb = sw->tb;
+	int ret;
+
+	pm_runtime_get_sync(&sw->dev);
+
+	if (mutex_lock_interruptible(&tb->lock)) {
+		ret = -ERESTARTSYS;
+		goto out_rpm_put;
+	}
+
+	ret = sb_regs_show(port, USB4_SB_TARGET_ROUTER, 0, s);
+
+	mutex_unlock(&tb->lock);
+out_rpm_put:
+	pm_runtime_mark_last_busy(&sw->dev);
+	pm_runtime_put_autosuspend(&sw->dev);
+
+	return ret;
+}
+DEBUGFS_ATTR_RW(port_sb_regs);
+
 /**
  * tb_switch_debugfs_init() - Add debugfs entries for router
  * @sw: Pointer to the router
@@ -1528,6 +1743,9 @@ void tb_switch_debugfs_init(struct tb_switch *sw)
 		if (port->config.counters_support)
 			debugfs_create_file("counters", 0600, debugfs_dir, port,
 					    &counters_fops);
+		if (port->usb4)
+			debugfs_create_file("sb_regs", DEBUGFS_MODE, debugfs_dir,
+					    port, &port_sb_regs_fops);
 	}
 
 	margining_switch_init(sw);
@@ -1577,6 +1795,56 @@ void tb_service_debugfs_remove(struct tb_service *svc)
 {
 	debugfs_remove_recursive(svc->debugfs_dir);
 	svc->debugfs_dir = NULL;
+}
+
+static int retimer_sb_regs_show(struct seq_file *s, void *not_used)
+{
+	struct tb_retimer *rt = s->private;
+	struct tb *tb = rt->tb;
+	int ret;
+
+	pm_runtime_get_sync(&rt->dev);
+
+	if (mutex_lock_interruptible(&tb->lock)) {
+		ret = -ERESTARTSYS;
+		goto out_rpm_put;
+	}
+
+	ret = sb_regs_show(rt->port, USB4_SB_TARGET_RETIMER, rt->index, s);
+
+	mutex_unlock(&tb->lock);
+out_rpm_put:
+	pm_runtime_mark_last_busy(&rt->dev);
+	pm_runtime_put_autosuspend(&rt->dev);
+
+	return ret;
+}
+DEBUGFS_ATTR_RW(retimer_sb_regs);
+
+/**
+ * tb_retimer_debugfs_init() - Add debugfs directory for retimer
+ * @rt: Pointer to retimer structure
+ *
+ * Adds and populates retimer debugfs directory.
+ */
+void tb_retimer_debugfs_init(struct tb_retimer *rt)
+{
+	rt->debugfs_dir = debugfs_create_dir(dev_name(&rt->dev),
+					     tb_debugfs_root);
+	debugfs_create_file("sb_regs", DEBUGFS_MODE, rt->debugfs_dir, rt,
+			    &retimer_sb_regs_fops);
+}
+
+/**
+ * tb_retimer_debugfs_remove() - Remove retimer debugfs directory
+ * @rt: Pointer to retimer structure
+ *
+ * Removes the retimer debugfs directory along with its contents.
+ */
+void tb_retimer_debugfs_remove(struct tb_retimer *rt)
+{
+	debugfs_remove_recursive(rt->debugfs_dir);
+	rt->debugfs_dir = NULL;
 }
 
 void tb_debugfs_init(void)
