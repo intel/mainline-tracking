@@ -1,0 +1,45 @@
+From 9da0b659ebd08b1594abd3ff59f84428eee1b1d9 Mon Sep 17 00:00:00 2001
+From: Florian Westphal <fw@strlen.de>
+Date: Tue, 9 Aug 2022 18:34:02 +0200
+Subject: [PATCH] netfilter: nf_tables: fix null deref due to zeroed list head
+
+In nf_tables_updtable, if nf_tables_table_enable returns an error,
+nft_trans_destroy is called to free the transaction object.
+
+nft_trans_destroy() calls list_del(), but the transaction was never
+placed on a list -- the list head is all zeroes, this results in
+a null dereference:
+
+BUG: KASAN: null-ptr-deref in nft_trans_destroy+0x26/0x59
+Call Trace:
+ nft_trans_destroy+0x26/0x59
+ nf_tables_newtable+0x4bc/0x9bc
+ [..]
+
+Its sane to assume that nft_trans_destroy() can be called
+on the transaction object returned by nft_trans_alloc(), so
+make sure the list head is initialised.
+
+Fixes: 55dd6f93076b ("netfilter: nf_tables: use new transaction infrastructure to handle table")
+Reported-by: mingi cho <mgcho.minic@gmail.com>
+Signed-off-by: Florian Westphal <fw@strlen.de>
+Signed-off-by: Pablo Neira Ayuso <pablo@netfilter.org>
+---
+ net/netfilter/nf_tables_api.c | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/net/netfilter/nf_tables_api.c b/net/netfilter/nf_tables_api.c
+index 9f976b11d896..6287e313a769 100644
+--- a/net/netfilter/nf_tables_api.c
++++ b/net/netfilter/nf_tables_api.c
+@@ -153,6 +153,7 @@ static struct nft_trans *nft_trans_alloc_gfp(const struct nft_ctx *ctx,
+ 	if (trans == NULL)
+ 		return NULL;
+ 
++	INIT_LIST_HEAD(&trans->list);
+ 	trans->msg_type = msg_type;
+ 	trans->ctx	= *ctx;
+ 
+-- 
+2.25.1
+
