@@ -35,6 +35,9 @@ enum usb4_sb_opcode {
 
 #define USB4_SB_METADATA			0x09
 #define USB4_SB_METADATA_NVM_AUTH_WRITE_MASK	GENMASK(5, 0)
+#define USB4_SB_LINK_CONF			0x0c
+#define USB4_SB_TXFFE				0x0d
+#define USB4_SB_VERSION				0x0e
 #define USB4_SB_DATA				0x12
 
 /* USB4_SB_OPCODE_READ_LANE_MARGINING_CAP */
