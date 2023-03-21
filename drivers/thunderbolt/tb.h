@@ -319,6 +319,7 @@ struct usb4_port {
  * @no_nvm_upgrade: Prevent NVM upgrade of this retimer
  * @auth_status: Status of last NVM authentication
  * @debugfs_dir: Pointer to the debugfs structure
+ * @margining: Pointer to margining structure if enabled
  */
 struct tb_retimer {
 	struct device dev;
@@ -331,6 +332,9 @@ struct tb_retimer {
 	bool no_nvm_upgrade;
 	u32 auth_status;
 	struct dentry *debugfs_dir;
+#ifdef CONFIG_USB4_DEBUGFS_MARGINING
+	struct tb_margining *margining;
+#endif
 };
 
 /**
@@ -1330,6 +1334,7 @@ int usb4_port_sw_margin_errors(struct tb_port *port, enum usb4_sb_target target,
 int usb4_port_retimer_set_inbound_sbtx(struct tb_port *port, u8 index);
 int usb4_port_retimer_unset_inbound_sbtx(struct tb_port *port, u8 index);
 int usb4_port_retimer_is_last(struct tb_port *port, u8 index);
+int usb4_port_retimer_is_cable(struct tb_port *port, u8 index);
 int usb4_port_retimer_nvm_sector_size(struct tb_port *port, u8 index);
 int usb4_port_retimer_nvm_set_offset(struct tb_port *port, u8 index,
 				     unsigned int address);
