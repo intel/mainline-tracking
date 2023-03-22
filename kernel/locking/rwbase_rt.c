@@ -143,6 +143,14 @@ static __always_inline int rwbase_read_lock(struct rwbase_rt *rwb,
 	if (rwbase_read_trylock(rwb))
 		return 0;
 
+	if (state != TASK_RTLOCK_WAIT) {
+		/*
+		 * If we are going to sleep and we have plugged IO queued,
+		 * make sure to submit it to avoid deadlocks.
+		 */
+		blk_flush_plug(current->plug, true);
+	}
+
 	return __rwbase_read_lock(rwb, state);
 }
 
