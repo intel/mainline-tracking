@@ -53,7 +53,7 @@ static inline struct tpm_tis_tcg_phy *to_tpm_tis_tcg_phy(struct tpm_tis_data *da
 #ifdef CONFIG_PREEMPT_RT
 /*
  * Flushes previous write operations to chip so that a subsequent
- * ioread*()s won't stall a cpu.
+ * ioread*()s won't stall a CPU.
  */
 static inline void tpm_tis_flush(void __iomem *iobase)
 {
