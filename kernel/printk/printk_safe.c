@@ -24,6 +24,7 @@ static DEFINE_PER_CPU(struct printk_context, printk_context) = {
 /* Can be preempted by NMI. */
 void __printk_safe_enter(unsigned long *flags)
 {
+	WARN_ON_ONCE(in_nmi());
 	local_lock_irqsave(&printk_context.cpu, *flags);
 	this_cpu_inc(printk_context.recursion);
 }
@@ -31,6 +32,7 @@ void __printk_safe_enter(unsigned long *flags)
 /* Can be preempted by NMI. */
 void __printk_safe_exit(unsigned long *flags)
 {
+	WARN_ON_ONCE(in_nmi());
 	this_cpu_dec(printk_context.recursion);
 	local_unlock_irqrestore(&printk_context.cpu, *flags);
 }
