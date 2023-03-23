@@ -52,8 +52,8 @@ static inline struct tpm_tis_tcg_phy *to_tpm_tis_tcg_phy(struct tpm_tis_data *da
 
 #ifdef CONFIG_PREEMPT_RT
 /*
- * Flushes previous write operations to chip so that a subsequent
- * ioread*()s won't stall a CPU.
+ * Flush previous write operations with a dummy read operation to the
+ * TPM MMIO base address.
  */
 static inline void tpm_tis_flush(void __iomem *iobase)
 {
@@ -63,12 +63,26 @@ static inline void tpm_tis_flush(void __iomem *iobase)
 #define tpm_tis_flush(iobase) do { } while (0)
 #endif
 
+/*
+ * Write a byte word to the TPM MMIO address, and flush the write queue.
+ * The flush ensures that the data is sent immediately over the bus and not
+ * aggregated with further requests and transferred later in a batch. The large
+ * write requests can lead to unwanted latency spikes by blocking the CPU until
+ * the complete batch has been transferred.
+ */
 static inline void tpm_tis_iowrite8(u8 b, void __iomem *iobase, u32 addr)
 {
 	iowrite8(b, iobase + addr);
 	tpm_tis_flush(iobase);
 }
 
+/*
+ * Write a 32-bit word to the TPM MMIO address, and flush the write queue.
+ * The flush ensures that the data is sent immediately over the bus and not
+ * aggregated with further requests and transferred later in a batch. The large
+ * write requests can lead to unwanted latency spikes by blocking the CPU until
+ * the complete batch has been transferred.
+ */
 static inline void tpm_tis_iowrite32(u32 b, void __iomem *iobase, u32 addr)
 {
 	iowrite32(b, iobase + addr);
