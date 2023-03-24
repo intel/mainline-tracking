@@ -1814,6 +1814,7 @@ static int copy_sighand(unsigned long clone_flags, struct task_struct *tsk)
 	RCU_INIT_POINTER(tsk->sighand, sig);
 	if (!sig)
 		return -ENOMEM;
+	sig->sigqueue_cache = NULL;
 
 	refcount_set(&sig->count, 1);
 	spin_lock_irq(&current->sighand->siglock);
@@ -1830,7 +1831,17 @@ static int copy_sighand(unsigned long clone_flags, struct task_struct *tsk)
 void __cleanup_sighand(struct sighand_struct *sighand)
 {
 	if (refcount_dec_and_test(&sighand->count)) {
+		struct sigqueue *sigqueue = NULL;
+
 		signalfd_cleanup(sighand);
+		spin_lock_irq(&sighand->siglock);
+		if (sighand->sigqueue_cache) {
+			sigqueue = sighand->sigqueue_cache;
+			sighand->sigqueue_cache = NULL;
+		}
+		spin_unlock_irq(&sighand->siglock);
+
+		sigqueue_free_cached_entry(sigqueue);
 		/*
 		 * sighand_cachep is SLAB_TYPESAFE_BY_RCU so we can free it
 		 * without an RCU grace period, see __lock_task_sighand().

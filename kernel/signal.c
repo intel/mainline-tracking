@@ -432,7 +432,18 @@ __sigqueue_alloc(int sig, struct task_struct *t, gfp_t gfp_flags,
 		return NULL;
 
 	if (override_rlimit || likely(sigpending <= task_rlimit(t, RLIMIT_SIGPENDING))) {
-		q = kmem_cache_alloc(sigqueue_cachep, gfp_flags);
+
+		if (!sigqueue_flags) {
+			struct sighand_struct *sighand = t->sighand;
+
+			lockdep_assert_held(&sighand->siglock);
+			if (sighand->sigqueue_cache) {
+				q = sighand->sigqueue_cache;
+				sighand->sigqueue_cache = NULL;
+			}
+		}
+		if (!q)
+			q = kmem_cache_alloc(sigqueue_cachep, gfp_flags);
 	} else {
 		print_dropped_signal(sig);
 	}
@@ -447,13 +458,42 @@ __sigqueue_alloc(int sig, struct task_struct *t, gfp_t gfp_flags,
 	return q;
 }
 
-static void __sigqueue_free(struct sigqueue *q)
+static bool sigqueue_cleanup_accounting(struct sigqueue *q)
 {
 	if (q->flags & SIGQUEUE_PREALLOC)
-		return;
+		return false;
 	if (q->ucounts) {
 		dec_rlimit_put_ucounts(q->ucounts, UCOUNT_RLIMIT_SIGPENDING);
 		q->ucounts = NULL;
+	}
+	return true;
+}
+
+static void __sigqueue_free(struct sigqueue *q)
+{
+	if (!sigqueue_cleanup_accounting(q))
+		return;
+	kmem_cache_free(sigqueue_cachep, q);
+}
+
+void sigqueue_free_cached_entry(struct sigqueue *q)
+{
+	if (!q)
+		return;
+	kmem_cache_free(sigqueue_cachep, q);
+}
+
+static void sigqueue_cache_or_free(struct sigqueue *q)
+{
+	struct sighand_struct *sighand = current->sighand;
+
+	if (!sigqueue_cleanup_accounting(q))
+		return;
+
+	lockdep_assert_held(&sighand->siglock);
+	if (!sighand->sigqueue_cache) {
+		sighand->sigqueue_cache = q;
+		return;
 	}
 	kmem_cache_free(sigqueue_cachep, q);
 }
@@ -594,7 +634,7 @@ still_pending:
 			(info->si_code == SI_TIMER) &&
 			(info->si_sys_private);
 
-		__sigqueue_free(first);
+		sigqueue_cache_or_free(first);
 	} else {
 		/*
 		 * Ok, it wasn't in the queue.  This must be
