@@ -1698,9 +1698,18 @@ static int __sched rt_mutex_slowlock(struct rt_mutex_base *lock,
 static __always_inline int __rt_mutex_lock(struct rt_mutex_base *lock,
 					   unsigned int state)
 {
+	/*
+	 * With DEBUG enabled cmpxchg trylock will always fail. Instead of
+	 * invoking blk_flush_plug() try the trylock-slowpath first which will
+	 * succeed if the lock is not contended.
+	 */
+#ifdef CONFIG_DEBUG_RT_MUTEXES
+	if (likely(rt_mutex_slowtrylock(lock)))
+		return 0;
+#else
 	if (likely(rt_mutex_cmpxchg_acquire(lock, NULL, current)))
 		return 0;
-
+#endif
 	/*
 	 * If we are going to sleep and we have plugged IO queued, make sure to
 	 * submit it to avoid deadlocks.
