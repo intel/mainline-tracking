@@ -2351,6 +2351,9 @@ static int ptrace_stop(int exit_code, int why, unsigned long message,
 	 * The preempt-disable section ensures that there will be no preemption
 	 * between unlock and schedule() and so improving the performance since
 	 * the ptracer has no reason to sleep.
+	 *
+	 * This optimisation is not doable on PREEMPT_RT due to the spinlock_t
+	 * within the preempt-disable section.
 	 */
 	if (!IS_ENABLED(CONFIG_PREEMPT_RT))
 		preempt_disable();
