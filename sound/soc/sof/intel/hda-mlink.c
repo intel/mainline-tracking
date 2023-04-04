@@ -13,7 +13,6 @@
 #include <sound/hdaudio_ext.h>
 #include <sound/hda_register.h>
 #include <sound/hda-mlink.h>
-
 #include <linux/bitfield.h>
 #include <linux/module.h>
 
