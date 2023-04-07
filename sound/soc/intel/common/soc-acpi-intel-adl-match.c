@@ -368,6 +368,15 @@ static const struct snd_soc_acpi_link_adr adlps_rvp[] = {
 	{}
 };
 
+static const struct snd_soc_acpi_link_adr rplp_crb[] = {
+	{
+		.mask = BIT(2),
+		.num_adr = ARRAY_SIZE(rt711_sdca_2_adr),
+		.adr_d = rt711_sdca_2_adr,
+	},
+	{}
+};
+
 static const struct snd_soc_acpi_link_adr adl_chromebook_base[] = {
 	{
 		.mask = BIT(0),
@@ -491,6 +500,12 @@ EXPORT_SYMBOL_GPL(snd_soc_acpi_intel_adl_machines);
 
 /* this table is used when there is no I2S codec present */
 struct snd_soc_acpi_mach snd_soc_acpi_intel_adl_sdw_machines[] = {
+	{
+		.link_mask = 0x4, /* link2 required */
+		.links = rplp_crb,
+		.drv_name = "sof_sdw",
+		.sof_tplg_filename = "sof-adl-rt711-sdw2.tplg",
+	},
 	{
 		.link_mask = 0xF, /* 4 active links required */
 		.links = adl_default,
