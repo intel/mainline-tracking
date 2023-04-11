@@ -225,7 +225,7 @@
 0001-net-sched-fix-race-condition-in-qdisc_graft.patch
 
 # CVE-2022-3586
-0001-sch_sfb-Don-t-assume-the-skb-is-still-around-after-e.patch.
+0001-sch_sfb-Don-t-assume-the-skb-is-still-around-after-e.patch
 
 # CVE-2022-4382
 0001-USB-gadgetfs-Fix-race-between-mounting-and-unmountin.patch
@@ -260,3 +260,38 @@
 
 # CVE-2023-22997
 0001-module-Fix-NULL-vs-IS_ERR-checking-for-module_get_ne.patch
+
+# CVE-2023-1076
+0001-tun-tun_chr_open-correctly-initialize-socket-uid.patch
+0002-net-add-sock_init_data_uid.patch
+
+# CVE-2023-1077
+0001-sched-rt-pick_next_rt_entity-check-list_entry.patch
+
+# CVE-2023-1032
+0001-net-avoid-double-iput-when-sock_alloc_file-fails.patch
+
+# CVE-2022-4095
+0001-staging-rtl8712-fix-use-after-free-bugs.patch
+
+# CVE-2023-1281
+0001-net-sched-tcindex-update-imperfect-hash-filters-resp.patch
+
+# CVE-2023-1078
+0001-rds-rds_rm_zerocopy_callback-use-list_first_entry.patch
+
+# CVE-2023-1195
+0001-cifs-fix-use-after-free-caused-by-invalid-pointer-ho.patch
+
+# CVE-2023-1079
+0001-HID-asus-use-spinlock-to-protect-concurrent-accesses.patch
+0002-HID-asus-use-spinlock-to-safely-schedule-workers.patch
+
+# CVE-2023-1074
+0001-sctp-fail-if-no-bound-addresses-can-be-used-for-a-gi.patch
+
+# CVE-2023-1073
+0001-HID-check-empty-report_list-in-hid_validate_values.patch
+
+# CVE-2023-28328
+0001-media-dvb-usb-az6027-fix-null-ptr-deref-in-az6027_i2.patch
