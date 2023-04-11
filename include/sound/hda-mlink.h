@@ -7,6 +7,7 @@
  */
 
 struct hdac_bus;
+struct hdac_ext_link;
 
 #if IS_ENABLED(CONFIG_SND_SOC_SOF_HDA_MLINK)
 
@@ -47,6 +48,13 @@ void hda_bus_ml_put_all(struct hdac_bus *bus);
 void hda_bus_ml_reset_losidv(struct hdac_bus *bus);
 int hda_bus_ml_resume(struct hdac_bus *bus);
 int hda_bus_ml_suspend(struct hdac_bus *bus);
+
+struct hdac_ext_link *hdac_bus_eml_ssp_get_hlink(struct hdac_bus *bus);
+struct hdac_ext_link *hdac_bus_eml_dmic_get_hlink(struct hdac_bus *bus);
+
+struct mutex *hdac_bus_eml_get_mutex(struct hdac_bus *bus, bool alt, int elid);
+
+int hdac_bus_eml_enable_offload(struct hdac_bus *bus, bool alt, int elid, bool enable);
 
 #else
 
@@ -141,4 +149,18 @@ static inline void hda_bus_ml_reset_losidv(struct hdac_bus *bus) { }
 static inline int hda_bus_ml_resume(struct hdac_bus *bus) { return 0; }
 static inline int hda_bus_ml_suspend(struct hdac_bus *bus) { return 0; }
 
+static inline struct hdac_ext_link *
+hdac_bus_eml_ssp_get_hlink(struct hdac_bus *bus) { return NULL; }
+
+static inline struct hdac_ext_link *
+hdac_bus_eml_dmic_get_hlink(struct hdac_bus *bus) { return NULL; }
+
+static inline struct mutex *
+hdac_bus_eml_get_mutex(struct hdac_bus *bus, bool alt, int elid) { return NULL; }
+
+static inline int
+hdac_bus_eml_enable_offload(struct hdac_bus *bus, bool alt, int elid, bool enable)
+{
+	return 0;
+}
 #endif /* CONFIG_SND_SOC_SOF_HDA */
