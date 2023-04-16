@@ -4555,6 +4555,7 @@ copy_bigjoiner_crtc_state_modeset(struct intel_atomic_state *state,
 	drm_mode_copy(&slave_crtc_state->hw.adjusted_mode,
 		      &master_crtc_state->hw.adjusted_mode);
 	slave_crtc_state->hw.scaling_filter = master_crtc_state->hw.scaling_filter;
+	slave_crtc_state->dpll_hw_state.cx0pll = master_crtc_state->dpll_hw_state.cx0pll;
 
 	if (master_crtc_state->dp_tunnel_ref.tunnel)
 		drm_dp_tunnel_ref_get(master_crtc_state->dp_tunnel_ref.tunnel,
