@@ -1456,4 +1456,36 @@ void virt_map_level(struct kvm_vm *vm, uint64_t vaddr, uint64_t paddr,
 
 bool sys_clocksource_is_based_on_tsc(void);
 
+/*
+ * FRED related data structures and functions
+ */
+
+#define FRED_SSX_NMI		BIT_ULL(18)
+
+struct fred_stack {
+	u64 r15;
+	u64 r14;
+	u64 r13;
+	u64 r12;
+	u64 bp;
+	u64 bx;
+	u64 r11;
+	u64 r10;
+	u64 r9;
+	u64 r8;
+	u64 ax;
+	u64 cx;
+	u64 dx;
+	u64 si;
+	u64 di;
+	u64 error_code;
+	u64 ip;
+	u64 csx;
+	u64 flags;
+	u64 sp;
+	u64 ssx;
+	u64 event_data;
+	u64 reserved;
+};
+
 #endif /* SELFTEST_KVM_PROCESSOR_H */
