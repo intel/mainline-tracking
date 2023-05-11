@@ -79,6 +79,7 @@ const char *ex_str(int vector);
 #define X86_CR4_SMEP		(1ul << 20)
 #define X86_CR4_SMAP		(1ul << 21)
 #define X86_CR4_PKE		(1ul << 22)
+#define X86_CR4_FRED		(1ul << 32)
 
 struct xstate_header {
 	u64				xstate_bv;
@@ -1645,5 +1646,37 @@ u64 *tdp_get_pte(struct kvm_vm *vm, u64 l2_gpa);
 #define EPT_VIOLATION_GVA_TRANSLATED	BIT(8)
 
 bool sys_clocksource_is_based_on_tsc(void);
+
+/*
+ * FRED related data structures and functions
+ */
+
+#define FRED_SSX_NMI		BIT_ULL(18)
+
+struct fred_stack {
+	u64 r15;
+	u64 r14;
+	u64 r13;
+	u64 r12;
+	u64 bp;
+	u64 bx;
+	u64 r11;
+	u64 r10;
+	u64 r9;
+	u64 r8;
+	u64 ax;
+	u64 cx;
+	u64 dx;
+	u64 si;
+	u64 di;
+	u64 error_code;
+	u64 ip;
+	u64 csx;
+	u64 flags;
+	u64 sp;
+	u64 ssx;
+	u64 event_data;
+	u64 reserved;
+};
 
 #endif /* SELFTEST_KVM_PROCESSOR_H */
