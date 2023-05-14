@@ -102,7 +102,7 @@ void intel_uc_fw_change_status(struct intel_uc_fw *uc_fw,
 	fw_def(SKYLAKE,      0, guc_mmp(skl,  70, 1, 1))
 
 #define INTEL_HUC_FIRMWARE_DEFS(fw_def, huc_raw, huc_mmp, huc_gsc, huc_gsc_mmp) \
-	fw_def(METEORLAKE,   0, huc_gsc_mmp(mtl, 8, 4, 3)) \
+	fw_def(METEORLAKE,   0, huc_gsc_mmp(mtl, 8, 4, 5)) \
 	fw_def(DG2,          0, huc_gsc(dg2)) \
 	fw_def(ALDERLAKE_P,  0, huc_raw(tgl)) \
 	fw_def(ALDERLAKE_P,  0, huc_mmp(tgl,  7, 9, 3)) \
@@ -123,7 +123,7 @@ void intel_uc_fw_change_status(struct intel_uc_fw *uc_fw,
 	fw_def(SKYLAKE,      0, huc_mmp(skl,  2, 0, 0))
 
 #define INTEL_GSC_FIRMWARE_DEFS(fw_def, gsc_def) \
-	fw_def(METEORLAKE,   0, gsc_def(mtl, 102, 0, 0, 1511))
+	fw_def(METEORLAKE,   0, gsc_def(mtl, 102, 0, 0, 1556))
 
 /*
  * Set of macros for producing a list of filenames from the above table.
