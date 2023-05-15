@@ -344,5 +344,6 @@ struct sdw_intel_hw_ops {
 };
 
 extern const struct sdw_intel_hw_ops sdw_intel_cnl_hw_ops;
+extern const struct sdw_intel_hw_ops sdw_intel_lnl_hw_ops;
 
 #endif
