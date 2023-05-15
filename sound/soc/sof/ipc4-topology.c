@@ -1063,12 +1063,12 @@ static int sof_ipc4_init_output_audio_fmt(struct snd_sof_dev *sdev,
 	return i;
 }
 
-static int sof_ipc4_init_audio_fmt(struct snd_sof_dev *sdev,
-				   struct snd_sof_widget *swidget,
-				   struct sof_ipc4_base_module_cfg *base_config,
-				   struct snd_pcm_hw_params *params,
-				   struct sof_ipc4_available_audio_format *available_fmt,
-				   struct sof_ipc4_pin_format *pin_fmts, u32 pin_fmts_size)
+static int sof_ipc4_init_input_audio_fmt(struct snd_sof_dev *sdev,
+					 struct snd_sof_widget *swidget,
+					 struct sof_ipc4_base_module_cfg *base_config,
+					 struct snd_pcm_hw_params *params,
+					 struct sof_ipc4_available_audio_format *available_fmt,
+					 struct sof_ipc4_pin_format *pin_fmts, u32 pin_fmts_size)
 {
 
 	u32 valid_bits;
@@ -1483,8 +1483,9 @@ sof_ipc4_prepare_copier_module(struct snd_sof_widget *swidget,
 	}
 
 	/* set input and output audio formats */
-	ret = sof_ipc4_init_audio_fmt(sdev, swidget, &copier_data->base_config, ref_params,
-				      available_fmt, format_list_to_search, format_list_count);
+	ret = sof_ipc4_init_input_audio_fmt(sdev, swidget, &copier_data->base_config, ref_params,
+					    available_fmt, format_list_to_search,
+					    format_list_count);
 	if (ret < 0)
 		return ret;
 
@@ -1515,7 +1516,7 @@ sof_ipc4_prepare_copier_module(struct snd_sof_widget *swidget,
 	{
 		/*
 		 * Only SOF_DAI_INTEL_ALH needs copier_data to set blob.
-		 * That's why only ALH dai's blob is set after sof_ipc4_init_audio_fmt
+		 * That's why only ALH dai's blob is set after sof_ipc4_init_input_audio_fmt
 		 */
 		if (ipc4_copier->dai_type == SOF_DAI_INTEL_ALH) {
 			struct sof_ipc4_alh_configuration_blob *blob;
@@ -1666,10 +1667,10 @@ static int sof_ipc4_prepare_gain_module(struct snd_sof_widget *swidget,
 	struct sof_ipc4_available_audio_format *available_fmt = &gain->available_fmt;
 	int ret;
 
-	ret = sof_ipc4_init_audio_fmt(sdev, swidget, &gain->base_config,
-				      pipeline_params, available_fmt,
-				      available_fmt->input_pin_fmts,
-				      available_fmt->num_input_formats);
+	ret = sof_ipc4_init_input_audio_fmt(sdev, swidget, &gain->base_config,
+					    pipeline_params, available_fmt,
+					    available_fmt->input_pin_fmts,
+					    available_fmt->num_input_formats);
 	if (ret < 0)
 		return ret;
 
@@ -1696,10 +1697,10 @@ static int sof_ipc4_prepare_mixer_module(struct snd_sof_widget *swidget,
 	struct sof_ipc4_available_audio_format *available_fmt = &mixer->available_fmt;
 	int ret;
 
-	ret = sof_ipc4_init_audio_fmt(sdev, swidget, &mixer->base_config,
-				      pipeline_params, available_fmt,
-				      available_fmt->input_pin_fmts,
-				      available_fmt->num_input_formats);
+	ret = sof_ipc4_init_input_audio_fmt(sdev, swidget, &mixer->base_config,
+					    pipeline_params, available_fmt,
+					    available_fmt->input_pin_fmts,
+					    available_fmt->num_input_formats);
 	if (ret < 0)
 		return ret;
 
@@ -1727,10 +1728,10 @@ static int sof_ipc4_prepare_src_module(struct snd_sof_widget *swidget,
 	struct snd_interval *rate;
 	int ret;
 
-	ret = sof_ipc4_init_audio_fmt(sdev, swidget, &src->base_config,
-				      pipeline_params, available_fmt,
-				      available_fmt->input_pin_fmts,
-				      available_fmt->num_input_formats);
+	ret = sof_ipc4_init_input_audio_fmt(sdev, swidget, &src->base_config,
+					    pipeline_params, available_fmt,
+					    available_fmt->input_pin_fmts,
+					    available_fmt->num_input_formats);
 	if (ret < 0)
 		return ret;
 
@@ -1842,10 +1843,10 @@ static int sof_ipc4_prepare_process_module(struct snd_sof_widget *swidget,
 	int output_fmt_index;
 	int ret;
 
-	ret = sof_ipc4_init_audio_fmt(sdev, swidget, &process->base_config,
-				      pipeline_params, available_fmt,
-				      available_fmt->input_pin_fmts,
-				      available_fmt->num_input_formats);
+	ret = sof_ipc4_init_input_audio_fmt(sdev, swidget, &process->base_config,
+					    pipeline_params, available_fmt,
+					    available_fmt->input_pin_fmts,
+					    available_fmt->num_input_formats);
 	if (ret < 0)
 		return ret;
 
