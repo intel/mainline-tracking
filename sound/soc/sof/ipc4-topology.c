@@ -1169,6 +1169,17 @@ in_fmt:
 		sof_ipc4_dbg_audio_format(sdev->dev, &available_fmt->input_pin_fmts[i], 1);
 	}
 
+<<<<<<< HEAD
+=======
+	/* pick the only available output format */
+	if (available_fmt->num_output_formats == 1)
+		i = 0;
+
+	if (available_fmt->num_output_formats && i < available_fmt->num_output_formats)
+		base_config->obs = available_fmt->output_pin_fmts[i].buffer_size;
+
+	/* Return the index of the matched format */
+>>>>>>> ASoC: SOF: ipc4-topology: Handle input/output audio format special case
 	return i;
 }
 
