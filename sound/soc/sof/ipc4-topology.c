@@ -1101,21 +1101,6 @@ static int sof_ipc4_get_valid_bits(struct snd_sof_dev *sdev, struct snd_pcm_hw_p
 	}
 }
 
-static int sof_ipc4_get_valid_bits(struct snd_sof_dev *sdev, struct snd_pcm_hw_params *params)
-{
-	switch (params_format(params)) {
-	case SNDRV_PCM_FORMAT_S16_LE:
-		return 16;
-	case SNDRV_PCM_FORMAT_S24_LE:
-		return 24;
-	case SNDRV_PCM_FORMAT_S32_LE:
-		return 32;
-	default:
-		dev_err(sdev->dev, "invalid pcm frame format %d\n", params_format(params));
-		return -EINVAL;
-	}
-}
-
 static int sof_ipc4_init_input_audio_fmt(struct snd_sof_dev *sdev,
 					 struct snd_sof_widget *swidget,
 					 struct sof_ipc4_base_module_cfg *base_config,
@@ -1371,8 +1356,8 @@ sof_ipc4_prepare_copier_module(struct snd_sof_widget *swidget,
 	void **ipc_config_data;
 	int *ipc_config_size;
 	u32 **data;
-	int ipc_size, ret, out_ref_valid_bits;
-	u32 out_ref_rate, out_ref_channels;
+	int ipc_size, ret;
+	u32 out_ref_rate, out_ref_channels, out_ref_valid_bits;
 	u32 deep_buffer_dma_ms = 0;
 	int output_fmt_index;
 
