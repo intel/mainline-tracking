@@ -1108,6 +1108,8 @@ static int sof_ipc4_init_input_audio_fmt(struct snd_sof_dev *sdev,
 					 struct sof_ipc4_available_audio_format *available_fmt)
 {
 
+	struct sof_ipc4_pin_format *pin_fmts = available_fmt->input_pin_fmts;
+	u32 pin_fmts_size = available_fmt->num_input_formats;
 	u32 valid_bits;
 	u32 channels;
 	u32 rate;
