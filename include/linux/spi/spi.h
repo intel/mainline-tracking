@@ -286,6 +286,9 @@ static inline void spi_set_csgpiod(struct spi_device *spi, u8 idx, struct gpio_d
 	spi->cs_gpiod = csgpiod;
 }
 
+/* SPI driver calls this function to assert/deassert the chip select */
+extern void spi_set_cs(struct spi_device *spi, bool enable, bool force);
+
 /**
  * struct spi_driver - Host side "protocol" driver
  * @id_table: List of SPI devices supported by this driver
