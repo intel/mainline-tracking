@@ -1677,7 +1677,7 @@ config VIDEO_THS7303
 
 config VIDEO_LT6911UXC
 	tristate "Lontium LT6911UXC decoder"
-	depends on I2C && VIDEO_V4L2_SUBDEV_API
+	depends on I2C && VIDEO_DEV
 	help
 	This is a Video4Linux2 sensor-level driver for the Lontium
 	LT6911UXC HDMI to MIPI CSI-2 bridge.
