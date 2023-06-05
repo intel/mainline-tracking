@@ -334,6 +334,11 @@ static inline bool nested_cpu_has_no_hw_errcode_cc(struct kvm_vcpu *vcpu)
 	return to_vmx(vcpu)->nested.msrs.basic & VMX_BASIC_NO_HW_ERROR_CODE_CC;
 }
 
+static inline bool nested_cpu_has_nested_exception(struct kvm_vcpu *vcpu)
+{
+	return to_vmx(vcpu)->nested.msrs.basic & VMX_BASIC_NESTED_EXCEPTION;
+}
+
 /* No difference in the restrictions on guest and host CR4 in VMX operation. */
 #define nested_guest_cr4_valid	nested_cr4_valid
 #define nested_host_cr4_valid	nested_cr4_valid
