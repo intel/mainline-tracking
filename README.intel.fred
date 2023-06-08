@@ -1,0 +1,5 @@
+This branch adds Intel flexible return and event delivery (FRED) support for KVM.
+
+CWF platform will be the first Intel platform supporting FRED.
+
+No known bug is introduced by this branch.
