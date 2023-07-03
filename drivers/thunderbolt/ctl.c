@@ -15,6 +15,8 @@
 
 #include "ctl.h"
 
+#define CREATE_TRACE_POINTS
+#include "trace.h"
 
 #define TB_CTL_RX_PKG_COUNT	10
 #define TB_CTL_RETRIES		4
@@ -369,6 +371,9 @@ static int tb_ctl_tx(struct tb_ctl *ctl, const void *data, size_t len,
 	pkg->frame.size = len + 4;
 	pkg->frame.sof = type;
 	pkg->frame.eof = type;
+
+	trace_tb_tx(type, data, len, false);
+
 	cpu_to_be32_array(pkg->buffer, data, len / 4);
 	*(__be32 *) (pkg->buffer + len) = tb_crc(pkg->buffer, len);
 
@@ -384,6 +389,7 @@ static int tb_ctl_tx(struct tb_ctl *ctl, const void *data, size_t len,
 static bool tb_ctl_handle_event(struct tb_ctl *ctl, enum tb_cfg_pkg_type type,
 				struct ctl_pkg *pkg, size_t size)
 {
+	trace_tb_event(type, pkg->buffer, size, false);
 	return ctl->callback(ctl->callback_data, type, pkg->buffer, size);
 }
 
@@ -409,6 +415,13 @@ static int tb_async_error(const struct ctl_pkg *pkg)
 	case TB_CFG_ERROR_HEC_ERROR_DETECTED:
 	case TB_CFG_ERROR_FLOW_CONTROL_ERROR:
 	case TB_CFG_ERROR_DP_BW:
+	case TB_CFG_ERROR_ROP_CMPLT:
+	case TB_CFG_ERROR_POP_CMPLT:
+	case TB_CFG_ERROR_PCIE_WAKE:
+	case TB_CFG_ERROR_DP_CON_CHANGE:
+	case TB_CFG_ERROR_DPTX_DISCOVERY:
+	case TB_CFG_ERROR_LINK_RECOVERY:
+	case TB_CFG_ERROR_ASYM_LINK:
 		return true;
 
 	default:
@@ -482,6 +495,9 @@ static void tb_ctl_rx_callback(struct tb_ring *ring, struct ring_frame *frame,
 	 * triggered from messing with the active requests.
 	 */
 	req = tb_cfg_request_find(pkg->ctl, pkg);
+
+	trace_tb_rx(frame->eof, pkg->buffer, frame->size, !req);
+
 	if (req) {
 		if (req->copy(req, pkg))
 			schedule_work(&req->work);
@@ -757,6 +773,27 @@ int tb_cfg_ack_notification(struct tb_ctl *ctl, u64 route,
 		break;
 	case TB_CFG_ERROR_DP_BW:
 		name = "DP_BW";
+		break;
+	case TB_CFG_ERROR_ROP_CMPLT:
+		name = "router operation completion";
+		break;
+	case TB_CFG_ERROR_POP_CMPLT:
+		name = "port operation completion";
+		break;
+	case TB_CFG_ERROR_PCIE_WAKE:
+		name = "PCIe wake";
+		break;
+	case TB_CFG_ERROR_DP_CON_CHANGE:
+		name = "DP connector change";
+		break;
+	case TB_CFG_ERROR_DPTX_DISCOVERY:
+		name = "DPTX discovery";
+		break;
+	case TB_CFG_ERROR_LINK_RECOVERY:
+		name = "link recovery";
+		break;
+	case TB_CFG_ERROR_ASYM_LINK:
+		name = "asymmetric link";
 		break;
 	default:
 		name = "unknown";

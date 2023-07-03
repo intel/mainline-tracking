@@ -124,6 +124,9 @@ int icl_pcode_restrict_qgv_points(struct drm_i915_private *dev_priv,
 {
 	int ret;
 
+	if (DISPLAY_VER(dev_priv) >= 14)
+		return 0;
+
 	/* bspec says to keep retrying for at least 1 ms */
 	ret = skl_pcode_request(&dev_priv->uncore, ICL_PCODE_SAGV_DE_MEM_SS_CONFIG,
 				points_mask,
@@ -717,8 +720,8 @@ static unsigned int intel_bw_num_active_planes(struct drm_i915_private *dev_priv
 	return num_active_planes;
 }
 
-static unsigned int intel_bw_data_rate(struct drm_i915_private *dev_priv,
-				       const struct intel_bw_state *bw_state)
+unsigned int intel_bw_data_rate(struct drm_i915_private *dev_priv,
+				const struct intel_bw_state *bw_state)
 {
 	unsigned int data_rate = 0;
 	enum pipe pipe;

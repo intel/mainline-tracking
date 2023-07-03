@@ -12,6 +12,7 @@
 #include "intel_gt_mcr.h"
 #include "intel_gt_pm_debugfs.h"
 #include "intel_sseu_debugfs.h"
+#include "iov/intel_iov_debugfs.h"
 #include "uc/intel_uc_debugfs.h"
 
 int intel_gt_debugfs_reset_show(struct intel_gt *gt, u64 *val)
@@ -83,11 +84,13 @@ static void gt_debugfs_register(struct intel_gt *gt, struct dentry *root)
 void intel_gt_debugfs_register(struct intel_gt *gt)
 {
 	struct dentry *root;
+	char gtname[4];
 
 	if (!gt->i915->drm.primary->debugfs_root)
 		return;
 
-	root = debugfs_create_dir("gt", gt->i915->drm.primary->debugfs_root);
+	snprintf(gtname, sizeof(gtname), "gt%u", gt->info.id);
+	root = debugfs_create_dir(gtname, gt->i915->drm.primary->debugfs_root);
 	if (IS_ERR(root))
 		return;
 
@@ -98,6 +101,7 @@ void intel_gt_debugfs_register(struct intel_gt *gt)
 	intel_sseu_debugfs_register(gt, root);
 
 	intel_uc_debugfs_register(&gt->uc, root);
+	intel_iov_debugfs_register(&gt->iov, root);
 }
 
 void intel_gt_debugfs_register_files(struct dentry *root,

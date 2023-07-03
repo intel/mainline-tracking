@@ -103,6 +103,60 @@ int usb_acpi_port_lpm_incapable(struct usb_device *hdev, int index)
 EXPORT_SYMBOL_GPL(usb_acpi_port_lpm_incapable);
 
 /**
+ * usb_acpi_intel_port_lpm_incapable - check if LPM should be disabled for a port.
+ * @hdev: USB device belonging to the hub
+ * @index: zero based port index
+ *
+ * Intel Type-C USB4 ports have retimers designed for USB4, which cause too
+ * long latency for native USB 3 LPM U1 U2 usage.
+ * Normally USB 3 LPM incapable ports are identified in ACPI by their _DSM
+ * return value, but some of the platforms lack the _DSM method.
+ * Check _UPC values to find USB4 Type-c ports with retimers in case _DSM is
+ * missing
+ *
+ * Return 1 if USB3 port is LPM incapable, negative on error, otherwise 0
+ */
+
+int usb_acpi_intel_port_lpm_incapable(struct usb_device *hdev, int index)
+{
+	struct acpi_upc_info *upc;
+	acpi_handle port_handle;
+	int port1 = index + 1;
+	acpi_status status;
+	int ret;
+
+	ret = usb_acpi_port_lpm_incapable(hdev, index);
+
+	if (ret >= 0)
+		return ret;
+	/*
+	 * No _DSM found above, check _UPC instead. USB4 capable type-c ports
+	 * on Intel hosts don't support native USB 3 lpm.
+	 */
+
+	ret = 0;
+	port_handle = usb_get_hub_port_acpi_handle(hdev, port1);
+	if (!port_handle) {
+		dev_dbg(&hdev->dev, "port-%d has no acpi handle\n", port1);
+		return -ENODEV;
+	}
+
+	status = acpi_get_usb_port_capabilities(port_handle, &upc);
+	if (ACPI_FAILURE(status))
+		return -ENODEV;
+
+	if ((upc->type == ACPI_UPC_TYPE_USBC_SS_SWITCH ||
+	     upc->type == ACPI_UPC_TYPE_USBC_SS_NO_SWITCH) &&
+	    ACPI_UPC_USBC_USB4(upc->usbc_capabilities))
+		ret = 1;
+
+	ACPI_FREE(upc);
+
+	return ret;
+}
+EXPORT_SYMBOL_GPL(usb_acpi_intel_port_lpm_incapable);
+
+/**
  * usb_acpi_set_power_state - control usb port's power via acpi power
  * resource
  * @hdev: USB device belonging to the usb hub
@@ -146,12 +200,14 @@ int usb_acpi_set_power_state(struct usb_device *hdev, int index, bool enable)
 }
 EXPORT_SYMBOL_GPL(usb_acpi_set_power_state);
 
-static enum usb_port_connect_type usb_acpi_get_connect_type(acpi_handle handle,
-		struct acpi_pld_info *pld)
+#define USB_ACPI_LOCATION_VALID (1 << 31)
+
+static void
+usb_acpi_get_connect_type(struct usb_port *port_dev, acpi_handle *handle)
 {
 	enum usb_port_connect_type connect_type = USB_PORT_CONNECT_TYPE_UNKNOWN;
-	struct acpi_buffer buffer = { ACPI_ALLOCATE_BUFFER, NULL };
-	union acpi_object *upc = NULL;
+	struct acpi_pld_info *pld;
+	struct acpi_upc_info *upc;
 	acpi_status status;
 
 	/*
@@ -162,35 +218,40 @@ static enum usb_port_connect_type usb_acpi_get_connect_type(acpi_handle handle,
 	 * a usb device is directly hard-wired to the port. If no visible and
 	 * no connectable, the port would be not used.
 	 */
-	status = acpi_evaluate_object(handle, "_UPC", NULL, &buffer);
+
+	status = acpi_get_physical_device_location(handle, &pld);
+	if (ACPI_FAILURE(status) || !pld)
+		return;
+
+	port_dev->location = USB_ACPI_LOCATION_VALID |
+		pld->group_token << 8 | pld->group_position;
+
+	status = acpi_get_usb_port_capabilities(handle, &upc);
 	if (ACPI_FAILURE(status))
 		goto out;
 
-	upc = buffer.pointer;
-	if (!upc || (upc->type != ACPI_TYPE_PACKAGE) || upc->package.count != 4)
-		goto out;
-
-	if (upc->package.elements[0].integer.value)
+	if (upc->connectable)
 		if (pld->user_visible)
 			connect_type = USB_PORT_CONNECT_TYPE_HOT_PLUG;
 		else
 			connect_type = USB_PORT_CONNECT_TYPE_HARD_WIRED;
 	else if (!pld->user_visible)
 		connect_type = USB_PORT_NOT_USED;
-out:
-	kfree(upc);
-	return connect_type;
-}
 
+	ACPI_FREE(upc);
+out:
+	port_dev->connect_type = connect_type;
+
+	ACPI_FREE(pld);
+}
 
 /*
  * Private to usb-acpi, all the core needs to know is that
  * port_dev->location is non-zero when it has been set by the firmware.
  */
-#define USB_ACPI_LOCATION_VALID (1 << 31)
 
 static struct acpi_device *
-usb_acpi_get_companion_for_port(struct usb_port *port_dev)
+usb_acpi_find_companion_for_port(struct usb_port *port_dev)
 {
 	struct usb_device *udev;
 	struct acpi_device *adev;
@@ -223,30 +284,6 @@ usb_acpi_get_companion_for_port(struct usb_port *port_dev)
 }
 
 static struct acpi_device *
-usb_acpi_find_companion_for_port(struct usb_port *port_dev)
-{
-	struct acpi_device *adev;
-	struct acpi_pld_info *pld;
-	acpi_handle *handle;
-	acpi_status status;
-
-	adev = usb_acpi_get_companion_for_port(port_dev);
-	if (!adev)
-		return NULL;
-
-	handle = adev->handle;
-	status = acpi_get_physical_device_location(handle, &pld);
-	if (ACPI_SUCCESS(status) && pld) {
-		port_dev->location = USB_ACPI_LOCATION_VALID
-			| pld->group_token << 8 | pld->group_position;
-		port_dev->connect_type = usb_acpi_get_connect_type(handle, pld);
-		ACPI_FREE(pld);
-	}
-
-	return adev;
-}
-
-static struct acpi_device *
 usb_acpi_find_companion_for_device(struct usb_device *udev)
 {
 	struct acpi_device *adev;
@@ -271,11 +308,13 @@ usb_acpi_find_companion_for_device(struct usb_device *udev)
 	 * devices share port's ACPI companion.
 	 */
 	port_dev = hub->ports[udev->portnum - 1];
-	return usb_acpi_get_companion_for_port(port_dev);
+	return usb_acpi_find_companion_for_port(port_dev);
 }
 
 static struct acpi_device *usb_acpi_find_companion(struct device *dev)
 {
+	struct acpi_device *adev;
+
 	/*
 	 * The USB hierarchy like following:
 	 *
@@ -304,11 +343,14 @@ static struct acpi_device *usb_acpi_find_companion(struct device *dev)
 	 * devices yet, for that we would need to assign companions to
 	 * devices corresponding to USB interfaces.
 	 */
-	if (is_usb_device(dev))
+	if (is_usb_device(dev)) {
 		return usb_acpi_find_companion_for_device(to_usb_device(dev));
-	else if (is_usb_port(dev))
-		return usb_acpi_find_companion_for_port(to_usb_port(dev));
-
+	} else if (is_usb_port(dev)) {
+		adev = usb_acpi_find_companion_for_port(to_usb_port(dev));
+		if (adev)
+			usb_acpi_get_connect_type(to_usb_port(dev), adev->handle);
+		return adev;
+	}
 	return NULL;
 }
 

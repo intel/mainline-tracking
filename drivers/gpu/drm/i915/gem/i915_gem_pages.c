@@ -7,7 +7,7 @@
 #include <drm/drm_cache.h>
 
 #include "gt/intel_gt.h"
-#include "gt/intel_gt_pm.h"
+#include "gt/intel_tlb.h"
 
 #include "i915_drv.h"
 #include "i915_gem_object.h"
@@ -198,7 +198,7 @@ static void flush_tlb_invalidate(struct drm_i915_gem_object *obj)
 	if (!obj->mm.tlb)
 		return;
 
-	intel_gt_invalidate_tlb(gt, obj->mm.tlb);
+	intel_gt_invalidate_tlb_full(gt, obj->mm.tlb);
 	obj->mm.tlb = 0;
 }
 
@@ -228,7 +228,6 @@ __i915_gem_object_unset_pages(struct drm_i915_gem_object *obj)
 	obj->mm.page_sizes.phys = obj->mm.page_sizes.sg = 0;
 
 	flush_tlb_invalidate(obj);
-
 	return pages;
 }
 
@@ -469,7 +468,12 @@ enum i915_map_type i915_coherent_map_type(struct drm_i915_private *i915,
 					  struct drm_i915_gem_object *obj,
 					  bool always_coherent)
 {
-	if (i915_gem_object_is_lmem(obj))
+	/*
+	 * Wa_22016122933: FIXME: always return I915_MAP_WC for MTL
+	 * Issue is expected to be tracked as Wa_22016122933, but not
+	 * finalized by hardware team yet. So marked as fixme as well.
+	 */
+	if (i915_gem_object_is_lmem(obj) || IS_METEORLAKE(i915))
 		return I915_MAP_WC;
 	if (HAS_LLC(i915) || always_coherent)
 		return I915_MAP_WB;

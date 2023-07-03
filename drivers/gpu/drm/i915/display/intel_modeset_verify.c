@@ -11,6 +11,7 @@
 #include "intel_atomic.h"
 #include "intel_crtc.h"
 #include "intel_crtc_state_dump.h"
+#include "intel_cx0_phy.h"
 #include "intel_display.h"
 #include "intel_display_types.h"
 #include "intel_fdi.h"
@@ -214,6 +215,34 @@ verify_crtc_state(struct intel_crtc *crtc,
 
 	intel_pipe_config_sanity_check(dev_priv, pipe_config);
 
+	/* FIXME: add some fuzziness to clock rates until we extract
+	 * the root cause for this. The sw state of the clock is updated
+	 * to match with hw state.
+	 */
+	if (IS_METEORLAKE(dev_priv) &&
+	    intel_fuzzy_clock_check(new_crtc_state->port_clock, pipe_config->port_clock)) {
+		drm_dbg_kms(&dev_priv->drm, "fixing port clock to %d\n", new_crtc_state->port_clock);
+		new_crtc_state->port_clock = pipe_config->port_clock;
+	}
+
+	if (IS_METEORLAKE(dev_priv) &&
+	    intel_fuzzy_clock_check(new_crtc_state->pixel_rate, pipe_config->pixel_rate)) {
+		drm_dbg_kms(&dev_priv->drm, "fixing pixel rate to %d\n", pipe_config->pixel_rate);
+		new_crtc_state->pixel_rate = pipe_config->pixel_rate;
+	}
+
+	if (IS_METEORLAKE(dev_priv) &&
+	    intel_fuzzy_clock_check(new_crtc_state->hw.pipe_mode.crtc_clock, pipe_config->hw.pipe_mode.crtc_clock)) {
+		drm_dbg_kms(&dev_priv->drm, "fixing crtc clock to %d\n", new_crtc_state->hw.pipe_mode.crtc_clock);
+		new_crtc_state->hw.pipe_mode.crtc_clock = pipe_config->hw.pipe_mode.crtc_clock;
+	}
+
+	if (IS_METEORLAKE(dev_priv) &&
+	    intel_fuzzy_clock_check(new_crtc_state->hw.adjusted_mode.crtc_clock, pipe_config->hw.adjusted_mode.crtc_clock)) {
+		drm_dbg_kms(&dev_priv->drm, "fixing adjusted mode crtc clock to %d\n", new_crtc_state->hw.adjusted_mode.crtc_clock);
+		new_crtc_state->hw.adjusted_mode.crtc_clock = pipe_config->hw.adjusted_mode.crtc_clock;
+	}
+
 	if (!intel_pipe_config_compare(new_crtc_state,
 				       pipe_config, false)) {
 		I915_STATE_WARN(1, "pipe state doesn't match!\n");
@@ -236,6 +265,7 @@ void intel_modeset_verify_crtc(struct intel_crtc *crtc,
 	verify_crtc_state(crtc, old_crtc_state, new_crtc_state);
 	intel_shared_dpll_state_verify(crtc, old_crtc_state, new_crtc_state);
 	intel_mpllb_state_verify(state, new_crtc_state);
+	intel_c10mpllb_state_verify(state, new_crtc_state);
 }
 
 void intel_modeset_verify_disabled(struct drm_i915_private *dev_priv,

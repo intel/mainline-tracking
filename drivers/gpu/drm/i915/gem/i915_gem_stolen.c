@@ -535,6 +535,10 @@ static int i915_gem_init_stolen(struct intel_memory_region *mem)
 	/* Basic memrange allocator for stolen space. */
 	drm_mm_init(&i915->mm.stolen, 0, i915->dsm.usable_size);
 
+	if (IS_MTL_GRAPHICS_STEP(i915, M, STEP_A0, STEP_B0) ||
+	    IS_MTL_GRAPHICS_STEP(i915, P, STEP_A0, STEP_B0))
+		i915->dsm.usable_size = 0;
+
 	return 0;
 }
 
@@ -557,7 +561,9 @@ static void dbg_poison(struct i915_ggtt *ggtt,
 
 		ggtt->vm.insert_page(&ggtt->vm, addr,
 				     ggtt->error_capture.start,
-				     I915_CACHE_NONE, 0);
+				     i915_gem_get_pat_index(ggtt->vm.i915,
+							    I915_CACHE_NONE),
+				     0);
 		mb();
 
 		s = io_mapping_map_wc(&ggtt->iomap,
@@ -909,7 +915,7 @@ i915_gem_stolen_lmem_setup(struct drm_i915_private *i915, u16 type,
 		dsm_base = intel_uncore_read64(uncore, GEN12_DSMBASE) & GEN12_BDSM_MASK;
 		if (WARN_ON(lmem_size < dsm_base))
 			return ERR_PTR(-ENODEV);
-		dsm_size = lmem_size - dsm_base;
+		dsm_size = ALIGN_DOWN(lmem_size - dsm_base, SZ_1M);
 	}
 
 	io_size = dsm_size;

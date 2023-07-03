@@ -29,6 +29,7 @@
 #include "display/intel_display.h"
 #include "gt/intel_gt_regs.h"
 #include "gt/intel_sa_media.h"
+#include "gem/i915_gem_object_types.h"
 
 #include "i915_driver.h"
 #include "i915_drv.h"
@@ -163,6 +164,38 @@
 		.gamma_lut_tests = DRM_COLOR_LUT_NON_DECREASING, \
 	}
 
+#define LEGACY_CACHELEVEL \
+	.cachelevel_to_pat = { \
+		[I915_CACHE_NONE]   = 0, \
+		[I915_CACHE_LLC]    = 1, \
+		[I915_CACHE_L3_LLC] = 2, \
+		[I915_CACHE_WT]     = 3, \
+	}
+
+#define TGL_CACHELEVEL \
+	.cachelevel_to_pat = { \
+		[I915_CACHE_NONE]   = 3, \
+		[I915_CACHE_LLC]    = 0, \
+		[I915_CACHE_L3_LLC] = 0, \
+		[I915_CACHE_WT]     = 2, \
+	}
+
+#define PVC_CACHELEVEL \
+	.cachelevel_to_pat = { \
+		[I915_CACHE_NONE]   = 0, \
+		[I915_CACHE_LLC]    = 3, \
+		[I915_CACHE_L3_LLC] = 3, \
+		[I915_CACHE_WT]     = 2, \
+	}
+
+#define MTL_CACHELEVEL \
+	.cachelevel_to_pat = { \
+		[I915_CACHE_NONE]   = 2, \
+		[I915_CACHE_LLC]    = 3, \
+		[I915_CACHE_L3_LLC] = 3, \
+		[I915_CACHE_WT]     = 1, \
+	}
+
 /* Keep in gen based order, and chronological order within a gen */
 
 #define GEN_DEFAULT_PAGE_SIZES \
@@ -188,11 +221,13 @@
 	.has_snoop = true, \
 	.has_coherent_ggtt = false, \
 	.dma_mask_size = 32, \
+	.max_pat_index = 3, \
 	I9XX_PIPE_OFFSETS, \
 	I9XX_CURSOR_OFFSETS, \
 	I9XX_COLORS, \
 	GEN_DEFAULT_PAGE_SIZES, \
-	GEN_DEFAULT_REGIONS
+	GEN_DEFAULT_REGIONS, \
+	LEGACY_CACHELEVEL
 
 #define I845_FEATURES \
 	GEN(2), \
@@ -209,11 +244,13 @@
 	.has_snoop = true, \
 	.has_coherent_ggtt = false, \
 	.dma_mask_size = 32, \
+	.max_pat_index = 3, \
 	I845_PIPE_OFFSETS, \
 	I845_CURSOR_OFFSETS, \
 	I845_COLORS, \
 	GEN_DEFAULT_PAGE_SIZES, \
-	GEN_DEFAULT_REGIONS
+	GEN_DEFAULT_REGIONS, \
+	LEGACY_CACHELEVEL
 
 static const struct intel_device_info i830_info = {
 	I830_FEATURES,
@@ -326,6 +363,9 @@ static const struct intel_device_info pnv_m_info = {
 	.display.has_hotplug = 1,
 	.display.has_overlay = 1,
 	.dma_mask_size = 36,
+	.max_pat_index = 3,
+	GEN_DEFAULT_REGIONS,
+	LEGACY_CACHELEVEL
 };
 
 #define GEN4_FEATURES \
@@ -380,6 +420,9 @@ static const struct intel_device_info gm45_info = {
 	.display.supports_tv = 1,
 	.__runtime.platform_engine_mask = BIT(RCS0) | BIT(VCS0),
 	.gpu_reset_clobbers_display = false,
+	.max_pat_index = 3,
+	GEN_DEFAULT_REGIONS,
+	LEGACY_CACHELEVEL
 };
 
 #define GEN5_FEATURES \
@@ -411,6 +454,9 @@ static const struct intel_device_info ilk_m_info = {
 	.is_mobile = 1,
 	.has_rps = true,
 	.__runtime.fbc_mask = BIT(INTEL_FBC_A),
+	.max_pat_index = 3,
+	GEN_DEFAULT_REGIONS,
+	LEGACY_CACHELEVEL
 };
 
 #define GEN6_FEATURES \
@@ -464,6 +510,9 @@ static const struct intel_device_info snb_m_gt1_info = {
 static const struct intel_device_info snb_m_gt2_info = {
 	SNB_M_PLATFORM,
 	.gt = 2,
+	.max_pat_index = 3,
+	GEN_DEFAULT_REGIONS,
+	LEGACY_CACHELEVEL
 };
 
 #define GEN7_FEATURES  \
@@ -541,6 +590,7 @@ static const struct intel_device_info vlv_info = {
 	.display.has_gmch = 1,
 	.display.has_hotplug = 1,
 	.dma_mask_size = 40,
+	.max_pat_index = 3,
 	.__runtime.ppgtt_type = INTEL_PPGTT_ALIASING,
 	.__runtime.ppgtt_size = 31,
 	.has_snoop = true,
@@ -552,6 +602,7 @@ static const struct intel_device_info vlv_info = {
 	I9XX_COLORS,
 	GEN_DEFAULT_PAGE_SIZES,
 	GEN_DEFAULT_REGIONS,
+	LEGACY_CACHELEVEL,
 };
 
 #define G75_FEATURES  \
@@ -639,6 +690,7 @@ static const struct intel_device_info chv_info = {
 	.has_logical_ring_contexts = 1,
 	.display.has_gmch = 1,
 	.dma_mask_size = 39,
+	.max_pat_index = 3,
 	.__runtime.ppgtt_type = INTEL_PPGTT_FULL,
 	.__runtime.ppgtt_size = 32,
 	.has_reset_engine = 1,
@@ -650,6 +702,7 @@ static const struct intel_device_info chv_info = {
 	CHV_COLORS,
 	GEN_DEFAULT_PAGE_SIZES,
 	GEN_DEFAULT_REGIONS,
+	LEGACY_CACHELEVEL,
 };
 
 #define GEN9_DEFAULT_PAGE_SIZES \
@@ -862,6 +915,8 @@ static const struct intel_device_info jsl_info = {
 	PLATFORM(INTEL_JASPERLAKE),
 	.__runtime.platform_engine_mask = BIT(RCS0) | BIT(BCS0) | BIT(VCS0) | BIT(VECS0),
 	.__runtime.ppgtt_size = 36,
+	TGL_CACHELEVEL,
+	.max_pat_index = 3,
 };
 
 #define GEN12_FEATURES \
@@ -899,6 +954,7 @@ static const struct intel_device_info tgl_info = {
 	.display.has_modular_fia = 1,
 	.__runtime.platform_engine_mask =
 		BIT(RCS0) | BIT(BCS0) | BIT(VECS0) | BIT(VCS0) | BIT(VCS2),
+	.has_sriov = 1,
 };
 
 static const struct intel_device_info rkl_info = {
@@ -945,6 +1001,7 @@ static const struct intel_device_info adl_s_info = {
 	.__runtime.platform_engine_mask =
 		BIT(RCS0) | BIT(BCS0) | BIT(VECS0) | BIT(VCS0) | BIT(VCS2),
 	.dma_mask_size = 39,
+	.has_sriov = 1,
 };
 
 #define XE_LPD_FEATURES \
@@ -1002,6 +1059,9 @@ static const struct intel_device_info adl_p_info = {
 		BIT(RCS0) | BIT(BCS0) | BIT(VECS0) | BIT(VCS0) | BIT(VCS2),
 	.__runtime.ppgtt_size = 48,
 	.dma_mask_size = 39,
+	.has_sriov = 1,
+	TGL_CACHELEVEL,
+	.max_pat_index = 3,
 };
 
 #undef GEN
@@ -1032,6 +1092,7 @@ static const struct intel_device_info adl_p_info = {
 	.has_reset_engine = 1, \
 	.has_rps = 1, \
 	.has_runtime_pm = 1, \
+	.has_selective_tlb_invalidation = 1, \
 	.__runtime.ppgtt_size = 48, \
 	.__runtime.ppgtt_type = INTEL_PPGTT_FULL
 
@@ -1093,6 +1154,7 @@ static const struct intel_device_info ats_m_info = {
 	XE_HP_FEATURES, \
 	.dma_mask_size = 52, \
 	.has_3d_pipeline = 0, \
+	.has_asid_tlb_invalidation = 1, \
 	.has_guc_deprivilege = 1, \
 	.has_l3_ccs_read = 1, \
 	.has_mslice_steering = 0, \
@@ -1108,11 +1170,13 @@ static const struct intel_device_info pvc_info = {
 	PLATFORM(INTEL_PONTEVECCHIO),
 	NO_DISPLAY,
 	.has_flat_ccs = 0,
+	.max_pat_index = 7,
 	.__runtime.platform_engine_mask =
 		BIT(BCS0) |
 		BIT(VCS0) |
 		BIT(CCS0) | BIT(CCS1) | BIT(CCS2) | BIT(CCS3),
 	.require_force_probe = 1,
+	PVC_CACHELEVEL,
 };
 
 #define XE_LPDP_FEATURES	\
@@ -1148,11 +1212,17 @@ static const struct intel_device_info mtl_info = {
 	.has_flat_ccs = 0,
 	.has_gmd_id = 1,
 	.has_guc_deprivilege = 1,
+	.has_llc = 0,
+	.has_memirq = 1,
 	.has_mslice_steering = 0,
 	.has_snoop = 1,
+	.max_pat_index = 4,
+	.has_sriov = 1,
+	.has_pxp = 1,
 	.__runtime.memory_regions = REGION_SMEM | REGION_STOLEN_LMEM,
 	.__runtime.platform_engine_mask = BIT(RCS0) | BIT(BCS0) | BIT(CCS0),
 	.require_force_probe = 1,
+	MTL_CACHELEVEL,
 };
 
 #undef PLATFORM
@@ -1250,6 +1320,9 @@ static void i915_pci_remove(struct pci_dev *pdev)
 	if (!i915) /* driver load aborted, nothing to cleanup */
 		return;
 
+	if (IS_SRIOV_PF(i915))
+		i915_sriov_pf_disable_vfs(i915);
+
 	i915_driver_remove(i915);
 	pci_set_drvdata(pdev, NULL);
 }
@@ -1344,12 +1417,13 @@ static int i915_pci_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 		return -ENODEV;
 	}
 
-	/* Only bind to function 0 of the device. Early generations
-	 * used function 1 as a placeholder for multi-head. This causes
-	 * us confusion instead, especially on the systems where both
-	 * functions have the same PCI-ID!
+	/*
+	 * Don't bind to non-zero function, unless it is a virtual function.
+	 * Early generations used function 1 as a placeholder for multi-head.
+	 * This causes us confusion instead, especially on the systems where
+	 * both functions have the same PCI-ID!
 	 */
-	if (PCI_FUNC(pdev->devfn))
+	if (PCI_FUNC(pdev->devfn) && !pdev->is_virtfn)
 		return -ENODEV;
 
 	if (!intel_mmio_bar_valid(pdev, intel_info))
@@ -1387,7 +1461,45 @@ static void i915_pci_shutdown(struct pci_dev *pdev)
 {
 	struct drm_i915_private *i915 = pci_get_drvdata(pdev);
 
+	if (IS_SRIOV_PF(i915))
+		i915_sriov_pf_disable_vfs(i915);
+
 	i915_driver_shutdown(i915);
+}
+
+/**
+ * i915_pci_sriov_configure - Configure SR-IOV (enable/disable VFs).
+ * @pdev: pci_dev struct
+ * @num_vfs: number of VFs to enable (or zero to disable all)
+ *
+ * This function will be called when user requests SR-IOV configuration via the
+ * sysfs interface. Note that VFs configuration can be done only on the PF and
+ * after successful PF initialization.
+ *
+ * Return: number of configured VFs or a negative error code on failure.
+ */
+static int i915_pci_sriov_configure(struct pci_dev *pdev, int num_vfs)
+{
+	struct drm_device *dev = pci_get_drvdata(pdev);
+	struct drm_i915_private *i915 = to_i915(dev);
+	int ret;
+
+	/* handled in drivers/pci/pci-sysfs.c */
+	GEM_BUG_ON(num_vfs < 0);
+	GEM_BUG_ON(num_vfs > U16_MAX);
+	GEM_BUG_ON(num_vfs > pci_sriov_get_totalvfs(pdev));
+	GEM_BUG_ON(num_vfs && pci_num_vf(pdev));
+	GEM_BUG_ON(!num_vfs && !pci_num_vf(pdev));
+
+	if (!IS_SRIOV_PF(i915))
+		return -ENODEV;
+
+	if (num_vfs > 0)
+		ret = i915_sriov_pf_enable_vfs(i915, num_vfs);
+	else
+		ret = i915_sriov_pf_disable_vfs(i915);
+
+	return ret;
 }
 
 static struct pci_driver i915_pci_driver = {
@@ -1397,6 +1509,7 @@ static struct pci_driver i915_pci_driver = {
 	.remove = i915_pci_remove,
 	.shutdown = i915_pci_shutdown,
 	.driver.pm = &i915_pm_ops,
+	.sriov_configure = i915_pci_sriov_configure,
 };
 
 int i915_pci_register_driver(void)

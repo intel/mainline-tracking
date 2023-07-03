@@ -24,6 +24,7 @@ struct intel_uc_ops {
 	void (*fini)(struct intel_uc *uc);
 	int (*init_hw)(struct intel_uc *uc);
 	void (*fini_hw)(struct intel_uc *uc);
+	void (*resume_mappings)(struct intel_uc *uc);
 };
 
 struct intel_uc {
@@ -74,7 +75,7 @@ int intel_uc_runtime_resume(struct intel_uc *uc);
  */
 
 #define __uc_state_checker(x, func, state, required) \
-static inline bool intel_uc_##state##_##func(struct intel_uc *uc) \
+static inline bool intel_uc_##state##_##func(const struct intel_uc *uc) \
 { \
 	return intel_##func##_is_##required(&uc->x); \
 }
@@ -113,6 +114,7 @@ intel_uc_ops_function(init, init, int, 0);
 intel_uc_ops_function(fini, fini, void, );
 intel_uc_ops_function(init_hw, init_hw, int, 0);
 intel_uc_ops_function(fini_hw, fini_hw, void, );
+intel_uc_ops_function(resume_mappings, resume_mappings, void, );
 #undef intel_uc_ops_function
 
 #endif

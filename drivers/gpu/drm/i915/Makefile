@@ -81,6 +81,7 @@ i915-$(CONFIG_DEBUG_FS) += \
 	i915_debugfs_params.o \
 	display/intel_display_debugfs.o \
 	display/intel_pipe_crc.o
+
 i915-$(CONFIG_PERF_EVENTS) += i915_pmu.o
 
 # "Graphics Technology" (aka we talk to the gpu)
@@ -131,6 +132,7 @@ gt-y += \
 	gt/intel_sseu.o \
 	gt/intel_sseu_debugfs.o \
 	gt/intel_timeline.o \
+	gt/intel_tlb.o \
 	gt/intel_wopcm.o \
 	gt/intel_workarounds.o \
 	gt/shmem_utils.o \
@@ -194,7 +196,9 @@ i915-y += \
 # general-purpose microcontroller (GuC) support
 i915-y += \
 	  gt/uc/intel_gsc_fw.o \
+	  gt/uc/intel_gsc_proxy.o \
 	  gt/uc/intel_gsc_uc.o \
+	  gt/uc/intel_gsc_uc_heci_cmd_submit.o \
 	  gt/uc/intel_guc.o \
 	  gt/uc/intel_guc_ads.o \
 	  gt/uc/intel_guc_capture.o \
@@ -216,6 +220,22 @@ i915-y += \
 
 # graphics system controller (GSC) support
 i915-y += gt/intel_gsc.o
+
+# Virtualization support
+iov-y += \
+	i915_sriov.o \
+	i915_sriov_sysfs.o \
+	gt/iov/intel_iov.o \
+	gt/iov/intel_iov_debugfs.o \
+	gt/iov/intel_iov_event.o \
+	gt/iov/intel_iov_memirq.o \
+	gt/iov/intel_iov_provisioning.o \
+	gt/iov/intel_iov_query.o \
+	gt/iov/intel_iov_relay.o \
+	gt/iov/intel_iov_service.o \
+	gt/iov/intel_iov_state.o \
+	gt/iov/intel_iov_sysfs.o
+i915-y += $(iov-y)
 
 # graphics hardware monitoring (HWMON) support
 i915-$(CONFIG_HWMON) += i915_hwmon.o
@@ -292,6 +312,7 @@ i915-y += \
 	display/icl_dsi.o \
 	display/intel_backlight.o \
 	display/intel_crt.o \
+	display/intel_cx0_phy.o \
 	display/intel_ddi.o \
 	display/intel_ddi_buf_trans.o \
 	display/intel_display_trace.o \
@@ -332,6 +353,7 @@ i915-y += \
 i915-$(CONFIG_DRM_I915_PXP) += \
 	pxp/intel_pxp_cmd.o \
 	pxp/intel_pxp_debugfs.o \
+	pxp/intel_pxp_gsccs.o \
 	pxp/intel_pxp_irq.o \
 	pxp/intel_pxp_pm.o \
 	pxp/intel_pxp_session.o

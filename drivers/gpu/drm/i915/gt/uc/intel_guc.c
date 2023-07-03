@@ -17,6 +17,15 @@
 #include "i915_drv.h"
 #include "i915_irq.h"
 
+#ifdef CONFIG_DRM_I915_DEBUG_GUC
+#define GUC_DEBUG(_guc, _fmt, ...) guc_dbg(_guc, _fmt, ##__VA_ARGS__)
+#else
+#define GUC_DEBUG(_guc, _fmt, ...) typecheck(struct intel_guc *, _guc)
+#endif
+
+static const struct intel_guc_ops guc_ops_default;
+static const struct intel_guc_ops guc_ops_vf;
+
 /**
  * DOC: GuC
  *
@@ -75,6 +84,10 @@ void intel_guc_init_send_regs(struct intel_guc *guc)
 					FW_REG_READ | FW_REG_WRITE);
 	}
 	guc->send_regs.fw_domains = fw_domains;
+
+	/* XXX: move to init_early when safe to call IS_SRIOV_VF */
+	if (IS_SRIOV_VF(guc_to_gt(guc)->i915))
+		guc->ops = &guc_ops_vf;
 }
 
 static void gen9_reset_guc_interrupts(struct intel_guc *guc)
@@ -163,7 +176,7 @@ void intel_guc_init_early(struct intel_guc *guc)
 	struct intel_gt *gt = guc_to_gt(guc);
 	struct drm_i915_private *i915 = gt->i915;
 
-	intel_uc_fw_init_early(&guc->fw, INTEL_UC_FW_TYPE_GUC);
+	intel_uc_fw_init_early(&guc->fw, INTEL_UC_FW_TYPE_GUC, true);
 	intel_guc_ct_init_early(&guc->ct);
 	intel_guc_log_init_early(&guc->log);
 	intel_guc_submission_init_early(guc);
@@ -198,6 +211,8 @@ void intel_guc_init_early(struct intel_guc *guc)
 
 	intel_guc_enable_msg(guc, INTEL_GUC_RECV_MSG_EXCEPTION |
 				  INTEL_GUC_RECV_MSG_CRASH_DUMP_POSTED);
+
+	guc->ops = &guc_ops_default;
 }
 
 void intel_guc_init_late(struct intel_guc *guc)
@@ -388,7 +403,7 @@ void intel_guc_dump_time_info(struct intel_guc *guc, struct drm_printer *p)
 		   gt->clock_frequency, gt->clock_period_ns);
 }
 
-int intel_guc_init(struct intel_guc *guc)
+static int __guc_init(struct intel_guc *guc)
 {
 	int ret;
 
@@ -455,7 +470,7 @@ out:
 	return ret;
 }
 
-void intel_guc_fini(struct intel_guc *guc)
+static void __guc_fini(struct intel_guc *guc)
 {
 	if (!intel_uc_fw_is_loadable(&guc->fw))
 		return;
@@ -472,6 +487,50 @@ void intel_guc_fini(struct intel_guc *guc)
 	intel_guc_capture_destroy(guc);
 	intel_guc_log_destroy(&guc->log);
 	intel_uc_fw_fini(&guc->fw);
+}
+
+static int __vf_guc_init(struct intel_guc *guc)
+{
+	struct intel_gt *gt = guc_to_gt(guc);
+	int err;
+
+	GEM_BUG_ON(!IS_SRIOV_VF(gt->i915));
+
+	err = intel_guc_ct_init(&guc->ct);
+	if (err)
+		return err;
+
+	/* GuC submission is mandatory for VFs */
+	err = intel_guc_submission_init(guc);
+	if (err)
+		goto err_ct;
+
+	/*
+	 * Disable slpc controls for VF. This cannot be done in
+	 * __guc_slpc_selected since the VF probe is not complete
+	 * at that point.
+	 */
+	guc->slpc.supported = false;
+	guc->slpc.selected = false;
+
+	/* Disable GUCRC for VF */
+	guc->rc_supported = false;
+
+	return 0;
+
+err_ct:
+	intel_guc_ct_fini(&guc->ct);
+	return err;
+}
+
+static void __vf_guc_fini(struct intel_guc *guc)
+{
+	struct intel_gt *gt = guc_to_gt(guc);
+
+	GEM_BUG_ON(!IS_SRIOV_VF(gt->i915));
+
+	intel_guc_submission_fini(guc);
+	intel_guc_ct_fini(&guc->ct);
 }
 
 /*
@@ -493,6 +552,8 @@ int intel_guc_send_mmio(struct intel_guc *guc, const u32 *request, u32 len,
 
 	mutex_lock(&guc->send_mutex);
 	intel_uncore_forcewake_get(uncore, guc->send_regs.fw_domains);
+
+	GUC_DEBUG(guc, "mmio sending %*ph\n", len * 4, request);
 
 retry:
 	for (i = 0; i < len; i++)
@@ -520,11 +581,19 @@ timeout:
 	}
 
 	if (FIELD_GET(GUC_HXG_MSG_0_TYPE, header) == GUC_HXG_TYPE_NO_RESPONSE_BUSY) {
+		int loop = IS_SRIOV_VF(guc_to_gt(guc)->i915) ? 20 : 1;
+
 #define done ({ header = intel_uncore_read(uncore, guc_send_reg(guc, 0)); \
 		FIELD_GET(GUC_HXG_MSG_0_ORIGIN, header) != GUC_HXG_ORIGIN_GUC || \
 		FIELD_GET(GUC_HXG_MSG_0_TYPE, header) != GUC_HXG_TYPE_NO_RESPONSE_BUSY; })
 
+busy_loop:
 		ret = wait_for(done, 1000);
+		if (unlikely(ret && --loop)) {
+			guc_dbg(guc, "mmio request %#x: still busy, countdown %u\n",
+				request[0], loop);
+			goto busy_loop;
+		}
 		if (unlikely(ret))
 			goto timeout;
 		if (unlikely(FIELD_GET(GUC_HXG_MSG_0_ORIGIN, header) !=
@@ -569,10 +638,13 @@ proto:
 		for (i = 1; i < count; i++)
 			response_buf[i] = intel_uncore_read(uncore,
 							    guc_send_reg(guc, i));
+		GUC_DEBUG(guc, "mmio received %*ph\n", count * 4, response_buf);
 
 		/* Use number of copied dwords as our return value */
 		ret = count;
 	} else {
+		GUC_DEBUG(guc, "mmio received %*ph\n", 4, &header);
+
 		/* Use data from the GuC response as our return value */
 		ret = FIELD_GET(GUC_HXG_RESPONSE_MSG_0_DATA0, header);
 	}
@@ -743,6 +815,13 @@ struct i915_vma *intel_guc_allocate_vma(struct intel_guc *guc, u32 size)
 	if (IS_ERR(obj))
 		return ERR_CAST(obj);
 
+	/*
+	 * Wa_22016122933: For MTL the shared memory needs to be mapped
+	 * as WC on CPU side and UC (PAT index 2) on GPU side
+	 */
+	if (IS_METEORLAKE(gt->i915))
+		i915_gem_object_set_cache_coherency(obj, I915_CACHE_NONE);
+
 	vma = i915_vma_instance(obj, &gt->ggtt->vm, NULL);
 	if (IS_ERR(vma))
 		goto err;
@@ -846,6 +925,136 @@ int intel_guc_self_cfg64(struct intel_guc *guc, u16 key, u64 value)
 	return __guc_self_cfg(guc, key, 2, value);
 }
 
+static long must_wait_woken(struct wait_queue_entry *wq_entry, long timeout)
+{
+	/*
+	 * This is equivalent to wait_woken() with the exception that
+	 * we do not wake up early if the kthread task has been completed.
+	 * As we are called from page reclaim in any task context,
+	 * we may be invoked from stopped kthreads, but we *must*
+	 * complete the wait from the HW .
+	 *
+	 * A second problem is that since we are called under reclaim
+	 * and wait_woken() inspected the thread state, it makes an invalid
+	 * assumption that all PF_KTHREAD tasks have set_kthread_struct()
+	 * called upon them, and will trigger a GPF in is_kthread_should_stop().
+	 */
+	do {
+		set_current_state(TASK_UNINTERRUPTIBLE);
+		if (wq_entry->flags & WQ_FLAG_WOKEN)
+			break;
+
+		timeout = schedule_timeout(timeout);
+	} while (timeout);
+	__set_current_state(TASK_RUNNING);
+
+	/* See wait_woken() and woken_wake_function() */
+	smp_store_mb(wq_entry->flags, wq_entry->flags & ~WQ_FLAG_WOKEN);
+
+	return timeout;
+}
+
+static int guc_send_invalidate_tlb(struct intel_guc *guc, u32 *action, u32 size)
+{
+	struct intel_guc_tlb_wait _wq, *wq = &_wq;
+	DEFINE_WAIT_FUNC(wait, woken_wake_function);
+	int err = 0;
+	u32 seqno;
+
+	init_waitqueue_head(&_wq.wq);
+
+	if (xa_alloc_cyclic_irq(&guc->tlb_lookup, &seqno, wq,
+				xa_limit_32b, &guc->next_seqno,
+				GFP_ATOMIC | __GFP_NOWARN) < 0) {
+		/* Under severe memory pressure? Serialise TLB allocations */
+		xa_lock_irq(&guc->tlb_lookup);
+		wq = xa_load(&guc->tlb_lookup, guc->serial_slot);
+		wait_event_lock_irq(wq->wq,
+				    !READ_ONCE(wq->status),
+				    guc->tlb_lookup.xa_lock);
+		/*
+		 * Update wq->status under lock to ensure only one waiter can
+		 * issue the tlb invalidation command using the serial slot at a
+		 * time. The condition is set to false before releasing the lock
+		 * so that other caller continue to wait until woken up again.
+		 */
+		wq->status = 1;
+		xa_unlock_irq(&guc->tlb_lookup);
+
+		seqno = guc->serial_slot;
+	}
+
+	action[1] = seqno;
+
+	add_wait_queue(&wq->wq, &wait);
+
+	err = intel_guc_send_busy_loop(guc, action, size, G2H_LEN_DW_INVALIDATE_TLB, true);
+	if (err) {
+		goto out;
+	}
+/*
+ * GuC has a timeout of 1ms for a tlb invalidation response from GAM. On a
+ * timeout GuC drops the request and has no mechanism to notify the host about
+ * the timeout. So keep a larger timeout that accounts for this individual
+ * timeout and max number of outstanding invalidation requests that can be
+ * queued in CT buffer.
+ */
+#define OUTSTANDING_GUC_TIMEOUT_PERIOD  (HZ)
+	if (!must_wait_woken(&wait, OUTSTANDING_GUC_TIMEOUT_PERIOD)) {
+		/*
+		 * XXX: Failure of tlb invalidation is critical and would
+		 * warrant a gt reset.
+		 */
+		drm_err(&guc_to_gt(guc)->i915->drm,
+			 "tlb invalidation response timed out for seqno %u\n", seqno);
+		err = -ETIME;
+	}
+out:
+	remove_wait_queue(&wq->wq, &wait);
+	if (seqno != guc->serial_slot)
+		xa_erase_irq(&guc->tlb_lookup, seqno);
+
+	return err;
+}
+
+ /* Full TLB invalidation */
+int intel_guc_invalidate_tlb_full(struct intel_guc *guc,
+				  enum intel_guc_tlb_inval_mode mode)
+{
+	u32 action[] = {
+		INTEL_GUC_ACTION_TLB_INVALIDATION,
+		0,
+		INTEL_GUC_TLB_INVAL_FULL << INTEL_GUC_TLB_INVAL_TYPE_SHIFT |
+			mode << INTEL_GUC_TLB_INVAL_MODE_SHIFT |
+			INTEL_GUC_TLB_INVAL_FLUSH_CACHE,
+	};
+
+	if (!INTEL_GUC_SUPPORTS_TLB_INVALIDATION(guc))
+		return -EINVAL;
+
+	return guc_send_invalidate_tlb(guc, action, ARRAY_SIZE(action));
+}
+
+/*
+ * Guc TLB Invalidation: Invalidate the TLB's of GuC itself.
+ */
+int intel_guc_invalidate_tlb_guc(struct intel_guc *guc,
+				 enum intel_guc_tlb_inval_mode mode)
+{
+	u32 action[] = {
+		INTEL_GUC_ACTION_TLB_INVALIDATION,
+		0,
+		INTEL_GUC_TLB_INVAL_GUC << INTEL_GUC_TLB_INVAL_TYPE_SHIFT |
+			mode << INTEL_GUC_TLB_INVAL_MODE_SHIFT |
+			INTEL_GUC_TLB_INVAL_FLUSH_CACHE,
+	};
+
+	if (!INTEL_GUC_SUPPORTS_TLB_INVALIDATION(guc))
+		return -EINVAL;
+
+	return guc_send_invalidate_tlb(guc, action, ARRAY_SIZE(action));
+}
+
 /**
  * intel_guc_load_status - dump information about GuC load status
  * @guc: the GuC
@@ -870,6 +1079,9 @@ void intel_guc_load_status(struct intel_guc *guc, struct drm_printer *p)
 	}
 
 	intel_uc_fw_dump(&guc->fw, p);
+
+	if (IS_SRIOV_VF(guc_to_gt(guc)->i915))
+		return;
 
 	with_intel_runtime_pm(uncore->rpm, wakeref) {
 		u32 status = intel_uncore_read(uncore, GUC_STATUS);
@@ -918,3 +1130,13 @@ void intel_guc_write_barrier(struct intel_guc *guc)
 		wmb();
 	}
 }
+
+static const struct intel_guc_ops guc_ops_default = {
+	.init = __guc_init,
+	.fini = __guc_fini,
+};
+
+static const struct intel_guc_ops guc_ops_vf = {
+	.init = __vf_guc_init,
+	.fini = __vf_guc_fini,
+};

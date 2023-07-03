@@ -907,6 +907,9 @@ __intel_engine_init_ctx_wa(struct intel_engine_cs *engine,
 {
 	struct drm_i915_private *i915 = engine->i915;
 
+	if (IS_SRIOV_VF(i915))
+		return;
+
 	wa_init_start(wal, engine->gt, name, engine->name);
 
 	/* Applies to all engines */
@@ -1819,6 +1822,9 @@ void intel_gt_init_workarounds(struct intel_gt *gt)
 {
 	struct i915_wa_list *wal = &gt->wa_list;
 
+	if (IS_SRIOV_VF(gt->i915))
+		return;
+
 	wa_init_start(wal, gt, "GT", "global");
 	gt_init_workarounds(gt, wal);
 	wa_init_finish(wal);
@@ -1859,7 +1865,7 @@ wa_verify(struct intel_gt *gt, const struct i915_wa *wa, u32 cur,
 static void wa_list_apply(const struct i915_wa_list *wal)
 {
 	struct intel_gt *gt = wal->gt;
-	struct intel_uncore *uncore = gt->uncore;
+	struct intel_uncore *uncore;
 	enum forcewake_domains fw;
 	unsigned long flags;
 	struct i915_wa *wa;
@@ -1867,6 +1873,8 @@ static void wa_list_apply(const struct i915_wa_list *wal)
 
 	if (!wal->count)
 		return;
+
+	uncore = gt->uncore;
 
 	fw = wal_get_fw_for_rmw(uncore, wal);
 
@@ -1919,6 +1927,9 @@ static bool wa_list_verify(struct intel_gt *gt,
 	unsigned long flags;
 	unsigned int i;
 	bool ok = true;
+
+	if (!wal->count)
+		return 0;
 
 	fw = wal_get_fw_for_rmw(uncore, wal);
 
@@ -2187,6 +2198,10 @@ static void tgl_whitelist_build(struct intel_engine_cs *engine)
 
 		/* Wa_1806527549:tgl */
 		whitelist_reg(w, HIZ_CHICKEN);
+
+		/* Required by recommended tuning setting (not a workaround) */
+		whitelist_reg(w, GEN11_COMMON_SLICE_CHICKEN3);
+
 		break;
 	default:
 		break;
@@ -2207,16 +2222,9 @@ static void dg1_whitelist_build(struct intel_engine_cs *engine)
 				  RING_FORCE_TO_NONPRIV_ACCESS_RD);
 }
 
-static void xehpsdv_whitelist_build(struct intel_engine_cs *engine)
-{
-	allow_read_ctx_timestamp(engine);
-}
-
 static void dg2_whitelist_build(struct intel_engine_cs *engine)
 {
 	struct i915_wa_list *w = &engine->whitelist;
-
-	allow_read_ctx_timestamp(engine);
 
 	switch (engine->class) {
 	case RENDER_CLASS:
@@ -2233,6 +2241,9 @@ static void dg2_whitelist_build(struct intel_engine_cs *engine)
 			whitelist_reg_ext(w, PS_INVOCATION_COUNT,
 					  RING_FORCE_TO_NONPRIV_ACCESS_RD |
 					  RING_FORCE_TO_NONPRIV_RANGE_4);
+
+		/* Required by recommended tuning setting (not a workaround) */
+		whitelist_mcr_reg(w, XEHP_COMMON_SLICE_CHICKEN3);
 
 		break;
 	case COMPUTE_CLASS:
@@ -2265,10 +2276,24 @@ static void blacklist_trtt(struct intel_engine_cs *engine)
 
 static void pvc_whitelist_build(struct intel_engine_cs *engine)
 {
-	allow_read_ctx_timestamp(engine);
-
 	/* Wa_16014440446:pvc */
 	blacklist_trtt(engine);
+}
+
+static void mtl_whitelist_build(struct intel_engine_cs *engine)
+{
+	struct i915_wa_list *w = &engine->whitelist;
+
+	switch (engine->class) {
+	case RENDER_CLASS:
+		/* Required by recommended tuning setting (not a workaround) */
+		whitelist_mcr_reg(w, XEHP_COMMON_SLICE_CHICKEN3);
+
+		break;
+	default:
+		break;
+	}
+
 }
 
 void intel_engine_init_whitelist(struct intel_engine_cs *engine)
@@ -2276,16 +2301,19 @@ void intel_engine_init_whitelist(struct intel_engine_cs *engine)
 	struct drm_i915_private *i915 = engine->i915;
 	struct i915_wa_list *w = &engine->whitelist;
 
+	if (IS_SRIOV_VF(engine->i915))
+		return;
+
 	wa_init_start(w, engine->gt, "whitelist", engine->name);
 
 	if (IS_METEORLAKE(i915))
-		; /* noop; none at this time */
+		mtl_whitelist_build(engine);
 	else if (IS_PONTEVECCHIO(i915))
 		pvc_whitelist_build(engine);
 	else if (IS_DG2(i915))
 		dg2_whitelist_build(engine);
 	else if (IS_XEHPSDV(i915))
-		xehpsdv_whitelist_build(engine);
+		; /* none needed */
 	else if (IS_DG1(i915))
 		dg1_whitelist_build(engine);
 	else if (GRAPHICS_VER(i915) == 12)
@@ -3153,6 +3181,9 @@ engine_init_workarounds(struct intel_engine_cs *engine, struct i915_wa_list *wal
 void intel_engine_init_workarounds(struct intel_engine_cs *engine)
 {
 	struct i915_wa_list *wal = &engine->wa_list;
+
+	if (IS_SRIOV_VF(engine->i915))
+		return;
 
 	wa_init_start(wal, engine->gt, "engine", engine->name);
 	engine_init_workarounds(engine, wal);

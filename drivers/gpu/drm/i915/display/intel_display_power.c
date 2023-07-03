@@ -19,6 +19,7 @@
 #include "intel_mchbar_regs.h"
 #include "intel_pch_refclk.h"
 #include "intel_pcode.h"
+#include "intel_pm.h"
 #include "intel_snps_phy.h"
 #include "skl_watermark.h"
 #include "vlv_sideband.h"
@@ -403,7 +404,7 @@ print_async_put_domains_state(struct i915_power_domains *power_domains)
 						     struct drm_i915_private,
 						     display.power.domains);
 
-	drm_dbg(&i915->drm, "async_put_wakeref %u\n",
+	drm_dbg(&i915->drm, "async_put_wakeref %lu\n",
 		power_domains->async_put_wakeref);
 
 	print_power_domains(power_domains, "async_put_domains[0]",
@@ -1081,6 +1082,10 @@ static void gen9_dbuf_enable(struct drm_i915_private *dev_priv)
 	dev_priv->display.dbuf.enabled_slices =
 		intel_enabled_dbuf_slices_mask(dev_priv);
 
+	if (DISPLAY_VER(dev_priv) >= 14)
+		intel_program_dbuf_pmdemand(dev_priv, BIT(DBUF_S1) |
+					    dev_priv->dbuf.enabled_slices);
+
 	/*
 	 * Just power up at least 1 slice, we will
 	 * figure out later which slices we have and what we need.
@@ -1092,6 +1097,9 @@ static void gen9_dbuf_enable(struct drm_i915_private *dev_priv)
 static void gen9_dbuf_disable(struct drm_i915_private *dev_priv)
 {
 	gen9_dbuf_slices_update(dev_priv, 0);
+
+	if (DISPLAY_VER(dev_priv) >= 14)
+		intel_program_dbuf_pmdemand(dev_priv, 0);
 }
 
 static void gen12_dbuf_slices_config(struct drm_i915_private *dev_priv)
@@ -1635,7 +1643,8 @@ static void icl_display_core_init(struct drm_i915_private *dev_priv,
 		return;
 
 	/* 2. Initialize all combo phys */
-	intel_combo_phy_init(dev_priv);
+	if (DISPLAY_VER(dev_priv) < 14)
+		intel_combo_phy_init(dev_priv);
 
 	/*
 	 * 3. Enable Power Well 1 (PG1).
@@ -1645,6 +1654,10 @@ static void icl_display_core_init(struct drm_i915_private *dev_priv,
 	well = lookup_power_well(dev_priv, SKL_DISP_PW_1);
 	intel_power_well_enable(dev_priv, well);
 	mutex_unlock(&power_domains->lock);
+
+	if (DISPLAY_VER(dev_priv) == 14)
+		intel_de_rmw(dev_priv, DC_STATE_EN,
+			     HOLD_PHY_PG1_LATCH | HOLD_PHY_CLKREQ_PG1_LATCH, 0);
 
 	/* 4. Enable CDCLK. */
 	intel_cdclk_init_hw(dev_priv);
@@ -1699,6 +1712,10 @@ static void icl_display_core_uninit(struct drm_i915_private *dev_priv)
 
 	/* 3. Disable CD clock */
 	intel_cdclk_uninit_hw(dev_priv);
+
+	if (DISPLAY_VER(dev_priv) == 14)
+		intel_de_rmw(dev_priv, DC_STATE_EN, 0,
+			     HOLD_PHY_PG1_LATCH | HOLD_PHY_CLKREQ_PG1_LATCH);
 
 	/*
 	 * 4. Disable Power Well 1 (PG1).
@@ -1884,7 +1901,9 @@ void intel_power_domains_init_hw(struct drm_i915_private *i915, bool resume)
 
 	power_domains->initializing = true;
 
-	if (DISPLAY_VER(i915) >= 11) {
+	if (IS_SRIOV_VF(i915)) {
+		/* nop */
+	} else if (DISPLAY_VER(i915) >= 11) {
 		icl_display_core_init(i915, resume);
 	} else if (IS_GEMINILAKE(i915) || IS_BROXTON(i915)) {
 		bxt_display_core_init(i915, resume);
@@ -2202,6 +2221,9 @@ static void intel_power_domains_verify_state(struct drm_i915_private *i915)
 
 void intel_display_power_suspend_late(struct drm_i915_private *i915)
 {
+	if (IS_SRIOV_VF(i915))
+		return;
+
 	if (DISPLAY_VER(i915) >= 11 || IS_GEMINILAKE(i915) ||
 	    IS_BROXTON(i915)) {
 		bxt_enable_dc9(i915);
@@ -2209,13 +2231,21 @@ void intel_display_power_suspend_late(struct drm_i915_private *i915)
 		hsw_enable_pc8(i915);
 	}
 
-	/* Tweaked Wa_14010685332:cnp,icp,jsp,mcc,tgp,adp */
-	if (INTEL_PCH_TYPE(i915) >= PCH_CNP && INTEL_PCH_TYPE(i915) < PCH_DG1)
+	/* Tweaked Wa_14010685332:cnp,icp,jsp,mcc,tgp */
+	if (INTEL_PCH_TYPE(i915) >= PCH_CNP && INTEL_PCH_TYPE(i915) < PCH_DG1) {
 		intel_de_rmw(i915, SOUTH_CHICKEN1, SBCLK_RUN_REFCLK_DIS, SBCLK_RUN_REFCLK_DIS);
+
+		/* Original Wa_14010685332: adp */
+		if (INTEL_PCH_TYPE(i915) == PCH_ADP)
+			intel_de_rmw(i915, SOUTH_CHICKEN1, SBCLK_RUN_REFCLK_DIS, 0);
+	}
 }
 
 void intel_display_power_resume_early(struct drm_i915_private *i915)
 {
+	if (IS_SRIOV_VF(i915))
+		return;
+
 	if (DISPLAY_VER(i915) >= 11 || IS_GEMINILAKE(i915) ||
 	    IS_BROXTON(i915)) {
 		gen9_sanitize_dc_state(i915);
@@ -2224,13 +2254,17 @@ void intel_display_power_resume_early(struct drm_i915_private *i915)
 		hsw_disable_pc8(i915);
 	}
 
-	/* Tweaked Wa_14010685332:cnp,icp,jsp,mcc,tgp,adp */
-	if (INTEL_PCH_TYPE(i915) >= PCH_CNP && INTEL_PCH_TYPE(i915) < PCH_DG1)
+	/* Tweaked Wa_14010685332:cnp,icp,jsp,mcc,tgp */
+	if ((INTEL_PCH_TYPE(i915) >= PCH_CNP && INTEL_PCH_TYPE(i915) < PCH_DG1) &&
+	    INTEL_PCH_TYPE(i915) != PCH_ADP)
 		intel_de_rmw(i915, SOUTH_CHICKEN1, SBCLK_RUN_REFCLK_DIS, 0);
 }
 
 void intel_display_power_suspend(struct drm_i915_private *i915)
 {
+	if (IS_SRIOV_VF(i915))
+		return;
+
 	if (DISPLAY_VER(i915) >= 11) {
 		icl_display_core_uninit(i915);
 		bxt_enable_dc9(i915);
@@ -2244,6 +2278,9 @@ void intel_display_power_suspend(struct drm_i915_private *i915)
 
 void intel_display_power_resume(struct drm_i915_private *i915)
 {
+	if (IS_SRIOV_VF(i915))
+		return;
+
 	if (DISPLAY_VER(i915) >= 11) {
 		bxt_disable_dc9(i915);
 		icl_display_core_init(i915, true);

@@ -253,6 +253,7 @@ struct i915_execbuffer {
 	struct intel_gt *gt; /* gt for the execbuf */
 	struct intel_context *context; /* logical state for the request */
 	struct i915_gem_context *gem_context; /** caller's context */
+	intel_wakeref_t wakeref;
 
 	/** our requests to build */
 	struct i915_request *requests[MAX_ENGINE_INSTANCE + 1];
@@ -642,7 +643,7 @@ static inline int use_cpu_reloc(const struct reloc_cache *cache,
 
 	return (cache->has_llc ||
 		obj->cache_dirty ||
-		obj->cache_level != I915_CACHE_NONE);
+		!i915_gem_object_has_cache_level(obj, I915_CACHE_NONE));
 }
 
 static int eb_reserve_vma(struct i915_execbuffer *eb,
@@ -1323,8 +1324,10 @@ static void *reloc_iomap(struct i915_vma *batch,
 	offset = cache->node.start;
 	if (drm_mm_node_allocated(&cache->node)) {
 		ggtt->vm.insert_page(&ggtt->vm,
-				     i915_gem_object_get_dma_address(obj, page),
-				     offset, I915_CACHE_NONE, 0);
+			i915_gem_object_get_dma_address(obj, page),
+			offset,
+			i915_gem_get_pat_index(ggtt->vm.i915, I915_CACHE_NONE),
+			0);
 	} else {
 		offset += page << PAGE_SHIFT;
 	}
@@ -1464,7 +1467,7 @@ eb_relocate_entry(struct i915_execbuffer *eb,
 			reloc_cache_unmap(&eb->reloc_cache);
 			mutex_lock(&vma->vm->mutex);
 			err = i915_vma_bind(target->vma,
-					    target->vma->obj->cache_level,
+					    target->vma->obj->pat_index,
 					    PIN_GLOBAL, NULL, NULL);
 			mutex_unlock(&vma->vm->mutex);
 			reloc_cache_remap(&eb->reloc_cache, ev->vma->obj);
@@ -2713,7 +2716,7 @@ eb_select_engine(struct i915_execbuffer *eb)
 
 	for_each_child(ce, child)
 		intel_context_get(child);
-	intel_gt_pm_get(ce->engine->gt);
+	eb->wakeref = intel_gt_pm_get(ce->engine->gt);
 
 	if (!test_bit(CONTEXT_ALLOC_BIT, &ce->flags)) {
 		err = intel_context_alloc_state(ce);
@@ -2752,7 +2755,7 @@ eb_select_engine(struct i915_execbuffer *eb)
 	return err;
 
 err:
-	intel_gt_pm_put(ce->engine->gt);
+	intel_gt_pm_put(ce->engine->gt, eb->wakeref);
 	for_each_child(ce, child)
 		intel_context_put(child);
 	intel_context_put(ce);
@@ -2765,7 +2768,7 @@ eb_put_engine(struct i915_execbuffer *eb)
 	struct intel_context *child;
 
 	i915_vm_put(eb->context->vm);
-	intel_gt_pm_put(eb->gt);
+	intel_gt_pm_put(eb->context->engine->gt, eb->wakeref);
 	for_each_child(eb->context, child)
 		intel_context_put(child);
 	intel_context_put(eb->context);

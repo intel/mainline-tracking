@@ -35,6 +35,8 @@
 #include "gt/intel_context_types.h"
 #include "gt/intel_sseu.h"
 
+#include "gem/i915_gem_object_types.h"
+
 struct drm_printer;
 struct drm_i915_private;
 struct intel_gt_definition;
@@ -150,6 +152,7 @@ enum intel_ppgtt_type {
 	func(has_reset_engine); \
 	func(has_3d_pipeline); \
 	func(has_4tile); \
+	func(has_asid_tlb_invalidation); \
 	func(has_flat_ccs); \
 	func(has_global_mocs); \
 	func(has_gmd_id); \
@@ -163,6 +166,7 @@ enum intel_ppgtt_type {
 	func(has_logical_ring_contexts); \
 	func(has_logical_ring_elsq); \
 	func(has_media_ratio_mode); \
+	func(has_memirq); \
 	func(has_mslice_steering); \
 	func(has_oa_bpc_reporting); \
 	func(has_oa_slice_contrib_limits); \
@@ -172,7 +176,9 @@ enum intel_ppgtt_type {
 	func(has_rc6p); \
 	func(has_rps); \
 	func(has_runtime_pm); \
+	func(has_selective_tlb_invalidation); \
 	func(has_snoop); \
+	func(has_sriov); \
 	func(has_coherent_ggtt); \
 	func(tuning_thread_rr_after_dep); \
 	func(unfenced_needs_alignment); \
@@ -307,6 +313,8 @@ struct intel_device_info {
 	 * Initial runtime info. Do not access outside of i915_driver_create().
 	 */
 	const struct intel_runtime_info __runtime;
+	u32 cachelevel_to_pat[I915_MAX_CACHE_LEVEL];
+	u32 max_pat_index;
 };
 
 struct intel_driver_caps {
