@@ -1964,7 +1964,8 @@ static void xhci_track_intr_eps_quirk(struct xhci_hcd *xhci, struct xhci_virt_ep
 	if (!(xhci->quirks & XHCI_INTEL_HOST) || !(xhci->hci_version >= 0x110))
 		return;
 
-	if (!ep->ring || ep->ring->type != TYPE_INTR || !change)
+	if (!ep->ring || ep->ring->type != TYPE_INTR || !change ||
+	    xhci->num_active_tt_intr_eps == -1)
 		return;
 
 	udev = ep->vdev->udev;
@@ -1973,9 +1974,17 @@ static void xhci_track_intr_eps_quirk(struct xhci_hcd *xhci, struct xhci_virt_ep
 	/* Full or Low speed device endpoint behind HS hub */
 	if (udev && udev->tt && udev->tt->hub->parent) {
 		spin_lock_irqsave(&xhci->lock, flags);
-		xhci->num_active_tt_intr_eps += change;
 		val = readl(reg);
 
+		/* if HSII bit is already set to 1 by bios, don't touch it */
+		if (!xhci->num_active_tt_intr_eps && (val & BIT(8))) {
+			xhci->num_active_tt_intr_eps = -1;
+			xhci_dbg(xhci, "HSII set by bios, @0x8144:0x%x\n", val);
+			spin_unlock_irqrestore(&xhci->lock, flags);
+			return;
+		}
+
+		xhci->num_active_tt_intr_eps += change;
 		if (xhci->num_active_tt_intr_eps == 0)
 			writel(val & ~BIT(8), reg);
 		else if (xhci->num_active_tt_intr_eps == change)
