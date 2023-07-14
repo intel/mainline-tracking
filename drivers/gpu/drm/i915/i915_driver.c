@@ -72,6 +72,7 @@
 #include "gt/intel_gt.h"
 #include "gt/intel_gt_pm.h"
 #include "gt/intel_rc6.h"
+#include "gt/iov/intel_iov_query.h"
 #include "gt/uc/intel_guc.h"
 
 #include "pxp/intel_pxp.h"
@@ -1284,6 +1285,13 @@ static int i915_drm_resume(struct drm_device *dev)
 	ret = i915_ggtt_enable_hw(dev_priv);
 	if (ret)
 		drm_err(&dev_priv->drm, "failed to re-enable GGTT\n");
+	/*
+	 * Wa_22018453856:
+	 * We need to establish communication with GuC to be able to
+	 * update GGTT via PF.
+	 */
+	if (IS_SRIOV_VF(dev_priv) && IS_METEORLAKE(dev_priv))
+		intel_iov_query_bootstrap(&to_gt(dev_priv)->iov);
 
 	i915_ggtt_resume(to_gt(dev_priv)->ggtt);
 
