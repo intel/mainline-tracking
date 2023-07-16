@@ -17,31 +17,30 @@
 #include "intel_gt_print.h"
 #include "intel_gt_requests.h"
 #include "intel_llc.h"
-#include "intel_pm.h"
 #include "intel_rc6.h"
 #include "intel_rps.h"
 #include "intel_wakeref.h"
 #include "pxp/intel_pxp_pm.h"
+#include "iov/intel_iov.h"
 
 #define I915_GT_SUSPEND_IDLE_TIMEOUT (HZ / 2)
 
 static void user_forcewake(struct intel_gt *gt, bool suspend)
 {
 	int count = atomic_read(&gt->user_wakeref);
-	intel_wakeref_t wakeref;
 
 	/* Inside suspend/resume so single threaded, no races to worry about. */
 	if (likely(!count))
 		return;
 
-	wakeref = intel_gt_pm_get(gt);
+	intel_gt_pm_get(gt);
 	if (suspend) {
 		GEM_BUG_ON(count > atomic_read(&gt->wakeref.count));
 		atomic_sub(count, &gt->wakeref.count);
 	} else {
 		atomic_add(count, &gt->wakeref.count);
 	}
-	intel_gt_pm_put(gt, wakeref);
+	intel_gt_pm_put(gt);
 }
 
 static void runtime_begin(struct intel_gt *gt)
@@ -89,7 +88,7 @@ static int __gt_unpark(struct intel_wakeref *wf)
 
 	intel_rc6_unpark(&gt->rc6);
 	intel_rps_unpark(&gt->rps);
-	i915_pmu_gt_unparked(i915);
+	i915_pmu_gt_unparked(gt);
 	intel_guc_busyness_unpark(gt);
 
 	intel_gt_unpark_requests(gt);
@@ -111,7 +110,7 @@ static int __gt_park(struct intel_wakeref *wf)
 
 	intel_guc_busyness_park(gt);
 	i915_vma_parked(gt);
-	i915_pmu_gt_parked(i915);
+	i915_pmu_gt_parked(gt);
 	intel_rps_park(&gt->rps);
 	intel_rc6_park(&gt->rc6);
 
@@ -139,7 +138,7 @@ void intel_gt_pm_init_early(struct intel_gt *gt)
 	 * runtime_pm is per-device rather than per-tile, so this is still the
 	 * correct structure.
 	 */
-	intel_wakeref_init(&gt->wakeref, &gt->i915->runtime_pm, &wf_ops, "GT");
+	intel_wakeref_init(&gt->wakeref, gt->i915, &wf_ops);
 	seqcount_mutex_init(&gt->stats.lock, &gt->wakeref.mutex);
 }
 
@@ -222,7 +221,6 @@ int intel_gt_resume(struct intel_gt *gt)
 {
 	struct intel_engine_cs *engine;
 	enum intel_engine_id id;
-	intel_wakeref_t wakeref;
 	int err;
 
 	err = intel_gt_has_unrecoverable_error(gt);
@@ -239,7 +237,7 @@ int intel_gt_resume(struct intel_gt *gt)
 	 */
 	gt_sanitize(gt, true);
 
-	wakeref = intel_gt_pm_get(gt);
+	intel_gt_pm_get(gt);
 
 	intel_uncore_forcewake_get(gt->uncore, FORCEWAKE_ALL);
 	intel_rc6_sanitize(&gt->rc6);
@@ -274,8 +272,7 @@ int intel_gt_resume(struct intel_gt *gt)
 		}
 	}
 
-	if (gt->i915->params.enable_rc6)
-		intel_rc6_enable(&gt->rc6);
+	intel_rc6_enable(&gt->rc6);
 
 	intel_uc_resume(&gt->uc);
 
@@ -283,7 +280,7 @@ int intel_gt_resume(struct intel_gt *gt)
 
 out_fw:
 	intel_uncore_forcewake_put(gt->uncore, FORCEWAKE_ALL);
-	intel_gt_pm_put(gt, wakeref);
+	intel_gt_pm_put(gt);
 	return err;
 
 err_wedged:
@@ -310,6 +307,8 @@ static void wait_for_suspend(struct intel_gt *gt)
 
 void intel_gt_suspend_prepare(struct intel_gt *gt)
 {
+	intel_iov_suspend(&gt->iov);
+
 	user_forcewake(gt, true);
 	wait_for_suspend(gt);
 }
