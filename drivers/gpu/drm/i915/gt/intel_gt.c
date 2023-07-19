@@ -591,7 +591,7 @@ err:
 			continue;
 
 		/* Keep a copy of the state's backing pages; free the obj */
-		state = shmem_create_from_object(rq->context->state->obj);
+		state = shmem_create_from_object(rq->context->state->obj, gt);
 		if (IS_ERR(state)) {
 			err = PTR_ERR(state);
 			goto out;

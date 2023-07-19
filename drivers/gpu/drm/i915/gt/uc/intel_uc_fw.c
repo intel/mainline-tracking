@@ -1151,7 +1151,7 @@ static int uc_fw_rsa_data_create(struct intel_uc_fw *uc_fw)
 		return PTR_ERR(vma);
 
 	vaddr = i915_gem_object_pin_map_unlocked(vma->obj,
-						 i915_coherent_map_type(gt->i915, vma->obj, true));
+						 i915_coherent_map_type(gt, vma->obj, true));
 	if (IS_ERR(vaddr)) {
 		i915_vma_unpin_and_release(&vma, 0);
 		err = PTR_ERR(vaddr);

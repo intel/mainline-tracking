@@ -465,16 +465,16 @@ void *i915_gem_object_pin_map_unlocked(struct drm_i915_gem_object *obj,
 	return ret;
 }
 
-enum i915_map_type i915_coherent_map_type(struct drm_i915_private *i915,
+enum i915_map_type i915_coherent_map_type(struct intel_gt *gt,
 					  struct drm_i915_gem_object *obj,
 					  bool always_coherent)
 {
 	/*
 	 * Wa_22016122933: always return I915_MAP_WC for MTL
 	 */
-	if (i915_gem_object_is_lmem(obj) || IS_METEORLAKE(i915))
+	if (i915_gem_object_is_lmem(obj) || IS_METEORLAKE(gt->i915))
 		return I915_MAP_WC;
-	if (HAS_LLC(i915) || always_coherent)
+	if (HAS_LLC(gt->i915) || always_coherent)
 		return I915_MAP_WB;
 	else
 		return I915_MAP_WC;

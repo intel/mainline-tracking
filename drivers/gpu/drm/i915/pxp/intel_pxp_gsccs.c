@@ -337,7 +337,7 @@ gsccs_create_buffer(struct intel_gt *gt,
 	}
 
 	/* return a virtual pointer */
-	*map = i915_gem_object_pin_map_unlocked(obj, i915_coherent_map_type(i915, obj, true));
+	*map = i915_gem_object_pin_map_unlocked(obj, i915_coherent_map_type(gt, obj, true));
 	if (IS_ERR(*map)) {
 		drm_err(&i915->drm, "Failed to map gsccs backend %s.\n", bufname);
 		err = PTR_ERR(*map);

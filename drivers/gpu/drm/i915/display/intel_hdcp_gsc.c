@@ -632,7 +632,7 @@ static int intel_hdcp_gsc_initialize_message(struct drm_i915_private *i915,
 		return PTR_ERR(obj);
 	}
 
-	cmd_in = i915_gem_object_pin_map_unlocked(obj, i915_coherent_map_type(i915, obj, true));
+	cmd_in = i915_gem_object_pin_map_unlocked(obj, i915_coherent_map_type(gt, obj, true));
 	if (IS_ERR(cmd_in)) {
 		drm_err(&i915->drm, "Failed to map gsc message page!\n");
 		err = PTR_ERR(cmd_in);
