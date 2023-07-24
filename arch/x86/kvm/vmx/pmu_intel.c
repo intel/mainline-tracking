@@ -376,6 +376,29 @@ static int intel_pmu_set_msr(struct kvm_vcpu *vcpu, struct msr_data *msr_info)
 
 		pmu->pebs_data_cfg = data;
 		break;
+	case MSR_CORE_PERF_GLOBAL_OVF_CTRL:
+		/*
+		 * GLOBAL_OVF_CTRL, a.k.a. GLOBAL STATUS_RESET, clears bits in
+		 * GLOBAL_STATUS, and so the set of reserved bits is the same.
+		 */
+		if (data & pmu->global_status_rsvd)
+			return 1;
+		if (pmu->version >= 4 && !msr_info->host_initiated &&
+		    (data & MSR_CORE_PERF_GLOBAL_OVF_CTRL_LBR_FREEZE)) {
+			u64 debug_ctl = vmcs_read64(GUEST_IA32_DEBUGCTL);
+			struct lbr_desc *lbr_desc = vcpu_to_lbr_desc(vcpu);
+
+			if (!(debug_ctl & DEBUGCTLMSR_LBR) &&
+			    lbr_desc->freeze_on_pmi) {
+				debug_ctl |= DEBUGCTLMSR_LBR;
+				vmcs_write64(GUEST_IA32_DEBUGCTL, debug_ctl);
+				lbr_desc->freeze_on_pmi = false;
+			}
+		}
+
+		if (!msr_info->host_initiated)
+			pmu->global_status &= ~data;
+		break;
 	default:
 		if ((pmc = get_gp_pmc(pmu, msr, MSR_IA32_PERFCTR0)) ||
 		    (pmc = get_gp_pmc(pmu, msr, MSR_IA32_PMC0))) {
@@ -527,6 +550,9 @@ static void intel_pmu_refresh(struct kvm_vcpu *vcpu)
 	if (vmx_pt_mode_is_host_guest())
 		pmu->global_status_rsvd &=
 				~MSR_CORE_PERF_GLOBAL_OVF_CTRL_TRACE_TOPA_PMI;
+	if (pmu->version >= 4)
+		pmu->global_status_rsvd &=
+				~MSR_CORE_PERF_GLOBAL_OVF_CTRL_LBR_FREEZE;
 
 	entry = kvm_find_cpuid_entry_index(vcpu, 7, 0);
 	if (entry &&
@@ -615,6 +641,22 @@ static void intel_pmu_legacy_freezing_lbrs_on_pmi(struct kvm_vcpu *vcpu)
 	}
 }
 
+static void intel_pmu_streamlined_freezing_lbrs_on_pmi(struct kvm_vcpu *vcpu)
+{
+	u64 data = vmcs_read64(GUEST_IA32_DEBUGCTL);
+	struct kvm_pmu *pmu = vcpu_to_pmu(vcpu);
+
+	/*
+	 * Even if streamlined freezing LBR won't clear LBR_EN like legacy
+	 * freezing LBR, here legacy freezing LBR is called to freeze LBR HW
+	 * for streamlined freezing LBR when guest run. But guest VM will
+	 * see a fake guest DEBUGCTL MSR with LBR_EN bit set.
+	 */
+	intel_pmu_legacy_freezing_lbrs_on_pmi(vcpu);
+	if ((data & DEBUGCTLMSR_FREEZE_LBRS_ON_PMI) && (data & DEBUGCTLMSR_LBR))
+		pmu->global_status |= MSR_CORE_PERF_GLOBAL_OVF_CTRL_LBR_FREEZE;
+}
+
 static void intel_pmu_deliver_pmi(struct kvm_vcpu *vcpu)
 {
 	u8 version = vcpu_to_pmu(vcpu)->version;
@@ -624,6 +666,8 @@ static void intel_pmu_deliver_pmi(struct kvm_vcpu *vcpu)
 
 	if (version > 1 && version < 4)
 		intel_pmu_legacy_freezing_lbrs_on_pmi(vcpu);
+	else if (version >= 4)
+		intel_pmu_streamlined_freezing_lbrs_on_pmi(vcpu);
 }
 
 static void vmx_update_intercept_for_lbr_msrs(struct kvm_vcpu *vcpu, bool set)

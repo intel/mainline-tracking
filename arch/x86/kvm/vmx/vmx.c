@@ -2152,6 +2152,9 @@ int vmx_get_msr(struct kvm_vcpu *vcpu, struct msr_data *msr_info)
 		break;
 	case MSR_IA32_DEBUGCTLMSR:
 		msr_info->data = vmcs_read64(GUEST_IA32_DEBUGCTL);
+		if (vcpu_to_lbr_desc(vcpu)->freeze_on_pmi &&
+		    vcpu_to_pmu(vcpu)->version >= 4)
+			msr_info->data |= DEBUGCTLMSR_LBR;
 		break;
 	default:
 	find_uret_msr:
