@@ -56,7 +56,8 @@ enum intel_uc_fw_status {
 	INTEL_UC_FIRMWARE_LOADABLE, /* all fw-required objects are ready */
 	INTEL_UC_FIRMWARE_LOAD_FAIL, /* failed to xfer or init/auth the fw */
 	INTEL_UC_FIRMWARE_TRANSFERRED, /* dma xfer done */
-	INTEL_UC_FIRMWARE_RUNNING /* init/auth done */
+	INTEL_UC_FIRMWARE_RUNNING, /* init/auth done */
+	INTEL_UC_FIRMWARE_PRELOADED, /* already pre-loaded */
 };
 
 enum intel_uc_fw_type {
@@ -70,6 +71,7 @@ struct intel_uc_fw_ver {
 	u32 major;
 	u32 minor;
 	u32 patch;
+	u32 build;
 };
 
 /*
@@ -99,20 +101,28 @@ struct intel_uc_fw {
 	struct drm_i915_gem_object *obj;
 
 	/**
-	 * @dummy: A vma used in binding the uc fw to ggtt. We can't define this
-	 * vma on the stack as it can lead to a stack overflow, so we define it
-	 * here. Safe to have 1 copy per uc fw because the binding is single
-	 * threaded as it done during driver load (inherently single threaded)
-	 * or during a GT reset (mutex guarantees single threaded).
+	 * @needs_ggtt_mapping: indicates whether the fw object needs to be
+	 * pinned to ggtt. If true, the fw is pinned at init time and unpinned
+	 * during driver unload.
 	 */
-	struct i915_vma_resource dummy;
+	bool needs_ggtt_mapping;
+
+	/**
+	 * @vma_res: A vma resource used in binding the uc fw to ggtt. The fw is
+	 * pinned in a reserved area of the ggtt (above the maximum address
+	 * usable by GuC); therefore, we can't use the normal vma functions to
+	 * do the pinning and we instead use this resource to do so.
+	 */
+	struct i915_vma_resource vma_res;
 	struct i915_vma *rsa_data;
 
 	u32 rsa_size;
 	u32 ucode_size;
 	u32 private_data_size;
 
-	bool loaded_via_gsc;
+	u32 dma_start_offset;
+
+	bool has_gsc_headers;
 };
 
 /*
@@ -167,6 +177,8 @@ const char *intel_uc_fw_status_repr(enum intel_uc_fw_status status)
 		return "TRANSFERRED";
 	case INTEL_UC_FIRMWARE_RUNNING:
 		return "RUNNING";
+	case INTEL_UC_FIRMWARE_PRELOADED:
+		return "PRELOADED";
 	}
 	return "<invalid>";
 }
@@ -193,6 +205,7 @@ static inline int intel_uc_fw_status_to_error(enum intel_uc_fw_status status)
 	case INTEL_UC_FIRMWARE_LOADABLE:
 	case INTEL_UC_FIRMWARE_TRANSFERRED:
 	case INTEL_UC_FIRMWARE_RUNNING:
+	case INTEL_UC_FIRMWARE_PRELOADED:
 		return 0;
 	}
 	return -EINVAL;
@@ -212,41 +225,48 @@ static inline const char *intel_uc_fw_type_repr(enum intel_uc_fw_type type)
 }
 
 static inline enum intel_uc_fw_status
-__intel_uc_fw_status(struct intel_uc_fw *uc_fw)
+__intel_uc_fw_status(const struct intel_uc_fw *uc_fw)
 {
 	/* shouldn't call this before checking hw/blob availability */
 	GEM_BUG_ON(uc_fw->status == INTEL_UC_FIRMWARE_UNINITIALIZED);
 	return uc_fw->status;
 }
 
-static inline bool intel_uc_fw_is_supported(struct intel_uc_fw *uc_fw)
+static inline bool intel_uc_fw_is_supported(const struct intel_uc_fw *uc_fw)
 {
 	return __intel_uc_fw_status(uc_fw) != INTEL_UC_FIRMWARE_NOT_SUPPORTED;
 }
 
-static inline bool intel_uc_fw_is_enabled(struct intel_uc_fw *uc_fw)
+static inline bool intel_uc_fw_is_enabled(const struct intel_uc_fw *uc_fw)
 {
 	return __intel_uc_fw_status(uc_fw) > INTEL_UC_FIRMWARE_DISABLED;
 }
 
-static inline bool intel_uc_fw_is_available(struct intel_uc_fw *uc_fw)
+static inline bool intel_uc_fw_is_available(const struct intel_uc_fw *uc_fw)
 {
-	return __intel_uc_fw_status(uc_fw) >= INTEL_UC_FIRMWARE_AVAILABLE;
+	return __intel_uc_fw_status(uc_fw) >= INTEL_UC_FIRMWARE_AVAILABLE &&
+	       __intel_uc_fw_status(uc_fw) != INTEL_UC_FIRMWARE_PRELOADED;
 }
 
-static inline bool intel_uc_fw_is_loadable(struct intel_uc_fw *uc_fw)
+static inline bool intel_uc_fw_is_loadable(const struct intel_uc_fw *uc_fw)
 {
-	return __intel_uc_fw_status(uc_fw) >= INTEL_UC_FIRMWARE_LOADABLE;
+	return __intel_uc_fw_status(uc_fw) >= INTEL_UC_FIRMWARE_LOADABLE &&
+	       __intel_uc_fw_status(uc_fw) != INTEL_UC_FIRMWARE_PRELOADED;
 }
 
-static inline bool intel_uc_fw_is_loaded(struct intel_uc_fw *uc_fw)
+static inline bool intel_uc_fw_is_loaded(const struct intel_uc_fw *uc_fw)
 {
 	return __intel_uc_fw_status(uc_fw) >= INTEL_UC_FIRMWARE_TRANSFERRED;
 }
 
-static inline bool intel_uc_fw_is_running(struct intel_uc_fw *uc_fw)
+static inline bool intel_uc_fw_is_running(const struct intel_uc_fw *uc_fw)
 {
-	return __intel_uc_fw_status(uc_fw) == INTEL_UC_FIRMWARE_RUNNING;
+	return __intel_uc_fw_status(uc_fw) >= INTEL_UC_FIRMWARE_RUNNING;
+}
+
+static inline bool intel_uc_fw_is_preloaded(const struct intel_uc_fw *uc_fw)
+{
+	return __intel_uc_fw_status(uc_fw) == INTEL_UC_FIRMWARE_PRELOADED;
 }
 
 static inline bool intel_uc_fw_is_overridden(const struct intel_uc_fw *uc_fw)
@@ -256,11 +276,11 @@ static inline bool intel_uc_fw_is_overridden(const struct intel_uc_fw *uc_fw)
 
 static inline void intel_uc_fw_sanitize(struct intel_uc_fw *uc_fw)
 {
-	if (intel_uc_fw_is_loaded(uc_fw))
+	if (intel_uc_fw_is_loadable(uc_fw))
 		intel_uc_fw_change_status(uc_fw, INTEL_UC_FIRMWARE_LOADABLE);
 }
 
-static inline u32 __intel_uc_fw_get_upload_size(struct intel_uc_fw *uc_fw)
+static inline u32 __intel_uc_fw_get_upload_size(const struct intel_uc_fw *uc_fw)
 {
 	return sizeof(struct uc_css_header) + uc_fw->ucode_size;
 }
@@ -273,7 +293,7 @@ static inline u32 __intel_uc_fw_get_upload_size(struct intel_uc_fw *uc_fw)
  *
  * Return: Upload firmware size, or zero on firmware fetch failure.
  */
-static inline u32 intel_uc_fw_get_upload_size(struct intel_uc_fw *uc_fw)
+static inline u32 intel_uc_fw_get_upload_size(const struct intel_uc_fw *uc_fw)
 {
 	if (!intel_uc_fw_is_available(uc_fw))
 		return 0;
@@ -281,13 +301,19 @@ static inline u32 intel_uc_fw_get_upload_size(struct intel_uc_fw *uc_fw)
 	return __intel_uc_fw_get_upload_size(uc_fw);
 }
 
+void intel_uc_fw_version_from_gsc_manifest(struct intel_uc_fw_ver *ver,
+					   const void *data);
+int intel_uc_check_file_version(struct intel_uc_fw *uc_fw, bool *old_ver);
 void intel_uc_fw_init_early(struct intel_uc_fw *uc_fw,
-			    enum intel_uc_fw_type type);
+			    enum intel_uc_fw_type type,
+			    bool needs_ggtt_mapping);
+void intel_uc_fw_set_preloaded(struct intel_uc_fw *uc_fw, u16 major, u16 minor);
 int intel_uc_fw_fetch(struct intel_uc_fw *uc_fw);
 void intel_uc_fw_cleanup_fetch(struct intel_uc_fw *uc_fw);
 int intel_uc_fw_upload(struct intel_uc_fw *uc_fw, u32 offset, u32 dma_flags);
 int intel_uc_fw_init(struct intel_uc_fw *uc_fw);
 void intel_uc_fw_fini(struct intel_uc_fw *uc_fw);
+void intel_uc_fw_resume_mapping(struct intel_uc_fw *uc_fw);
 size_t intel_uc_fw_copy_rsa(struct intel_uc_fw *uc_fw, void *dst, u32 max_len);
 int intel_uc_fw_mark_load_failed(struct intel_uc_fw *uc_fw, int err);
 void intel_uc_fw_dump(const struct intel_uc_fw *uc_fw, struct drm_printer *p);

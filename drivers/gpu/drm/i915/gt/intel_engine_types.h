@@ -289,6 +289,7 @@ struct intel_engine_execlists {
 	 */
 	u8 csb_head;
 
+	/* private: selftest */
 	I915_SELFTEST_DECLARE(struct st_preempt_hang preempt_hang;)
 };
 
@@ -378,6 +379,8 @@ struct intel_engine_cs {
 
 	u8 class;
 	u8 instance;
+
+	u8 irq_offset;
 
 	u16 uabi_class;
 	u16 uabi_instance;

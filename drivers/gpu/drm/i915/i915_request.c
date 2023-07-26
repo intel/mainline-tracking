@@ -290,7 +290,7 @@ static enum hrtimer_restart __rq_watchdog_expired(struct hrtimer *hrtimer)
 
 	if (!i915_request_completed(rq)) {
 		if (llist_add(&rq->watchdog.link, &gt->watchdog.list))
-			schedule_work(&gt->watchdog.work);
+			queue_work(gt->i915->unordered_wq, &gt->watchdog.work);
 	} else {
 		i915_request_put(rq);
 	}
@@ -2257,7 +2257,7 @@ enum i915_request_state i915_test_request_state(struct i915_request *rq)
 	if (!i915_request_started(rq))
 		return I915_REQUEST_PENDING;
 
-	if (match_ring(rq))
+	if (IS_SRIOV_VF(rq->engine->i915) ? i915_request_is_active(rq) : match_ring(rq))
 		return I915_REQUEST_ACTIVE;
 
 	return I915_REQUEST_QUEUED;

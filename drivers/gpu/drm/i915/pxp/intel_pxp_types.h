@@ -11,10 +11,36 @@
 #include <linux/types.h>
 #include <linux/workqueue.h>
 
+struct drm_i915_private;
+
 struct intel_context;
 struct intel_gt;
 struct i915_pxp_component;
-struct drm_i915_private;
+struct i915_vma;
+
+#define INTEL_PXP_MAX_HWDRM_SESSIONS 16
+
+struct intel_pxp_session {
+	/** @index: Numeric identifier for this protected session */
+	int index;
+	/** @protection_type: type of protection requested */
+	int protection_type;
+	/** @protection_mode: mode of protection requested */
+	int protection_mode;
+	/** @drmfile: pointer to drm_file, which is allocated on device file open() call */
+	struct drm_file *drmfile;
+
+	/**
+	 * @is_valid: indicates whether the session has been established
+	 *            in the HW root of trust. Note that, after a teardown, the
+	 *            session can still be considered in play on the HW even if
+	 *            the keys are gone, so we can't rely on the HW state of the
+	 *            session to know if it's valid.
+	 */
+	bool is_valid;
+
+	u32 tag;
+};
 
 /**
  * struct intel_pxp - pxp state
@@ -27,13 +53,35 @@ struct intel_pxp {
 	struct intel_gt *ctrl_gt;
 
 	/**
+	 * @kcr_base: base mmio offset for the KCR engine which is different on legacy platforms
+	 * vs newer platforms where the KCR is inside the media-tile.
+	 */
+	u32 kcr_base;
+
+	/**
+	 * @gsccs_res: resources for request submission for platforms that have a GSC engine.
+	 */
+	struct gsccs_session_resources {
+		u64 host_session_handle; /* used by firmware to link commands to sessions */
+		struct intel_context *ce; /* context for gsc command submission */
+
+		struct i915_vma *pkt_vma; /* GSC FW cmd packet vma */
+		void *pkt_vaddr;  /* GSC FW cmd packet virt pointer */
+
+		struct i915_vma *bb_vma; /* HECI_PKT batch buffer vma */
+		void *bb_vaddr; /* HECI_PKT batch buffer virt pointer */
+	} gsccs_res;
+
+	/**
 	 * @pxp_component: i915_pxp_component struct of the bound mei_pxp
 	 * module. Only set and cleared inside component bind/unbind functions,
 	 * which are protected by &tee_mutex.
 	 */
 	struct i915_pxp_component *pxp_component;
 
-	/* @dev_link: Enforce module relationship for power management ordering. */
+	/**
+	 * @dev_link: Enforce module relationship for power management ordering.
+	 */
 	struct device_link *dev_link;
 	/**
 	 * @pxp_component_added: track if the pxp component has been added.
@@ -46,13 +94,6 @@ struct intel_pxp {
 
 	/** @arb_mutex: protects arb session start */
 	struct mutex arb_mutex;
-	/**
-	 * @arb_is_valid: tracks arb session status.
-	 * After a teardown, the arb session can still be in play on the HW
-	 * even if the keys are gone, so we can't rely on the HW state of the
-	 * session to know if it's valid and need to track the status in SW.
-	 */
-	bool arb_is_valid;
 
 	/**
 	 * @key_instance: tracks which key instance we're on, so we can use it
@@ -85,6 +126,13 @@ struct intel_pxp {
 	 * re-initialized under gt->irq_lock and completed in &session_work.
 	 */
 	struct completion termination;
+
+	/** @session_mutex: protects hwdrm_sesions, and reserved_sessions. */
+	struct mutex session_mutex;
+	DECLARE_BITMAP(reserved_sessions, INTEL_PXP_MAX_HWDRM_SESSIONS);
+	struct intel_pxp_session *hwdrm_sessions[INTEL_PXP_MAX_HWDRM_SESSIONS];
+	struct intel_pxp_session arb_session;
+	u8 next_tag_id[INTEL_PXP_MAX_HWDRM_SESSIONS];
 
 	/** @session_work: worker that manages session events. */
 	struct work_struct session_work;
