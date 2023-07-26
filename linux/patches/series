@@ -295,3 +295,85 @@
 
 # CVE-2023-28328
 0001-media-dvb-usb-az6027-fix-null-ptr-deref-in-az6027_i2.patch
+
+# CVE-2023-1513
+0001-kvm-initialize-all-of-the-kvm_debugregs-structure-be.patch
+
+# CVE-2023-1652
+0001-NFSD-fix-use-after-free-in-nfsd4_ssc_setup_dul.patch
+
+# CVE-2023-32233
+0001-netfilter-nf_tables-deactivate-anonymous-set-from-pr.patch
+
+# CVE-2023-2156
+0001-net-rpl-fix-rpl-header-size-calculation.patch
+
+# CVE-2022-3566
+0001-tcp-Fix-data-races-around-icsk-icsk_af_ops.patch
+
+# CVE-2023-0045
+0001-x86-bugs-Flush-IBP-in-ib_prctl_set.patch
+
+# CVE-2023-21106
+0001-drm-msm-gpu-Fix-potential-double-free.patch
+
+# CVE-2023-1382
+0001-tipc-set-con-sock-in-tipc_conn_alloc.patch
+
+# CVE-2023-2162
+0001-scsi-iscsi_tcp-Fix-UAF-during-login-when-accessing-t.patch
+
+# CVE-2023-2166
+0001-can-af_can-fix-NULL-pointer-dereference-in-can_rcv_f.patch
+
+# CVE-2023-28327
+0001-af_unix-Get-user_ns-from-in_skb-in-unix_diag_get_exa.patch
+
+# CVE-2022-40133
+0001-drm-vmwgfx-Write-the-driver-id-registers.patch
+0002-drm-vmwgfx-Refactor-resource-manager-s-hashtable-to-.patch
+0003-drm-vmwgfx-Remove-ttm-object-hashtable.patch
+0004-drm-vmwgfx-Refactor-resource-validation-hashtable-to.patch
+0005-drm-vmwgfx-Refactor-ttm-reference-object-hashtable-t.patch
+0006-drm-vmwgfx-Remove-vmwgfx_hashtab.patch
+0007-drm-vmwgfx-Remove-rcu-locks-from-user-resources.patch
+
+# CVE-2023-2513
+0001-ext4-add-EXT4_INODE_HAS_XATTR_SPACE-macro-in-xattr.h.patch
+0002-ext4-fix-use-after-free-in-ext4_xattr_set_entry.patch
+
+# CVE-2023-2898
+0001-f2fs-fix-to-avoid-NULL-pointer-dereference-f2fs_writ.patch
+
+# CVE-2023-35823
+0001-media-saa7134-fix-use-after-free-bug-in-saa7134_fini.patch
+
+# CVE-2023-35788
+0001-net-sched-flower-fix-possible-OOB-write-in-fl_set_ge.patch
+
+# CVE-2023-35824
+0001-media-dm1105-Fix-use-after-free-bug-in-dm1105_remove.patch
+
+# CVE-2023-3390
+0001-netfilter-nf_tables-incorrect-error-path-handling-wi.patch
+
+# CVE-2023-2002
+0001-bluetooth-Perform-careful-capability-checks-in-hci_s.patch
+
+# CVE-2023-34256
+0001-ext4-avoid-a-potential-slab-out-of-bounds-in-ext4_gr.patch
+
+# CVE-2023-37453
+0001-KASAN-slab-out-of-bounds-Read-in-read_descriptors.patch
+
+# CVE-2023-37454
+0001-KASAN-use-after-free-Write-in-udf_close_lvid.patch
+
+# CVE-2023-3161
+0001-fbcon-Check-font-dimension-limits.patch
+
+# CVE-2023-3355
+0001-drm-msm-gem-Add-check-for-kmalloc.patch
+
+# CVE-2023-3357
+0001-HID-amd_sfh-Add-missing-check-for-dma_alloc_coherent.patch

@@ -1,0 +1,461 @@
+From e3855686772c363eac76cf644fc55951ce3647a7 Mon Sep 17 00:00:00 2001
+From: jiahuamx <jiahuax.man@intel.com>
+Date: Tue, 25 Jul 2023 13:40:33 +0000
+Subject: [PATCH] KASAN: slab-out-of-bounds Read in read_descriptors
+
+CPU: 0 PID: 5011 Comm: udevd Not tainted 6.4.0-rc6-syzkaller-00195-g40f71e7cd3c6 #0
+Hardware name: Google Google Compute Engine/Google Compute Engine, BIOS Google 05/27/2023
+Call Trace:
+ <TASK>
+ __dump_stack lib/dump_stack.c:88 [inline]
+ dump_stack_lvl+0xd9/0x150 lib/dump_stack.c:106
+ print_address_description.constprop.0+0x2c/0x3c0 mm/kasan/report.c:351
+ print_report mm/kasan/report.c:462 [inline]
+ kasan_report+0x11c/0x130 mm/kasan/report.c:572
+ read_descriptors+0x263/0x280 drivers/usb/core/sysfs.c:883
+ sysfs_kf_bin_read+0x19a/0x270 fs/sysfs/file.c:97
+ kernfs_file_read_iter fs/kernfs/file.c:251 [inline]
+ kernfs_fop_read_iter+0x387/0x690 fs/kernfs/file.c:280
+ call_read_iter include/linux/fs.h:1862 [inline]
+ new_sync_read fs/read_write.c:389 [inline]
+ vfs_read+0x4b1/0x8a0 fs/read_write.c:470
+ ksys_read+0x12b/0x250 fs/read_write.c:613
+ do_syscall_x64 arch/x86/entry/common.c:50 [inline]
+ do_syscall_64+0x39/0xb0 arch/x86/entry/common.c:80
+ entry_SYSCALL_64_after_hwframe+0x63/0xcd
+RIP: 0033:0x7f07c7916b6a
+Code: 00 3d 00 00 41 00 75 0d 50 48 8d 3d 2d 08 0a 00 e8 ea 7d 01 00 31 c0 e9 07 ff ff ff 64 8b 04 25 18 00 00 00 85 c0 75 1b 0f 05 <48> 3d 00 f0 ff ff 76 6c 48 8b 15 8f a2 0d 00 f7 d8 64 89 02 48 83
+RSP: 002b:00007ffdf34973d8 EFLAGS: 00000246 ORIG_RAX: 0000000000000000
+RAX: ffffffffffffffda RBX: 0000000000000000 RCX: 00007f07c7916b6a
+RDX: 0000000000010011 RSI: 00007ffdf3497407 RDI: 0000000000000008
+RBP: 0000000000000008 R08: 0000000000000003 R09: f4f13e10193fbafe
+R10: 0000000000000000 R11: 0000000000000246 R12: 000055be37470e10
+R13: 00007ffdf34a7ae8 R14: 00007ffdf34a8138 R15: 00007ffdf3497407
+ </TASK>
+---
+ drivers/usb/core/hcd.c     |   3 +-
+ drivers/usb/core/hub.c     | 165 +++++++++++++++++++++----------------
+ drivers/usb/core/message.c |  37 ---------
+ drivers/usb/core/usb.h     |   8 +-
+ 4 files changed, 103 insertions(+), 110 deletions(-)
+
+diff --git a/drivers/usb/core/hcd.c b/drivers/usb/core/hcd.c
+index 06eea8848ccc..59aa63de53a8 100644
+--- a/drivers/usb/core/hcd.c
++++ b/drivers/usb/core/hcd.c
+@@ -994,7 +994,8 @@ static int register_root_hub(struct usb_hcd *hcd)
+ 	mutex_lock(&usb_bus_idr_lock);
+ 
+ 	usb_dev->ep0.desc.wMaxPacketSize = cpu_to_le16(64);
+-	retval = usb_get_device_descriptor(usb_dev, USB_DT_DEVICE_SIZE);
++	retval = usb_get_device_descriptor(usb_dev,
++			&usb_dev->descriptor, USB_DT_DEVICE_SIZE);
+ 	if (retval != sizeof usb_dev->descriptor) {
+ 		mutex_unlock(&usb_bus_idr_lock);
+ 		dev_dbg (parent_dev, "can't read %s device descriptor %d\n",
+diff --git a/drivers/usb/core/hub.c b/drivers/usb/core/hub.c
+index 0fc9a4c33e04..d7e2303bb4b2 100644
+--- a/drivers/usb/core/hub.c
++++ b/drivers/usb/core/hub.c
+@@ -2647,12 +2647,19 @@ int usb_authorize_device(struct usb_device *usb_dev)
+ 	}
+ 
+ 	if (usb_dev->wusb) {
+-		result = usb_get_device_descriptor(usb_dev, sizeof(usb_dev->descriptor));
++		struct usb_device_descriptor desc;
++
++		result = usb_get_device_descriptor(usb_dev, &desc, sizeof(desc));
+ 		if (result < 0) {
+ 			dev_err(&usb_dev->dev, "can't re-read device descriptor for "
+ 				"authorization: %d\n", result);
+ 			goto error_device_descriptor;
+ 		}
++		if (memcmp(&usb_dev->descriptor, &desc, sizeof(desc)) != 0) {
++			dev_err(&usb_dev->dev, "device descriptor changed before authorization: %d\n",
++					result);
++			goto error_device_descriptor;
++		}
+ 	}
+ 
+ 	usb_dev->authorized = 1;
+@@ -4663,7 +4670,7 @@ static int hub_enable_device(struct usb_device *udev)
+  */
+ static int
+ hub_port_init(struct usb_hub *hub, struct usb_device *udev, int port1,
+-		int retry_counter)
++		int retry_counter, struct usb_device_descriptor *dev_descr)
+ {
+ 	struct usb_device	*hdev = hub->hdev;
+ 	struct usb_hcd		*hcd = bus_to_hcd(hdev->bus);
+@@ -4675,6 +4682,12 @@ hub_port_init(struct usb_hub *hub, struct usb_device *udev, int port1,
+ 	int			devnum = udev->devnum;
+ 	const char		*driver_name;
+ 	bool			do_new_scheme;
++	const bool		reinit = !!dev_descr;
++	union {
++		struct usb_device_descriptor	d;
++#define GET_DESCRIPTOR_BUFSIZE	64
++		u8				raw[GET_DESCRIPTOR_BUFSIZE];
++	}			buf;
+ 
+ 	/* root hub ports have a slightly longer reset period
+ 	 * (from USB 2.0 spec, section 7.1.7.5)
+@@ -4707,32 +4720,34 @@ hub_port_init(struct usb_hub *hub, struct usb_device *udev, int port1,
+ 	}
+ 	oldspeed = udev->speed;
+ 
+-	/* USB 2.0 section 5.5.3 talks about ep0 maxpacket ...
+-	 * it's fixed size except for full speed devices.
+-	 * For Wireless USB devices, ep0 max packet is always 512 (tho
+-	 * reported as 0xff in the device descriptor). WUSB1.0[4.8.1].
+-	 */
+-	switch (udev->speed) {
+-	case USB_SPEED_SUPER_PLUS:
+-	case USB_SPEED_SUPER:
+-	case USB_SPEED_WIRELESS:	/* fixed at 512 */
+-		udev->ep0.desc.wMaxPacketSize = cpu_to_le16(512);
+-		break;
+-	case USB_SPEED_HIGH:		/* fixed at 64 */
+-		udev->ep0.desc.wMaxPacketSize = cpu_to_le16(64);
+-		break;
+-	case USB_SPEED_FULL:		/* 8, 16, 32, or 64 */
+-		/* to determine the ep0 maxpacket size, try to read
+-		 * the device descriptor to get bMaxPacketSize0 and
+-		 * then correct our initial guess.
++	if (!reinit) {
++		/* USB 2.0 section 5.5.3 talks about ep0 maxpacket ...
++		 * it's fixed size except for full speed devices.
++		 * For Wireless USB devices, ep0 max packet is always 512 (tho
++		 * reported as 0xff in the device descriptor). WUSB1.0[4.8.1].
+ 		 */
+-		udev->ep0.desc.wMaxPacketSize = cpu_to_le16(64);
+-		break;
+-	case USB_SPEED_LOW:		/* fixed at 8 */
+-		udev->ep0.desc.wMaxPacketSize = cpu_to_le16(8);
+-		break;
+-	default:
+-		goto fail;
++		switch (udev->speed) {
++		case USB_SPEED_SUPER_PLUS:
++		case USB_SPEED_SUPER:
++		case USB_SPEED_WIRELESS:	/* fixed at 512 */
++			udev->ep0.desc.wMaxPacketSize = cpu_to_le16(512);
++			break;
++		case USB_SPEED_HIGH:		/* fixed at 64 */
++			udev->ep0.desc.wMaxPacketSize = cpu_to_le16(64);
++			break;
++		case USB_SPEED_FULL:		/* 8, 16, 32, or 64 */
++			/* to determine the ep0 maxpacket size, try to read
++			 * the device descriptor to get bMaxPacketSize0 and
++			 * then correct our initial guess.
++			 */
++			udev->ep0.desc.wMaxPacketSize = cpu_to_le16(64);
++			break;
++		case USB_SPEED_LOW:		/* fixed at 8 */
++			udev->ep0.desc.wMaxPacketSize = cpu_to_le16(8);
++			break;
++		default:
++			goto fail;
++		}
+ 	}
+ 
+ 	if (udev->speed == USB_SPEED_WIRELESS)
+@@ -4755,22 +4770,24 @@ hub_port_init(struct usb_hub *hub, struct usb_device *udev, int port1,
+ 	if (udev->speed < USB_SPEED_SUPER)
+ 		dev_info(&udev->dev,
+ 				"%s %s USB device number %d using %s\n",
+-				(udev->config) ? "reset" : "new", speed,
++				(reinit ? "reset" : "new"), speed,
+ 				devnum, driver_name);
+ 
+-	/* Set up TT records, if needed  */
+-	if (hdev->tt) {
+-		udev->tt = hdev->tt;
+-		udev->ttport = hdev->ttport;
+-	} else if (udev->speed != USB_SPEED_HIGH
+-			&& hdev->speed == USB_SPEED_HIGH) {
+-		if (!hub->tt.hub) {
+-			dev_err(&udev->dev, "parent hub has no TT\n");
+-			retval = -EINVAL;
+-			goto fail;
++	if (!reinit) {
++		/* Set up TT records, if needed  */
++		if (hdev->tt) {
++			udev->tt = hdev->tt;
++			udev->ttport = hdev->ttport;
++		} else if (udev->speed != USB_SPEED_HIGH
++				&& hdev->speed == USB_SPEED_HIGH) {
++			if (!hub->tt.hub) {
++				dev_err(&udev->dev, "parent hub has no TT\n");
++				retval = -EINVAL;
++				goto fail;
++			}
++			udev->tt = &hub->tt;
++			udev->ttport = port1;
+ 		}
+-		udev->tt = &hub->tt;
+-		udev->ttport = port1;
+ 	}
+ 
+ 	/* Why interleave GET_DESCRIPTOR and SET_ADDRESS this way?
+@@ -4789,7 +4806,6 @@ hub_port_init(struct usb_hub *hub, struct usb_device *udev, int port1,
+ 
+ 	for (retries = 0; retries < GET_DESCRIPTOR_TRIES; (++retries, msleep(100))) {
+ 		if (do_new_scheme) {
+-			struct usb_device_descriptor *buf;
+ 			int r = 0;
+ 
+ 			retval = hub_enable_device(udev);
+@@ -4800,28 +4816,21 @@ hub_port_init(struct usb_hub *hub, struct usb_device *udev, int port1,
+ 				goto fail;
+ 			}
+ 
+-#define GET_DESCRIPTOR_BUFSIZE	64
+-			buf = kmalloc(GET_DESCRIPTOR_BUFSIZE, GFP_NOIO);
+-			if (!buf) {
+-				retval = -ENOMEM;
+-				continue;
+-			}
+-
+ 			/* Retry on all errors; some devices are flakey.
+ 			 * 255 is for WUSB devices, we actually need to use
+ 			 * 512 (WUSB1.0[4.8.1]).
+ 			 */
+ 			for (operations = 0; operations < GET_MAXPACKET0_TRIES;
+ 					++operations) {
+-				buf->bMaxPacketSize0 = 0;
++				buf.d.bMaxPacketSize0 = 0;
+ 				r = usb_control_msg(udev, usb_rcvaddr0pipe(),
+ 					USB_REQ_GET_DESCRIPTOR, USB_DIR_IN,
+ 					USB_DT_DEVICE << 8, 0,
+-					buf, GET_DESCRIPTOR_BUFSIZE,
++					buf.raw, GET_DESCRIPTOR_BUFSIZE,
+ 					initial_descriptor_timeout);
+-				switch (buf->bMaxPacketSize0) {
++				switch (buf.d.bMaxPacketSize0) {
+ 				case 8: case 16: case 32: case 64: case 255:
+-					if (buf->bDescriptorType ==
++					if (buf.d.bDescriptorType ==
+ 							USB_DT_DEVICE) {
+ 						r = 0;
+ 						break;
+@@ -4843,9 +4852,15 @@ hub_port_init(struct usb_hub *hub, struct usb_device *udev, int port1,
+ 						udev->speed > USB_SPEED_FULL))
+ 					break;
+ 			}
+-			udev->descriptor.bMaxPacketSize0 =
+-					buf->bMaxPacketSize0;
+-			kfree(buf);
++			if (!reinit) {
++				udev->descriptor.bMaxPacketSize0 =
++						buf.d.bMaxPacketSize0;
++			} else if (udev->descriptor.bMaxPacketSize0 !=
++					buf.d.bMaxPacketSize0) {
++				dev_err(&udev->dev, "device reset changed ep0 maxpacket size!\n");
++				retval = -ENODEV;
++				goto fail;
++			}
+ 
+ 			retval = hub_port_reset(hub, port1, udev, delay, false);
+ 			if (retval < 0)		/* error or disconnect */
+@@ -4909,7 +4924,8 @@ hub_port_init(struct usb_hub *hub, struct usb_device *udev, int port1,
+ 				break;
+ 		}
+ 
+-		retval = usb_get_device_descriptor(udev, 8);
++		/* !do_new_scheme || wusb */
++		retval = usb_get_device_descriptor(udev, &buf.d, 8);
+ 		if (retval < 8) {
+ 			if (retval != -ENODEV)
+ 				dev_err(&udev->dev,
+@@ -4920,6 +4936,15 @@ hub_port_init(struct usb_hub *hub, struct usb_device *udev, int port1,
+ 		} else {
+ 			u32 delay;
+ 
++			if (!reinit) {
++				udev->descriptor.bMaxPacketSize0 =
++						buf.d.bMaxPacketSize0;
++			} else if (udev->descriptor.bMaxPacketSize0 !=
++					buf.d.bMaxPacketSize0) {
++				dev_err(&udev->dev, "device reset changed ep0 maxpacket size!\n");
++				retval = -ENODEV;
++				goto fail;
++			}
+ 			retval = 0;
+ 
+ 			delay = udev->parent->hub_delay;
+@@ -4974,8 +4999,8 @@ hub_port_init(struct usb_hub *hub, struct usb_device *udev, int port1,
+ 		usb_ep0_reinit(udev);
+ 	}
+ 
+-	retval = usb_get_device_descriptor(udev, USB_DT_DEVICE_SIZE);
+-	if (retval < (signed)sizeof(udev->descriptor)) {
++	retval = usb_get_device_descriptor(udev, &buf.d, sizeof(buf.d));
++	if (retval < (signed)sizeof(buf.d)) {
+ 		if (retval != -ENODEV)
+ 			dev_err(&udev->dev, "device descriptor read/all, error %d\n",
+ 					retval);
+@@ -4983,6 +5008,10 @@ hub_port_init(struct usb_hub *hub, struct usb_device *udev, int port1,
+ 			retval = -ENOMSG;
+ 		goto fail;
+ 	}
++	if (!reinit)
++		udev->descriptor = buf.d;
++	else
++		*dev_descr = buf.d;
+ 
+ 	usb_detect_quirks(udev);
+ 
+@@ -5086,7 +5115,7 @@ hub_power_remaining(struct usb_hub *hub)
+ 
+ 
+ static int descriptors_changed(struct usb_device *udev,
+-		struct usb_device_descriptor *old_device_descriptor,
++		struct usb_device_descriptor *new_device_descriptor,
+ 		struct usb_host_bos *old_bos)
+ {
+ 	int		changed = 0;
+@@ -5097,8 +5126,8 @@ static int descriptors_changed(struct usb_device *udev,
+ 	int		length;
+ 	char		*buf;
+ 
+-	if (memcmp(&udev->descriptor, old_device_descriptor,
+-			sizeof(*old_device_descriptor)) != 0)
++	if (memcmp(&udev->descriptor, new_device_descriptor,
++			sizeof(*new_device_descriptor)) != 0)
+ 		return 1;
+ 
+ 	if ((old_bos && !udev->bos) || (!old_bos && udev->bos))
+@@ -5271,7 +5300,7 @@ static void hub_port_connect(struct usb_hub *hub, int port1, u16 portstatus,
+ 		}
+ 
+ 		/* reset (non-USB 3.0 devices) and get descriptor */
+-		status = hub_port_init(hub, udev, port1, i);
++		status = hub_port_init(hub, udev, port1, i, NULL);
+ 		if (status < 0)
+ 			goto loop;
+ 
+@@ -5447,9 +5476,8 @@ static void hub_port_connect_change(struct usb_hub *hub, int port1,
+ 			 * changed device descriptors before resuscitating the
+ 			 * device.
+ 			 */
+-			descriptor = udev->descriptor;
+-			retval = usb_get_device_descriptor(udev,
+-					sizeof(udev->descriptor));
++			retval = usb_get_device_descriptor(udev, &descriptor,
++					sizeof(descriptor));
+ 			if (retval < 0) {
+ 				dev_dbg(&udev->dev,
+ 						"can't read device descriptor %d\n",
+@@ -5459,8 +5487,6 @@ static void hub_port_connect_change(struct usb_hub *hub, int port1,
+ 						udev->bos)) {
+ 					dev_dbg(&udev->dev,
+ 							"device descriptor has changed\n");
+-					/* for disconnect() calls */
+-					udev->descriptor = descriptor;
+ 				} else {
+ 					status = 0; /* Nothing to do */
+ 				}
+@@ -5891,7 +5917,7 @@ static int usb_reset_and_verify_device(struct usb_device *udev)
+ 	struct usb_device		*parent_hdev = udev->parent;
+ 	struct usb_hub			*parent_hub;
+ 	struct usb_hcd			*hcd = bus_to_hcd(udev->bus);
+-	struct usb_device_descriptor	descriptor = udev->descriptor;
++	struct usb_device_descriptor	descriptor;
+ 	struct usb_host_bos		*bos;
+ 	int				i, j, ret = 0;
+ 	int				port1 = udev->portnum;
+@@ -5923,7 +5949,7 @@ static int usb_reset_and_verify_device(struct usb_device *udev)
+ 		/* ep0 maxpacket size may change; let the HCD know about it.
+ 		 * Other endpoints will be handled by re-enumeration. */
+ 		usb_ep0_reinit(udev);
+-		ret = hub_port_init(parent_hub, udev, port1, i);
++		ret = hub_port_init(parent_hub, udev, port1, i, &descriptor);
+ 		if (ret >= 0 || ret == -ENOTCONN || ret == -ENODEV)
+ 			break;
+ 	}
+@@ -5935,7 +5961,6 @@ static int usb_reset_and_verify_device(struct usb_device *udev)
+ 	/* Device might have changed firmware (DFU or similar) */
+ 	if (descriptors_changed(udev, &descriptor, bos)) {
+ 		dev_info(&udev->dev, "device firmware changed\n");
+-		udev->descriptor = descriptor;	/* for disconnect() calls */
+ 		goto re_enumerate;
+ 	}
+ 
+diff --git a/drivers/usb/core/message.c b/drivers/usb/core/message.c
+index 4d59d927ae3e..88d67511c019 100644
+--- a/drivers/usb/core/message.c
++++ b/drivers/usb/core/message.c
+@@ -1038,43 +1038,6 @@ char *usb_cache_string(struct usb_device *udev, int index)
+ 	return smallbuf;
+ }
+ 
+-/*
+- * usb_get_device_descriptor - (re)reads the device descriptor (usbcore)
+- * @dev: the device whose device descriptor is being updated
+- * @size: how much of the descriptor to read
+- *
+- * Context: task context, might sleep.
+- *
+- * Updates the copy of the device descriptor stored in the device structure,
+- * which dedicates space for this purpose.
+- *
+- * Not exported, only for use by the core.  If drivers really want to read
+- * the device descriptor directly, they can call usb_get_descriptor() with
+- * type = USB_DT_DEVICE and index = 0.
+- *
+- * This call is synchronous, and may not be used in an interrupt context.
+- *
+- * Return: The number of bytes received on success, or else the status code
+- * returned by the underlying usb_control_msg() call.
+- */
+-int usb_get_device_descriptor(struct usb_device *dev, unsigned int size)
+-{
+-	struct usb_device_descriptor *desc;
+-	int ret;
+-
+-	if (size > sizeof(*desc))
+-		return -EINVAL;
+-	desc = kmalloc(sizeof(*desc), GFP_NOIO);
+-	if (!desc)
+-		return -ENOMEM;
+-
+-	ret = usb_get_descriptor(dev, USB_DT_DEVICE, 0, desc, size);
+-	if (ret >= 0)
+-		memcpy(&dev->descriptor, desc, size);
+-	kfree(desc);
+-	return ret;
+-}
+-
+ /*
+  * usb_set_isoch_delay - informs the device of the packet transmit delay
+  * @dev: the device whose delay is to be informed
+diff --git a/drivers/usb/core/usb.h b/drivers/usb/core/usb.h
+index 82538daac8b8..1d52c05997de 100644
+--- a/drivers/usb/core/usb.h
++++ b/drivers/usb/core/usb.h
+@@ -42,8 +42,6 @@ extern bool usb_endpoint_is_ignored(struct usb_device *udev,
+ 		struct usb_endpoint_descriptor *epd);
+ extern int usb_remove_device(struct usb_device *udev);
+ 
+-extern int usb_get_device_descriptor(struct usb_device *dev,
+-		unsigned int size);
+ extern int usb_set_isoch_delay(struct usb_device *dev);
+ extern int usb_get_bos_descriptor(struct usb_device *dev);
+ extern void usb_release_bos_descriptor(struct usb_device *dev);
+@@ -57,6 +55,12 @@ extern int usb_generic_driver_suspend(struct usb_device *udev,
+ extern int usb_generic_driver_resume(struct usb_device *udev,
+ 		pm_message_t msg);
+ 
++static inline int usb_get_device_descriptor(struct usb_device *dev,
++		struct usb_device_descriptor *desc, unsigned int size)
++{
++	return usb_get_descriptor(dev, USB_DT_DEVICE, 0, desc, size);
++}
++
+ static inline unsigned usb_get_max_power(struct usb_device *udev,
+ 		struct usb_host_config *c)
+ {
+-- 
+2.25.1
+

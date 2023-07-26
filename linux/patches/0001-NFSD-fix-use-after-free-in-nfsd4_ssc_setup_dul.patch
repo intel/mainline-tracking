@@ -1,0 +1,33 @@
+From dcc90e62b84983fc42cab9bd9ca4dce66e0a40ea Mon Sep 17 00:00:00 2001
+From: Xingyuan Mo <hdthky0@gmail.com>
+Date: Thu, 12 Jan 2023 00:24:53 +0800
+Subject: [PATCH] NFSD: fix use-after-free in nfsd4_ssc_setup_dul()
+
+If signal_pending() returns true, schedule_timeout() will not be executed,
+causing the waiting task to remain in the wait queue.
+Fixed by adding a call to finish_wait(), which ensures that the waiting
+task will always be removed from the wait queue.
+
+Fixes: f4e44b393389 ("NFSD: delay unmount source's export after inter-server copy completed.")
+Signed-off-by: Xingyuan Mo <hdthky0@gmail.com>
+Reviewed-by: Jeff Layton <jlayton@kernel.org>
+Signed-off-by: Chuck Lever <chuck.lever@oracle.com>
+---
+ fs/nfsd/nfs4proc.c | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/fs/nfsd/nfs4proc.c b/fs/nfsd/nfs4proc.c
+index 3895eb52d2b1..852576971ad7 100644
+--- a/fs/nfsd/nfs4proc.c
++++ b/fs/nfsd/nfs4proc.c
+@@ -1374,6 +1374,7 @@ static __be32 nfsd4_ssc_setup_dul(struct nfsd_net *nn, char *ipaddr,
+ 			/* allow 20secs for mount/unmount for now - revisit */
+ 			if (signal_pending(current) ||
+ 					(schedule_timeout(20*HZ) == 0)) {
++				finish_wait(&nn->nfsd_ssc_waitq, &wait);
+ 				kfree(work);
+ 				return nfserr_eagain;
+ 			}
+-- 
+2.25.1
+
