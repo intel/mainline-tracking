@@ -157,6 +157,7 @@ static bool intel_is_valid_msr(struct kvm_vcpu *vcpu, u32 msr)
 	case MSR_CORE_PERF_FIXED_CTR_CTRL:
 		return kvm_pmu_has_perf_global_ctrl(pmu);
 	case MSR_CORE_PERF_GLOBAL_STATUS_SET:
+	case MSR_CORE_PERF_GLOBAL_INUSE:
 		return vcpu_to_pmu(vcpu)->version >= 4;
 	case MSR_IA32_PEBS_ENABLE:
 		ret = vcpu_get_perf_capabilities(vcpu) & PERF_CAP_PEBS_FORMAT;
@@ -297,6 +298,58 @@ dummy:
 	return true;
 }
 
+static u64 intel_pmu_global_inuse_emulation(struct kvm_pmu *pmu)
+{
+	u64 data = 0;
+	int i;
+
+	for (i = 0; i < pmu->nr_arch_gp_counters; i++) {
+		struct kvm_pmc *pmc = &pmu->gp_counters[i];
+
+		/*
+		 * IA32_PERF_GLOBAL_INUSE.PERFEVTSELn_InUse[bit n]: This bit
+		 * reflects the logical state of (IA32_PERFEVTSELn[7:0]),
+		 * n < CPUID.0AH.EAX[15:8].
+		 */
+		if (pmc->eventsel & ARCH_PERFMON_EVENTSEL_EVENT)
+			data |= 1 << i;
+		/*
+		 * IA32_PERF_GLOBAL_INUSE.PMI_InUse[bit 63]: This bit is set if
+		 * IA32_PERFEVTSELn.INT[bit 20], n < CPUID.0AH.EAX[15:8] is set.
+		 */
+		if (pmc->eventsel & ARCH_PERFMON_EVENTSEL_INT)
+			data |= MSR_CORE_PERF_GLOBAL_INUSE_PMI;
+	}
+
+	for (i = 0; i < pmu->nr_arch_fixed_counters; i++) {
+		/*
+		 * IA32_PERF_GLOBAL_INUSE.FCi_InUse[bit (i + 32)]: This bit
+		 * reflects the logical state of
+		 * IA32_FIXED_CTR_CTRL[i * 4 + 1, i * 4] != 0
+		 */
+		if (pmu->fixed_ctr_ctrl &
+		    intel_fixed_bits_by_idx(i, INTEL_FIXED_0_KERNEL | INTEL_FIXED_0_USER))
+			data |= 1ULL << (i + INTEL_PMC_IDX_FIXED);
+		/*
+		 * IA32_PERF_GLOBAL_INUSE.PMI_InUse[bit 63]: This bit is set if
+		 * IA32_FIXED_CTR_CTRL.ENi_PMI, i = 0, 1, 2 is set.
+		 */
+		if (pmu->fixed_ctr_ctrl &
+		    intel_fixed_bits_by_idx(i, INTEL_FIXED_0_ENABLE_PMI))
+			data |= MSR_CORE_PERF_GLOBAL_INUSE_PMI;
+	}
+
+	/*
+	 * IA32_PERF_GLOBAL_INUSE.PMI_InUse[bit 63]: This bit is set if
+	 * any IA32_PEBS_ENABLES bit is set, which enables PEBS for a GP or
+	 * fixed counter.
+	 */
+	if (pmu->pebs_enable)
+		data |= MSR_CORE_PERF_GLOBAL_INUSE_PMI;
+
+	return data;
+}
+
 static int intel_pmu_get_msr(struct kvm_vcpu *vcpu, struct msr_data *msr_info)
 {
 	struct kvm_pmu *pmu = vcpu_to_pmu(vcpu);
@@ -309,6 +362,9 @@ static int intel_pmu_get_msr(struct kvm_vcpu *vcpu, struct msr_data *msr_info)
 		break;
 	case MSR_CORE_PERF_GLOBAL_STATUS_SET:
 		msr_info->data = 0;
+		break;
+	case MSR_CORE_PERF_GLOBAL_INUSE:
+		msr_info->data = intel_pmu_global_inuse_emulation(pmu);
 		break;
 	case MSR_IA32_PEBS_ENABLE:
 		msr_info->data = pmu->pebs_enable;
@@ -359,6 +415,8 @@ static int intel_pmu_set_msr(struct kvm_vcpu *vcpu, struct msr_data *msr_info)
 		if (pmu->fixed_ctr_ctrl != data)
 			reprogram_fixed_counters(pmu, data);
 		break;
+	case MSR_CORE_PERF_GLOBAL_INUSE:
+		return 1;   /* RO MSR */
 	case MSR_IA32_PEBS_ENABLE:
 		if (data & pmu->pebs_enable_rsvd)
 			return 1;
