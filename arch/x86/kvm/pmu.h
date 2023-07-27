@@ -223,7 +223,10 @@ static inline void kvm_init_pmu_capability(const struct kvm_pmu_ops *pmu_ops)
 		return;
 	}
 
-	kvm_pmu_cap.version = min(kvm_pmu_cap.version, 2);
+	if (is_intel)
+		kvm_pmu_cap.version = min(kvm_pmu_cap.version, 5);
+	else
+		kvm_pmu_cap.version = min(kvm_pmu_cap.version, 2);
 	kvm_pmu_cap.num_counters_gp = min(kvm_pmu_cap.num_counters_gp,
 					  pmu_ops->MAX_NR_GP_COUNTERS);
 	kvm_pmu_cap.num_counters_fixed = min(kvm_pmu_cap.num_counters_fixed,
