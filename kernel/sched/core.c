@@ -7362,6 +7362,21 @@ static inline void preempt_dynamic_init(void) { }
 
 #endif /* CONFIG_PREEMPT_DYNAMIC */
 
+/*
+ * task_is_pi_boosted - Check if task has been PI boosted.
+ * @p:	Task to check.
+ *
+ * Return true if task is subject to priority inheritance.
+ */
+bool task_is_pi_boosted(const struct task_struct *p)
+{
+	int prio = p->prio;
+
+	if (!rt_prio(prio))
+		return false;
+	return prio != p->normal_prio;
+}
+
 int io_schedule_prepare(void)
 {
 	int old_iowait = current->in_iowait;
