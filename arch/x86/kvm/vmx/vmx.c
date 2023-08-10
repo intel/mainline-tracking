@@ -2277,9 +2277,15 @@ int vmx_set_msr(struct kvm_vcpu *vcpu, struct msr_data *msr_info)
 			get_vmcs12(vcpu)->guest_ia32_debugctl = data;
 
 		vmcs_write64(GUEST_IA32_DEBUGCTL, data);
-		if (intel_pmu_lbr_is_enabled(vcpu) && !to_vmx(vcpu)->lbr_desc.event &&
-		    (data & DEBUGCTLMSR_LBR))
-			intel_pmu_create_guest_lbr_event(vcpu);
+
+		if (intel_pmu_lbr_is_enabled(vcpu)) {
+			struct lbr_desc *lbr_desc = vcpu_to_lbr_desc(vcpu);
+
+			lbr_desc->freeze_on_pmi = false;
+			if (!lbr_desc->event && (data & DEBUGCTLMSR_LBR))
+				intel_pmu_create_guest_lbr_event(vcpu);
+		}
+
 		return 0;
 	}
 	case MSR_IA32_BNDCFGS:
