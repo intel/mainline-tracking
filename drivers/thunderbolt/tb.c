@@ -1223,7 +1223,7 @@ tb_recalc_estimated_bandwidth_for_group(struct tb_bandwidth_group *group)
 		tb_port_dbg(in, "re-calculated estimated bandwidth %u/%u Mb/s\n",
 			    estimated_up, estimated_down);
 
-		if (in->sw->config.depth < out->sw->config.depth)
+		if (tb_port_path_direction_downstream(in, out))
 			estimated_bw = estimated_down;
 		else
 			estimated_bw = estimated_up;
@@ -1955,7 +1955,7 @@ static void tb_handle_dp_bandwidth_request(struct work_struct *work)
 
 	out = tunnel->dst_port;
 
-	if (in->sw->config.depth < out->sw->config.depth) {
+	if (tb_port_path_direction_downstream(in, out)) {
 		requested_up = -1;
 		requested_down = requested_bw;
 	} else {
