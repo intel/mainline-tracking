@@ -26,8 +26,9 @@
 
 #include "edac_mc.h"
 #include "edac_module.h"
+#include "igen6_edac.h"
 
-#define IGEN6_REVISION	"v2.5"
+#define IGEN6_REVISION	"v2.5.1"
 
 #define EDAC_MOD_STR	"igen6_edac"
 #define IGEN6_NMI_NAME	"igen6_ibecc"
@@ -80,6 +81,7 @@
 #define ECC_ERROR_LOG_UE		BIT_ULL(63)
 #define ECC_ERROR_LOG_ADDR_SHIFT	5
 #define ECC_ERROR_LOG_ADDR(v)		GET_BITFIELD(v, 5, 38)
+#define ECC_ERROR_LOG_ADDR45(v)		GET_BITFIELD(v, 5, 45)
 #define ECC_ERROR_LOG_SYND(v)		GET_BITFIELD(v, 46, 61)
 
 /* Host MMIO base address */
@@ -133,6 +135,8 @@ static struct res_config {
 	u32 ibecc_base;
 	u32 ibecc_error_log_offset;
 	bool (*ibecc_available)(struct pci_dev *pdev);
+	/* Extract error address logged in IBECC */
+	u64 (*err_addr)(u64 ecclog);
 	/* Convert error address logged in IBECC to system physical address */
 	u64 (*err_addr_to_sys_addr)(u64 eaddr, int mc);
 	/* Convert error address logged in IBECC to integrated memory controller address */
@@ -221,6 +225,26 @@ static struct work_struct ecclog_work;
 #define DID_ADL_SKU2	0x4602
 #define DID_ADL_SKU3	0x4621
 #define DID_ADL_SKU4	0x4641
+
+/* Compute die IDs for Alder Lake-N with IBECC */
+#define DID_ADL_N_SKU1	0x4614
+#define DID_ADL_N_SKU2	0x4617
+#define DID_ADL_N_SKU3	0x461b
+#define DID_ADL_N_SKU4	0x461c
+#define DID_ADL_N_SKU5	0x4673
+#define DID_ADL_N_SKU6	0x4674
+#define DID_ADL_N_SKU7	0x4675
+#define DID_ADL_N_SKU8	0x4677
+#define DID_ADL_N_SKU9	0x4678
+#define DID_ADL_N_SKU10	0x4679
+#define DID_ADL_N_SKU11	0x467c
+
+/* Compute die IDs for Raptor Lake-P with IBECC */
+#define DID_RPL_P_SKU1	0xa706
+#define DID_RPL_P_SKU2	0xa707
+#define DID_RPL_P_SKU3	0xa708
+#define DID_RPL_P_SKU4	0xa716
+#define DID_RPL_P_SKU5	0xa718
 
 static bool ehl_ibecc_available(struct pci_dev *pdev)
 {
@@ -358,6 +382,11 @@ static u64 adl_err_addr_to_imc_addr(u64 eaddr, int mc)
 	return imc_addr;
 }
 
+static u64 rpl_p_err_addr(u64 ecclog)
+{
+	return ECC_ERROR_LOG_ADDR45(ecclog);
+}
+
 static struct res_config ehl_cfg = {
 	.num_imc		= 1,
 	.imc_base		= 0x5000,
@@ -403,6 +432,29 @@ static struct res_config adl_cfg = {
 	.err_addr_to_imc_addr	= adl_err_addr_to_imc_addr,
 };
 
+static struct res_config adl_n_cfg = {
+	.machine_check		= true,
+	.num_imc		= 1,
+	.imc_base		= 0xd800,
+	.ibecc_base		= 0xd400,
+	.ibecc_error_log_offset	= 0x68,
+	.ibecc_available	= tgl_ibecc_available,
+	.err_addr_to_sys_addr	= adl_err_addr_to_sys_addr,
+	.err_addr_to_imc_addr	= adl_err_addr_to_imc_addr,
+};
+
+static struct res_config rpl_p_cfg = {
+	.machine_check		= true,
+	.num_imc		= 2,
+	.imc_base		= 0xd800,
+	.ibecc_base		= 0xd400,
+	.ibecc_error_log_offset	= 0x68,
+	.ibecc_available	= tgl_ibecc_available,
+	.err_addr		= rpl_p_err_addr,
+	.err_addr_to_sys_addr	= adl_err_addr_to_sys_addr,
+	.err_addr_to_imc_addr	= adl_err_addr_to_imc_addr,
+};
+
 static const struct pci_device_id igen6_pci_tbl[] = {
 	{ PCI_VDEVICE(INTEL, DID_EHL_SKU5), (kernel_ulong_t)&ehl_cfg },
 	{ PCI_VDEVICE(INTEL, DID_EHL_SKU6), (kernel_ulong_t)&ehl_cfg },
@@ -424,9 +476,39 @@ static const struct pci_device_id igen6_pci_tbl[] = {
 	{ PCI_VDEVICE(INTEL, DID_ADL_SKU2), (kernel_ulong_t)&adl_cfg },
 	{ PCI_VDEVICE(INTEL, DID_ADL_SKU3), (kernel_ulong_t)&adl_cfg },
 	{ PCI_VDEVICE(INTEL, DID_ADL_SKU4), (kernel_ulong_t)&adl_cfg },
+	{ PCI_VDEVICE(INTEL, DID_ADL_N_SKU1), (kernel_ulong_t)&adl_n_cfg },
+	{ PCI_VDEVICE(INTEL, DID_ADL_N_SKU2), (kernel_ulong_t)&adl_n_cfg },
+	{ PCI_VDEVICE(INTEL, DID_ADL_N_SKU3), (kernel_ulong_t)&adl_n_cfg },
+	{ PCI_VDEVICE(INTEL, DID_ADL_N_SKU4), (kernel_ulong_t)&adl_n_cfg },
+	{ PCI_VDEVICE(INTEL, DID_ADL_N_SKU5), (kernel_ulong_t)&adl_n_cfg },
+	{ PCI_VDEVICE(INTEL, DID_ADL_N_SKU6), (kernel_ulong_t)&adl_n_cfg },
+	{ PCI_VDEVICE(INTEL, DID_ADL_N_SKU7), (kernel_ulong_t)&adl_n_cfg },
+	{ PCI_VDEVICE(INTEL, DID_ADL_N_SKU8), (kernel_ulong_t)&adl_n_cfg },
+	{ PCI_VDEVICE(INTEL, DID_ADL_N_SKU9), (kernel_ulong_t)&adl_n_cfg },
+	{ PCI_VDEVICE(INTEL, DID_ADL_N_SKU10), (kernel_ulong_t)&adl_n_cfg },
+	{ PCI_VDEVICE(INTEL, DID_ADL_N_SKU11), (kernel_ulong_t)&adl_n_cfg },
+	{ PCI_VDEVICE(INTEL, DID_RPL_P_SKU1), (kernel_ulong_t)&rpl_p_cfg },
+	{ PCI_VDEVICE(INTEL, DID_RPL_P_SKU2), (kernel_ulong_t)&rpl_p_cfg },
+	{ PCI_VDEVICE(INTEL, DID_RPL_P_SKU3), (kernel_ulong_t)&rpl_p_cfg },
+	{ PCI_VDEVICE(INTEL, DID_RPL_P_SKU4), (kernel_ulong_t)&rpl_p_cfg },
+	{ PCI_VDEVICE(INTEL, DID_RPL_P_SKU5), (kernel_ulong_t)&rpl_p_cfg },
 	{ },
 };
 MODULE_DEVICE_TABLE(pci, igen6_pci_tbl);
+
+static BLOCKING_NOTIFIER_HEAD(ibecc_err_handler_chain);
+
+int ibecc_err_register_notifer(struct notifier_block *nb)
+{
+	return blocking_notifier_chain_register(&ibecc_err_handler_chain, nb);
+}
+EXPORT_SYMBOL_GPL(ibecc_err_register_notifer);
+
+int ibecc_err_unregister_notifer(struct notifier_block *nb)
+{
+	return blocking_notifier_chain_unregister(&ibecc_err_handler_chain, nb);
+}
+EXPORT_SYMBOL_GPL(ibecc_err_unregister_notifer);
 
 static enum dev_type get_width(int dimm_l, u32 mad_dimm)
 {
@@ -545,6 +627,7 @@ static void igen6_output_error(struct decoded_addr *res,
 	enum hw_event_mc_err_type type = ecclog & ECC_ERROR_LOG_UE ?
 					 HW_EVENT_ERR_UNCORRECTED :
 					 HW_EVENT_ERR_CORRECTED;
+	struct ibecc_err_info e;
 
 	edac_mc_handle_error(type, mci, 1,
 			     res->sys_addr >> PAGE_SHIFT,
@@ -552,6 +635,13 @@ static void igen6_output_error(struct decoded_addr *res,
 			     ECC_ERROR_LOG_SYND(ecclog),
 			     res->channel_idx, res->sub_channel_idx,
 			     -1, "", "");
+
+	/* Notify other handlers for further IBECC error handling */
+	memset(&e, 0, sizeof(e));
+	e.type	   = type;
+	e.sys_addr = res->sys_addr;
+	e.ecc_log  = ecclog;
+	blocking_notifier_call_chain(&ibecc_err_handler_chain, 0, &e);
 }
 
 static struct gen_pool *ecclog_gen_pool_create(void)
@@ -679,8 +769,11 @@ static void ecclog_work_cb(struct work_struct *work)
 
 	llist_for_each_entry_safe(node, tmp, head, llnode) {
 		memset(&res, 0, sizeof(res));
-		eaddr = ECC_ERROR_LOG_ADDR(node->ecclog) <<
-			ECC_ERROR_LOG_ADDR_SHIFT;
+		if (res_cfg->err_addr)
+			eaddr = res_cfg->err_addr(node->ecclog);
+		else
+			eaddr = ECC_ERROR_LOG_ADDR(node->ecclog) <<
+				ECC_ERROR_LOG_ADDR_SHIFT;
 		res.mc	     = node->mc;
 		res.sys_addr = res_cfg->err_addr_to_sys_addr(eaddr, res.mc);
 		res.imc_addr = res_cfg->err_addr_to_imc_addr(eaddr, res.mc);
@@ -1216,9 +1309,6 @@ static int igen6_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 	INIT_WORK(&ecclog_work, ecclog_work_cb);
 	init_irq_work(&ecclog_irq_work, ecclog_irq_work_cb);
 
-	/* Check if any pending errors before registering the NMI handler */
-	ecclog_handler();
-
 	rc = register_err_handler();
 	if (rc)
 		goto fail3;
@@ -1229,6 +1319,9 @@ static int igen6_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 		igen6_printk(KERN_ERR, "Failed to enable error reporting\n");
 		goto fail4;
 	}
+
+	/* Check if any pending errors before/during the registration of the error handler */
+	ecclog_handler();
 
 	igen6_debug_setup();
 	return 0;
