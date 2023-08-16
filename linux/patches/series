@@ -377,3 +377,6 @@
 
 # CVE-2023-3357
 0001-HID-amd_sfh-Add-missing-check-for-dma_alloc_coherent.patch
+
+# CVE-2023-26606
+0001-fs-ntfs3-Fix-slab-out-of-bounds-read-in-ntfs_trim_fs.patch
