@@ -150,6 +150,33 @@ static int kvm_check_cpuid(struct kvm_vcpu *vcpu,
 			return -EINVAL;
 	}
 
+	best = cpuid_entry2_find(entries, nent, 0xa,
+				 KVM_CPUID_INDEX_NOT_SIGNIFICANT);
+	if (best && vcpu->kvm->arch.enable_pmu) {
+		union cpuid10_eax eax;
+		union cpuid10_edx   edx;
+
+		eax.full = best->eax;
+		edx.full = best->edx;
+
+		if (eax.split.version_id > 1 &&
+		    eax.split.version_id < 5 &&
+		    best->ecx != 0) {
+			return -EINVAL;
+		} else if (eax.split.version_id >= 5) {
+			int fixed_count = edx.split.num_counters_fixed;
+
+			if (fixed_count == 0 && (best->ecx & 0x1)) {
+				return -EINVAL;
+			} else if (fixed_count > 0) {
+				int low_fixed_mask = (1 << fixed_count) - 1;
+
+				if ((best->ecx & low_fixed_mask) != low_fixed_mask)
+					return -EINVAL;
+			}
+		}
+	}
+
 	/*
 	 * Exposing dynamic xfeatures to the guest requires additional
 	 * enabling in the FPU, e.g. to expand the guest XSAVE state size.
