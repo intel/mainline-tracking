@@ -188,4 +188,6 @@ static inline u32 intel_gt_next_invalidate_tlb_full(const struct intel_gt *gt)
 
 void intel_gt_invalidate_tlb(struct intel_gt *gt, u32 seqno);
 
+void intel_gt_bind_context_set_ready(struct intel_gt *gt, bool ready);
+bool intel_gt_is_bind_context_ready(struct intel_gt *gt);
 #endif /* __INTEL_GT_H__ */
