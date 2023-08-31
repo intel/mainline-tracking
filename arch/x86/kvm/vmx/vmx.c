@@ -4176,6 +4176,51 @@ static void vmx_recalc_pmu_msr_intercepts(struct kvm_vcpu *vcpu)
 				  MSR_TYPE_RW, intercept);
 }
 
+static void vmx_set_intercept_for_fred_msr(struct kvm_vcpu *vcpu)
+{
+	bool intercept = !guest_cpu_cap_has(vcpu, X86_FEATURE_FRED);
+
+	if (!kvm_cpu_cap_has(X86_FEATURE_FRED))
+		return;
+
+	vmx_set_intercept_for_msr(vcpu, MSR_IA32_FRED_RSP1, MSR_TYPE_RW, intercept);
+	vmx_set_intercept_for_msr(vcpu, MSR_IA32_FRED_RSP2, MSR_TYPE_RW, intercept);
+	vmx_set_intercept_for_msr(vcpu, MSR_IA32_FRED_RSP3, MSR_TYPE_RW, intercept);
+	vmx_set_intercept_for_msr(vcpu, MSR_IA32_FRED_STKLVLS, MSR_TYPE_RW, intercept);
+	vmx_set_intercept_for_msr(vcpu, MSR_IA32_FRED_SSP1, MSR_TYPE_RW, intercept);
+	vmx_set_intercept_for_msr(vcpu, MSR_IA32_FRED_SSP2, MSR_TYPE_RW, intercept);
+	vmx_set_intercept_for_msr(vcpu, MSR_IA32_FRED_SSP3, MSR_TYPE_RW, intercept);
+	vmx_set_intercept_for_msr(vcpu, MSR_IA32_FRED_CONFIG, MSR_TYPE_RW, intercept);
+
+	/*
+	 * MSR_IA32_FRED_RSP0 and MSR_IA32_PL0_SSP (aka MSR_IA32_FRED_SSP0) are
+	 * designed for event delivery while executing in userspace.  Since KVM
+	 * operates entirely in kernel mode (CPL is always 0 after any VM exit),
+	 * it can safely retain and operate with guest-defined values for these
+	 * MSRs.
+	 *
+	 * As a result, interception of MSR_IA32_FRED_RSP0 and MSR_IA32_PL0_SSP
+	 * is unnecessary.
+	 *
+	 * Note: Saving and restoring MSR_IA32_PL0_SSP is part of CET supervisor
+	 * context management.  However, FRED SSP MSRs, including MSR_IA32_PL0_SSP,
+	 * are available on any processor that enumerates FRED.
+	 *
+	 * On processors that support FRED but not CET, FRED transitions do not
+	 * use these MSRs, but they remain accessible via MSR instructions such
+	 * as RDMSR and WRMSR.
+	 *
+	 * Intercept MSR_IA32_PL0_SSP when CET shadow stack is not supported,
+	 * regardless of FRED support.  This ensures the guest value remains
+	 * fully virtual and does not modify the hardware FRED SSP0 MSR.
+	 *
+	 * This behavior is consistent with the current setup in
+	 * vmx_recalc_msr_intercepts(), so no change is needed to the interception
+	 * logic for MSR_IA32_PL0_SSP.
+	 */
+	vmx_set_intercept_for_msr(vcpu, MSR_IA32_FRED_RSP0, MSR_TYPE_RW, intercept);
+}
+
 static void vmx_recalc_msr_intercepts(struct kvm_vcpu *vcpu)
 {
 	bool intercept;
@@ -4243,6 +4288,7 @@ static void vmx_recalc_msr_intercepts(struct kvm_vcpu *vcpu)
 	}
 
 	vmx_recalc_pmu_msr_intercepts(vcpu);
+	vmx_set_intercept_for_fred_msr(vcpu);
 
 	/*
 	 * x2APIC and LBR MSR intercepts are modified on-demand and cannot be
