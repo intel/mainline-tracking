@@ -255,13 +255,13 @@ static int tb_enable_clx(struct tb_switch *sw)
 	 * this in the future to cover the whole topology if it turns
 	 * out to be beneficial.
 	 */
-	while (sw && sw->config.depth > 1)
+	while (sw && tb_switch_depth(sw) > 1)
 		sw = tb_switch_parent(sw);
 
 	if (!sw)
 		return 0;
 
-	if (sw->config.depth != 1)
+	if (tb_switch_depth(sw) != 1)
 		return 0;
 
 	/*
@@ -553,7 +553,7 @@ static struct tb_tunnel *tb_find_first_usb3_tunnel(struct tb *tb,
 	struct tb_switch *sw;
 
 	/* Pick the router that is deepest in the topology */
-	if (dst_port->sw->config.depth > src_port->sw->config.depth)
+	if (tb_switch_depth(dst_port->sw) > tb_switch_depth(src_port->sw))
 		sw = dst_port->sw;
 	else
 		sw = src_port->sw;
