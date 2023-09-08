@@ -1230,6 +1230,14 @@ static int tb_dp_consumed_bandwidth(struct tb_tunnel *tunnel, int *consumed_up,
 	return 0;
 }
 
+static void tb_dp_init_pm_support(struct tb_path_hop *hop)
+{
+	struct tb_port *port = hop->in_port;
+
+	if (tb_port_is_null(port) && usb4_switch_version(port->sw) >= 2)
+		hop->pm_support = true;
+}
+
 static void tb_dp_init_aux_credits(struct tb_path_hop *hop)
 {
 	struct tb_port *port = hop->in_port;
@@ -1241,7 +1249,7 @@ static void tb_dp_init_aux_credits(struct tb_path_hop *hop)
 		hop->initial_credits = 1;
 }
 
-static void tb_dp_init_aux_path(struct tb_path *path)
+static void tb_dp_init_aux_path(struct tb_path *path, bool pm_support)
 {
 	struct tb_path_hop *hop;
 
@@ -1252,8 +1260,11 @@ static void tb_dp_init_aux_path(struct tb_path *path)
 	path->priority = TB_DP_AUX_PRIORITY;
 	path->weight = TB_DP_AUX_WEIGHT;
 
-	tb_path_for_each_hop(path, hop)
+	tb_path_for_each_hop(path, hop) {
 		tb_dp_init_aux_credits(hop);
+		if (pm_support)
+			tb_dp_init_pm_support(hop);
+	}
 }
 
 static int tb_dp_init_video_credits(struct tb_path_hop *hop)
@@ -1285,7 +1296,7 @@ static int tb_dp_init_video_credits(struct tb_path_hop *hop)
 	return 0;
 }
 
-static int tb_dp_init_video_path(struct tb_path *path)
+static int tb_dp_init_video_path(struct tb_path *path, bool pm_support)
 {
 	struct tb_path_hop *hop;
 
@@ -1302,6 +1313,8 @@ static int tb_dp_init_video_path(struct tb_path *path)
 		ret = tb_dp_init_video_credits(hop);
 		if (ret)
 			return ret;
+		if (pm_support)
+			tb_dp_init_pm_support(hop);
 	}
 
 	return 0;
@@ -1391,7 +1404,7 @@ struct tb_tunnel *tb_tunnel_discover_dp(struct tb *tb, struct tb_port *in,
 		goto err_free;
 	}
 	tunnel->paths[TB_DP_VIDEO_PATH_OUT] = path;
-	if (tb_dp_init_video_path(tunnel->paths[TB_DP_VIDEO_PATH_OUT]))
+	if (tb_dp_init_video_path(tunnel->paths[TB_DP_VIDEO_PATH_OUT], false))
 		goto err_free;
 
 	path = tb_path_discover(in, TB_DP_AUX_TX_HOPID, NULL, -1, NULL, "AUX TX",
@@ -1399,14 +1412,14 @@ struct tb_tunnel *tb_tunnel_discover_dp(struct tb *tb, struct tb_port *in,
 	if (!path)
 		goto err_deactivate;
 	tunnel->paths[TB_DP_AUX_PATH_OUT] = path;
-	tb_dp_init_aux_path(tunnel->paths[TB_DP_AUX_PATH_OUT]);
+	tb_dp_init_aux_path(tunnel->paths[TB_DP_AUX_PATH_OUT], false);
 
 	path = tb_path_discover(tunnel->dst_port, -1, in, TB_DP_AUX_RX_HOPID,
 				&port, "AUX RX", alloc_hopid);
 	if (!path)
 		goto err_deactivate;
 	tunnel->paths[TB_DP_AUX_PATH_IN] = path;
-	tb_dp_init_aux_path(tunnel->paths[TB_DP_AUX_PATH_IN]);
+	tb_dp_init_aux_path(tunnel->paths[TB_DP_AUX_PATH_IN], false);
 
 	/* Validate that the tunnel is complete */
 	if (!tb_port_is_dpout(tunnel->dst_port)) {
@@ -1461,6 +1474,7 @@ struct tb_tunnel *tb_tunnel_alloc_dp(struct tb *tb, struct tb_port *in,
 	struct tb_tunnel *tunnel;
 	struct tb_path **paths;
 	struct tb_path *path;
+	bool pm_support;
 
 	if (WARN_ON(!in->cap_adap || !out->cap_adap))
 		return NULL;
@@ -1482,26 +1496,27 @@ struct tb_tunnel *tb_tunnel_alloc_dp(struct tb *tb, struct tb_port *in,
 	tunnel->max_down = max_down;
 
 	paths = tunnel->paths;
+	pm_support = usb4_switch_version(in->sw) >= 2;
 
 	path = tb_path_alloc(tb, in, TB_DP_VIDEO_HOPID, out, TB_DP_VIDEO_HOPID,
 			     link_nr, "Video");
 	if (!path)
 		goto err_free;
-	tb_dp_init_video_path(path);
+	tb_dp_init_video_path(path, pm_support);
 	paths[TB_DP_VIDEO_PATH_OUT] = path;
 
 	path = tb_path_alloc(tb, in, TB_DP_AUX_TX_HOPID, out,
 			     TB_DP_AUX_TX_HOPID, link_nr, "AUX TX");
 	if (!path)
 		goto err_free;
-	tb_dp_init_aux_path(path);
+	tb_dp_init_aux_path(path, pm_support);
 	paths[TB_DP_AUX_PATH_OUT] = path;
 
 	path = tb_path_alloc(tb, out, TB_DP_AUX_RX_HOPID, in,
 			     TB_DP_AUX_RX_HOPID, link_nr, "AUX RX");
 	if (!path)
 		goto err_free;
-	tb_dp_init_aux_path(path);
+	tb_dp_init_aux_path(path, pm_support);
 	paths[TB_DP_AUX_PATH_IN] = path;
 
 	return tunnel;
