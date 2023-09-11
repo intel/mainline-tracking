@@ -153,6 +153,17 @@ static inline bool console_is_usable(struct console *con, short flags) { return 
 
 #endif /* CONFIG_PRINTK */
 
+extern bool have_boot_console;
+extern bool have_legacy_console;
+
+/*
+ * Specifies if the console lock/unlock dance is needed for console
+ * printing. If @have_boot_console is true, the nbcon consoles will
+ * be printed serially along with the legacy consoles because nbcon
+ * consoles cannot print simultaneously with boot consoles.
+ */
+#define printing_via_unlock (have_legacy_console || have_boot_console)
+
 extern struct printk_buffers printk_shared_pbufs;
 
 /**
