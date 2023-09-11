@@ -53,4 +53,10 @@ static inline bool intel_guc_submission_is_used(struct intel_guc *guc)
 	return intel_guc_is_used(guc) && intel_guc_submission_is_wanted(guc);
 }
 
+int intel_guc_set_engine_sched(struct intel_guc *guc, u32 class, u32 flags);
+#define SET_ENGINE_SCHED_FLAGS_ENABLE		BIT(0)
+#define SET_ENGINE_SCHED_FLAGS_IMMEDIATE	BIT(1)
+
+int intel_guc_process_set_engine_sched_done(struct intel_guc *guc, const u32 *msg, u32 len);
+
 #endif
