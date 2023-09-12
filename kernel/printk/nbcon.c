@@ -548,7 +548,6 @@ static struct printk_buffers panic_nbcon_pbufs;
  * in an unsafe state. Otherwise, on success the caller may assume
  * the console is not in an unsafe state.
  */
-__maybe_unused
 static bool nbcon_context_try_acquire(struct nbcon_context *ctxt)
 {
 	unsigned int cpu = smp_processor_id();
@@ -850,7 +849,6 @@ EXPORT_SYMBOL_GPL(nbcon_exit_unsafe);
  * When true is returned, @wctxt->ctxt.backlog indicates whether there are
  * still records pending in the ringbuffer,
  */
-__maybe_unused
 static bool nbcon_emit_next_record(struct nbcon_write_context *wctxt)
 {
 	struct nbcon_context *ctxt = &ACCESS_PRIVATE(wctxt, ctxt);
@@ -935,6 +933,108 @@ update_con:
 	nbcon_seq_try_update(ctxt, pmsg.seq + 1);
 
 	return nbcon_context_exit_unsafe(ctxt);
+}
+
+/**
+ * __nbcon_atomic_flush_pending_con - Flush specified nbcon console using its
+ *					write_atomic() callback
+ * @con:			The nbcon console to flush
+ * @stop_seq:			Flush up until this record
+ *
+ * Return:	True if taken over while printing. Otherwise false.
+ *
+ * If flushing up to @stop_seq was not successful, it only makes sense for the
+ * caller to try again when true was returned. When false is returned, either
+ * there are no more records available to read or this context is not allowed
+ * to acquire the console.
+ */
+static bool __nbcon_atomic_flush_pending_con(struct console *con, u64 stop_seq)
+{
+	struct nbcon_write_context wctxt = { };
+	struct nbcon_context *ctxt = &ACCESS_PRIVATE(&wctxt, ctxt);
+
+	ctxt->console			= con;
+	ctxt->spinwait_max_us		= 2000;
+	ctxt->prio			= NBCON_PRIO_NORMAL;
+
+	if (!nbcon_context_try_acquire(ctxt))
+		return false;
+
+	while (nbcon_seq_read(con) < stop_seq) {
+		/*
+		 * nbcon_emit_next_record() returns false when the console was
+		 * handed over or taken over. In both cases the context is no
+		 * longer valid.
+		 */
+		if (!nbcon_emit_next_record(&wctxt))
+			return true;
+
+		if (!ctxt->backlog)
+			break;
+	}
+
+	nbcon_context_release(ctxt);
+
+	return false;
+}
+
+/**
+ * __nbcon_atomic_flush_pending - Flush all nbcon consoles using their
+ *					write_atomic() callback
+ * @stop_seq:			Flush up until this record
+ */
+static void __nbcon_atomic_flush_pending(u64 stop_seq)
+{
+	struct console *con;
+	bool should_retry;
+	int cookie;
+
+	do {
+		should_retry = false;
+
+		cookie = console_srcu_read_lock();
+		for_each_console_srcu(con) {
+			short flags = console_srcu_read_flags(con);
+			unsigned long irq_flags;
+
+			if (!(flags & CON_NBCON))
+				continue;
+
+			if (!console_is_usable(con, flags))
+				continue;
+
+			if (nbcon_seq_read(con) >= stop_seq)
+				continue;
+
+			/*
+			 * Atomic flushing does not use console driver
+			 * synchronization (i.e. it does not hold the port
+			 * lock for uart consoles). Therefore IRQs must be
+			 * disabled to avoid being interrupted and then
+			 * calling into a driver that will deadlock trying
+			 * to acquire console ownership.
+			 */
+			local_irq_save(irq_flags);
+
+			should_retry |= __nbcon_atomic_flush_pending_con(con, stop_seq);
+
+			local_irq_restore(irq_flags);
+		}
+		console_srcu_read_unlock(cookie);
+	} while (should_retry);
+}
+
+/**
+ * nbcon_atomic_flush_pending - Flush all nbcon consoles using their
+ *				write_atomic() callback
+ *
+ * Flush the backlog up through the currently newest record. Any new
+ * records added while flushing will not be flushed. This is to avoid
+ * one CPU printing unbounded because other CPUs continue to add records.
+ */
+void nbcon_atomic_flush_pending(void)
+{
+	__nbcon_atomic_flush_pending(prb_next_reserve_seq(prb));
 }
 
 /**
