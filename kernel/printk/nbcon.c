@@ -3,9 +3,12 @@
 // Copyright (C) 2022 Intel, Thomas Gleixner
 
 #include <linux/kernel.h>
+#include <linux/bug.h>
 #include <linux/console.h>
 #include <linux/delay.h>
+#include <linux/export.h>
 #include <linux/slab.h>
+#include <linux/string.h>
 #include "internal.h"
 /*
  * Printk console printing implementation for consoles which does not depend
@@ -988,3 +991,52 @@ void nbcon_free(struct console *con)
 
 	con->pbufs = NULL;
 }
+
+/**
+ * nbcon_driver_acquire - Acquire nbcon console and enter unsafe section
+ * @con:	The nbcon console to acquire
+ *
+ * Context:	Any context which could not be migrated to another CPU.
+ *
+ * Console drivers will usually use their own internal synchronization
+ * mechasism to synchronize between console printing and non-printing
+ * activities (such as setting baud rates). However, nbcon console drivers
+ * supporting atomic consoles may also want to mark unsafe sections when
+ * performing non-printing activities.
+ *
+ * This function acquires the nbcon console using priority NBCON_PRIO_NORMAL
+ * and marks it unsafe for handover/takeover.
+ *
+ * Console drivers using this function must have provided @nbcon_drvdata in
+ * their struct console, which is used to track ownership and state
+ * information.
+ */
+void nbcon_driver_acquire(struct console *con)
+{
+	struct nbcon_context *ctxt = &ACCESS_PRIVATE(con->nbcon_drvdata, ctxt);
+
+	cant_migrate();
+
+	do {
+		do {
+			memset(ctxt, 0, sizeof(*ctxt));
+			ctxt->console	= con;
+			ctxt->prio	= NBCON_PRIO_NORMAL;
+		} while (!nbcon_context_try_acquire(ctxt));
+
+	} while (!nbcon_context_enter_unsafe(ctxt));
+}
+EXPORT_SYMBOL_GPL(nbcon_driver_acquire);
+
+/**
+ * nbcon_driver_release - Exit unsafe section and release the nbcon console
+ * @con:	The nbcon console acquired in nbcon_driver_acquire()
+ */
+void nbcon_driver_release(struct console *con)
+{
+	struct nbcon_context *ctxt = &ACCESS_PRIVATE(con->nbcon_drvdata, ctxt);
+
+	if (nbcon_context_exit_unsafe(ctxt))
+		nbcon_context_release(ctxt);
+}
+EXPORT_SYMBOL_GPL(nbcon_driver_release);

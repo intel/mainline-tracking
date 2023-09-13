@@ -301,6 +301,25 @@ struct nbcon_write_context {
 };
 
 /**
+ * struct nbcon_drvdata - Data to allow nbcon acquire in non-print context
+ * @ctxt:		The core console context
+ * @srcu_cookie:	Storage for a console_srcu_lock cookie, if needed
+ * @owner_index:	Storage for the owning console index, if needed
+ * @locked:		Storage for the locked state, if needed
+ *
+ * All fields (except for @ctxt) are available exclusively to the driver to
+ * use as needed. They are not used by the printk subsystem.
+ */
+struct nbcon_drvdata {
+	struct nbcon_context	__private ctxt;
+
+	/* reserved for driver use */
+	int			srcu_cookie;
+	short			owner_index;
+	bool			locked;
+};
+
+/**
  * struct console - The console descriptor structure
  * @name:		The name of the console driver
  * @write:		Legacy write callback to output messages (Optional)
@@ -414,6 +433,21 @@ struct console {
 
 	atomic_t		__private nbcon_state;
 	atomic_long_t		__private nbcon_seq;
+
+	/**
+	 * @nbcon_drvdata:
+	 *
+	 * Data for nbcon ownership tracking to allow acquiring nbcon consoles
+	 * in non-printing contexts.
+	 *
+	 * Drivers may need to acquire nbcon consoles in non-printing
+	 * contexts. This is achieved by providing a struct nbcon_drvdata.
+	 * Then the driver can call nbcon_driver_acquire() and
+	 * nbcon_driver_release(). The struct does not require any special
+	 * initialization.
+	 */
+	struct nbcon_drvdata	*nbcon_drvdata;
+
 	struct printk_buffers	*pbufs;
 };
 
@@ -443,28 +477,29 @@ extern void console_list_unlock(void) __releases(console_mutex);
 extern struct hlist_head console_list;
 
 /**
- * console_srcu_read_flags - Locklessly read the console flags
+ * console_srcu_read_flags - Locklessly read flags of a possibly registered
+ *				console
  * @con:	struct console pointer of console to read flags from
  *
- * This function provides the necessary READ_ONCE() and data_race()
- * notation for locklessly reading the console flags. The READ_ONCE()
- * in this function matches the WRITE_ONCE() when @flags are modified
- * for registered consoles with console_srcu_write_flags().
+ * Locklessly reading @con->flags provides a consistent read value because
+ * there is at most one CPU modifying @con->flags and that CPU is using only
+ * read-modify-write operations to do so.
  *
- * Only use this function to read console flags when locklessly
- * iterating the console list via srcu.
+ * Requires console_srcu_read_lock to be held, which implies that @con might
+ * be a registered console. If the caller is holding the console_list_lock or
+ * it is certain that the console is not registered, the caller may read
+ * @con->flags directly instead.
  *
  * Context: Any context.
+ * Return: The current value of the @con->flags field.
  */
 static inline short console_srcu_read_flags(const struct console *con)
 {
 	WARN_ON_ONCE(!console_srcu_read_lock_is_held());
 
 	/*
-	 * Locklessly reading console->flags provides a consistent
-	 * read value because there is at most one CPU modifying
-	 * console->flags and that CPU is using only read-modify-write
-	 * operations to do so.
+	 * The READ_ONCE() matches the WRITE_ONCE() when @flags are modified
+	 * for registered consoles with console_srcu_write_flags().
 	 */
 	return data_race(READ_ONCE(con->flags));
 }
