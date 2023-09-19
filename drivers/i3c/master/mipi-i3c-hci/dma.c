@@ -761,6 +761,14 @@ static bool hci_dma_irq_handler(struct i3c_hci *hci)
 			dev_notice_ratelimited(&hci->master.dev,
 				"ring %d: Transfer Aborted\n", i);
 			mipi_i3c_hci_resume(hci);
+			/*
+			 * REVISIT: Ring stop followed by run is an Intel
+			 * specific required quirk on early MIPI I3C HCI HW
+			 * after resuming the controller.
+			 */
+			rh_reg_write(RING_CONTROL, RING_CTRL_ENABLE);
+			rh_reg_write(RING_CONTROL, RING_CTRL_ENABLE |
+						   RING_CTRL_RUN_STOP);
 		}
 		if (status & INTR_WARN_INS_STOP_MODE)
 			dev_warn_ratelimited(&hci->master.dev,
