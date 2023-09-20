@@ -244,6 +244,10 @@ i915_param_named(max_vfs, uint, 0400,
 	"Limit number of virtual functions to allocate. "
 	"(0 = no VFs [default]; N = allow up to N VFs)");
 
+i915_param_named(force_enable_ccs, int, 0400,
+	"Force to enable CCS engine. "
+	"(0 = fallback to default [default]; 1 = enable CCS)");
+
 static void _param_print_bool(struct drm_printer *p, const char *name,
 			      bool val)
 {
