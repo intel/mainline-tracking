@@ -1,0 +1,57 @@
+From 86e5075375c8fe99529d5f8c1abe2cd14e382d34 Mon Sep 17 00:00:00 2001
+From: Jamal Hadi Salim <jhs@mojatatu.com>
+Date: Tue, 14 Feb 2023 08:49:14 -0500
+Subject: [PATCH] net/sched: Retire tcindex classifier
+
+commit 8c710f75256bb3cf05ac7b1672c82b92c43f3d28 upstream.
+
+The tcindex classifier has served us well for about a quarter of a century
+but has not been getting much TLC due to lack of known users. Most recently
+it has become easy prey to syzkaller. For this reason, we are retiring it.
+
+Signed-off-by: Jamal Hadi Salim <jhs@mojatatu.com>
+Acked-by: Jiri Pirko <jiri@nvidia.com>
+Signed-off-by: Paolo Abeni <pabeni@redhat.com>
+Signed-off-by: Greg Kroah-Hartman <gregkh@linuxfoundation.org>
+---
+ net/sched/Kconfig  | 11 -----------
+ net/sched/Makefile |  1 -
+ 2 files changed, 12 deletions(-)
+
+diff --git a/net/sched/Kconfig b/net/sched/Kconfig
+index 1e8ab4749c6c..e5d081269913 100644
+--- a/net/sched/Kconfig
++++ b/net/sched/Kconfig
+@@ -503,17 +503,6 @@ config NET_CLS_BASIC
+ 	  To compile this code as a module, choose M here: the
+ 	  module will be called cls_basic.
+ 
+-config NET_CLS_TCINDEX
+-	tristate "Traffic-Control Index (TCINDEX)"
+-	select NET_CLS
+-	help
+-	  Say Y here if you want to be able to classify packets based on
+-	  traffic control indices. You will want this feature if you want
+-	  to implement Differentiated Services together with DSMARK.
+-
+-	  To compile this code as a module, choose M here: the
+-	  module will be called cls_tcindex.
+-
+ config NET_CLS_ROUTE4
+ 	tristate "Routing decision (ROUTE)"
+ 	depends on INET
+diff --git a/net/sched/Makefile b/net/sched/Makefile
+index dd14ef413fda..b7dbac5c519f 100644
+--- a/net/sched/Makefile
++++ b/net/sched/Makefile
+@@ -70,7 +70,6 @@ obj-$(CONFIG_NET_CLS_U32)	+= cls_u32.o
+ obj-$(CONFIG_NET_CLS_ROUTE4)	+= cls_route.o
+ obj-$(CONFIG_NET_CLS_FW)	+= cls_fw.o
+ obj-$(CONFIG_NET_CLS_RSVP)	+= cls_rsvp.o
+-obj-$(CONFIG_NET_CLS_TCINDEX)	+= cls_tcindex.o
+ obj-$(CONFIG_NET_CLS_RSVP6)	+= cls_rsvp6.o
+ obj-$(CONFIG_NET_CLS_BASIC)	+= cls_basic.o
+ obj-$(CONFIG_NET_CLS_FLOW)	+= cls_flow.o
+-- 
+2.25.1
+

@@ -380,3 +380,41 @@
 
 # CVE-2023-26606
 0001-fs-ntfs3-Fix-slab-out-of-bounds-read-in-ntfs_trim_fs.patch
+
+# CVE-2023-1380
+0001-wifi-brcmfmac-slab-out-of-bounds-read-in-brcmf_get_a.patch
+
+# CVE-2023-30456
+0001-KVM-nVMX-add-missing-consistency-checks-for-CR0-and-.patch
+
+# CVE-2023-1989
+0001-Bluetooth-btsdio-fix-use-after-free-bug-in-btsdio_re.patch
+
+# CVE-2023-1990
+0001-nfc-st-nci-Fix-use-after-free-bug-in-ndlc_remove-due.patch
+
+# CVE-2022-45884
+# CVE-2022-45885
+# CVE-2022-45886
+# CVE-2022-45887
+0001-media-dvb-core-Fix-use-after-free-due-to-race-condit.patch
+0002-media-dvb-core-Fix-use-after-free-due-to-race-condit.patch
+0003-dvb_register_device-dynamically-allocates-fops-with-.patch
+0004-media-ttusb-dec-Fix-memory-leak-in-ttusb_dec_exit_dv.patch
+
+# CVE-2023-28866
+0001-Bluetooth-HCI-Fix-global-out-of-bounds.patch
+
+# CVE-2023-2269
+0001-dm-ioctl-fix-nested-locking-in-table_clear-to-remove.patch
+
+# CVE-2023-31084
+
+0001-media-dvb-core-Fix-kernel-WARNING-for-blocking-opera.patch
+
+# CVE-2023-2248
+# CVE-2023-31436
+0001-net-sched-sch_qfq-prevent-slab-out-of-bounds-in-qfq_.patch
+
+# CVE-2023-1829
+0001-net-sched-Retire-tcindex-classifier.patch
