@@ -1224,9 +1224,10 @@ enum nbcon_prio nbcon_get_default_prio(void)
 }
 
 /*
- * nbcon_atomic_emit_one - Print one record for an nbcon console using the
- *				write_atomic() callback
+ * nbcon_emit_one - Print one record for an nbcon console using the
+ *			specified callback
  * @wctxt:	An initialized write context struct to use for this context
+ * @use_atomic:	True if the write_atomic callback is to be used
  *
  * Return:	True, when a record has been printed and there are still
  *		pending records. The caller might want to continue flushing.
@@ -1239,7 +1240,7 @@ enum nbcon_prio nbcon_get_default_prio(void)
  * This is an internal helper to handle the locking of the console before
  * calling nbcon_emit_next_record().
  */
-static bool nbcon_atomic_emit_one(struct nbcon_write_context *wctxt)
+static bool nbcon_emit_one(struct nbcon_write_context *wctxt, bool use_atomic)
 {
 	struct nbcon_context *ctxt = &ACCESS_PRIVATE(wctxt, ctxt);
 
@@ -1254,7 +1255,7 @@ static bool nbcon_atomic_emit_one(struct nbcon_write_context *wctxt)
 	 * The higher priority printing context takes over responsibility
 	 * to print the pending records.
 	 */
-	if (!nbcon_emit_next_record(wctxt, true))
+	if (!nbcon_emit_next_record(wctxt, use_atomic))
 		return false;
 
 	nbcon_context_release(ctxt);
@@ -1271,6 +1272,7 @@ static bool nbcon_atomic_emit_one(struct nbcon_write_context *wctxt)
  *		both the console_lock and the SRCU read lock. Otherwise it
  *		is set to false.
  * @cookie:	The cookie from the SRCU read lock.
+ * @use_atomic:	True if the write_atomic callback is to be used
  *
  * Context:	Any context except NMI.
  * Return:	True, when a record has been printed and there are still
@@ -1286,26 +1288,38 @@ static bool nbcon_atomic_emit_one(struct nbcon_write_context *wctxt)
  * Essentially it is the nbcon version of console_emit_next_record().
  */
 bool nbcon_legacy_emit_next_record(struct console *con, bool *handover,
-				   int cookie)
+				   int cookie, bool use_atomic)
 {
 	struct nbcon_write_context wctxt = { };
 	struct nbcon_context *ctxt = &ACCESS_PRIVATE(&wctxt, ctxt);
 	unsigned long flags;
 	bool progress;
 
-	/* Use the same procedure as console_emit_next_record(). */
-	printk_safe_enter_irqsave(flags);
-	console_lock_spinning_enable();
-	stop_critical_timings();
+	ctxt->console = con;
 
-	ctxt->console	= con;
-	ctxt->prio	= nbcon_get_default_prio();
+	if (use_atomic) {
+		/* Use the same procedure as console_emit_next_record(). */
+		printk_safe_enter_irqsave(flags);
+		console_lock_spinning_enable();
+		stop_critical_timings();
 
-	progress = nbcon_atomic_emit_one(&wctxt);
+		ctxt->prio = nbcon_get_default_prio();
+		progress = nbcon_emit_one(&wctxt, use_atomic);
 
-	start_critical_timings();
-	*handover = console_lock_spinning_disable_and_check(cookie);
-	printk_safe_exit_irqrestore(flags);
+		start_critical_timings();
+		*handover = console_lock_spinning_disable_and_check(cookie);
+		printk_safe_exit_irqrestore(flags);
+	} else {
+		*handover = false;
+
+		con->device_lock(con, &flags);
+		cant_migrate();
+
+		ctxt->prio = nbcon_get_default_prio();
+		progress = nbcon_emit_one(&wctxt, use_atomic);
+
+		con->device_unlock(con, flags);
+	}
 
 	return progress;
 }
@@ -1622,6 +1636,8 @@ static int __init printk_setup_threads(void)
 	printk_threads_enabled = true;
 	for_each_console(con)
 		nbcon_kthread_create(con);
+	if (force_printkthreads() && printing_via_unlock)
+		nbcon_legacy_kthread_create();
 	console_list_unlock();
 	return 0;
 }
