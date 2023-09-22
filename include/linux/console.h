@@ -17,6 +17,7 @@
 #include <linux/atomic.h>
 #include <linux/bits.h>
 #include <linux/rculist.h>
+#include <linux/rcuwait.h>
 #include <linux/types.h>
 #include <linux/vesa.h>
 
@@ -324,6 +325,8 @@ struct nbcon_write_context {
  * @nbcon_seq:		Sequence number of the next record for nbcon to print
  * @nbcon_device_ctxt:	Context available for non-printing operations
  * @pbufs:		Pointer to nbcon private buffer
+ * @kthread:		Printer kthread for this console
+ * @rcuwait:		RCU-safe wait object for @kthread waking
  */
 struct console {
 	char			name[16];
@@ -374,6 +377,27 @@ struct console {
 	void (*write_atomic)(struct console *con, struct nbcon_write_context *wctxt);
 
 	/**
+	 * @write_thread:
+	 *
+	 * NBCON callback to write out text in task context.
+	 *
+	 * This callback is called after device_lock() and with the nbcon
+	 * console acquired. Any necessary driver synchronization should have
+	 * been performed by the device_lock() callback.
+	 *
+	 * This callback is always called from task context but with migration
+	 * disabled.
+	 *
+	 * The same criteria for console ownership verification and unsafe
+	 * sections applies as with write_atomic(). The difference between
+	 * this callback and write_atomic() is that this callback is used
+	 * during normal operation and is always called from task context.
+	 * This allows drivers to operate in their own locking context for
+	 * synchronizing output to the hardware.
+	 */
+	void (*write_thread)(struct console *con, struct nbcon_write_context *wctxt);
+
+	/**
 	 * @device_lock:
 	 *
 	 * NBCON callback to begin synchronization with driver code.
@@ -420,6 +444,8 @@ struct console {
 	atomic_long_t		__private nbcon_seq;
 	struct nbcon_context	__private nbcon_device_ctxt;
 	struct printk_buffers	*pbufs;
+	struct task_struct	*kthread;
+	struct rcuwait		rcuwait;
 };
 
 #ifdef CONFIG_LOCKDEP
