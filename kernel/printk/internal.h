@@ -90,6 +90,7 @@ enum nbcon_prio nbcon_get_default_prio(void);
 void nbcon_atomic_flush_pending(void);
 bool nbcon_legacy_emit_next_record(struct console *con, bool *handover,
 				   int cookie);
+void nbcon_kthread_create(struct console *con);
 
 /*
  * Check if the given console is currently capable and allowed to print
@@ -108,6 +109,8 @@ static inline bool console_is_usable(struct console *con, short flags)
 	if (flags & CON_NBCON) {
 		if (!con->write_atomic)
 			return false;
+		if (!con->write_thread)
+			return false;
 	} else {
 		if (!con->write)
 			return false;
@@ -124,11 +127,34 @@ static inline bool console_is_usable(struct console *con, short flags)
 	return true;
 }
 
+/**
+ * nbcon_kthread_wake - Wake up a printk thread
+ * @con:        Console to operate on
+ */
+static inline void nbcon_kthread_wake(struct console *con)
+{
+	/*
+	 * Guarantee any new records can be seen by tasks preparing to wait
+	 * before this context checks if the rcuwait is empty.
+	 *
+	 * The full memory barrier in rcuwait_wake_up() pairs with the full
+	 * memory barrier within set_current_state() of
+	 * ___rcuwait_wait_event(), which is called after prepare_to_rcuwait()
+	 * adds the waiter but before it has checked the wait condition.
+	 *
+	 * This pairs with nbcon_kthread_func:A.
+	 */
+	rcuwait_wake_up(&con->rcuwait); /* LMM(nbcon_kthread_wake:A) */
+}
+
 #else
 
 #define PRINTK_PREFIX_MAX	0
 #define PRINTK_MESSAGE_MAX	0
 #define PRINTKRB_RECORD_MAX	0
+
+static inline void nbcon_kthread_wake(struct console *con) { }
+static inline void nbcon_kthread_create(struct console *con) { }
 
 /*
  * In !PRINTK builds we still export console_sem
