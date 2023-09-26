@@ -968,7 +968,7 @@ static bool nbcon_kthread_should_wakeup(struct console *con, struct nbcon_contex
 	cookie = console_srcu_read_lock();
 
 	flags = console_srcu_read_flags(con);
-	if (console_is_usable(con, flags)) {
+	if (console_is_usable(con, flags, false)) {
 		/* Bring the sequence in @ctxt up to date */
 		ctxt->seq = nbcon_seq_read(con);
 
@@ -1026,7 +1026,7 @@ wait_for_event:
 
 		con_flags = console_srcu_read_flags(con);
 
-		if (console_is_usable(con, con_flags)) {
+		if (console_is_usable(con, con_flags, false)) {
 			con->device_lock(con, &flags);
 
 			/*
@@ -1312,7 +1312,7 @@ static void __nbcon_atomic_flush_pending(u64 stop_seq, bool allow_unsafe_takeove
 		if (!(flags & CON_NBCON))
 			continue;
 
-		if (!console_is_usable(con, flags))
+		if (!console_is_usable(con, flags, true))
 			continue;
 
 		if (nbcon_seq_read(con) >= stop_seq)
@@ -1618,7 +1618,7 @@ void nbcon_driver_release(struct console *con)
 	 * the console is usable throughout flushing.
 	 */
 	cookie = console_srcu_read_lock();
-	if (console_is_usable(con, console_srcu_read_flags(con)) &&
+	if (console_is_usable(con, console_srcu_read_flags(con), true) &&
 	    !con->kthread &&
 	    prb_read_valid(prb, nbcon_seq_read(con), NULL)) {
 		__nbcon_atomic_flush_pending_con(con, prb_next_reserve_seq(prb), false);
