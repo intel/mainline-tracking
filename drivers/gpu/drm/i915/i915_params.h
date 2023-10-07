@@ -82,7 +82,6 @@ struct drm_printer;
 	param(unsigned int, lmem_size, 0, 0400) \
 	param(unsigned int, lmem_bar_size, 0, 0400) \
 	param(unsigned int, max_vfs, 0, 0400) \
-	param(int, force_enable_ccs, 0, 0400) \
 	/* leave bools at the end to not create holes */ \
 	param(bool, enable_hangcheck, true, 0600) \
 	param(bool, load_detect_test, false, 0600) \
