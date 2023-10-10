@@ -390,6 +390,23 @@ stmmac_ethtool_set_link_ksettings(struct net_device *dev,
 				  const struct ethtool_link_ksettings *cmd)
 {
 	struct stmmac_priv *priv = netdev_priv(dev);
+	struct ethtool_link_ksettings link_ks = {};
+
+	/* Get the current link settings */
+	stmmac_ethtool_get_link_ksettings(dev, &link_ks);
+
+	/* Check if the speed and duplex are supported by phy */
+	if (!phy_lookup_setting(cmd->base.speed, cmd->base.duplex,
+				link_ks.link_modes.supported, true)) {
+		return -EINVAL;
+	}
+
+	/* Check if the advertising request is supported */
+	if (!bitmap_subset(cmd->link_modes.advertising,
+			   link_ks.link_modes.supported,
+			   __ETHTOOL_LINK_MODE_MASK_NBITS)) {
+		return -EINVAL;
+	}
 
 	if (priv->hw->pcs & STMMAC_PCS_RGMII ||
 	    priv->hw->pcs & STMMAC_PCS_SGMII) {
@@ -794,8 +811,24 @@ static int stmmac_ethtool_op_set_eee(struct net_device *dev,
 		netdev_warn(priv->dev,
 			    "Setting EEE tx-lpi is not supported\n");
 
-	if (!edata->eee_enabled)
+	if (!edata->eee_enabled) {
 		stmmac_disable_eee_mode(priv);
+	} else {
+		__ETHTOOL_DECLARE_LINK_MODE_MASK(supported);
+		__ETHTOOL_DECLARE_LINK_MODE_MASK(advertised);
+
+		ethtool_convert_legacy_u32_to_link_mode(supported,
+							edata->supported);
+		ethtool_convert_legacy_u32_to_link_mode(advertised,
+							edata->advertised);
+
+		/*Check if the advertise speed is supported.*/
+		if (!bitmap_subset(advertised,
+				   supported,
+				   __ETHTOOL_LINK_MODE_MASK_NBITS)){
+			return -EOPNOTSUPP;
+		}
+	}
 
 	ret = phylink_ethtool_set_eee(priv->phylink, edata);
 	if (ret)
@@ -908,7 +941,7 @@ static int __stmmac_set_coalesce(struct net_device *dev,
 	else if (queue >= max_cnt)
 		return -EINVAL;
 
-	if (priv->use_riwt && (ec->rx_coalesce_usecs > 0)) {
+	if (priv->use_riwt) {
 		rx_riwt = stmmac_usec2riwt(ec->rx_coalesce_usecs, priv);
 
 		if ((rx_riwt > MAX_DMA_RIWT) || (rx_riwt < MIN_DMA_RIWT))
