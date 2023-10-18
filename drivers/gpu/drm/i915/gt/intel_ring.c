@@ -56,7 +56,7 @@ int intel_ring_pin(struct intel_ring *ring, struct i915_gem_ww_ctx *ww)
 	if (i915_vma_is_map_and_fenceable(vma) && !HAS_LLC(vma->vm->i915)) {
 		addr = (void __force *)i915_vma_pin_iomap(vma);
 	} else {
-		int type = i915_coherent_map_type(vma->vm->i915, vma->obj, false);
+		int type = i915_coherent_map_type(vma->vm->gt, vma->obj, false);
 
 		addr = i915_gem_object_pin_map(vma->obj, type);
 	}

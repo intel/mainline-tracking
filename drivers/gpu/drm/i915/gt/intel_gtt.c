@@ -21,6 +21,11 @@
 #include "intel_gt_regs.h"
 #include "intel_gtt.h"
 
+bool i915_ggtt_require_binder(struct drm_i915_private *i915)
+{
+	/* Wa_13010847436 & Wa_14019519902 */
+	return MEDIA_VER_FULL(i915) == IP_VER(13, 0);
+}
 
 static bool intel_ggtt_update_needs_vtd_wa(struct drm_i915_private *i915)
 {
@@ -89,7 +94,7 @@ int map_pt_dma(struct i915_address_space *vm, struct drm_i915_gem_object *obj)
 	enum i915_map_type type;
 	void *vaddr;
 
-	type = i915_coherent_map_type(vm->i915, obj, true);
+	type = i915_coherent_map_type(vm->gt, obj, true);
 	vaddr = i915_gem_object_pin_map_unlocked(obj, type);
 	if (IS_ERR(vaddr))
 		return PTR_ERR(vaddr);
@@ -103,7 +108,7 @@ int map_pt_dma_locked(struct i915_address_space *vm, struct drm_i915_gem_object 
 	enum i915_map_type type;
 	void *vaddr;
 
-	type = i915_coherent_map_type(vm->i915, obj, true);
+	type = i915_coherent_map_type(vm->gt, obj, true);
 	vaddr = i915_gem_object_pin_map(obj, type);
 	if (IS_ERR(vaddr))
 		return PTR_ERR(vaddr);
@@ -405,6 +410,9 @@ void gtt_write_workarounds(struct intel_gt *gt)
 	struct drm_i915_private *i915 = gt->i915;
 	struct intel_uncore *uncore = gt->uncore;
 
+	if (IS_SRIOV_VF(i915))
+		return;
+
 	/*
 	 * This function is for gtt related workarounds. This function is
 	 * called on driver load and after a GPU reset, so you can place
@@ -640,6 +648,9 @@ void setup_private_pat(struct intel_gt *gt)
 	struct drm_i915_private *i915 = gt->i915;
 
 	GEM_BUG_ON(GRAPHICS_VER(i915) < 8);
+
+	if (IS_SRIOV_VF(i915))
+		return;
 
 	if (gt->type == GT_MEDIA) {
 		xelpmp_setup_private_ppat(gt->uncore);

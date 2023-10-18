@@ -31,7 +31,7 @@
 
 bool intel_is_c10phy(struct drm_i915_private *i915, enum phy phy)
 {
-	if (IS_METEORLAKE(i915) && (phy < PHY_C))
+	if (DISPLAY_VER_FULL(i915) == IP_VER(14, 0) && phy < PHY_C)
 		return true;
 
 	return false;
@@ -116,6 +116,7 @@ static int intel_cx0_wait_for_ack(struct drm_i915_private *i915, enum port port,
 					 XELPDP_MSGBUS_TIMEOUT_SLOW, val)) {
 		drm_dbg_kms(&i915->drm, "PHY %c Timeout waiting for message ACK. Status: 0x%x\n",
 			    phy_name(phy), *val);
+		intel_cx0_bus_reset(i915, port, lane);
 		return -ETIMEDOUT;
 	}
 
@@ -158,10 +159,8 @@ static int __intel_cx0_read_once(struct drm_i915_private *i915, enum port port,
 		       XELPDP_PORT_M2P_ADDRESS(addr));
 
 	ack = intel_cx0_wait_for_ack(i915, port, XELPDP_PORT_P2M_COMMAND_READ_ACK, lane, &val);
-	if (ack < 0) {
-		intel_cx0_bus_reset(i915, port, lane);
+	if (ack < 0)
 		return ack;
-	}
 
 	intel_clear_response_ready_flag(i915, port, lane);
 
@@ -202,6 +201,7 @@ static int __intel_cx0_write_once(struct drm_i915_private *i915, enum port port,
 				  int lane, u16 addr, u8 data, bool committed)
 {
 	enum phy phy = intel_port_to_phy(i915, port);
+	int ack;
 	u32 val;
 
 	if (intel_de_wait_for_clear(i915, XELPDP_PORT_M2P_MSGBUS_CTL(port, lane),
@@ -230,10 +230,9 @@ static int __intel_cx0_write_once(struct drm_i915_private *i915, enum port port,
 	}
 
 	if (committed) {
-		if (intel_cx0_wait_for_ack(i915, port, XELPDP_PORT_P2M_COMMAND_WRITE_ACK, lane, &val) < 0) {
-			intel_cx0_bus_reset(i915, port, lane);
-			return -EINVAL;
-		}
+		ack = intel_cx0_wait_for_ack(i915, port, XELPDP_PORT_P2M_COMMAND_WRITE_ACK, lane, &val);
+		if (ack < 0)
+			return ack;
 	} else if ((intel_de_read(i915, XELPDP_PORT_P2M_MSGBUS_STATUS(port, lane)) &
 		    XELPDP_PORT_P2M_ERROR_SET)) {
 		drm_dbg_kms(&i915->drm,
@@ -1007,6 +1006,32 @@ static const struct intel_c10pll_state mtl_c10_hdmi_594 = {
 };
 
 /* Precomputed C10 HDMI PLL tables */
+static const struct intel_c10pll_state mtl_c10_hdmi_25175 = {
+	.clock = 25175,
+	.tx = 0x10,
+	.cmn = 0x1,
+	.pll[0] = 0x34,
+	.pll[1] = 0x00,
+	.pll[2] = 0xB0,
+	.pll[3] = 0x00,
+	.pll[4] = 0x00,
+	.pll[5] = 0x00,
+	.pll[6] = 0x00,
+	.pll[7] = 0x00,
+	.pll[8] = 0x20,
+	.pll[9] = 0xFF,
+	.pll[10] = 0xFF,
+	.pll[11] = 0x55,
+	.pll[12] = 0xE5,
+	.pll[13] = 0x55,
+	.pll[14] = 0x55,
+	.pll[15] = 0x0D,
+	.pll[16] = 0x09,
+	.pll[17] = 0x8F,
+	.pll[18] = 0x84,
+	.pll[19] = 0x23,
+};
+
 static const struct intel_c10pll_state mtl_c10_hdmi_27027 = {
 	.clock = 27027,
 	.tx = 0x10,
@@ -1408,6 +1433,7 @@ static const struct intel_c10pll_state mtl_c10_hdmi_593407 = {
 };
 
 static const struct intel_c10pll_state * const mtl_c10_hdmi_tables[] = {
+	&mtl_c10_hdmi_25175,
 	&mtl_c10_hdmi_25_2, /* Consolidated Table */
 	&mtl_c10_hdmi_27_0, /* Consolidated Table */
 	&mtl_c10_hdmi_27027,

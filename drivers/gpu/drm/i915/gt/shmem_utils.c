@@ -31,9 +31,9 @@ struct file *shmem_create_from_data(const char *name, void *data, size_t len)
 	return file;
 }
 
-struct file *shmem_create_from_object(struct drm_i915_gem_object *obj)
+struct file *shmem_create_from_object(struct drm_i915_gem_object *obj,
+				      struct intel_gt *gt)
 {
-	struct drm_i915_private *i915 = to_i915(obj->base.dev);
 	enum i915_map_type map_type;
 	struct file *file;
 	void *ptr;
@@ -44,7 +44,7 @@ struct file *shmem_create_from_object(struct drm_i915_gem_object *obj)
 		return file;
 	}
 
-	map_type = i915_coherent_map_type(i915, obj, true);
+	map_type = i915_coherent_map_type(gt, obj, true);
 	ptr = i915_gem_object_pin_map_unlocked(obj, map_type);
 	if (IS_ERR(ptr))
 		return ERR_CAST(ptr);

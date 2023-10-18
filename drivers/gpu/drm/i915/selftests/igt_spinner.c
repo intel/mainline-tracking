@@ -97,7 +97,7 @@ int igt_spinner_pin(struct igt_spinner *spin,
 	if (!spin->batch) {
 		unsigned int mode;
 
-		mode = i915_coherent_map_type(spin->gt->i915, spin->obj, false);
+		mode = i915_coherent_map_type(spin->gt, spin->obj, false);
 		vaddr = igt_spinner_pin_obj(ce, ww, spin->obj, mode, &spin->batch_vma);
 		if (IS_ERR(vaddr))
 			return PTR_ERR(vaddr);
@@ -178,6 +178,16 @@ igt_spinner_create_request(struct igt_spinner *spin,
 	*batch++ = rq->fence.seqno;
 
 	*batch++ = arbitration_command;
+
+	/*
+	 * Insert an arbitrary delay between MI_BATCH_BUFFER_STARTs to afford HW
+	 * the chance to interrupt the Command Parser
+	 *
+	 * Caveats:
+	 * - mtl bcs0 fails to reset if there is no MI_NOOP between MI_BB_START.
+	 */
+	memset32(batch, MI_NOOP, 128);
+	batch += 128;
 
 	if (GRAPHICS_VER(rq->engine->i915) >= 8)
 		*batch++ = MI_BATCH_BUFFER_START | BIT(8) | 1;
