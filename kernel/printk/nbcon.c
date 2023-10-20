@@ -1033,6 +1033,7 @@ bool nbcon_legacy_emit_next_record(struct console *con, bool *handover,
  *					write_atomic() callback
  * @con:			The nbcon console to flush
  * @stop_seq:			Flush up until this record
+ * @allow_unsafe_takeover:	True, to allow unsafe hostile takeovers
  *
  * Return:	True if taken over while printing. Otherwise false.
  *
@@ -1041,7 +1042,8 @@ bool nbcon_legacy_emit_next_record(struct console *con, bool *handover,
  * there are no more records available to read or this context is not allowed
  * to acquire the console.
  */
-static bool __nbcon_atomic_flush_pending_con(struct console *con, u64 stop_seq)
+static bool __nbcon_atomic_flush_pending_con(struct console *con, u64 stop_seq,
+					     bool allow_unsafe_takeover)
 {
 	struct nbcon_write_context wctxt = { };
 	struct nbcon_context *ctxt = &ACCESS_PRIVATE(&wctxt, ctxt);
@@ -1049,6 +1051,7 @@ static bool __nbcon_atomic_flush_pending_con(struct console *con, u64 stop_seq)
 	ctxt->console			= con;
 	ctxt->spinwait_max_us		= 2000;
 	ctxt->prio			= nbcon_get_default_prio();
+	ctxt->allow_unsafe_takeover	= allow_unsafe_takeover;
 
 	if (!nbcon_context_try_acquire(ctxt))
 		return false;
@@ -1075,8 +1078,9 @@ static bool __nbcon_atomic_flush_pending_con(struct console *con, u64 stop_seq)
  * __nbcon_atomic_flush_pending - Flush all nbcon consoles using their
  *					write_atomic() callback
  * @stop_seq:			Flush up until this record
+ * @allow_unsafe_takeover:	True, to allow unsafe hostile takeovers
  */
-static void __nbcon_atomic_flush_pending(u64 stop_seq)
+static void __nbcon_atomic_flush_pending(u64 stop_seq, bool allow_unsafe_takeover)
 {
 	struct console *con;
 	bool should_retry;
@@ -1109,8 +1113,8 @@ static void __nbcon_atomic_flush_pending(u64 stop_seq)
 			 */
 			local_irq_save(irq_flags);
 
-			should_retry |= __nbcon_atomic_flush_pending_con(con, stop_seq);
-
+			should_retry |= __nbcon_atomic_flush_pending_con(con, stop_seq,
+									 allow_unsafe_takeover);
 			local_irq_restore(irq_flags);
 		}
 		console_srcu_read_unlock(cookie);
@@ -1127,7 +1131,19 @@ static void __nbcon_atomic_flush_pending(u64 stop_seq)
  */
 void nbcon_atomic_flush_pending(void)
 {
-	__nbcon_atomic_flush_pending(prb_next_reserve_seq(prb));
+	__nbcon_atomic_flush_pending(prb_next_reserve_seq(prb), false);
+}
+
+/**
+ * nbcon_atomic_flush_unsafe - Flush all nbcon consoles using their
+ *	write_atomic() callback and allowing unsafe hostile takeovers
+ *
+ * Flush the backlog up through the currently newest record. Unsafe hostile
+ * takeovers will be performed, if necessary.
+ */
+void nbcon_atomic_flush_unsafe(void)
+{
+	__nbcon_atomic_flush_pending(prb_next_reserve_seq(prb), true);
 }
 
 /**
