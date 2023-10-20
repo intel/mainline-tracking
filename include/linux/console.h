@@ -389,6 +389,11 @@ struct console {
 	 * functions are also points of possible ownership transfer. If
 	 * either function returns false, ownership has been lost.
 	 *
+	 * If the driver must reacquire ownership in order to finalize or
+	 * revert hardware changes, nbcon_reacquire() can be used. However,
+	 * on reacquire the buffer content is no longer available. A
+	 * reacquire cannot be used to resume printing.
+	 *
 	 * This callback can be called from any context (including NMI).
 	 * Therefore it must avoid usage of any locking and instead rely
 	 * on the console ownership for synchronization.
@@ -613,12 +618,14 @@ extern void nbcon_cpu_emergency_exit(void);
 extern bool nbcon_can_proceed(struct nbcon_write_context *wctxt);
 extern bool nbcon_enter_unsafe(struct nbcon_write_context *wctxt);
 extern bool nbcon_exit_unsafe(struct nbcon_write_context *wctxt);
+extern void nbcon_reacquire(struct nbcon_write_context *wctxt);
 #else
 static inline void nbcon_cpu_emergency_enter(void) { }
 static inline void nbcon_cpu_emergency_exit(void) { }
 static inline bool nbcon_can_proceed(struct nbcon_write_context *wctxt) { return false; }
 static inline bool nbcon_enter_unsafe(struct nbcon_write_context *wctxt) { return false; }
 static inline bool nbcon_exit_unsafe(struct nbcon_write_context *wctxt) { return false; }
+static inline void nbcon_reacquire(struct nbcon_write_context *wctxt) { }
 #endif
 
 extern int console_set_on_cmdline;
