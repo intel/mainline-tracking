@@ -1297,7 +1297,8 @@ again:
 	 * context must flush those remaining records if the printer thread
 	 * is not available do it.
 	 */
-	if (!con->kthread && prb_read_valid(prb, nbcon_seq_read(con), NULL)) {
+	if ((!con->kthread || (system_state > SYSTEM_RUNNING)) &&
+	    prb_read_valid(prb, nbcon_seq_read(con), NULL)) {
 		stop_seq = prb_next_reserve_seq(prb);
 		goto again;
 	}
@@ -1639,7 +1640,7 @@ void nbcon_device_release(struct console *con)
 	 */
 	cookie = console_srcu_read_lock();
 	if (console_is_usable(con, console_srcu_read_flags(con)) &&
-	    !con->kthread &&
+	    (!con->kthread || (system_state > SYSTEM_RUNNING)) &&
 	    prb_read_valid(prb, nbcon_seq_read(con), NULL)) {
 		__nbcon_atomic_flush_pending_con(con, prb_next_reserve_seq(prb), false);
 	}
