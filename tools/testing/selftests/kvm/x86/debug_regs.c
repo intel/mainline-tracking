@@ -20,7 +20,7 @@ uint32_t guest_value;
 
 extern unsigned char sw_bp, hw_bp, write_data, ss_start, bd_start;
 
-static void guest_code(void)
+static noinline void guest_test_code(void)
 {
 	/* Create a pending interrupt on current vCPU */
 	x2apic_enable();
@@ -64,6 +64,15 @@ static void guest_code(void)
 
 	/* DR6.BD test */
 	asm volatile("bd_start: mov %%dr0, %%rax" : : : "rax");
+}
+
+static void guest_code(void)
+{
+	guest_test_code();
+
+	if (get_cr4() & X86_CR4_FRED)
+		guest_test_code();
+
 	GUEST_DONE();
 }
 
@@ -78,30 +87,21 @@ static void vcpu_skip_insn(struct kvm_vcpu *vcpu, int insn_len)
 	vcpu_regs_set(vcpu, &regs);
 }
 
-int main(void)
+void run_test(struct kvm_vcpu *vcpu)
 {
 	struct kvm_guest_debug debug;
+	struct kvm_run *run = vcpu->run;
 	unsigned long long target_dr6, target_rip;
-	struct kvm_vcpu *vcpu;
-	struct kvm_run *run;
-	struct kvm_vm *vm;
-	struct ucall uc;
-	uint64_t cmd;
 	int i;
 	/* Instruction lengths starting at ss_start */
 	int ss_size[6] = {
-		1,		/* sti*/
+		1,		/* sti */
 		2,		/* xor */
 		2,		/* cpuid */
 		5,		/* mov */
 		2,		/* rdmsr */
 		1,		/* cli */
 	};
-
-	TEST_REQUIRE(kvm_has_cap(KVM_CAP_SET_GUEST_DEBUG));
-
-	vm = vm_create_with_one_vcpu(&vcpu, guest_code);
-	run = vcpu->run;
 
 	/* Test software BPs - int3 */
 	memset(&debug, 0, sizeof(debug));
@@ -205,6 +205,30 @@ int main(void)
 	/* Disable all debug controls, run to the end */
 	memset(&debug, 0, sizeof(debug));
 	vcpu_guest_debug_set(vcpu, &debug);
+}
+
+int main(void)
+{
+	struct kvm_vcpu *vcpu;
+	struct kvm_vm *vm;
+	struct ucall uc;
+	uint64_t cmd;
+
+	TEST_REQUIRE(kvm_has_cap(KVM_CAP_SET_GUEST_DEBUG));
+
+	vm = vm_create_with_one_vcpu(&vcpu, guest_code);
+
+	run_test(vcpu);
+
+	if (kvm_cpu_has(X86_FEATURE_FRED)) {
+		struct kvm_sregs sregs;
+
+		vcpu_sregs_get(vcpu, &sregs);
+		sregs.cr4 |= X86_CR4_FRED;
+		vcpu_sregs_set(vcpu, &sregs);
+
+		run_test(vcpu);
+	}
 
 	vcpu_run(vcpu);
 	TEST_ASSERT_KVM_EXIT_REASON(vcpu, KVM_EXIT_IO);
