@@ -538,6 +538,39 @@ void increase_limits(void)
 	cur_nice = -20;
 }
 
+int find_cpuid_to_pin(void)
+{
+	FILE *fp;
+	char str[81];
+	int id = 0, num = 0;
+	double tmp, max_x = 0.;
+
+	//fp = popen("cat /proc/cpuinfo|grep cpu\\ MHz|sed -e 's/.*:[^0-9]//'", "r");
+	fp = popen("cat /proc/cpuinfo|grep cache\\ size|sed -e 's/.*:[^0-9]//'", "r");
+	if (fp < 0) {
+		printf("Cannot read CPU information\n");
+		return 0;
+	}
+
+	memset(str, 0, 81);
+	while (NULL != fgets(str, 80, fp)) {
+		tmp = atof(str);
+		if (abs(tmp - max_x) < 0.1 || max_x < tmp) {
+			max_x = tmp;
+			id = num;
+		}
+		memset(str, 0, 81);
+		num++;
+	}
+
+	pclose(fp);
+	if (num > cpus_online) {
+		printf("Warning: read CPU information error\n");
+		id = 0;
+	}
+	return id;
+}
+
 int main(int argc, char *argv[])
 {
 	struct mq_attr attr;
@@ -634,7 +667,9 @@ int main(int argc, char *argv[])
 		goto err_code;
 	} else if (!continuous_mode) {
 		num_cpus_to_pin = 1;
-		cpus_to_pin[0] = cpus_online - 1;
+		/* To avoid a high queue depth performanc test is binded with a physical */
+		/* CPU core which is designed with small cache for ultra low power usages. */
+		cpus_to_pin[0] = find_cpuid_to_pin();
 	}
 
 	max_msgs = fopen(MAX_MSGS, "r+");

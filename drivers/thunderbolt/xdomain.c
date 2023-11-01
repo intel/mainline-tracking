@@ -535,29 +535,19 @@ static int tb_xdp_link_state_status_request(struct tb_ctl *ctl, u64 route,
 }
 
 static int tb_xdp_link_state_status_response(struct tb *tb, struct tb_ctl *ctl,
-					     struct tb_xdomain *xd, u8 sequence)
+					     struct tb_xdomain *xd, u8 sequence,
+					     u8 slw, u8 sls, u8 tls, u8 tlw)
 {
 	struct tb_xdp_link_state_status_response res;
-	struct tb_port *port = tb_xdomain_downstream_port(xd);
-	u32 val[2];
-	int ret;
 
 	memset(&res, 0, sizeof(res));
 	tb_xdp_fill_header(&res.hdr, xd->route, sequence,
 			   LINK_STATE_STATUS_RESPONSE, sizeof(res));
 
-	ret = tb_port_read(port, val, TB_CFG_PORT,
-			   port->cap_phy + LANE_ADP_CS_0, ARRAY_SIZE(val));
-	if (ret)
-		return ret;
-
-	res.slw = (val[0] & LANE_ADP_CS_0_SUPPORTED_WIDTH_MASK) >>
-			LANE_ADP_CS_0_SUPPORTED_WIDTH_SHIFT;
-	res.sls = (val[0] & LANE_ADP_CS_0_SUPPORTED_SPEED_MASK) >>
-			LANE_ADP_CS_0_SUPPORTED_SPEED_SHIFT;
-	res.tls = val[1] & LANE_ADP_CS_1_TARGET_SPEED_MASK;
-	res.tlw = (val[1] & LANE_ADP_CS_1_TARGET_WIDTH_MASK) >>
-			LANE_ADP_CS_1_TARGET_WIDTH_SHIFT;
+	res.slw = slw;
+	res.sls = sls;
+	res.tls = tls;
+	res.tlw = tlw;
 
 	return __tb_xdomain_response(ctl, &res, sizeof(res),
 				     TB_CFG_PKG_XDOMAIN_RESP);
@@ -703,6 +693,27 @@ out_unlock:
 	mutex_unlock(&xdomain_lock);
 }
 
+static void start_handshake(struct tb_xdomain *xd)
+{
+	xd->state = XDOMAIN_STATE_INIT;
+	queue_delayed_work(xd->tb->wq, &xd->state_work,
+			   msecs_to_jiffies(XDOMAIN_SHORT_TIMEOUT));
+}
+
+/* Can be called from state_work */
+static void __stop_handshake(struct tb_xdomain *xd)
+{
+	cancel_delayed_work_sync(&xd->properties_changed_work);
+	xd->properties_changed_retries = 0;
+	xd->state_retries = 0;
+}
+
+static void stop_handshake(struct tb_xdomain *xd)
+{
+	cancel_delayed_work_sync(&xd->state_work);
+	__stop_handshake(xd);
+}
+
 static void tb_xdp_handle_request(struct work_struct *work)
 {
 	struct xdomain_request_work *xw = container_of(work, typeof(*xw), work);
@@ -765,6 +776,15 @@ static void tb_xdp_handle_request(struct work_struct *work)
 	case UUID_REQUEST:
 		tb_dbg(tb, "%llx: received XDomain UUID request\n", route);
 		ret = tb_xdp_uuid_response(ctl, route, sequence, uuid);
+		/*
+		 * If we've stopped the discovery with an error such as
+		 * timing out, we will restart the handshake now that we
+		 * received UUID request from the remote host.
+		 */
+		if (!ret && xd && xd->state == XDOMAIN_STATE_ERROR) {
+			dev_dbg(&xd->dev, "restarting handshake\n");
+			start_handshake(xd);
+		}
 		break;
 
 	case LINK_STATE_STATUS_REQUEST:
@@ -772,8 +792,47 @@ static void tb_xdp_handle_request(struct work_struct *work)
 		       route);
 
 		if (xd) {
-			ret = tb_xdp_link_state_status_response(tb, ctl, xd,
-								sequence);
+			struct tb_port *port = tb_xdomain_downstream_port(xd);
+			u8 slw, sls, tls, tlw;
+			u32 val[2];
+
+			/*
+			 * Read the adapter supported and target widths
+			 * and speeds.
+			 */
+			ret = tb_port_read(port, val, TB_CFG_PORT,
+					   port->cap_phy + LANE_ADP_CS_0,
+					   ARRAY_SIZE(val));
+			if (ret)
+				break;
+
+			slw = (val[0] & LANE_ADP_CS_0_SUPPORTED_WIDTH_MASK) >>
+				LANE_ADP_CS_0_SUPPORTED_WIDTH_SHIFT;
+			sls = (val[0] & LANE_ADP_CS_0_SUPPORTED_SPEED_MASK) >>
+				LANE_ADP_CS_0_SUPPORTED_SPEED_SHIFT;
+			tls = val[1] & LANE_ADP_CS_1_TARGET_SPEED_MASK;
+			tlw = (val[1] & LANE_ADP_CS_1_TARGET_WIDTH_MASK) >>
+				LANE_ADP_CS_1_TARGET_WIDTH_SHIFT;
+
+			/*
+			 * When we have higher UUID, we are supposed to
+			 * return ERROR_NOT_READY if the tlw is not yet
+			 * set according to the Inter-Domain spec for
+			 * USB4 v2.
+			 */
+			if (xd->state == XDOMAIN_STATE_BONDING_UUID_HIGH &&
+			    xd->target_link_width &&
+			    xd->target_link_width != tlw) {
+				tb_dbg(tb, "%llx: target link width not yet set %#x != %#x\n",
+				       route, tlw, xd->target_link_width);
+				tb_xdp_error_response(ctl, route, sequence,
+						      ERROR_NOT_READY);
+			} else {
+				tb_dbg(tb, "%llx: replying with target link width set to %#x\n",
+				       route, tlw);
+				ret = tb_xdp_link_state_status_response(tb, ctl,
+					xd, sequence, slw, sls, tls, tlw);
+			}
 		} else {
 			tb_xdp_error_response(ctl, route, sequence,
 					      ERROR_NOT_READY);
@@ -1521,6 +1580,13 @@ static void tb_xdomain_queue_properties_changed(struct tb_xdomain *xd)
 			   msecs_to_jiffies(XDOMAIN_SHORT_TIMEOUT));
 }
 
+static void tb_xdomain_failed(struct tb_xdomain *xd)
+{
+	xd->state = XDOMAIN_STATE_ERROR;
+	queue_delayed_work(xd->tb->wq, &xd->state_work,
+			   msecs_to_jiffies(XDOMAIN_DEFAULT_TIMEOUT));
+}
+
 static void tb_xdomain_state_work(struct work_struct *work)
 {
 	struct tb_xdomain *xd = container_of(work, typeof(*xd), state_work.work);
@@ -1547,7 +1613,7 @@ static void tb_xdomain_state_work(struct work_struct *work)
 		if (ret) {
 			if (ret == -EAGAIN)
 				goto retry_state;
-			xd->state = XDOMAIN_STATE_ERROR;
+			tb_xdomain_failed(xd);
 		} else {
 			tb_xdomain_queue_properties_changed(xd);
 			if (xd->bonding_possible)
@@ -1612,7 +1678,7 @@ static void tb_xdomain_state_work(struct work_struct *work)
 		if (ret) {
 			if (ret == -EAGAIN)
 				goto retry_state;
-			xd->state = XDOMAIN_STATE_ERROR;
+			tb_xdomain_failed(xd);
 		} else {
 			xd->state = XDOMAIN_STATE_ENUMERATED;
 		}
@@ -1623,6 +1689,8 @@ static void tb_xdomain_state_work(struct work_struct *work)
 		break;
 
 	case XDOMAIN_STATE_ERROR:
+		dev_dbg(&xd->dev, "discovery failed, stopping handshake\n");
+		__stop_handshake(xd);
 		break;
 
 	default:
@@ -1831,21 +1899,6 @@ static void tb_xdomain_release(struct device *dev)
 	kfree(xd->device_name);
 	kfree(xd->vendor_name);
 	kfree(xd);
-}
-
-static void start_handshake(struct tb_xdomain *xd)
-{
-	xd->state = XDOMAIN_STATE_INIT;
-	queue_delayed_work(xd->tb->wq, &xd->state_work,
-			   msecs_to_jiffies(XDOMAIN_SHORT_TIMEOUT));
-}
-
-static void stop_handshake(struct tb_xdomain *xd)
-{
-	cancel_delayed_work_sync(&xd->properties_changed_work);
-	cancel_delayed_work_sync(&xd->state_work);
-	xd->properties_changed_retries = 0;
-	xd->state_retries = 0;
 }
 
 static int __maybe_unused tb_xdomain_suspend(struct device *dev)
