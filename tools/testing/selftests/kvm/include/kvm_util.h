@@ -191,6 +191,7 @@ enum vm_guest_mode {
 	VM_MODE_P40V48_16K,
 	VM_MODE_P40V48_64K,
 	VM_MODE_PXXVYY_4K,	/* For 48-bit or 57-bit VA, depending on host support */
+	VM_MODE_PXXVYY_4K_USER,	/* For 48bits VA but ANY bits PA with USER bit set */
 	VM_MODE_P47V64_4K,
 	VM_MODE_P44V64_4K,
 	VM_MODE_P36V48_4K,

@@ -210,6 +210,7 @@ const char *vm_guest_mode_string(u32 i)
 		[VM_MODE_P40V48_16K]	= "PA-bits:40,  VA-bits:48, 16K pages",
 		[VM_MODE_P40V48_64K]	= "PA-bits:40,  VA-bits:48, 64K pages",
 		[VM_MODE_PXXVYY_4K]	= "PA-bits:ANY, VA-bits:48 or 57, 4K pages",
+		[VM_MODE_PXXVYY_4K_USER] = "PA-bits:ANY, VA-bits:48,  4K user pages",
 		[VM_MODE_P47V64_4K]	= "PA-bits:47,  VA-bits:64,  4K pages",
 		[VM_MODE_P44V64_4K]	= "PA-bits:44,  VA-bits:64,  4K pages",
 		[VM_MODE_P36V48_4K]	= "PA-bits:36,  VA-bits:48,  4K pages",
@@ -246,6 +247,7 @@ const struct vm_guest_mode_params vm_guest_mode_params[] = {
 	[VM_MODE_P40V48_16K]	= { 40, 48,  0x4000, 14 },
 	[VM_MODE_P40V48_64K]	= { 40, 48, 0x10000, 16 },
 	[VM_MODE_PXXVYY_4K]	= {  0,  0,  0x1000, 12 },
+	[VM_MODE_PXXVYY_4K_USER] = {  0,  0,  0x1000, 12 },
 	[VM_MODE_P47V64_4K]	= { 47, 64,  0x1000, 12 },
 	[VM_MODE_P44V64_4K]	= { 44, 64,  0x1000, 12 },
 	[VM_MODE_P36V48_4K]	= { 36, 48,  0x1000, 12 },
@@ -337,6 +339,7 @@ struct kvm_vm *____vm_create(struct vm_shape shape)
 		vm->mmu.pgtable_levels = 3;
 		break;
 	case VM_MODE_PXXVYY_4K:
+	case VM_MODE_PXXVYY_4K_USER:
 #ifdef __x86_64__
 		kvm_get_cpu_address_width(&vm->pa_bits, &vm->va_bits);
 		kvm_init_vm_address_properties(vm);
@@ -355,7 +358,7 @@ struct kvm_vm *____vm_create(struct vm_shape shape)
 			vm->mmu.pgtable_levels = 4;
 		}
 #else
-		TEST_FAIL("VM_MODE_PXXVYY_4K not supported on non-x86 platforms");
+		TEST_FAIL("VM_MODE_PXXVYY_4K(_USER) not supported on non-x86 platforms");
 #endif
 		break;
 	case VM_MODE_P47V64_4K:
