@@ -167,6 +167,9 @@ bool kvm_is_tdp_enabled(void)
 static void virt_mmu_init(struct kvm_vm *vm, struct kvm_mmu *mmu,
 			  struct pte_masks *pte_masks)
 {
+	TEST_ASSERT(vm->mode == VM_MODE_PXXVYY_4K || vm->mode == VM_MODE_PXXVYY_4K_USER,
+		    "Unknown or unsupported guest mode: 0x%x", vm->mode);
+
 	/* If needed, create the top-level page table. */
 	if (!mmu->pgd_created) {
 		mmu->pgd = vm_alloc_page_table(vm);
@@ -181,7 +184,7 @@ static void virt_mmu_init(struct kvm_vm *vm, struct kvm_mmu *mmu,
 
 void virt_arch_pgd_alloc(struct kvm_vm *vm)
 {
-	TEST_ASSERT(vm->mode == VM_MODE_PXXVYY_4K,
+	TEST_ASSERT(vm->mode == VM_MODE_PXXVYY_4K || vm->mode == VM_MODE_PXXVYY_4K_USER,
 		    "Unknown or unsupported guest mode: 0x%x", vm->mode);
 
 	struct pte_masks pte_masks = (struct pte_masks){
@@ -239,6 +242,8 @@ static u64 *virt_create_upper_pte(struct kvm_vm *vm,
 		*pte = PTE_PRESENT_MASK(mmu) | PTE_READABLE_MASK(mmu) |
 		       PTE_WRITABLE_MASK(mmu) | PTE_EXECUTABLE_MASK(mmu) |
 		       PTE_ALWAYS_SET_MASK(mmu);
+		if (vm->mode == VM_MODE_PXXVYY_4K_USER)
+			*pte |= PTE_USER_MASK(mmu);
 		if (current_level == target_level)
 			*pte |= PTE_HUGE_MASK(mmu) | (gpa & PHYSICAL_PAGE_MASK);
 		else
@@ -266,7 +271,7 @@ void __virt_pg_map(struct kvm_vm *vm, struct kvm_mmu *mmu, gva_t gva,
 	u64 *pte = &mmu->pgd;
 	int current_level;
 
-	TEST_ASSERT(vm->mode == VM_MODE_PXXVYY_4K,
+	TEST_ASSERT(vm->mode == VM_MODE_PXXVYY_4K || vm->mode == VM_MODE_PXXVYY_4K_USER,
 		    "Unknown or unsupported guest mode: 0x%x", vm->mode);
 
 	TEST_ASSERT((gva % pg_size) == 0,
@@ -316,6 +321,9 @@ void __virt_pg_map(struct kvm_vm *vm, struct kvm_mmu *mmu, gva_t gva,
 		*pte |= PTE_C_BIT_MASK(mmu);
 	else
 		*pte |= PTE_S_BIT_MASK(mmu);
+
+	if (vm->mode == VM_MODE_PXXVYY_4K_USER)
+		*pte |= PTE_USER_MASK(mmu);
 }
 
 void virt_arch_pg_map(struct kvm_vm *vm, gva_t gva, gpa_t gpa)
@@ -372,7 +380,7 @@ static u64 *__vm_get_page_table_entry(struct kvm_vm *vm,
 	TEST_ASSERT(*level >= PG_LEVEL_NONE && *level <= mmu->pgtable_levels,
 		    "Invalid PG_LEVEL_* '%d'", *level);
 
-	TEST_ASSERT(vm->mode == VM_MODE_PXXVYY_4K,
+	TEST_ASSERT(vm->mode == VM_MODE_PXXVYY_4K || vm->mode == VM_MODE_PXXVYY_4K_USER,
 		    "Unknown or unsupported guest mode: 0x%x", vm->mode);
 	TEST_ASSERT(sparsebit_is_set(vm->vpages_valid, (gva >> vm->page_shift)),
 		    "Invalid virtual address, gva: 0x%lx", gva);
@@ -645,7 +653,7 @@ static void vcpu_init_sregs(struct kvm_vm *vm, struct kvm_vcpu *vcpu)
 {
 	struct kvm_sregs sregs;
 
-	TEST_ASSERT(vm->mode == VM_MODE_PXXVYY_4K,
+	TEST_ASSERT(vm->mode == VM_MODE_PXXVYY_4K || vm->mode == VM_MODE_PXXVYY_4K_USER,
 		    "Unknown or unsupported guest mode: 0x%x", vm->mode);
 
 	/* Set mode specific system register values. */
