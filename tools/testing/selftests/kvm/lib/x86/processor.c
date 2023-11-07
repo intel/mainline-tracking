@@ -158,7 +158,7 @@ bool kvm_is_tdp_enabled(void)
 
 void virt_arch_pgd_alloc(struct kvm_vm *vm)
 {
-	TEST_ASSERT(vm->mode == VM_MODE_PXXVYY_4K,
+	TEST_ASSERT((vm->mode == VM_MODE_PXXVYY_4K) || (vm->mode == VM_MODE_PXXV48_4K_USER),
 		    "Unknown or unsupported guest mode: 0x%x", vm->mode);
 
 	/* If needed, create the top-level page table. */
@@ -195,6 +195,8 @@ static uint64_t *virt_create_upper_pte(struct kvm_vm *vm,
 
 	if (!(*pte & PTE_PRESENT_MASK)) {
 		*pte = PTE_PRESENT_MASK | PTE_WRITABLE_MASK;
+		if (vm->mode == VM_MODE_PXXV48_4K_USER)
+			*pte |= PTE_USER_MASK;
 		if (current_level == target_level)
 			*pte |= PTE_LARGE_MASK | (paddr & PHYSICAL_PAGE_MASK);
 		else
@@ -221,7 +223,7 @@ void __virt_pg_map(struct kvm_vm *vm, uint64_t vaddr, uint64_t paddr, int level)
 	uint64_t *pte = &vm->pgd;
 	int current_level;
 
-	TEST_ASSERT(vm->mode == VM_MODE_PXXVYY_4K,
+	TEST_ASSERT((vm->mode == VM_MODE_PXXV48_4K) || (vm->mode == VM_MODE_PXXVYY_4K_USER),
 		    "Unknown or unsupported guest mode: 0x%x", vm->mode);
 
 	TEST_ASSERT((vaddr % pg_size) == 0,
@@ -266,6 +268,9 @@ void __virt_pg_map(struct kvm_vm *vm, uint64_t vaddr, uint64_t paddr, int level)
 		*pte |= vm->arch.c_bit;
 	else
 		*pte |= vm->arch.s_bit;
+
+	if (vm->mode == VM_MODE_PXXV48_4K_USER)
+		*pte |= PTE_USER_MASK;
 }
 
 void virt_arch_pg_map(struct kvm_vm *vm, uint64_t vaddr, uint64_t paddr)
@@ -319,7 +324,7 @@ uint64_t *__vm_get_page_table_entry(struct kvm_vm *vm, uint64_t vaddr,
 	TEST_ASSERT(*level >= PG_LEVEL_NONE && *level <= vm->pgtable_levels,
 		    "Invalid PG_LEVEL_* '%d'", *level);
 
-	TEST_ASSERT(vm->mode == VM_MODE_PXXVYY_4K,
+	TEST_ASSERT((vm->mode == VM_MODE_PXXVYY_4K) || (vm->mode == VM_MODE_PXXV48_4K_USER),
 		    "Unknown or unsupported guest mode: 0x%x", vm->mode);
 	TEST_ASSERT(sparsebit_is_set(vm->vpages_valid,
 		(vaddr >> vm->page_shift)),
@@ -523,7 +528,7 @@ static void vcpu_init_sregs(struct kvm_vm *vm, struct kvm_vcpu *vcpu)
 {
 	struct kvm_sregs sregs;
 
-	TEST_ASSERT(vm->mode == VM_MODE_PXXVYY_4K,
+	TEST_ASSERT((vm->mode == VM_MODE_PXXVYY_4K) || (vm->mode == VM_MODE_PXXV48_4K_USER),
 		    "Unknown or unsupported guest mode: 0x%x", vm->mode);
 
 	/* Set mode specific system register values. */
