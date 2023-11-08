@@ -1,0 +1,33 @@
+# CVE-2023-4921
+0001-net-sched-sch_qfq-Fix-UAF-in-qfq_dequeue.patch
+
+# CVE-2023-5197
+0001-netfilter-nf_tables-disallow-rule-removal-from-chain.patch
+
+# CVE-2023-31085
+0001-ubi-Refuse-attaching-if-mtd-s-erasesize-is-0.patch
+
+# CVE-2023-31083
+0001-Bluetooth-hci_ldisc-check-HCI_UART_PROTO_READY-flag-.patch
+
+# CVE-2023-42753
+0001-netfilter-ipset-add-the-missing-IP_SET_HASH_WITH_NET.patch
+
+# CVE-2023-4623
+0001-net-sched-sch_hfsc-Ensure-inner-classes-have-fsc-cur.patch
+
+# CVE-2023-37454
+0001-KASAN-use-after-free-Write-in-udf_close_lvid.patch
+
+# CVE-2023-37453
+0001-usb-phy-add-usb-phy-notify-port-status-API.patch
+0002-USB-core-Unite-old-scheme-and-new-scheme-descriptor-.patch
+0003-USB-core-Change-usb_get_device_descriptor-API.patch
+0004-USB-core-Fix-race-by-not-overwriting-udev-descriptor.patch
+0001-USB-core-Fix-oversight-in-SuperSpeed-initialization.patch
+
+# CVE-2023-42756
+0001-netfilter-ipset-Fix-race-between-IPSET_CMD_CREATE-an.patch
+
+# CVE-2023-5717
+0001-perf-Disallow-mis-matched-inherited-group-reads.patch

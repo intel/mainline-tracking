@@ -1,0 +1,104 @@
+From 203351b3b06a357acfb6cb40d57ad9bda0e8bb1e Mon Sep 17 00:00:00 2001
+From: Stanley Chang <stanley_chang@realtek.com>
+Date: Tue, 25 Jul 2023 11:31:52 +0800
+Subject: [PATCH 1/4] usb: phy: add usb phy notify port status API
+
+In Realtek SoC, the parameter of usb phy is designed to can dynamic
+tuning base on port status. Therefore, add a notify callback of phy
+driver when usb port status change.
+
+The Realtek phy driver is designed to dynamically adjust disconnection
+level and calibrate phy parameters. When the device connected bit changes
+and when the disconnected bit changes, do port status change notification:
+
+Check if portstatus is USB_PORT_STAT_CONNECTION and portchange is
+USB_PORT_STAT_C_CONNECTION.
+1. The device is connected, the driver lowers the disconnection level and
+   calibrates the phy parameters.
+2. The device disconnects, the driver increases the disconnect level and
+   calibrates the phy parameters.
+
+When controller to notify connect that device is already ready. If we
+adjust the disconnection level in notify_connect, the disconnect may have
+been triggered at this stage. So we need to change that as early as
+possible. The status change of connection is before port reset.
+Therefore, we add an api to notify phy the port status changes. In this
+stage, the device is not port enable, and it will not trigger
+disconnection.
+
+Signed-off-by: Stanley Chang <stanley_chang@realtek.com>
+Link: https://lore.kernel.org/r/20230725033318.8361-1-stanley_chang@realtek.com
+Signed-off-by: Greg Kroah-Hartman <gregkh@linuxfoundation.org>
+---
+ drivers/usb/core/hub.c  | 23 +++++++++++++++++++++++
+ include/linux/usb/phy.h | 13 +++++++++++++
+ 2 files changed, 36 insertions(+)
+
+diff --git a/drivers/usb/core/hub.c b/drivers/usb/core/hub.c
+index a739403a9e45..fcbad9e86328 100644
+--- a/drivers/usb/core/hub.c
++++ b/drivers/usb/core/hub.c
+@@ -614,6 +614,29 @@ static int hub_ext_port_status(struct usb_hub *hub, int port1, int type,
+ 		ret = 0;
+ 	}
+ 	mutex_unlock(&hub->status_mutex);
++
++	/*
++	 * There is no need to lock status_mutex here, because status_mutex
++	 * protects hub->status, and the phy driver only checks the port
++	 * status without changing the status.
++	 */
++	if (!ret) {
++		struct usb_device *hdev = hub->hdev;
++
++		/*
++		 * Only roothub will be notified of port state changes,
++		 * since the USB PHY only cares about changes at the next
++		 * level.
++		 */
++		if (is_root_hub(hdev)) {
++			struct usb_hcd *hcd = bus_to_hcd(hdev->bus);
++
++			if (hcd->usb_phy)
++				usb_phy_notify_port_status(hcd->usb_phy,
++							   port1 - 1, *status, *change);
++		}
++	}
++
+ 	return ret;
+ }
+ 
+diff --git a/include/linux/usb/phy.h b/include/linux/usb/phy.h
+index e4de6bc1f69b..b513749582d7 100644
+--- a/include/linux/usb/phy.h
++++ b/include/linux/usb/phy.h
+@@ -144,6 +144,10 @@ struct usb_phy {
+ 	 */
+ 	int	(*set_wakeup)(struct usb_phy *x, bool enabled);
+ 
++	/* notify phy port status change */
++	int	(*notify_port_status)(struct usb_phy *x, int port,
++				      u16 portstatus, u16 portchange);
++
+ 	/* notify phy connect status change */
+ 	int	(*notify_connect)(struct usb_phy *x,
+ 			enum usb_device_speed speed);
+@@ -316,6 +320,15 @@ usb_phy_set_wakeup(struct usb_phy *x, bool enabled)
+ 		return 0;
+ }
+ 
++static inline int
++usb_phy_notify_port_status(struct usb_phy *x, int port, u16 portstatus, u16 portchange)
++{
++	if (x && x->notify_port_status)
++		return x->notify_port_status(x, port, portstatus, portchange);
++	else
++		return 0;
++}
++
+ static inline int
+ usb_phy_notify_connect(struct usb_phy *x, enum usb_device_speed speed)
+ {
+-- 
+2.25.1
+
