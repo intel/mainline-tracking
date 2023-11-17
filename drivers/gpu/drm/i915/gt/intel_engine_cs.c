@@ -53,7 +53,6 @@
 struct engine_info {
 	u8 class;
 	u8 instance;
-	u8 irq_offset;
 	/* mmio bases table *must* be sorted in reverse graphics_ver order */
 	struct engine_mmio_base {
 		u32 graphics_ver : 8;
@@ -65,7 +64,6 @@ static const struct engine_info intel_engines[] = {
 	[RCS0] = {
 		.class = RENDER_CLASS,
 		.instance = 0,
-		.irq_offset = GEN11_RCS0,
 		.mmio_bases = {
 			{ .graphics_ver = 1, .base = RENDER_RING_BASE }
 		},
@@ -73,7 +71,6 @@ static const struct engine_info intel_engines[] = {
 	[BCS0] = {
 		.class = COPY_ENGINE_CLASS,
 		.instance = 0,
-		.irq_offset = GEN11_BCS,
 		.mmio_bases = {
 			{ .graphics_ver = 6, .base = BLT_RING_BASE }
 		},
@@ -81,7 +78,6 @@ static const struct engine_info intel_engines[] = {
 	[BCS1] = {
 		.class = COPY_ENGINE_CLASS,
 		.instance = 1,
-		.irq_offset = XEHPC_BCS1,
 		.mmio_bases = {
 			{ .graphics_ver = 12, .base = XEHPC_BCS1_RING_BASE }
 		},
@@ -89,7 +85,6 @@ static const struct engine_info intel_engines[] = {
 	[BCS2] = {
 		.class = COPY_ENGINE_CLASS,
 		.instance = 2,
-		.irq_offset = XEHPC_BCS2,
 		.mmio_bases = {
 			{ .graphics_ver = 12, .base = XEHPC_BCS2_RING_BASE }
 		},
@@ -97,7 +92,6 @@ static const struct engine_info intel_engines[] = {
 	[BCS3] = {
 		.class = COPY_ENGINE_CLASS,
 		.instance = 3,
-		.irq_offset = XEHPC_BCS3,
 		.mmio_bases = {
 			{ .graphics_ver = 12, .base = XEHPC_BCS3_RING_BASE }
 		},
@@ -105,7 +99,6 @@ static const struct engine_info intel_engines[] = {
 	[BCS4] = {
 		.class = COPY_ENGINE_CLASS,
 		.instance = 4,
-		.irq_offset = XEHPC_BCS4,
 		.mmio_bases = {
 			{ .graphics_ver = 12, .base = XEHPC_BCS4_RING_BASE }
 		},
@@ -113,7 +106,6 @@ static const struct engine_info intel_engines[] = {
 	[BCS5] = {
 		.class = COPY_ENGINE_CLASS,
 		.instance = 5,
-		.irq_offset = XEHPC_BCS5,
 		.mmio_bases = {
 			{ .graphics_ver = 12, .base = XEHPC_BCS5_RING_BASE }
 		},
@@ -121,7 +113,6 @@ static const struct engine_info intel_engines[] = {
 	[BCS6] = {
 		.class = COPY_ENGINE_CLASS,
 		.instance = 6,
-		.irq_offset = XEHPC_BCS6,
 		.mmio_bases = {
 			{ .graphics_ver = 12, .base = XEHPC_BCS6_RING_BASE }
 		},
@@ -129,7 +120,6 @@ static const struct engine_info intel_engines[] = {
 	[BCS7] = {
 		.class = COPY_ENGINE_CLASS,
 		.instance = 7,
-		.irq_offset = XEHPC_BCS7,
 		.mmio_bases = {
 			{ .graphics_ver = 12, .base = XEHPC_BCS7_RING_BASE }
 		},
@@ -137,7 +127,6 @@ static const struct engine_info intel_engines[] = {
 	[BCS8] = {
 		.class = COPY_ENGINE_CLASS,
 		.instance = 8,
-		.irq_offset = XEHPC_BCS8,
 		.mmio_bases = {
 			{ .graphics_ver = 12, .base = XEHPC_BCS8_RING_BASE }
 		},
@@ -145,7 +134,6 @@ static const struct engine_info intel_engines[] = {
 	[VCS0] = {
 		.class = VIDEO_DECODE_CLASS,
 		.instance = 0,
-		.irq_offset = 32 + GEN11_VCS(0),
 		.mmio_bases = {
 			{ .graphics_ver = 11, .base = GEN11_BSD_RING_BASE },
 			{ .graphics_ver = 6, .base = GEN6_BSD_RING_BASE },
@@ -155,7 +143,6 @@ static const struct engine_info intel_engines[] = {
 	[VCS1] = {
 		.class = VIDEO_DECODE_CLASS,
 		.instance = 1,
-		.irq_offset = 32 + GEN11_VCS(1),
 		.mmio_bases = {
 			{ .graphics_ver = 11, .base = GEN11_BSD2_RING_BASE },
 			{ .graphics_ver = 8, .base = GEN8_BSD2_RING_BASE }
@@ -164,7 +151,6 @@ static const struct engine_info intel_engines[] = {
 	[VCS2] = {
 		.class = VIDEO_DECODE_CLASS,
 		.instance = 2,
-		.irq_offset = 32 + GEN11_VCS(2),
 		.mmio_bases = {
 			{ .graphics_ver = 11, .base = GEN11_BSD3_RING_BASE }
 		},
@@ -172,7 +158,6 @@ static const struct engine_info intel_engines[] = {
 	[VCS3] = {
 		.class = VIDEO_DECODE_CLASS,
 		.instance = 3,
-		.irq_offset = 32 + GEN11_VCS(3),
 		.mmio_bases = {
 			{ .graphics_ver = 11, .base = GEN11_BSD4_RING_BASE }
 		},
@@ -180,7 +165,6 @@ static const struct engine_info intel_engines[] = {
 	[VCS4] = {
 		.class = VIDEO_DECODE_CLASS,
 		.instance = 4,
-		.irq_offset = 32 + GEN11_VCS(4),
 		.mmio_bases = {
 			{ .graphics_ver = 12, .base = XEHP_BSD5_RING_BASE }
 		},
@@ -188,7 +172,6 @@ static const struct engine_info intel_engines[] = {
 	[VCS5] = {
 		.class = VIDEO_DECODE_CLASS,
 		.instance = 5,
-		.irq_offset = 32 + GEN11_VCS(5),
 		.mmio_bases = {
 			{ .graphics_ver = 12, .base = XEHP_BSD6_RING_BASE }
 		},
@@ -196,7 +179,6 @@ static const struct engine_info intel_engines[] = {
 	[VCS6] = {
 		.class = VIDEO_DECODE_CLASS,
 		.instance = 6,
-		.irq_offset = 32 + GEN11_VCS(6),
 		.mmio_bases = {
 			{ .graphics_ver = 12, .base = XEHP_BSD7_RING_BASE }
 		},
@@ -204,7 +186,6 @@ static const struct engine_info intel_engines[] = {
 	[VCS7] = {
 		.class = VIDEO_DECODE_CLASS,
 		.instance = 7,
-		.irq_offset = 32 + GEN11_VCS(7),
 		.mmio_bases = {
 			{ .graphics_ver = 12, .base = XEHP_BSD8_RING_BASE }
 		},
@@ -212,7 +193,6 @@ static const struct engine_info intel_engines[] = {
 	[VECS0] = {
 		.class = VIDEO_ENHANCEMENT_CLASS,
 		.instance = 0,
-		.irq_offset = 32 + GEN11_VECS(0),
 		.mmio_bases = {
 			{ .graphics_ver = 11, .base = GEN11_VEBOX_RING_BASE },
 			{ .graphics_ver = 7, .base = VEBOX_RING_BASE }
@@ -221,7 +201,6 @@ static const struct engine_info intel_engines[] = {
 	[VECS1] = {
 		.class = VIDEO_ENHANCEMENT_CLASS,
 		.instance = 1,
-		.irq_offset = 32 + GEN11_VECS(1),
 		.mmio_bases = {
 			{ .graphics_ver = 11, .base = GEN11_VEBOX2_RING_BASE }
 		},
@@ -229,7 +208,6 @@ static const struct engine_info intel_engines[] = {
 	[VECS2] = {
 		.class = VIDEO_ENHANCEMENT_CLASS,
 		.instance = 2,
-		.irq_offset = 32 + GEN11_VECS(2),
 		.mmio_bases = {
 			{ .graphics_ver = 12, .base = XEHP_VEBOX3_RING_BASE }
 		},
@@ -237,7 +215,6 @@ static const struct engine_info intel_engines[] = {
 	[VECS3] = {
 		.class = VIDEO_ENHANCEMENT_CLASS,
 		.instance = 3,
-		.irq_offset = 32 + GEN11_VECS(3),
 		.mmio_bases = {
 			{ .graphics_ver = 12, .base = XEHP_VEBOX4_RING_BASE }
 		},
@@ -245,7 +222,6 @@ static const struct engine_info intel_engines[] = {
 	[CCS0] = {
 		.class = COMPUTE_CLASS,
 		.instance = 0,
-		.irq_offset = GEN12_CCS0,
 		.mmio_bases = {
 			{ .graphics_ver = 12, .base = GEN12_COMPUTE0_RING_BASE }
 		}
@@ -253,7 +229,6 @@ static const struct engine_info intel_engines[] = {
 	[CCS1] = {
 		.class = COMPUTE_CLASS,
 		.instance = 1,
-		.irq_offset = GEN12_CCS1,
 		.mmio_bases = {
 			{ .graphics_ver = 12, .base = GEN12_COMPUTE1_RING_BASE }
 		}
@@ -261,7 +236,6 @@ static const struct engine_info intel_engines[] = {
 	[CCS2] = {
 		.class = COMPUTE_CLASS,
 		.instance = 2,
-		.irq_offset = GEN12_CCS2,
 		.mmio_bases = {
 			{ .graphics_ver = 12, .base = GEN12_COMPUTE2_RING_BASE }
 		}
@@ -269,7 +243,6 @@ static const struct engine_info intel_engines[] = {
 	[CCS3] = {
 		.class = COMPUTE_CLASS,
 		.instance = 3,
-		.irq_offset = GEN12_CCS3,
 		.mmio_bases = {
 			{ .graphics_ver = 12, .base = GEN12_COMPUTE3_RING_BASE }
 		}
@@ -277,7 +250,6 @@ static const struct engine_info intel_engines[] = {
 	[GSC0] = {
 		.class = OTHER_CLASS,
 		.instance = OTHER_GSC_INSTANCE,
-		.irq_offset = GEN11_CSME,
 		.mmio_bases = {
 			{ .graphics_ver = 12, .base = MTL_GSC_RING_BASE }
 		}
@@ -398,9 +370,6 @@ static void __sprint_engine_name(struct intel_engine_cs *engine)
 
 void intel_engine_set_hwsp_writemask(struct intel_engine_cs *engine, u32 mask)
 {
-	if (IS_SRIOV_VF(engine->i915))
-		return;
-
 	/*
 	 * Though they added more rings on g4x/ilk, they did not add
 	 * per-engine HWSTAM until gen6.
@@ -527,7 +496,6 @@ static int intel_engine_setup(struct intel_gt *gt, enum intel_engine_id id,
 	engine->class = info->class;
 	engine->instance = info->instance;
 	engine->logical_mask = BIT(logical_instance);
-	engine->irq_offset = info->irq_offset;
 	__sprint_engine_name(engine);
 
 	if ((engine->class == COMPUTE_CLASS && !RCS_MASK(engine->gt) &&
@@ -790,9 +758,6 @@ static void engine_mask_apply_media_fuses(struct intel_gt *gt)
 	u16 vdbox_mask;
 	u16 vebox_mask;
 
-	if (!(VDBOX_MASK(gt) | VEBOX_MASK(gt)))
-		return;
-
 	if (MEDIA_VER(gt->i915) < 11)
 		return;
 
@@ -930,11 +895,6 @@ static intel_engine_mask_t init_engine_mask(struct intel_gt *gt)
 	engine_mask_apply_compute_fuses(gt);
 	engine_mask_apply_copy_fuses(gt);
 
-	/* GSC0 is not usable by VFs */
-	if (IS_SRIOV_VF(gt->i915)) {
-		info->engine_mask &= ~BIT(GSC0);
-	}
-
 	/*
 	 * The only use of the GSC CS is to load and communicate with the GSC
 	 * FW, so we have no use for it if we don't have the FW.
@@ -983,7 +943,7 @@ static void setup_logical_ids(struct intel_gt *gt, u8 *logical_ids, u8 class)
 	 * Logical to physical mapping is needed for proper support
 	 * to split-frame feature.
 	 */
-	if (class == VIDEO_DECODE_CLASS && MEDIA_VER(gt->i915) >= 11) {
+	if (MEDIA_VER(gt->i915) >= 11 && class == VIDEO_DECODE_CLASS) {
 		const u8 map[] = { 0, 2, 4, 6, 1, 3, 5, 7 };
 
 		populate_logical_ids(gt, logical_ids, class,
@@ -2130,10 +2090,6 @@ static void intel_engine_print_registers(struct intel_engine_cs *engine,
 	struct drm_i915_private *i915 = engine->i915;
 	struct intel_engine_execlists * const execlists = &engine->execlists;
 	u64 addr;
-
-	/* VF can't access these registers */
-	if (IS_SRIOV_VF(i915))
-		return;
 
 	if (engine->id == RENDER_CLASS && IS_GRAPHICS_VER(i915, 4, 7))
 		drm_printf(m, "\tCCID: 0x%08x\n", ENGINE_READ(engine, CCID));
