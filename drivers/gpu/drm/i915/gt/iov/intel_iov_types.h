@@ -123,7 +123,9 @@ struct intel_iov_provisioning {
 /**
  * struct intel_iov_data - Data related to one VF.
  * @state: VF state bits
+ * @paused: FIXME missing doc
  * @adverse_events: FIXME missing doc
+ * @guc_state: pointer to VF state from GuC
  */
 struct intel_iov_data {
 	unsigned long state;
@@ -133,7 +135,9 @@ struct intel_iov_data {
 #define IOV_VF_NEEDS_FLR_FINISH		3
 #define IOV_VF_NEEDS_FLR_DONE_SYNC	4
 #define IOV_VF_FLR_FAILED		(BITS_PER_LONG - 1)
+	bool paused;
 	unsigned int adverse_events[IOV_THRESHOLD_MAX];
+	void *guc_state;
 };
 
 /**
