@@ -272,7 +272,10 @@ int gen12_emit_flush_rcs(struct i915_request *rq, u32 mode)
 			bit_group_0 |= PIPE_CONTROL_CCS_FLUSH;
 
 		bit_group_1 |= PIPE_CONTROL_TILE_CACHE_FLUSH;
-		bit_group_1 |= PIPE_CONTROL_FLUSH_L3;
+
+		if (GRAPHICS_VER_FULL(rq->i915) < IP_VER(12, 70))
+			bit_group_1 |= PIPE_CONTROL_FLUSH_L3;
+
 		bit_group_1 |= PIPE_CONTROL_RENDER_TARGET_CACHE_FLUSH;
 		bit_group_1 |= PIPE_CONTROL_DEPTH_CACHE_FLUSH;
 		/* Wa_1409600907:tgl,adl-p */
@@ -809,11 +812,13 @@ u32 *gen12_emit_fini_breadcrumb_rcs(struct i915_request *rq, u32 *cs)
 	u32 flags = (PIPE_CONTROL_CS_STALL |
 		     PIPE_CONTROL_TLB_INVALIDATE |
 		     PIPE_CONTROL_TILE_CACHE_FLUSH |
-		     PIPE_CONTROL_FLUSH_L3 |
 		     PIPE_CONTROL_RENDER_TARGET_CACHE_FLUSH |
 		     PIPE_CONTROL_DEPTH_CACHE_FLUSH |
 		     PIPE_CONTROL_DC_FLUSH_ENABLE |
 		     PIPE_CONTROL_FLUSH_ENABLE);
+
+	if (GRAPHICS_VER_FULL(i915) < IP_VER(12, 70))
+		flags |= PIPE_CONTROL_FLUSH_L3;
 
 	/* Wa_14016712196 */
 	if (IS_GFX_GT_IP_RANGE(gt, IP_VER(12, 70), IP_VER(12, 74)) || IS_DG2(i915))
