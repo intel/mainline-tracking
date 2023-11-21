@@ -211,6 +211,8 @@ struct intel_runtime_info {
 
 	u16 device_id;
 
+	intel_engine_mask_t platform_engine_mask; /* Engines supported by the HW */
+
 	u32 rawclk_freq;
 
 	struct intel_step_info step;
@@ -234,7 +236,6 @@ struct intel_device_info {
 
 	u8 gt; /* GT number, 0 if undefined */
 
-	intel_engine_mask_t platform_engine_mask; /* Engines supported by the HW */
 #define DEFINE_FLAG(name) u8 name:1
 	DEV_INFO_FOR_EACH_FLAG(DEFINE_FLAG);
 #undef DEFINE_FLAG

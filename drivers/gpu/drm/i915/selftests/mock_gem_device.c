@@ -124,7 +124,7 @@ static const struct intel_device_info mock_info = {
 				 I915_GTT_PAGE_SIZE_64K |
 				 I915_GTT_PAGE_SIZE_2M),
 	.__runtime.memory_regions = REGION_SMEM,
-	.platform_engine_mask = BIT(0),
+	.__runtime.platform_engine_mask = BIT(0),
 
 	/* simply use legacy cache level for mock device */
 	.max_pat_index = 3,
