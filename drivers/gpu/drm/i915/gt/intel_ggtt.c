@@ -766,20 +766,31 @@ void intel_ggtt_unbind_vma(struct i915_address_space *vm,
 	vm->clear_range(vm, vma_res->start, vma_res->vma_size);
 }
 
+/*
+ * Reserve the top of the GuC address space for firmware images. Addresses
+ * beyond GUC_GGTT_TOP in the GuC address space are inaccessible by GuC,
+ * which makes for a suitable range to hold GuC/HuC firmware images if the
+ * size of the GGTT is 4G. However, on a 32-bit platform the size of the GGTT
+ * is limited to 2G, which is less than GUC_GGTT_TOP, but we reserve a chunk
+ * of the same size anyway, which is far more than needed, to keep the logic
+ * in uc_fw_ggtt_offset() simple.
+ */
+#define GUC_TOP_RESERVE_SIZE (SZ_4G - GUC_GGTT_TOP)
+
 static int ggtt_reserve_guc_top(struct i915_ggtt *ggtt)
 {
-	u64 size;
+	u64 offset;
 	int ret;
 
 	if (!intel_uc_uses_guc(&ggtt->vm.gt->uc))
 		return 0;
 
-	GEM_BUG_ON(ggtt->vm.total <= GUC_GGTT_TOP);
-	size = ggtt->vm.total - GUC_GGTT_TOP;
+	GEM_BUG_ON(ggtt->vm.total <= GUC_TOP_RESERVE_SIZE);
+	offset = ggtt->vm.total - GUC_TOP_RESERVE_SIZE;
 
-	ret = i915_gem_gtt_reserve(&ggtt->vm, NULL, &ggtt->uc_fw, size,
-				   GUC_GGTT_TOP, I915_COLOR_UNEVICTABLE,
-				   PIN_NOEVICT);
+	ret = i915_gem_gtt_reserve(&ggtt->vm, NULL, &ggtt->uc_fw,
+				   GUC_TOP_RESERVE_SIZE, offset,
+				   I915_COLOR_UNEVICTABLE, PIN_NOEVICT);
 	if (ret)
 		drm_dbg(&ggtt->vm.i915->drm,
 			"Failed to reserve top of GGTT for GuC\n");
@@ -1511,7 +1522,7 @@ static int gen12vf_ggtt_probe(struct i915_ggtt *ggtt)
 
 	GEM_BUG_ON(!IS_SRIOV_VF(i915));
 
-	/* there is no apperture on VFs */
+	/* there is no aperture on VFs */
 	ggtt->gmadr = (struct resource) DEFINE_RES_MEM(0, 0);
 	ggtt->mappable_end = 0;
 
@@ -1526,9 +1537,9 @@ static int gen12vf_ggtt_probe(struct i915_ggtt *ggtt)
 	ggtt->vm.clear_range = nop_clear_range;
 
 	/* Wa_22018453856 */
-	if (IS_METEORLAKE(i915)) {
+	if (i915_ggtt_require_binder(i915)) {
 		IOV_DEBUG(&ggtt->vm.gt->iov,
-			  "VF update GGTT via VF2PF relay WA is enbaled!\n");
+			  "VF update GGTT via VF2PF relay WA is enabled!\n");
 		ggtt->vm.insert_page = ggtt_insert_page_vf_relay_wa;
 		ggtt->vm.insert_entries = ggtt_insert_entries_vf_relay_wa;
 
@@ -1772,6 +1783,45 @@ void i915_ggtt_deballoon(struct i915_ggtt *ggtt, struct drm_mm_node *node)
 	drm_mm_remove_node(node);
 }
 
+static int sgtable_update_ptes_via_cpu(struct i915_ggtt *ggtt, u32 ggtt_addr, struct sg_table *st,
+				       u32 num_entries, const gen8_pte_t pte_pattern)
+{
+	gen8_pte_t __iomem *gtt_entries = ggtt->gsm;
+	dma_addr_t addr;
+	struct sgt_iter iter;
+	int n = 0;
+
+	/*
+	 * We shouldn't use the CPU to update PTEs on paltforms that require
+	 * a binder. Let's report by WARN such incidents.
+	 */
+	WARN_ON(i915_ggtt_require_binder(ggtt->vm.i915));
+
+	gtt_entries += ggtt_addr / I915_GTT_PAGE_SIZE;
+
+	for_each_sgt_daddr(addr, iter, st) {
+		writeq(pte_pattern | addr, gtt_entries++);
+		n++;
+	}
+
+	return n;
+}
+
+int i915_ggtt_sgtable_update_ptes(struct i915_ggtt *ggtt, u32 ggtt_addr, struct sg_table *st,
+				  u32 num_entries, const gen8_pte_t pte_pattern)
+{
+	struct intel_gt *gt = ggtt->vm.gt;
+	int ret;
+
+	if (intel_gt_is_bind_context_ready(gt))
+		ret = gen8_ggtt_bind_ptes(ggtt, ggtt_addr >> PAGE_SHIFT, st, num_entries,
+					  pte_pattern);
+	else
+		ret = sgtable_update_ptes_via_cpu(ggtt, ggtt_addr, st, num_entries, pte_pattern);
+
+	return (ret) ? 0 : -EIO;
+}
+
 static gen8_pte_t tgl_prepare_vf_pte_vfid(u16 vfid)
 {
 	GEM_BUG_ON(!FIELD_FIT(TGL_GGTT_PTE_VFID_MASK, vfid));
@@ -1791,6 +1841,7 @@ void i915_ggtt_set_space_owner(struct i915_ggtt *ggtt, u16 vfid,
 	const gen8_pte_t pte = i915_ggtt_prepare_vf_pte(vfid);
 	u64 base = node->start;
 	u64 size = node->size;
+	int ret = 0;
 
 	GEM_BUG_ON(!IS_SRIOV_PF(ggtt->vm.i915));
 	GEM_BUG_ON(base % PAGE_SIZE);
@@ -1799,10 +1850,44 @@ void i915_ggtt_set_space_owner(struct i915_ggtt *ggtt, u16 vfid,
 	gt_dbg(ggtt->vm.gt, "GGTT VF%u [%#llx-%#llx] %lluK\n",
 	       vfid, base, base + size, size / SZ_1K);
 
-	gtt_entries += base >> PAGE_SHIFT;
-	while (size) {
-		gen8_set_pte(gtt_entries++, pte);
-		size -= PAGE_SIZE;
+	if (intel_gt_is_bind_context_ready(ggtt->vm.gt)) {
+		struct sg_table *st;
+		struct scatterlist *sg;
+		u64 n_ptes = (size / PAGE_SIZE);
+
+		st = kmalloc(sizeof(*st), GFP_KERNEL);
+		if (!st)
+			WARN_ON(-ENOMEM);
+
+		if (sg_alloc_table(st, n_ptes, GFP_KERNEL)) {
+			kfree(st);
+			WARN_ON(-ENOMEM);
+		}
+
+		sg = st->sgl;
+		st->nents = 0;
+
+		while (size) {
+			st->nents++;
+			sg_set_page(sg, NULL, I915_GTT_PAGE_SIZE, 0);
+			sg_dma_address(sg) = 0;
+			sg_dma_len(sg) = I915_GTT_PAGE_SIZE;
+			sg = sg_next(sg);
+			size -= PAGE_SIZE;
+		}
+
+		ret = gen8_ggtt_bind_ptes(ggtt, base >> PAGE_SHIFT, st, n_ptes, pte);
+
+		sg_free_table(st);
+		kfree(st);
+		WARN_ON(ret == false);
+	} else {
+
+		gtt_entries += base >> PAGE_SHIFT;
+		while (size) {
+			gen8_set_pte(gtt_entries++, pte);
+			size -= PAGE_SIZE;
+		}
 	}
 
 	ggtt->invalidate(ggtt);
@@ -1830,7 +1915,7 @@ static void ggtt_pte_clear_vfid(void *buf, u64 size)
  * @ggtt: the &struct i915_ggtt
  * @node: the &struct drm_mm_node - the @node->start is used as the start offset for save
  * @buf: preallocated buffer in which PTEs will be saved
- * @size: size of prealocated buffer (in bytes)
+ * @size: size of preallocated buffer (in bytes)
  *        - must be sizeof(gen8_pte_t) aligned
  * @flags: function flags:
  *         - #I915_GGTT_SAVE_PTES_NO_VFID BIT - save PTEs without VFID
@@ -1871,7 +1956,7 @@ int i915_ggtt_save_ptes(struct i915_ggtt *ggtt, const struct drm_mm_node *node, 
  * @ggtt: the &struct i915_ggtt
  * @node: the &struct drm_mm_node - the @node->start is used as the start offset for restore
  * @buf: buffer from which PTEs will be restored
- * @size: size of prealocated buffer (in bytes)
+ * @size: size of preallocated buffer (in bytes)
  *        - must be sizeof(gen8_pte_t) aligned
  * @flags: function flags:
  *         - #I915_GGTT_RESTORE_PTES_VFID_MASK - VFID for restored PTEs

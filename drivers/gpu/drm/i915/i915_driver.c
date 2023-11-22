@@ -178,7 +178,7 @@ static void intel_detect_preproduction_hw(struct drm_i915_private *dev_priv)
 {
 	bool pre = false;
 
-	pre |= IS_HSW_EARLY_SDV(dev_priv);
+	pre |= IS_HASWELL_EARLY_SDV(dev_priv);
 	pre |= IS_SKYLAKE(dev_priv) && INTEL_REVID(dev_priv) < 0x6;
 	pre |= IS_BROXTON(dev_priv) && INTEL_REVID(dev_priv) < 0xA;
 	pre |= IS_KABYLAKE(dev_priv) && INTEL_REVID(dev_priv) < 0x1;
@@ -750,6 +750,8 @@ i915_driver_create(struct pci_dev *pdev, const struct pci_device_id *ent)
 	/* Set up device info and initial runtime info. */
 	intel_device_info_driver_create(i915, pdev->device, match_info);
 
+	intel_display_device_probe(i915);
+
 	return i915;
 }
 
@@ -813,6 +815,16 @@ int i915_driver_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 	    && i915->params.enable_guc != -1) {
 		RUNTIME_INFO(i915)->ppgtt_size = 47;
 		RUNTIME_INFO(i915)->platform_engine_mask |= BIT(CCS0);
+	}
+
+	/*
+	 * Force to disable CCS on MTL.
+	 * Will remove this code once CCS enablement is completed on MTL
+	 *
+	 */
+	if (i915->params.force_disable_ccs &&
+		match_info->platform == INTEL_METEORLAKE) {
+		RUNTIME_INFO(i915)->platform_engine_mask = BIT(RCS0) | BIT(BCS0);
 	}
 
 	/* This must be called before any calls to IS/IOV_MODE() macros */
@@ -1261,8 +1273,16 @@ int i915_driver_suspend_switcheroo(struct drm_i915_private *i915,
 static int i915_drm_resume(struct drm_device *dev)
 {
 	struct drm_i915_private *dev_priv = to_i915(dev);
+	struct pci_dev *pdev = to_pci_dev(dev_priv->drm.dev);
 	struct intel_gt *gt;
 	int ret, i;
+
+	/*
+	 * In case the VF and the PF are both probed on the same kernel,
+	 * let the VF wait until the PF finish resume first.
+	 */
+	if (pdev->is_virtfn && pdev->physfn)
+		device_pm_wait_for_dev(&pdev->dev, &pdev->physfn->dev);
 
 	disable_rpm_wakeref_asserts(&dev_priv->runtime_pm);
 
@@ -1280,7 +1300,7 @@ static int i915_drm_resume(struct drm_device *dev)
 	 * We need to establish communication with GuC to be able to
 	 * update GGTT via PF.
 	 */
-	if (IS_SRIOV_VF(dev_priv) && IS_METEORLAKE(dev_priv))
+	if (IS_SRIOV_VF(dev_priv) && i915_ggtt_require_binder(dev_priv))
 		intel_iov_query_bootstrap(&to_gt(dev_priv)->iov);
 
 	i915_ggtt_resume(to_gt(dev_priv)->ggtt);
@@ -1407,10 +1427,8 @@ static int i915_drm_resume_early(struct drm_device *dev)
 		drm_err(&dev_priv->drm,
 			"Resume prepare failed: %d, continuing anyway\n", ret);
 
-	for_each_gt(gt, dev_priv, i) {
-		intel_uncore_resume_early(gt->uncore);
-		intel_gt_check_and_clear_faults(gt);
-	}
+	for_each_gt(gt, dev_priv, i)
+		intel_gt_resume_early(gt);
 
 	intel_display_power_resume_early(dev_priv);
 
@@ -1649,8 +1667,6 @@ static int intel_runtime_suspend(struct device *kdev)
 	if (root_pdev)
 		pci_d3cold_disable(root_pdev);
 
-	rpm->suspended = true;
-
 	/*
 	 * FIXME: We really should find a document that references the arguments
 	 * used below!
@@ -1701,7 +1717,6 @@ static int intel_runtime_resume(struct device *kdev)
 	disable_rpm_wakeref_asserts(rpm);
 
 	intel_opregion_notify_adapter(dev_priv, PCI_D0);
-	rpm->suspended = false;
 
 	root_pdev = pcie_find_root_port(pdev);
 	if (root_pdev)

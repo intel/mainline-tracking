@@ -1932,7 +1932,7 @@ static int pf_auto_provision_ggtt(struct intel_iov *iov, unsigned int num_vfs)
 	int err;
 
 	/*
-	 * can't rely only on 'free_ggtt' as all VFs allocations must be continous
+	 * can't rely only on 'free_ggtt' as all VFs allocations must be continuous
 	 * use 'max_ggtt' instead, on fresh/idle system those should be similar
 	 * and both already accounts for the spare GGTT
 	 */

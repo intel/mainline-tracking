@@ -32,7 +32,7 @@
  *   status vectors for each unit. Each bit in the interrupt vectors is
  *   converted to a byte, with the byte being set to 0xFF when an
  *   interrupt is triggered; interrupt vectors are 16b big so each unit
- *   gets 16B. One space is reseved for each bit in one of the
+ *   gets 16B. One space is reserved for each bit in one of the
  *   GEN11_GT_INTR_DWx registers, so this object needs a total of 1024B.
  *   This object needs to be 4k aligned.
  *
@@ -64,7 +64,9 @@ static int vf_create_memirq_data(struct intel_iov *iov)
 		goto out;
 	}
 
-	vaddr = i915_gem_object_pin_map_unlocked(obj, i915_coherent_map_type(iov_to_gt(iov), obj, true));
+	vaddr = i915_gem_object_pin_map_unlocked(obj,
+						 i915_coherent_map_type(iov_to_gt(iov), obj,
+									    true));
 	if (IS_ERR(vaddr)) {
 		err = PTR_ERR(vaddr);
 		goto out_obj;
@@ -165,11 +167,11 @@ void intel_iov_memirq_fini(struct intel_iov *iov)
 }
 
 /**
- * intel_iov_memirq_prepare_guc - Prepare GuC to use memory based interrrupts.
+ * intel_iov_memirq_prepare_guc - Prepare GuC to use memory based interrupts.
  * @iov: the IOV struct
  *
  * Register Interrupt Source Report page and Interrupt Status Report page
- * within GuC to correctly handle memory based interrrupts from GuC.
+ * within GuC to correctly handle memory based interrupts from GuC.
  *
  * Return: 0 on success or a negative error code on failure.
  */

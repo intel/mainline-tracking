@@ -295,7 +295,7 @@ __uc_fw_auto_select(struct drm_i915_private *i915, struct intel_uc_fw *uc_fw)
 	 * ADL-S, otherwise the GuC might attempt to fetch a config table that
 	 * does not exist.
 	 */
-	if (IS_ADLP_N(i915))
+	if (IS_ALDERLAKE_P_N(i915))
 		p = INTEL_ALDERLAKE_S;
 
 	GEM_BUG_ON(uc_fw->type >= ARRAY_SIZE(blobs_all));
@@ -546,22 +546,21 @@ void intel_uc_fw_init_early(struct intel_uc_fw *uc_fw,
  * @uc_fw: uC firmware structure
  * @major: major version of the pre-loaded firmware
  * @minor: minor version of the pre-loaded firmware
+ * @patch: patch version of the pre-loaded firmware
  *
  * If the uC firmware was loaded to h/w by other entity, just
  * mark it as loaded.
  */
-void intel_uc_fw_set_preloaded(struct intel_uc_fw *uc_fw, u16 major, u16 minor)
+void intel_uc_fw_set_preloaded(struct intel_uc_fw *uc_fw, u32 major, u32 minor, u32 patch)
 {
 	uc_fw->file_selected.path = "PRELOADED";
-	uc_fw->file_selected.ver.major = major;
-	uc_fw->file_selected.ver.minor = minor;
 
 	if (uc_fw->type == INTEL_UC_FW_TYPE_GUC) {
 		struct intel_guc *guc = container_of(uc_fw, struct intel_guc, fw);
 
 		guc->submission_version.major = major;
 		guc->submission_version.minor = minor;
-		guc->submission_version.patch = 0;
+		guc->submission_version.patch = patch;
 	}
 
 	intel_uc_fw_change_status(uc_fw, INTEL_UC_FIRMWARE_PRELOADED);
@@ -829,11 +828,57 @@ static int try_firmware_load(struct intel_uc_fw *uc_fw, const struct firmware **
 	return 0;
 }
 
+static int check_mtl_huc_guc_compatibility(struct intel_gt *gt,
+					   struct intel_uc_fw_file *huc_selected)
+{
+	struct intel_uc_fw_file *guc_selected = &gt->uc.guc.fw.file_selected;
+	struct intel_uc_fw_ver *huc_ver = &huc_selected->ver;
+	struct intel_uc_fw_ver *guc_ver = &guc_selected->ver;
+	bool new_huc, new_guc;
+
+	/* we can only do this check after having fetched both GuC and HuC */
+	GEM_BUG_ON(!huc_selected->path || !guc_selected->path);
+
+	/*
+	 * Due to changes in the authentication flow for MTL, HuC 8.5.1 or newer
+	 * requires GuC 70.7.0 or newer. Older HuC binaries will instead require
+	 * GuC < 70.7.0.
+	 */
+	new_huc = huc_ver->major > 8 ||
+		  (huc_ver->major == 8 && huc_ver->minor > 5) ||
+		  (huc_ver->major == 8 && huc_ver->minor == 5 && huc_ver->patch >= 1);
+
+	new_guc = guc_ver->major > 70 ||
+		  (guc_ver->major == 70 && guc_ver->minor >= 7);
+
+	if (new_huc != new_guc) {
+		UNEXPECTED(gt, "HuC %u.%u.%u is incompatible with GuC %u.%u.%u\n",
+			   huc_ver->major, huc_ver->minor, huc_ver->patch,
+			   guc_ver->major, guc_ver->minor, guc_ver->patch);
+		gt_info(gt, "MTL GuC 70.7.0+ and HuC 8.5.1+ don't work with older releases\n");
+		return -ENOEXEC;
+	}
+
+	return 0;
+}
+
 int intel_uc_check_file_version(struct intel_uc_fw *uc_fw, bool *old_ver)
 {
 	struct intel_gt *gt = __uc_fw_to_gt(uc_fw);
 	struct intel_uc_fw_file *wanted = &uc_fw->file_wanted;
 	struct intel_uc_fw_file *selected = &uc_fw->file_selected;
+	int ret;
+
+	/*
+	 * MTL has some compatibility issues with early GuC/HuC binaries
+	 * not working with newer ones. This is specific to MTL and we
+	 * don't expect it to extend to other platforms.
+	 */
+	if (IS_METEORLAKE(gt->i915) && uc_fw->type == INTEL_UC_FW_TYPE_HUC) {
+		ret = check_mtl_huc_guc_compatibility(gt, selected);
+		if (ret)
+			return ret;
+	}
 
 	if (!wanted->ver.major || !selected->ver.major)
 		return 0;
@@ -1382,6 +1427,15 @@ void intel_uc_fw_dump(const struct intel_uc_fw *uc_fw, struct drm_printer *p)
 
 	drm_printf(p, "%s firmware: %s\n",
 		   intel_uc_fw_type_repr(uc_fw->type), uc_fw->file_selected.path);
+
+	/*
+	 * The pre-loaded status indicates that GuC is loaded by something else,
+	 * and we do not directly manage GUC, so the below values are not
+	 * applicable.
+	 */
+	if (uc_fw->status == INTEL_UC_FIRMWARE_PRELOADED)
+		return;
+
 	if (uc_fw->file_selected.path != uc_fw->file_wanted.path)
 		drm_printf(p, "%s firmware wanted: %s\n",
 			   intel_uc_fw_type_repr(uc_fw->type), uc_fw->file_wanted.path);

@@ -14,6 +14,7 @@
 
 #include "gt/intel_gt_regs.h"
 
+#include "intel_iov_ggtt.h"
 #include "intel_iov_relay.h"
 #include "intel_iov_service.h"
 #include "intel_iov_types.h"
@@ -337,102 +338,12 @@ static int pf_reply_runtime_query(struct intel_iov *iov, u32 origin,
 					   response, 2 + 2 * chunk);
 }
 
-static gen8_pte_t prepare_pte(u16 vfid, gen8_pte_t source_pte, bool ignore_addr)
+static gen8_pte_t get_pte_from_msg(const u32 *msg, u16 id)
 {
-	gen8_pte_t pte = (source_pte & MTL_GGTT_PTE_PAT_MASK) | i915_ggtt_prepare_vf_pte(vfid);
+	u32 pte_lo = FIELD_GET(VF2PF_UPDATE_GGTT32_REQUEST_DATAn_PTE_LO, msg[id * 2 + 2]);
+	u32 pte_hi = FIELD_GET(VF2PF_UPDATE_GGTT32_REQUEST_DATAn_PTE_HI, msg[id * 2 + 3]);
 
-	if (!ignore_addr)
-		pte |= (source_pte & GEN12_GGTT_PTE_ADDR_MASK);
-
-	return pte;
-}
-
-static void duplicate_and_set_pte(gen8_pte_t pte, u16 vfid, gen8_pte_t __iomem *addr, u16 count)
-{
-	pte = prepare_pte(vfid, pte, false);
-
-	while (count--)
-		writeq(pte, addr++);
-}
-
-static void replicate_and_set_pte(gen8_pte_t pte, u16 vfid, gen8_pte_t __iomem **addr, u16 count)
-{
-	u64 pfn = FIELD_GET(GEN12_GGTT_PTE_ADDR_MASK, pte);
-
-	pte = prepare_pte(vfid, pte, true);
-
-	while (count--)
-		writeq(pte | FIELD_PREP(GEN12_GGTT_PTE_ADDR_MASK, pfn++), (*addr)++);
-}
-
-static int pf_update_vf_ggtt(struct intel_iov *iov, u32 vfid, u32 pte_offset, u8 mode,
-			     u16 num_copies, gen8_pte_t *ptes, u16 count)
-{
-	struct i915_ggtt *ggtt = iov_to_gt(iov)->ggtt;
-	gen8_pte_t __iomem *gtt_entries = ggtt->gsm;
-	struct drm_mm_node *node = &iov->pf.provisioning.configs[vfid].ggtt_region;
-	u64 ggtt_addr = node->start + pte_offset * I915_GTT_PAGE_SIZE_4K;
-	u64 ggtt_addr_end = ggtt_addr + count * I915_GTT_PAGE_SIZE_4K - 1;
-	u64 vf_ggtt_end = node->start + node->size - 1;
-	u16 updated;
-
-	BUILD_BUG_ON(MMIO_UPDATE_GGTT_MODE_DUPLICATE != VF2PF_UPDATE_GGTT32_MODE_DUPLICATE);
-	BUILD_BUG_ON(MMIO_UPDATE_GGTT_MODE_REPLICATE != VF2PF_UPDATE_GGTT32_MODE_REPLICATE);
-	BUILD_BUG_ON(MMIO_UPDATE_GGTT_MODE_DUPLICATE_LAST !=
-		     VF2PF_UPDATE_GGTT32_MODE_DUPLICATE_LAST);
-	BUILD_BUG_ON(MMIO_UPDATE_GGTT_MODE_REPLICATE_LAST !=
-		     VF2PF_UPDATE_GGTT32_MODE_REPLICATE_LAST);
-
-	if (!count)
-		return -EINVAL;
-
-	if (ggtt_addr_end > vf_ggtt_end)
-		return -ERANGE;
-
-	gtt_entries += (node->start >> PAGE_SHIFT) + pte_offset;
-
-	updated = num_copies ? num_copies + count : count;
-
-	/*
-	 * To simplify the code, always let at least one PTE be updated by
-	 * a function to duplicate or replicate.
-	 */
-	num_copies++;
-	count--;
-
-	switch (mode) {
-	case MMIO_UPDATE_GGTT_MODE_DUPLICATE:
-		duplicate_and_set_pte(*(ptes++), vfid, gtt_entries++, num_copies);
-
-		while (count--)
-			writeq(prepare_pte(vfid, *(ptes++), false), gtt_entries++);
-		break;
-	case MMIO_UPDATE_GGTT_MODE_DUPLICATE_LAST:
-		while (count--)
-			writeq(prepare_pte(vfid, *(ptes++), false), gtt_entries++);
-
-		duplicate_and_set_pte(*(ptes), vfid, gtt_entries, num_copies);
-		break;
-	case MMIO_UPDATE_GGTT_MODE_REPLICATE:
-		replicate_and_set_pte(*(ptes++), vfid, &gtt_entries, num_copies);
-
-		while (count--)
-			writeq(prepare_pte(vfid, *(ptes++), false), gtt_entries++);
-		break;
-
-	case MMIO_UPDATE_GGTT_MODE_REPLICATE_LAST:
-		while (count--)
-			writeq(prepare_pte(vfid, *(ptes++), false), gtt_entries++);
-
-		replicate_and_set_pte(*(ptes), vfid, &gtt_entries, num_copies);
-		break;
-	default:
-		return -EINVAL;
-	}
-
-	IOV_DEBUG(iov, "PF updated GGTT for %d PTE(s) from VF%u\n", updated, vfid);
-
-	return updated;
+	return make_u64(pte_hi, pte_lo);
 }
 
 static int pf_reply_update_ggtt(struct intel_iov *iov, u32 origin,
@@ -444,13 +355,16 @@ static int pf_reply_update_ggtt(struct intel_iov *iov, u32 origin,
 	u32 pte_offset;
 	u16 count;
 	gen8_pte_t ptes[VF2PF_UPDATE_GGTT_MAX_PTES];
+	gen8_pte_t *start_range;
+	u16 range_size;
+	u16 updated = 0;
 	int ret;
 	int i;
 
-	if (!IS_METEORLAKE(iov_to_i915(iov)))
+	if (!i915_ggtt_require_binder(iov_to_i915(iov)))
 		return -EOPNOTSUPP;
 
-	if (unlikely(!msg[0]))
+	if (unlikely(!msg[0]) || unlikely(!msg[1]) || len < 4 || len % 2 != 0)
 		return -EPROTO;
 
 	num_copies = FIELD_GET(VF2PF_UPDATE_GGTT32_REQUEST_MSG_1_NUM_COPIES, msg[1]);
@@ -461,19 +375,44 @@ static int pf_reply_update_ggtt(struct intel_iov *iov, u32 origin,
 	if (count > VF2PF_UPDATE_GGTT_MAX_PTES)
 		return -EMSGSIZE;
 
-	for (i = 0; i < count; i++) {
-		u32 pte_lo = FIELD_GET(VF2PF_UPDATE_GGTT32_REQUEST_DATAn_PTE_LO, msg[i * 2 + 2]);
-		u32 pte_hi = FIELD_GET(VF2PF_UPDATE_GGTT32_REQUEST_DATAn_PTE_HI, msg[i * 2 + 3]);
+	ptes[0] = get_pte_from_msg(msg, 0);
+	start_range = &ptes[0];
+	range_size = 1;
 
-		ptes[i] = make_u64(pte_hi, pte_lo);
+	for (i = 1; i < count; i++) {
+		ptes[i] = get_pte_from_msg(msg, i);
+
+		if ((ptes[i - 1] & ~GEN12_GGTT_PTE_ADDR_MASK) !=
+		    (ptes[i] & ~GEN12_GGTT_PTE_ADDR_MASK)) {
+			u16 local_num_copies = (VF2PF_UPDATE_GGTT32_IS_LAST_MODE(mode)) ?
+					       0 : num_copies;
+
+			ret = intel_iov_ggtt_pf_update_vf_ptes(iov, origin, pte_offset, mode,
+							       local_num_copies, start_range, range_size);
+			if (ret < 0) {
+				return ret;
+			} else {
+				updated += ret;
+				start_range = &ptes[i];
+				pte_offset += range_size;
+				range_size = 0;
+				if (!VF2PF_UPDATE_GGTT32_IS_LAST_MODE(mode))
+					num_copies = 0;
+			}
+		}
+		range_size++;
 	}
-	ret = pf_update_vf_ggtt(iov, origin, pte_offset, mode, num_copies, ptes, (len - 2) / 2);
+
+	ret = intel_iov_ggtt_pf_update_vf_ptes(iov, origin, pte_offset, mode, num_copies,
+					       start_range, range_size);
 	if (ret < 0)
 		return ret;
 
+	updated += ret;
+
 	response[0] = FIELD_PREP(GUC_HXG_MSG_0_ORIGIN, GUC_HXG_ORIGIN_HOST) |
 		      FIELD_PREP(GUC_HXG_MSG_0_TYPE, GUC_HXG_TYPE_RESPONSE_SUCCESS) |
-		      FIELD_PREP(VF2PF_UPDATE_GGTT32_RESPONSE_MSG_0_NUM_PTES, (u16)ret);
+		      FIELD_PREP(VF2PF_UPDATE_GGTT32_RESPONSE_MSG_0_NUM_PTES, updated);
 
 	return intel_iov_relay_reply_to_vf(&iov->relay, origin, relay_id,
 					   response, ARRAY_SIZE(response));
@@ -613,7 +552,7 @@ static int reply_mmio_relay_update_ggtt(struct intel_iov *iov, u32 vfid, u32 mag
 	gen8_pte_t pte;
 	int ret;
 
-	if (!IS_METEORLAKE(iov_to_i915(iov)))
+	if (!i915_ggtt_require_binder(iov_to_i915(iov)))
 		return -EOPNOTSUPP;
 
 	if (unlikely(!msg[0]))
@@ -627,7 +566,7 @@ static int reply_mmio_relay_update_ggtt(struct intel_iov *iov, u32 vfid, u32 mag
 
 	pte = make_u64(pte_hi, pte_lo);
 
-	ret = pf_update_vf_ggtt(iov, vfid, pte_offset, mode, num_copies, &pte, 1);
+	ret = intel_iov_ggtt_pf_update_vf_ptes(iov, vfid, pte_offset, mode, num_copies, &pte, 1);
 	if (ret < 0)
 		return ret;
 	data[0] = FIELD_PREP(VF2PF_MMIO_UPDATE_GGTT_RESPONSE_MSG_1_NUM_PTES, (u16)ret);

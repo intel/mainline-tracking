@@ -1501,6 +1501,16 @@ static int glk_degamma_lut_size(struct drm_i915_private *i915)
 		return 35;
 }
 
+/*
+ * change_lut_val_precision: helper function to upscale or downscale lut values.
+ * Parameters 'to' and 'from' needs to be less than 32. This should be sufficient
+ * as currently there are no lut values exceeding 32 bit.
+ */
+static u32 change_lut_val_precision(u32 lut_val, int to, int from)
+{
+	return mul_u32_u32(lut_val, (1 << to)) / (1 << from);
+}
+
 static void glk_load_degamma_lut(const struct intel_crtc_state *crtc_state,
 				 const struct drm_property_blob *blob)
 {
@@ -1535,8 +1545,15 @@ static void glk_load_degamma_lut(const struct intel_crtc_state *crtc_state,
 		 * ToDo: Extend to max 7.0. Enable 32 bit input value
 		 * as compared to just 16 to achieve this.
 		 */
+		u32 lut_val;
+
+		if (DISPLAY_VER(i915) >= 14)
+			lut_val = change_lut_val_precision(lut[i].green, 24, 16);
+		else
+			lut_val = lut[i].green;
+
 		ilk_lut_write(crtc_state, PRE_CSC_GAMC_DATA(pipe),
-			      lut[i].green);
+			      lut_val);
 	}
 
 	/* Clamp values > 1.0. */
@@ -3164,16 +3181,16 @@ static int icl_pre_csc_lut_precision(const struct intel_crtc_state *crtc_state)
 	return 16;
 }
 
-static bool err_check(struct drm_color_lut *lut1,
-		      struct drm_color_lut *lut2, u32 err)
+static bool err_check(const struct drm_color_lut *lut1,
+		      const struct drm_color_lut *lut2, u32 err)
 {
 	return ((abs((long)lut2->red - lut1->red)) <= err) &&
 		((abs((long)lut2->blue - lut1->blue)) <= err) &&
 		((abs((long)lut2->green - lut1->green)) <= err);
 }
 
-static bool intel_lut_entries_equal(struct drm_color_lut *lut1,
-				    struct drm_color_lut *lut2,
+static bool intel_lut_entries_equal(const struct drm_color_lut *lut1,
+				    const struct drm_color_lut *lut2,
 				    int lut_size, u32 err)
 {
 	int i;
@@ -3190,7 +3207,7 @@ static bool intel_lut_equal(const struct drm_property_blob *blob1,
 			    const struct drm_property_blob *blob2,
 			    int check_size, int precision)
 {
-	struct drm_color_lut *lut1, *lut2;
+	const struct drm_color_lut *lut1, *lut2;
 	int lut_size1, lut_size2;
 	u32 err;
 
@@ -3761,6 +3778,14 @@ static struct drm_property_blob *glk_read_degamma_lut(struct intel_crtc *crtc)
 
 	for (i = 0; i < lut_size; i++) {
 		u32 val = intel_de_read_fw(dev_priv, PRE_CSC_GAMC_DATA(pipe));
+
+		/*
+		 * For MTL and beyond, convert back the 24 bit lut values
+		 * read from HW to 16 bit values to maintain parity with
+		 * userspace values
+		 */
+		if (DISPLAY_VER(dev_priv) >= 14)
+			val = change_lut_val_precision(val, 16, 24);
 
 		lut[i].red = val;
 		lut[i].green = val;

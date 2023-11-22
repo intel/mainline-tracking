@@ -35,9 +35,6 @@
 
 #define RESET_MAX_RETRIES 3
 
-/* XXX How to handle concurrent GGTT updates using tiling registers? */
-#define RESET_UNDER_STOP_MACHINE 0
-
 static void client_mark_guilty(struct i915_gem_context *ctx, bool banned)
 {
 	struct drm_i915_file_private *file_priv = ctx->file_priv;
@@ -1627,8 +1624,11 @@ void intel_gt_set_wedged_on_fini(struct intel_gt *gt)
 
 void intel_gt_init_reset(struct intel_gt *gt)
 {
-	init_waitqueue_head(&gt->reset.queue);
 	mutex_init(&gt->reset.mutex);
+	lockdep_set_subclass(&gt->reset.mutex, IS_SRIOV_VF(gt->i915) + 1);
+	might_lock(&gt->reset.mutex); /* mark the subclass as used */
+
+	init_waitqueue_head(&gt->reset.queue);
 	init_srcu_struct(&gt->reset.backoff_srcu);
 
 	/*

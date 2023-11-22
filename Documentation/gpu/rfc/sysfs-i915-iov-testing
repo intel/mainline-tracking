@@ -207,7 +207,7 @@ Description:
 			This attribute controls whether strict scheduling is
 			enabled whereby any VF that doesn't have work to submit
 			is still allocated a fixed execution time-slice to
-			ensure active VFs execution is always consitent even
+			ensure active VFs execution is always consistent even
 			during other VF reprovisiong or rebooting events.
 			Changing this param impacts all VFs and takes effect
 			on the next VF switch event.

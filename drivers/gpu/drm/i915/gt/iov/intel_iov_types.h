@@ -37,7 +37,7 @@ IOV_THRESHOLDS(__to_intel_iov_threshold_enum)
 #undef __to_intel_iov_threshold_enum
 };
 
-#define __count_iov_thresholds(...) +1
+#define __count_iov_thresholds(...) + 1
 #define IOV_THRESHOLD_MAX (0 IOV_THRESHOLDS(__count_iov_thresholds))
 
 /**

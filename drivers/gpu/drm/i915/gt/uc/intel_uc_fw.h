@@ -307,7 +307,7 @@ int intel_uc_check_file_version(struct intel_uc_fw *uc_fw, bool *old_ver);
 void intel_uc_fw_init_early(struct intel_uc_fw *uc_fw,
 			    enum intel_uc_fw_type type,
 			    bool needs_ggtt_mapping);
-void intel_uc_fw_set_preloaded(struct intel_uc_fw *uc_fw, u16 major, u16 minor);
+void intel_uc_fw_set_preloaded(struct intel_uc_fw *uc_fw, u32 major, u32 minor, u32 patch);
 int intel_uc_fw_fetch(struct intel_uc_fw *uc_fw);
 void intel_uc_fw_cleanup_fetch(struct intel_uc_fw *uc_fw);
 int intel_uc_fw_upload(struct intel_uc_fw *uc_fw, u32 offset, u32 dma_flags);

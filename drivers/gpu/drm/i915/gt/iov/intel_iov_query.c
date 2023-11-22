@@ -302,7 +302,7 @@ static int vf_get_ggtt_info(struct intel_iov *iov)
 		return err;
 
 	IOV_DEBUG(iov, "GGTT %#llx-%#llx = %lluK\n",
-		  start, start + size -1, size / SZ_1K);
+		  start, start + size - 1, size / SZ_1K);
 
 	iov->vf.config.ggtt_base = start;
 	iov->vf.config.ggtt_size = size;
@@ -643,7 +643,7 @@ static int intel_iov_query_update_ggtt_pte_relay(struct intel_iov *iov, u32 pte_
 	struct drm_i915_private *i915 = iov_to_i915(iov);
 	u32 request[VF2PF_UPDATE_GGTT32_REQUEST_MSG_MAX_LEN];
 	u32 response[VF2PF_UPDATE_GGTT32_RESPONSE_MSG_LEN];
-	u16 expected =  num_copies + count;
+	u16 expected = num_copies + count;
 	u16 updated;
 	int i;
 	int ret;
@@ -652,6 +652,9 @@ static int intel_iov_query_update_ggtt_pte_relay(struct intel_iov *iov, u32 pte_
 	GEM_BUG_ON(FIELD_MAX(VF2PF_UPDATE_GGTT32_REQUEST_MSG_1_MODE) < mode);
 	GEM_BUG_ON(FIELD_MAX(VF2PF_UPDATE_GGTT32_REQUEST_MSG_1_NUM_COPIES) < num_copies);
 	assert_rpm_wakelock_held(&i915->runtime_pm);
+
+	if (count < 1)
+		return -EINVAL;
 
 	request[0] = FIELD_PREP(GUC_HXG_MSG_0_ORIGIN, GUC_HXG_ORIGIN_HOST) |
 		     FIELD_PREP(GUC_HXG_MSG_0_TYPE, GUC_HXG_TYPE_REQUEST) |

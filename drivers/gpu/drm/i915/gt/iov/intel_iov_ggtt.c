@@ -9,6 +9,127 @@
 #include "intel_iov_query.h"
 #include "intel_iov_utils.h"
 
+static gen8_pte_t prepare_pattern_pte(gen8_pte_t source_pte, u16 vfid)
+{
+	return (source_pte & MTL_GGTT_PTE_PAT_MASK) | i915_ggtt_prepare_vf_pte(vfid);
+}
+
+static struct scatterlist *
+sg_add_addr(struct sg_table *st, struct scatterlist *sg, dma_addr_t addr)
+{
+	if (!sg)
+		sg = st->sgl;
+
+	st->nents++;
+	sg_set_page(sg, NULL, I915_GTT_PAGE_SIZE, 0);
+	sg_dma_address(sg) = addr;
+	sg_dma_len(sg) = I915_GTT_PAGE_SIZE;
+	return sg_next(sg);
+}
+
+static struct scatterlist *
+sg_add_ptes(struct sg_table *st, struct scatterlist *sg, gen8_pte_t source_pte, u16 count,
+	    bool duplicated)
+{
+	dma_addr_t pfn = FIELD_GET(GEN12_GGTT_PTE_ADDR_MASK, source_pte);
+
+	while (count--)
+		if (duplicated)
+			sg = sg_add_addr(st, sg, pfn << PAGE_SHIFT);
+		else
+			sg = sg_add_addr(st, sg, pfn++ << PAGE_SHIFT);
+
+	return sg;
+}
+
+static struct scatterlist *
+sg_add_pte(struct sg_table *st, struct scatterlist *sg, gen8_pte_t source_pte)
+{
+	return sg_add_ptes(st, sg, source_pte, 1, false);
+}
+
+int intel_iov_ggtt_pf_update_vf_ptes(struct intel_iov *iov, u32 vfid, u32 pte_offset, u8 mode,
+				     u16 num_copies, gen8_pte_t *ptes, u16 count)
+{
+	struct drm_mm_node *node = &iov->pf.provisioning.configs[vfid].ggtt_region;
+	u64 ggtt_addr = node->start + pte_offset * I915_GTT_PAGE_SIZE_4K;
+	u64 ggtt_addr_end = ggtt_addr + count * I915_GTT_PAGE_SIZE_4K - 1;
+	u64 vf_ggtt_end = node->start + node->size - 1;
+	gen8_pte_t pte_pattern = prepare_pattern_pte(*(ptes), vfid);
+	struct sg_table *st;
+	struct scatterlist *sg;
+	bool is_duplicated;
+	u16 n_ptes;
+	int err;
+	int i;
+
+	GEM_BUG_ON(!intel_iov_is_pf(iov));
+	/* XXX: All PTEs must have the same flags */
+	for (i = 0; i < count; i++)
+		GEM_BUG_ON(prepare_pattern_pte(ptes[i], vfid) != pte_pattern);
+
+	if (!count)
+		return -EINVAL;
+
+	if (ggtt_addr_end > vf_ggtt_end)
+		return -ERANGE;
+
+	n_ptes = num_copies ? num_copies + count : count;
+
+	st = kmalloc(sizeof(*st), GFP_KERNEL);
+	if (!st)
+		return -ENOMEM;
+
+	if (sg_alloc_table(st, n_ptes, GFP_KERNEL)) {
+		kfree(st);
+		return -ENOMEM;
+	}
+
+	sg = st->sgl;
+	st->nents = 0;
+
+	/*
+	 * To simplify the code, always let at least one PTE be updated by
+	 * a function to duplicate or replicate.
+	 */
+	num_copies++;
+	count--;
+
+	is_duplicated = mode == MMIO_UPDATE_GGTT_MODE_DUPLICATE ||
+			mode == MMIO_UPDATE_GGTT_MODE_DUPLICATE_LAST;
+
+	switch (mode) {
+	case MMIO_UPDATE_GGTT_MODE_DUPLICATE:
+	case MMIO_UPDATE_GGTT_MODE_REPLICATE:
+		sg = sg_add_ptes(st, sg, *(ptes++), num_copies, is_duplicated);
+
+		while (count--)
+			sg = sg_add_pte(st, sg, *(ptes++));
+		break;
+	case MMIO_UPDATE_GGTT_MODE_DUPLICATE_LAST:
+	case MMIO_UPDATE_GGTT_MODE_REPLICATE_LAST:
+		while (count--)
+			sg = sg_add_pte(st, sg, *(ptes++));
+
+		sg = sg_add_ptes(st, sg, *(ptes++), num_copies, is_duplicated);
+		break;
+	default:
+		err = -EINVAL;
+		goto cleanup;
+	}
+
+	err = i915_ggtt_sgtable_update_ptes(iov_to_gt(iov)->ggtt, ggtt_addr, st, n_ptes,
+					    pte_pattern);
+cleanup:
+	sg_free_table(st);
+	kfree(st);
+	if (err < 0)
+		return err;
+
+	IOV_DEBUG(iov, "PF updated GGTT for %d PTE(s) from VF%u\n", n_ptes, vfid);
+	return n_ptes;
+}
+
 void intel_iov_ggtt_vf_init_early(struct intel_iov *iov)
 {
 	GEM_BUG_ON(!intel_iov_is_vf(iov));

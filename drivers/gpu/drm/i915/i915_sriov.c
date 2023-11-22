@@ -192,19 +192,18 @@ extern const struct intel_display_device_info no_display;
 static void vf_tweak_device_info(struct drm_i915_private *i915)
 {
 	/* FIXME: info shouldn't be written to outside of intel_device_info.c */
-	struct intel_device_info *info = (struct intel_device_info *)INTEL_INFO(i915);
 	struct intel_runtime_info *rinfo = RUNTIME_INFO(i915);
 	struct intel_display_runtime_info *drinfo = DISPLAY_RUNTIME_INFO(i915);
 
 	/* Force PCH_NOOP. We have no access to display */
 	i915->pch_type = PCH_NOP;
-	info->display = &no_display;
+	i915->display.info.__device_info = &no_display;
 
 	/*
 	 * Overwrite current display runtime info based on just updated device
 	 * info for VF.
 	 */
-	memcpy(drinfo, &info->display->__runtime_defaults, sizeof(*drinfo));
+	memcpy(drinfo, &i915->display.info.__device_info->__runtime_defaults, sizeof(*drinfo));
 
 	rinfo->memory_regions &= ~(REGION_STOLEN_SMEM | REGION_STOLEN_LMEM);
 }
@@ -283,6 +282,7 @@ void i915_sriov_pf_confirm(struct drm_i915_private *i915)
 	int totalvfs = i915_sriov_pf_get_totalvfs(i915);
 	struct intel_gt *gt;
 	unsigned int id;
+	intel_wakeref_t wakeref;
 
 	GEM_BUG_ON(!IS_SRIOV_PF(i915));
 
@@ -300,7 +300,8 @@ void i915_sriov_pf_confirm(struct drm_i915_private *i915)
 	 * the life cycle of the PF.
 	 */
 	for_each_gt(gt, i915, id)
-		intel_iov_provisioning_force_vgt_mode(&gt->iov);
+		with_intel_runtime_pm(gt->uncore->rpm, wakeref)
+			intel_iov_provisioning_force_vgt_mode(&gt->iov);
 
 }
 
@@ -447,17 +448,22 @@ static int pf_enable_gsc_engine(struct drm_i915_private *i915)
 {
 	struct intel_gt *gt;
 	unsigned int id;
+	int err;
 
 	GEM_BUG_ON(!IS_SRIOV_PF(i915));
 
 	for_each_gt(gt, i915, id) {
-		int err = intel_guc_enable_gsc_engine(&gt->uc.guc);
-
+		err = intel_guc_enable_gsc_engine(&gt->uc.guc);
 		if (err < 0)
 			return err;
 	}
 
-	return intel_pxp_init(i915);
+	err = intel_pxp_init(i915);
+	/*
+	 * XXX: Ignore -ENODEV error.
+	 * It this case, there is no need to reinitialize PXP
+	 */
+	return (err < 0 && err != -ENODEV) ? err : 0;
 }
 
 static int pf_disable_gsc_engine(struct drm_i915_private *i915)
@@ -643,7 +649,7 @@ int i915_sriov_pf_disable_vfs(struct drm_i915_private *i915)
 		pf_wait_vfs_flr(&gt->iov, num_vfs, I915_VF_FLR_TIMEOUT_MS);
 
 	for_each_gt(gt, i915, id) {
-		/* unprovisioning wont work if FLR didn't finish */
+		/* unprovisioning won't work if FLR didn't finish */
 		in_flr = pf_wait_vfs_flr(&gt->iov, num_vfs, 0);
 		if (in_flr) {
 			gt_warn(gt, "Can't unprovision %u VFs, %u FLRs are still in progress\n",
@@ -669,6 +675,27 @@ int i915_sriov_pf_disable_vfs(struct drm_i915_private *i915)
 	return 0;
 }
 
+static bool needs_save_restore(struct drm_i915_private *i915, unsigned int vfid)
+{
+	struct pci_dev *pdev = to_pci_dev(i915->drm.dev);
+	struct pci_dev *vfpdev = i915_pci_pf_get_vf_dev(pdev, vfid);
+	bool ret;
+
+	if (!vfpdev)
+		return false;
+
+	/*
+	 * If VF has the same driver as PF loaded (from host perspective), we don't need
+	 * to save/restore its state, because the VF driver will receive the same PM
+	 * handling as all the host drivers. There is also no need to save/restore state
+	 * when no driver is loaded on VF.
+	 */
+	ret = (vfpdev->driver && strcmp(vfpdev->driver->name, pdev->driver->name) != 0);
+
+	pci_dev_put(vfpdev);
+	return ret;
+}
+
 static void pf_restore_vfs_pci_state(struct drm_i915_private *i915, unsigned int num_vfs)
 {
 	struct pci_dev *pdev = to_pci_dev(i915->drm.dev);
@@ -681,12 +708,14 @@ static void pf_restore_vfs_pci_state(struct drm_i915_private *i915, unsigned int
 
 		if (!vfpdev)
 			continue;
+		if (!needs_save_restore(i915, vfid))
+			continue;
 
 		/*
 		 * XXX: Waiting for other drivers to do their job.
 		 * We can ignore the potential error in this function -
-		 * despite the errors, we will try to reinitialize the MSI
-		 * and set the PCI master
+		 * in case of an error, we still want to try to reinitialize
+		 * the MSI and set the PCI master.
 		 */
 		device_pm_wait_for_dev(&pdev->dev, &vfpdev->dev);
 
@@ -749,6 +778,11 @@ static void pf_save_vfs_guc_state(struct drm_i915_private *i915, unsigned int nu
 	unsigned int vfid;
 
 	for (vfid = 1; vfid <= num_vfs; vfid++) {
+		if (!needs_save_restore(i915, vfid)) {
+			drm_dbg(&i915->drm, "Save of VF%u GuC state has been skipped\n", vfid);
+			continue;
+		}
+
 		for_each_gt(gt, i915, gt_id) {
 			int err = pf_gt_save_vf_guc_state(gt, vfid);
 
@@ -805,6 +839,12 @@ static void pf_restore_vfs_guc_state(struct drm_i915_private *i915, unsigned int
 	unsigned int vfid;
 
 	for (vfid = 1; vfid <= num_vfs; vfid++) {
+		if (!needs_save_restore(i915, vfid)) {
+			drm_dbg(&i915->drm, "Restoration of VF%u GuC state has been skipped\n",
+				vfid);
+			continue;
+		}
+
 		for_each_gt(gt, i915, gt_id) {
 			int err = pf_gt_restore_vf_guc_state(gt, vfid);
 
@@ -1270,7 +1310,6 @@ int i915_sriov_suspend_prepare(struct drm_i915_private *i915)
 
 	if (IS_SRIOV_PF(i915)) {
 		pf_resume_active_vfs(i915);
-
 		/*
 		 * When we're enabling the VFs in i915_sriov_pf_enable_vfs(), we also get
 		 * a GT PM wakeref which we hold for the whole VFs life cycle.

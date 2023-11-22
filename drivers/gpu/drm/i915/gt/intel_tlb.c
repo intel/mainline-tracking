@@ -8,18 +8,11 @@
 #include "intel_engine_pm.h"
 #include "intel_gt.h"
 #include "intel_gt_mcr.h"
+#include "intel_gt_pm.h"
 #include "intel_gt_print.h"
 #include "intel_gt_regs.h"
-#include "intel_gt_tlb.h"
+#include "intel_tlb.h"
 #include "uc/intel_guc.h"
-
-struct reg_and_bit {
-	union {
-		i915_reg_t reg;
-		i915_mcr_reg_t mcr_reg;
-	};
-	u32 bit;
-};
 
 /*
  * HW architecture suggest typical invalidation time at 40us,
@@ -101,11 +94,12 @@ static void mmio_invalidate_full(struct intel_gt *gt)
 	spin_unlock(&uncore->lock);
 	intel_gt_mcr_unlock(gt, flags);
 
-	for_each_engine_masked(engine, gt, awake, tmp)
+	for_each_engine_masked(engine, gt, awake, tmp) {
 		if (wait_for_invalidate(engine))
 			gt_err_ratelimited(gt,
 					   "%s TLB invalidation did not complete in %ums!\n",
 					   engine->name, TLB_INVAL_TIMEOUT_MS);
+	}
 
 	/*
 	 * Use delayed put since a) we mostly expect a flurry of TLB
@@ -124,14 +118,7 @@ static bool tlb_seqno_passed(const struct intel_gt *gt, u32 seqno)
 	return (s32)(cur - ALIGN(seqno, 2)) > 0;
 }
 
-/**
- * intel_gt_tlb_invalidate - Invalidate an engine TLB
- * @gt: GT whose engine to perform invalidation on
- * @seqno: TLB seqno to invalidate
- *
- * Invalidate the whole engine invalidations table.
- */
-void intel_gt_tlb_invalidate(struct intel_gt *gt, u32 seqno)
+void intel_gt_invalidate_tlb_full(struct intel_gt *gt, u32 seqno)
 {
 	intel_wakeref_t wakeref;
 
@@ -168,13 +155,13 @@ unlock:
 	}
 }
 
-void intel_gt_tlb_init(struct intel_gt *gt)
+void intel_gt_init_tlb(struct intel_gt *gt)
 {
 	mutex_init(&gt->tlb.invalidate_lock);
 	seqcount_mutex_init(&gt->tlb.seqno, &gt->tlb.invalidate_lock);
 }
 
-void intel_gt_tlb_fini(struct intel_gt *gt)
+void intel_gt_fini_tlb(struct intel_gt *gt)
 {
 	mutex_destroy(&gt->tlb.invalidate_lock);
 }
@@ -182,4 +169,3 @@ void intel_gt_tlb_fini(struct intel_gt *gt)
 #if IS_ENABLED(CONFIG_DRM_I915_SELFTEST)
 #include "selftest_tlb.c"
 #endif
-

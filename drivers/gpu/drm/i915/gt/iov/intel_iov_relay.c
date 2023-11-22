@@ -62,7 +62,7 @@ static struct device *relay_to_dev(struct intel_iov_relay *relay)
 /*
  * How long should we wait for the response?
  * For default timeout use CONFIG_DRM_I915_HEARTBEAT_INTERVAL like CTB does.
- * If hearbeat interval is not enabled then wait forever.
+ * If heartbeat interval is not enabled then wait forever.
  */
 #define RELAY_TIMEOUT	(CONFIG_DRM_I915_HEARTBEAT_INTERVAL ?: MAX_SCHEDULE_TIMEOUT)
 

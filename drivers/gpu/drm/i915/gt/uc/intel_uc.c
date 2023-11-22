@@ -47,7 +47,7 @@ static void uc_expand_default_options(struct intel_uc *uc)
 	}
 
 	/* Intermediate platforms are HuC authentication only */
-	if (IS_ALDERLAKE_S(i915) && !IS_ADLS_RPLS(i915)) {
+	if (IS_ALDERLAKE_S(i915) && !IS_RAPTORLAKE_S(i915)) {
 		i915->params.enable_guc = ENABLE_GUC_LOAD_HUC;
 		return;
 	}
@@ -627,8 +627,9 @@ static void __vf_uc_init_fw(struct intel_uc *uc)
 	struct intel_gt *gt = uc_to_gt(uc);
 	unsigned int major = gt->iov.vf.config.guc_abi.major;
 	unsigned int minor = gt->iov.vf.config.guc_abi.minor;
+	unsigned int patch = gt->iov.vf.config.guc_abi.patch;
 
-	intel_uc_fw_set_preloaded(&uc->guc.fw, major, minor);
+	intel_uc_fw_set_preloaded(&uc->guc.fw, major, minor, patch);
 }
 
 static int __vf_uc_init(struct intel_uc *uc)
@@ -685,7 +686,7 @@ static int __vf_uc_init_hw(struct intel_uc *uc)
 	if (intel_uc_fw_is_supported(&huc->fw)) {
 		if (intel_huc_check_status(huc) > 0)
 			/* XXX: We don't know how to get the HuC version yet */
-			intel_uc_fw_set_preloaded(&huc->fw, 0, 0);
+			intel_uc_fw_set_preloaded(&huc->fw, 0, 0, 0);
 		else
 			intel_uc_fw_change_status(&huc->fw, INTEL_UC_FIRMWARE_DISABLED);
 	}

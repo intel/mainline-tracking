@@ -118,6 +118,13 @@ enum {
 	GUC_CONTEXT_POLICIES_KLV_NUM_IDS = 5,
 };
 
+/*
+ * Workaround keys:
+ */
+enum {
+	GUC_WORKAROUND_KLV_SERIALIZED_RA_MODE                           = 0x9001,
+};
+
 /**
  * DOC: GuC VGT Policy KLVs
  *
@@ -126,7 +133,7 @@ enum {
  * _`GUC_KLV_VGT_POLICY_SCHED_IF_IDLE` : 0x8001
  *      This config sets whether strict scheduling is enabled whereby any VF
  *      that doesn’t have work to submit is still allocated a fixed execution
- *      time-slice to ensure active VFs execution is always consitent even
+ *      time-slice to ensure active VFs execution is always consistent even
  *      during other VF reprovisiong / rebooting events. Changing this KLV
  *      impacts all VFs and takes effect on the next VF-Switch event.
  *
@@ -189,7 +196,7 @@ enum {
  *      of and this will never be perfectly-exact (accumulated nano-second
  *      granularity) since the GPUs clock time runs off a different crystal
  *      from the CPUs clock. Changing this KLV on a VF that is currently
- *      running a context wont take effect until a new context is scheduled in.
+ *      running a context won't take effect until a new context is scheduled in.
  *      That said, when the PF is changing this value from 0xFFFFFFFF to
  *      something else, it might never take effect if the VF is running an
  *      inifinitely long compute or shader kernel. In such a scenario, the
@@ -205,7 +212,7 @@ enum {
  *      HW is capable and this will never be perfectly-exact (accumulated
  *      nano-second granularity) since the GPUs clock time runs off a
  *      different crystal from the CPUs clock. Changing this KLV on a VF
- *      that is currently running a context wont take effect until a new
+ *      that is currently running a context won't take effect until a new
  *      context is scheduled in.
  *      That said, when the PF is changing this value from 0xFFFFFFFF to
  *      something else, it might never take effect if the VF is running an

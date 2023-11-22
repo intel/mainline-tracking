@@ -128,6 +128,8 @@ static void ct_incoming_request_worker_func(struct work_struct *w);
  */
 void intel_guc_ct_init_early(struct intel_guc_ct *ct)
 {
+	static struct lock_class_key __key;
+
 	spin_lock_init(&ct->ctbs.send.lock);
 	spin_lock_init(&ct->ctbs.recv.lock);
 	spin_lock_init(&ct->requests.lock);
@@ -137,6 +139,15 @@ void intel_guc_ct_init_early(struct intel_guc_ct *ct)
 	INIT_WORK(&ct->dead_ct_worker, ct_dead_ct_worker_func);
 #endif
 	INIT_WORK(&ct->requests.worker, ct_incoming_request_worker_func);
+	lockdep_init_map(&ct->requests.worker.lockdep_map, "ct_request_worker", &__key,
+			 IS_SRIOV_VF(ct_to_i915(ct)) + 1);
+
+/* mark the subclass as used */
+#ifdef CONFIG_DEBUG_LOCKDEP
+	lock_map_acquire(&ct->requests.worker.lockdep_map);
+	lock_map_release(&ct->requests.worker.lockdep_map);
+#endif
+
 	tasklet_setup(&ct->receive_tasklet, ct_receive_tasklet_func);
 	init_waitqueue_head(&ct->wq);
 
@@ -1191,12 +1202,8 @@ static int ct_process_request(struct intel_guc_ct *ct, struct ct_incoming_msg *r
 		ret = 0;
 		break;
 	case INTEL_GUC_ACTION_NOTIFY_CRASH_DUMP_POSTED:
-		CT_ERROR(ct, "Received GuC crash dump notification!\n");
-		ret = 0;
-		break;
 	case INTEL_GUC_ACTION_NOTIFY_EXCEPTION:
-		CT_ERROR(ct, "Received GuC exception notification!\n");
-		ret = 0;
+		ret = intel_guc_crash_process_msg(guc, action);
 		break;
 	default:
 		ret = -EOPNOTSUPP;

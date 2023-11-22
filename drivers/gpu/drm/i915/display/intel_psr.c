@@ -23,6 +23,7 @@
 
 #include <drm/drm_atomic_helper.h>
 #include <drm/drm_damage_helper.h>
+#include <drm/drm_debugfs.h>
 
 #include "i915_drv.h"
 #include "i915_reg.h"
@@ -32,6 +33,7 @@
 #include "intel_display_types.h"
 #include "intel_dp.h"
 #include "intel_dp_aux.h"
+#include "intel_frontbuffer.h"
 #include "intel_hdmi.h"
 #include "intel_psr.h"
 #include "intel_psr_regs.h"
@@ -748,7 +750,7 @@ static void hsw_activate_psr2(struct intel_dp *intel_dp)
 	}
 
 	/* Wa_22012278275:adl-p */
-	if (IS_ADLP_DISPLAY_STEP(dev_priv, STEP_A0, STEP_E0)) {
+	if (IS_ALDERLAKE_P(dev_priv) && IS_DISPLAY_STEP(dev_priv, STEP_A0, STEP_E0)) {
 		static const u8 map[] = {
 			2, /* 5 lines */
 			1, /* 6 lines */
@@ -918,7 +920,7 @@ tgl_dc3co_exitline_compute_config(struct intel_dp *intel_dp,
 		return;
 
 	/* Wa_16011303918:adl-p */
-	if (IS_ADLP_DISPLAY_STEP(dev_priv, STEP_A0, STEP_B0))
+	if (IS_ALDERLAKE_P(dev_priv) && IS_DISPLAY_STEP(dev_priv, STEP_A0, STEP_B0))
 		return;
 
 	/*
@@ -1074,7 +1076,7 @@ static bool intel_psr2_config_valid(struct intel_dp *intel_dp,
 		return false;
 
 	/* JSL and EHL only supports eDP 1.3 */
-	if (IS_JSL_EHL(dev_priv)) {
+	if (IS_JASPERLAKE(dev_priv) || IS_ELKHARTLAKE(dev_priv)) {
 		drm_dbg_kms(&dev_priv->drm, "PSR2 not supported by phy\n");
 		return false;
 	}
@@ -1086,7 +1088,7 @@ static bool intel_psr2_config_valid(struct intel_dp *intel_dp,
 		return false;
 	}
 
-	if (IS_ADLP_DISPLAY_STEP(dev_priv, STEP_A0, STEP_B0)) {
+	if (IS_ALDERLAKE_P(dev_priv) && IS_DISPLAY_STEP(dev_priv, STEP_A0, STEP_B0)) {
 		drm_dbg_kms(&dev_priv->drm, "PSR2 not completely functional in this stepping\n");
 		return false;
 	}
@@ -1144,7 +1146,7 @@ static bool intel_psr2_config_valid(struct intel_dp *intel_dp,
 
 	/* Wa_16011303918:adl-p */
 	if (crtc_state->vrr.enable &&
-	    IS_ADLP_DISPLAY_STEP(dev_priv, STEP_A0, STEP_B0)) {
+	    IS_ALDERLAKE_P(dev_priv) && IS_DISPLAY_STEP(dev_priv, STEP_A0, STEP_B0)) {
 		drm_dbg_kms(&dev_priv->drm,
 			    "PSR2 not enabled, not compatible with HW stepping + VRR\n");
 		return false;
@@ -1360,8 +1362,7 @@ static void wm_optimization_wa(struct intel_dp *intel_dp,
 	bool set_wa_bit = false;
 
 	/* Wa_14015648006 */
-	if (IS_DISPLAY_IP_STEP(dev_priv, IP_VER(14, 0), STEP_A0, STEP_B0) ||
-	    IS_DISPLAY_VER(dev_priv, 11, 13))
+	if (IS_DISPLAY_VER(dev_priv, 11, 14))
 		set_wa_bit |= crtc_state->wm_level_disabled;
 
 	/* Wa_16013835468 */
@@ -2229,6 +2230,12 @@ static void _intel_psr_post_plane_update(const struct intel_atomic_state *state,
 		/* Force a PSR exit when enabling CRC to avoid CRC timeouts */
 		if (crtc_state->crc_enabled && psr->enabled)
 			psr_force_hw_tracking_exit(intel_dp);
+
+		/*
+		 * Clear possible busy bits in case we have
+		 * invalidate -> flip -> flush sequence.
+		 */
+		intel_dp->psr.busy_frontbuffer_bits = 0;
 
 		mutex_unlock(&psr->lock);
 	}
@@ -3153,7 +3160,7 @@ static int i915_psr_sink_status_show(struct seq_file *m, void *data)
 	};
 	const char *str;
 	int ret;
-	u8 val;
+	u8 status, error_status;
 
 	if (!CAN_PSR(intel_dp)) {
 		seq_puts(m, "PSR Unsupported\n");
@@ -3163,19 +3170,34 @@ static int i915_psr_sink_status_show(struct seq_file *m, void *data)
 	if (connector->base.status != connector_status_connected)
 		return -ENODEV;
 
-	ret = drm_dp_dpcd_readb(&intel_dp->aux, DP_PSR_STATUS, &val);
-	if (ret != 1)
-		return ret < 0 ? ret : -EIO;
+	ret = psr_get_status_and_error_status(intel_dp, &status, &error_status);
+	if (ret)
+		return ret;
 
-	val &= DP_PSR_SINK_STATE_MASK;
-	if (val < ARRAY_SIZE(sink_status))
-		str = sink_status[val];
+	status &= DP_PSR_SINK_STATE_MASK;
+	if (status < ARRAY_SIZE(sink_status))
+		str = sink_status[status];
 	else
 		str = "unknown";
 
-	seq_printf(m, "Sink PSR status: 0x%x [%s]\n", val, str);
+	seq_printf(m, "Sink PSR status: 0x%x [%s]\n", status, str);
 
-	return 0;
+	seq_printf(m, "Sink PSR error status: 0x%x", error_status);
+
+	if (error_status & (DP_PSR_RFB_STORAGE_ERROR |
+			    DP_PSR_VSC_SDP_UNCORRECTABLE_ERROR |
+			    DP_PSR_LINK_CRC_ERROR))
+		seq_puts(m, ":\n");
+	else
+		seq_puts(m, "\n");
+	if (error_status & DP_PSR_RFB_STORAGE_ERROR)
+		seq_puts(m, "\tPSR RFB storage error\n");
+	if (error_status & DP_PSR_VSC_SDP_UNCORRECTABLE_ERROR)
+		seq_puts(m, "\tPSR VSC SDP uncorrectable error\n");
+	if (error_status & DP_PSR_LINK_CRC_ERROR)
+		seq_puts(m, "\tPSR Link CRC error\n");
+
+	return ret;
 }
 DEFINE_SHOW_ATTRIBUTE(i915_psr_sink_status);
 

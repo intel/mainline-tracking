@@ -359,7 +359,7 @@ out_a:
 
 static void tlbinv_full(struct i915_address_space *vm, u64 addr, u64 length)
 {
-	intel_gt_tlb_invalidate(vm->gt, intel_gt_tlb_next_seqno_full(vm->gt));
+	intel_gt_invalidate_tlb_full(vm->gt, intel_gt_tlb_seqno(vm->gt) | 1);
 }
 
 static int invalidate_full(void *arg)
