@@ -3363,6 +3363,7 @@ static void try_enable_default_console(struct console *newcon)
 		newcon->flags |= CON_CONSDEV;
 }
 
+/* Set @newcon->seq to the first record this console should print. */
 static void console_init_seq(struct console *newcon, bool bootcon_registered)
 {
 	struct console *con;
@@ -3411,11 +3412,20 @@ static void console_init_seq(struct console *newcon, bool bootcon_registered)
 
 				newcon->seq = prb_next_seq(prb);
 				for_each_console(con) {
-					if ((con->flags & CON_BOOT) &&
-					    (con->flags & CON_ENABLED) &&
-					    con->seq < newcon->seq) {
-						newcon->seq = con->seq;
+					u64 seq;
+
+					if (!((con->flags & CON_BOOT) &&
+					      (con->flags & CON_ENABLED))) {
+						continue;
 					}
+
+					if (con->flags & CON_NBCON)
+						seq = nbcon_seq_read(con);
+					else
+						seq = con->seq;
+
+					if (seq < newcon->seq)
+						newcon->seq = seq;
 				}
 			}
 
@@ -3532,8 +3542,17 @@ void register_console(struct console *newcon)
 	newcon->dropped = 0;
 	console_init_seq(newcon, bootcon_registered);
 
-	if (newcon->flags & CON_NBCON)
+	if (newcon->flags & CON_NBCON) {
 		nbcon_init(newcon);
+
+		/*
+		 * nbcon consoles have their own sequence counter. The legacy
+		 * sequence counter is reset so that it is clear it is not
+		 * being used.
+		 */
+		nbcon_seq_force(newcon, newcon->seq);
+		newcon->seq = 0;
+	}
 
 	/*
 	 * Put this console in the list - keep the
