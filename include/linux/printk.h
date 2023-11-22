@@ -199,6 +199,7 @@ extern asmlinkage void dump_stack_lvl(const char *log_lvl) __cold;
 extern asmlinkage void dump_stack(void) __cold;
 void printk_trigger_flush(void);
 void console_replay_all(void);
+void printk_legacy_allow_panic_sync(void);
 extern bool nbcon_driver_try_acquire(struct console *con);
 extern void nbcon_driver_release(struct console *con);
 void nbcon_atomic_flush_unsafe(void);
@@ -282,6 +283,10 @@ static inline void printk_trigger_flush(void)
 {
 }
 static inline void console_replay_all(void)
+{
+}
+
+static inline void printk_legacy_allow_panic_sync(void)
 {
 }
 
