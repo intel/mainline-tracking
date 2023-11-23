@@ -1410,6 +1410,7 @@ static int __apic_accept_irq(struct kvm_lapic *apic, int delivery_mode,
 
 	case APIC_DM_NMI:
 		result = 1;
+		atomic_or(1 << vector, &vcpu->arch.nmi_source_pending);
 		kvm_inject_nmi(vcpu);
 		kvm_vcpu_kick(vcpu);
 		break;

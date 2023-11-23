@@ -5208,6 +5208,13 @@ void vmx_inject_nmi(struct kvm_vcpu *vcpu)
 	vmcs_write32(VM_ENTRY_INTR_INFO_FIELD,
 			INTR_TYPE_NMI_INTR | INTR_INFO_VALID_MASK | NMI_VECTOR);
 
+	if (is_fred_enabled(vcpu)) {
+		vmcs_write64(INJECTED_EVENT_DATA,
+			     guest_cpu_cap_has(vcpu, X86_FEATURE_NMI_SOURCE) ?
+			     vcpu->arch.nmi_source_inject : 0);
+		vcpu->arch.nmi_source_inject = 0;
+	}
+
 	vmx_clear_hlt(vcpu);
 }
 
@@ -7415,6 +7422,9 @@ static void __vmx_complete_interrupts(struct kvm_vcpu *vcpu,
 	switch (type) {
 	case INTR_TYPE_NMI_INTR:
 		vcpu->arch.nmi_injected = true;
+
+		if (is_fred_enabled(vcpu))
+			vcpu->arch.nmi_source_inject = vmcs_read64(event_data_field);
 		/*
 		 * SDM 3: 27.7.1.2 (September 2008)
 		 * Clear bit "block by NMI" before VM entry if a NMI
