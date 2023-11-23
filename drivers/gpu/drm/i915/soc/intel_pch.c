@@ -142,6 +142,7 @@ intel_pch_type(const struct drm_i915_private *dev_priv, unsigned short id)
 		return PCH_ADP;
 	case INTEL_PCH_MTP_DEVICE_ID_TYPE:
 	case INTEL_PCH_MTP2_DEVICE_ID_TYPE:
+	case INTEL_PCH_MTP3_DEVICE_ID_TYPE:
 		drm_dbg_kms(&dev_priv->drm, "Found Meteor Lake PCH\n");
 		drm_WARN_ON(&dev_priv->drm, !IS_METEORLAKE(dev_priv));
 		return PCH_MTP;
