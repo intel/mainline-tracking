@@ -7,6 +7,7 @@
  * Author: Jarkko Nikula <jarkko.nikula@linux.intel.com>
  */
 #include <linux/acpi.h>
+#include <linux/idr.h>
 #include <linux/kernel.h>
 #include <linux/module.h>
 #include <linux/pci.h>
@@ -21,6 +22,8 @@ struct mipi_i3c_hci_pci_info {
 #define INTEL_PRIV_RESETS		0x04
 #define INTEL_PRIV_RESETS_RESET		BIT(0)
 #define INTEL_PRIV_RESETS_RESET_DONE	BIT(1)
+
+static DEFINE_IDA(mipi_i3c_hci_pci_ida);
 
 static int mipi_i3c_hci_pci_intel_init(struct pci_dev *pci)
 {
@@ -57,7 +60,7 @@ static int mipi_i3c_hci_pci_probe(struct pci_dev *pci,
 	struct mipi_i3c_hci_pci_info *info;
 	struct platform_device *pdev;
 	struct resource res[2];
-	int ret;
+	int dev_id, ret;
 
 	ret = pcim_enable_device(pci);
 	if (ret)
@@ -75,7 +78,11 @@ static int mipi_i3c_hci_pci_probe(struct pci_dev *pci,
 	res[1].start = pci->irq;
 	res[1].end = pci->irq;
 
-	pdev = platform_device_alloc("mipi-i3c-hci", 0);
+	dev_id = ida_alloc(&mipi_i3c_hci_pci_ida, GFP_KERNEL);
+	if (dev_id < 0)
+		return dev_id;
+
+	pdev = platform_device_alloc("mipi-i3c-hci", dev_id);
 	if (!pdev)
 		return -ENOMEM;
 
@@ -103,14 +110,17 @@ static int mipi_i3c_hci_pci_probe(struct pci_dev *pci,
 
 err:
 	platform_device_put(pdev);
+	ida_free(&mipi_i3c_hci_pci_ida, dev_id);
 	return ret;
 }
 
 static void mipi_i3c_hci_pci_remove(struct pci_dev *pci)
 {
 	struct platform_device *pdev = pci_get_drvdata(pci);
+	int dev_id = pdev->id;
 
 	platform_device_unregister(pdev);
+	ida_free(&mipi_i3c_hci_pci_ida, dev_id);
 }
 
 static const struct pci_device_id mipi_i3c_hci_pci_devices[] = {
