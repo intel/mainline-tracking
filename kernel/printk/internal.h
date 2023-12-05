@@ -48,6 +48,7 @@ struct printk_ringbuffer;
 struct dev_printk_info;
 
 extern struct printk_ringbuffer *prb;
+extern bool printk_threads_enabled;
 
 __printf(4, 0)
 int vprintk_store(int facility, int level,
@@ -159,6 +160,7 @@ static inline void nbcon_kthread_wake(struct console *con)
 
 static inline void nbcon_kthread_wake(struct console *con) { }
 static inline void nbcon_kthread_create(struct console *con) { }
+#define printk_threads_enabled (false)
 
 /*
  * In !PRINTK builds we still export console_sem

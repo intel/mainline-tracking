@@ -2386,6 +2386,9 @@ asmlinkage int vprintk_emit(int facility, int level,
 		 *
 		 * - When this CPU is in panic.
 		 *
+		 * - When booting, before the printing threads have been
+		 *   started.
+		 *
 		 * - During shutdown, since the printing threads may not get
 		 *   a chance to print the final messages.
 		 *
@@ -2394,6 +2397,7 @@ asmlinkage int vprintk_emit(int facility, int level,
 		 * consoles cannot print simultaneously with boot consoles.
 		 */
 		if (is_panic_context ||
+		    !printk_threads_enabled ||
 		    (system_state > SYSTEM_RUNNING)) {
 			nbcon_atomic_flush_pending();
 		}
@@ -3752,6 +3756,7 @@ EXPORT_SYMBOL(register_console);
 /* Must be called under console_list_lock(). */
 static int unregister_console_locked(struct console *console)
 {
+	bool is_boot_con = (console->flags & CON_BOOT);
 	bool found_legacy_con = false;
 	bool found_nbcon_con = false;
 	bool found_boot_con = false;
@@ -3833,6 +3838,15 @@ static int unregister_console_locked(struct console *console)
 		have_legacy_console = found_legacy_con;
 	if (!found_nbcon_con)
 		have_nbcon_console = found_nbcon_con;
+
+	/*
+	 * When the last boot console unregisters, start up the
+	 * printing threads.
+	 */
+	if (is_boot_con && !have_boot_console) {
+		for_each_console(c)
+			nbcon_kthread_create(c);
+	}
 
 	return res;
 }

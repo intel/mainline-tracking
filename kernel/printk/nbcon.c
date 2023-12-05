@@ -213,6 +213,8 @@ static void nbcon_seq_try_update(struct nbcon_context *ctxt, u64 new_seq)
 	}
 }
 
+bool printk_threads_enabled __ro_after_init;
+
 /**
  * nbcon_context_try_acquire_direct - Try to acquire directly
  * @ctxt:	The context of the caller
@@ -1522,7 +1524,7 @@ void nbcon_kthread_create(struct console *con)
 	if (!(con->flags & CON_NBCON) || !con->write_thread)
 		return;
 
-	if (con->kthread)
+	if (!printk_threads_enabled || con->kthread)
 		return;
 
 	/*
@@ -1547,6 +1549,19 @@ void nbcon_kthread_create(struct console *con)
 	 */
 	sched_set_normal(con->kthread, -20);
 }
+
+static int __init printk_setup_threads(void)
+{
+	struct console *con;
+
+	console_list_lock();
+	printk_threads_enabled = true;
+	for_each_console(con)
+		nbcon_kthread_create(con);
+	console_list_unlock();
+	return 0;
+}
+early_initcall(printk_setup_threads);
 
 /**
  * nbcon_alloc - Allocate buffers needed by the nbcon console
@@ -1597,6 +1612,7 @@ void nbcon_init(struct console *con, u64 init_seq)
 	init_irq_work(&con->irq_work, nbcon_irq_work);
 	nbcon_seq_force(con, init_seq);
 	nbcon_state_set(con, &state);
+	nbcon_kthread_create(con);
 }
 
 /**
