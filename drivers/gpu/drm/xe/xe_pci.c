@@ -328,7 +328,7 @@ static const struct xe_device_desc dg2_desc = {
 	.has_display = true,
 };
 
-static const __maybe_unused struct xe_device_desc pvc_desc = {
+static const struct xe_device_desc pvc_desc = {
 	.graphics = &graphics_xehpc,
 	DGFX_FEATURES,
 	PLATFORM(PVC),
@@ -414,6 +414,7 @@ static const struct pci_device_id pciidlist[] = {
 	INTEL_ATS_M_IDS(INTEL_VGA_DEVICE, &ats_m_desc),
 	INTEL_ARL_IDS(INTEL_VGA_DEVICE, &mtl_desc),
 	INTEL_DG2_IDS(INTEL_VGA_DEVICE, &dg2_desc),
+	INTEL_PVC_IDS(INTEL_VGA_DEVICE, &pvc_desc),
 	INTEL_MTL_IDS(INTEL_VGA_DEVICE, &mtl_desc),
 	INTEL_LNL_IDS(INTEL_VGA_DEVICE, &lnl_desc),
 	INTEL_BMG_IDS(INTEL_VGA_DEVICE, &bmg_desc),
