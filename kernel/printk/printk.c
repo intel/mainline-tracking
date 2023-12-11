@@ -2980,6 +2980,33 @@ out:
 }
 
 /*
+ * Legacy console printing from printk() caller context does not respect
+ * raw_spinlock/spinlock nesting. For !PREEMPT_RT the lockdep warning is a
+ * false positive. For PREEMPT_RT the false positive condition does not
+ * occur.
+ *
+ * This map is used to establish LD_WAIT_SLEEP context for the console write
+ * callbacks when legacy printing to avoid false positive lockdep complaints,
+ * thus allowing lockdep to continue to function for real issues.
+ */
+#ifdef CONFIG_PREEMPT_RT
+static inline void printk_legacy_lock_map_acquire_try(void) { }
+static inline void printk_legacy_lock_map_release(void) { }
+#else
+static DEFINE_WAIT_OVERRIDE_MAP(printk_legacy_map, LD_WAIT_SLEEP);
+
+static inline void printk_legacy_lock_map_acquire_try(void)
+{
+	lock_map_acquire_try(&printk_legacy_map);
+}
+
+static inline void printk_legacy_lock_map_release(void)
+{
+	lock_map_release(&printk_legacy_map);
+}
+#endif /* CONFIG_PREEMPT_RT */
+
+/*
  * Used as the printk buffers for non-panic, serialized console printing.
  * This is for legacy (!CON_NBCON) as well as all boot (CON_BOOT) consoles.
  * Its usage requires the console_lock held.
@@ -3034,7 +3061,7 @@ static bool console_emit_next_record(struct console *con, bool *handover, int co
 		/*
 		 * With forced threading this function is either in a thread
 		 * or panic context. So there is no need for concern about
-		 * printk reentrance or handovers.
+		 * printk reentrance, handovers, or lockdep complaints.
 		 */
 
 		con->write(con, outbuf, pmsg.outbuf_len);
@@ -3056,7 +3083,9 @@ static bool console_emit_next_record(struct console *con, bool *handover, int co
 		/* Do not trace print latency. */
 		stop_critical_timings();
 
+		printk_legacy_lock_map_acquire_try();
 		con->write(con, outbuf, pmsg.outbuf_len);
+		printk_legacy_lock_map_release();
 
 		start_critical_timings();
 
