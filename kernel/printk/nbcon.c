@@ -968,6 +968,22 @@ static bool nbcon_atomic_emit_one(struct nbcon_write_context *wctxt)
 }
 
 /**
+ * nbcon_get_default_prio - The appropriate nbcon priority to use for nbcon
+ *				printing on the current CPU
+ *
+ * Context:	Any context which could not be migrated to another CPU.
+ * Return:	The nbcon_prio to use for acquiring an nbcon console in this
+ *		context for printing.
+ */
+enum nbcon_prio nbcon_get_default_prio(void)
+{
+	if (this_cpu_in_panic())
+		return NBCON_PRIO_PANIC;
+
+	return NBCON_PRIO_NORMAL;
+}
+
+/**
  * nbcon_legacy_emit_next_record - Print one record for an nbcon console
  *					in legacy contexts
  * @con:	The console to print on
@@ -1001,7 +1017,7 @@ bool nbcon_legacy_emit_next_record(struct console *con, bool *handover,
 	stop_critical_timings();
 
 	ctxt->console	= con;
-	ctxt->prio	= NBCON_PRIO_NORMAL;
+	ctxt->prio	= nbcon_get_default_prio();
 
 	progress = nbcon_atomic_emit_one(&wctxt);
 
@@ -1032,7 +1048,7 @@ static bool __nbcon_atomic_flush_pending_con(struct console *con, u64 stop_seq)
 
 	ctxt->console			= con;
 	ctxt->spinwait_max_us		= 2000;
-	ctxt->prio			= NBCON_PRIO_NORMAL;
+	ctxt->prio			= nbcon_get_default_prio();
 
 	if (!nbcon_context_try_acquire(ctxt))
 		return false;
