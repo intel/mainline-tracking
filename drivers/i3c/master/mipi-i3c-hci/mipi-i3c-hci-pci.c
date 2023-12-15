@@ -133,6 +133,9 @@ static const struct pci_device_id mipi_i3c_hci_pci_devices[] = {
 	/* Lunar Lake-M */
 	{ PCI_VDEVICE(INTEL, 0xa87c), (kernel_ulong_t)&intel_info},
 	{ PCI_VDEVICE(INTEL, 0xa877), (kernel_ulong_t)&intel_info},
+	/* Panther Lake-H */
+	{ PCI_VDEVICE(INTEL, 0xe37c), (kernel_ulong_t)&intel_info},
+	{ PCI_VDEVICE(INTEL, 0xe36f), (kernel_ulong_t)&intel_info},
 	/* Panther Lake-P */
 	{ PCI_VDEVICE(INTEL, 0xe47c), (kernel_ulong_t)&intel_info},
 	{ PCI_VDEVICE(INTEL, 0xe46f), (kernel_ulong_t)&intel_info},
