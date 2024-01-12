@@ -1156,6 +1156,24 @@ static void stmmac_check_pcs_mode(struct stmmac_priv *priv)
 	}
 }
 
+static int stmmac_get_phydev(struct stmmac_priv *priv, struct phy_device **phydev)
+{
+	int addr = priv->plat->phy_addr;
+
+	if (addr < 0) {
+		netdev_err(priv->dev, "no phy found\n");
+		return -ENODEV;
+	}
+
+	*phydev = mdiobus_get_phy(priv->mii, addr);
+	if (!*phydev) {
+		netdev_err(priv->dev, "no phy at addr %d\n", addr);
+		return -ENODEV;
+	}
+
+	return 0;
+}
+
 /**
  * stmmac_init_phy - PHY initialization
  * @dev: net device structure
@@ -1187,19 +1205,10 @@ static int stmmac_init_phy(struct net_device *dev)
 	 * manually parse it
 	 */
 	if (!phy_fwnode || IS_ERR(phy_fwnode)) {
-		int addr = priv->plat->phy_addr;
 		struct phy_device *phydev;
-
-		if (addr < 0) {
-			netdev_err(priv->dev, "no phy found\n");
-			return -ENODEV;
-		}
-
-		phydev = mdiobus_get_phy(priv->mii, addr);
-		if (!phydev) {
-			netdev_err(priv->dev, "no phy at addr %d\n", addr);
-			return -ENODEV;
-		}
+		ret = stmmac_get_phydev(priv, &phydev);
+		if (ret)
+			return ret;
 
 		ret = phylink_connect_phy(priv->phylink, phydev);
 	} else {
@@ -1273,7 +1282,6 @@ static int stmmac_phy_setup(struct stmmac_priv *priv)
 	if (priv->plat->tx_queues_to_use > 1)
 		priv->phylink_config.mac_capabilities &=
 			~(MAC_10HD | MAC_100HD | MAC_1000HD);
-	priv->phylink_config.mac_managed_pm = true;
 
 	/* In the case where kernel driver has no access to modify the clock
 	 * rate after it is increased by 2.5 times in the BIOS to support 2.5G
@@ -7299,6 +7307,7 @@ int stmmac_dvr_probe(struct device *device,
 {
 	struct net_device *ndev = NULL;
 	struct stmmac_priv *priv;
+	struct phy_device *phydev;
 	u32 rxq;
 	int i, ret = 0;
 
@@ -7549,6 +7558,11 @@ int stmmac_dvr_probe(struct device *device,
 		if (ret)
 			goto error_xpcs_setup;
 	}
+
+	ret = stmmac_get_phydev(priv, &phydev);
+	if (ret)
+		return ret;
+	phydev->mac_managed_pm = true;
 
 	ret = stmmac_phy_setup(priv);
 	if (ret) {
