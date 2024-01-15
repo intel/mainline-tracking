@@ -1068,10 +1068,13 @@ static void quirk_mtl_gfx_vf_bar0(struct pci_dev *dev)
 	pci_info(dev, "reduced BAR0 size: %pR", r);
 }
 DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_INTEL, 0x7d40, quirk_mtl_gfx_vf_bar0);
+DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_INTEL, 0x7d41, quirk_mtl_gfx_vf_bar0);
 DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_INTEL, 0x7d45, quirk_mtl_gfx_vf_bar0);
+DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_INTEL, 0x7d51, quirk_mtl_gfx_vf_bar0);
 DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_INTEL, 0x7d55, quirk_mtl_gfx_vf_bar0);
 DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_INTEL, 0x7d60, quirk_mtl_gfx_vf_bar0);
 DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_INTEL, 0x7d67, quirk_mtl_gfx_vf_bar0);
+DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_INTEL, 0x7dd1, quirk_mtl_gfx_vf_bar0);
 DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_INTEL, 0x7dd5, quirk_mtl_gfx_vf_bar0);
 #endif
 
