@@ -599,6 +599,8 @@ int tgl_core_generic_init(struct pmc_dev *pmcdev, int pch_tp);
 int adl_core_init(struct pmc_dev *pmcdev);
 int mtl_core_init(struct pmc_dev *pmcdev);
 int arl_core_init(struct pmc_dev *pmcdev);
+int arl_h_core_init(struct pmc_dev *pmcdev);
+int arl_core_generic_init(struct pmc_dev *pmcdev, int soc_tp);
 int lnl_core_init(struct pmc_dev *pmcdev);
 
 void cnl_suspend(struct pmc_dev *pmcdev);
