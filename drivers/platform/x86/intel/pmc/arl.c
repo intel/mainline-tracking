@@ -17,6 +17,11 @@
 #define SOCS_LPM_REQ_GUID	0x8478657
 #define PCHS_LPM_REQ_GUID	0x9684572
 
+enum soc_type {
+	SOC_M,
+	SOC_S
+};
+
 static const u8 ARL_LPM_REG_INDEX[] = {0, 4, 5, 6, 8, 9, 10, 11, 12, 13, 14, 15, 16, 20};
 
 const struct pmc_bit_map arl_socs_ltr_show_map[] = {
@@ -690,7 +695,17 @@ static int arl_resume(struct pmc_dev *pmcdev)
 	return pmc_core_resume_common(pmcdev);
 }
 
+int arl_h_core_init(struct pmc_dev *pmcdev)
+{
+	return arl_core_generic_init(pmcdev, SOC_M);
+}
+
 int arl_core_init(struct pmc_dev *pmcdev)
+{
+	return arl_core_generic_init(pmcdev, SOC_S);
+}
+
+int arl_core_generic_init(struct pmc_dev *pmcdev, int soc_tp)
 {
 	struct pmc *pmc = pmcdev->pmcs[PMC_IDX_SOC];
 	int ret;
@@ -708,7 +723,12 @@ int arl_core_init(struct pmc_dev *pmcdev)
 	ret = pmc_core_ssram_init(pmcdev, PMC_DEVID_SOCS);
 	if (ret) {
 		ssram_init = false;
-		pmc->map = &arl_socs_reg_map;
+		if (soc_tp == SOC_M)
+			pmc->map = &mtl_socm_reg_map;
+		else if (soc_tp == SOC_S)
+			pmc->map = &arl_socs_reg_map;
+		else
+			return -EINVAL;
 
 		ret = get_primary_reg_base(pmc);
 		if (ret)
