@@ -3918,7 +3918,7 @@ static void intel_put_event_constraints(struct cpu_hw_events *cpuc,
 	intel_put_shared_regs_event_constraints(cpuc, event);
 
 	/*
-	 * is PMU has exclusive counter restrictions, then
+	 * If PMU has exclusive counter restrictions, then
 	 * all events are subject to and must call the
 	 * put_excl_constraints() routine
 	 */
