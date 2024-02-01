@@ -517,7 +517,6 @@ static int lnl_resume(struct pmc_dev *pmcdev)
 int lnl_core_init(struct pmc_dev *pmcdev)
 {
 	int ret;
-	int func = 2;
 	bool ssram_init = true;
 	struct pmc *pmc = pmcdev->pmcs[PMC_IDX_SOC];
 
@@ -526,7 +525,7 @@ int lnl_core_init(struct pmc_dev *pmcdev)
 	pmcdev->suspend = cnl_suspend;
 	pmcdev->resume = lnl_resume;
 	pmcdev->regmap_list = lnl_pmc_info_list;
-	ret = pmc_core_ssram_init(pmcdev, func);
+	ret = pmc_core_ssram_init(pmcdev, PMC_DEVID_SOCM);
 
 	/* If regbase not assigned, set map and discover using legacy method */
 	if (ret) {
