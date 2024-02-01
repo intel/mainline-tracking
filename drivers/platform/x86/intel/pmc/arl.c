@@ -694,7 +694,6 @@ int arl_core_init(struct pmc_dev *pmcdev)
 {
 	struct pmc *pmc = pmcdev->pmcs[PMC_IDX_SOC];
 	int ret;
-	int func = 0;
 	bool ssram_init = true;
 
 	arl_d3_fixup();
@@ -706,7 +705,7 @@ int arl_core_init(struct pmc_dev *pmcdev)
 	 * If ssram init fails use legacy method to at least get the
 	 * primary PMC
 	 */
-	ret = pmc_core_ssram_init(pmcdev, func);
+	ret = pmc_core_ssram_init(pmcdev, PMC_DEVID_SOCS);
 	if (ret) {
 		ssram_init = false;
 		pmc->map = &arl_socs_reg_map;
