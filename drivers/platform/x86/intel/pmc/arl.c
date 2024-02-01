@@ -17,6 +17,11 @@
 #define SOCS_LPM_REQ_GUID	0x8478657
 #define PCHS_LPM_REQ_GUID	0x9684572
 
+enum soc_type {
+	SOC_M,
+	SOC_S
+};
+
 static const u8 ARL_LPM_REG_INDEX[] = {0, 4, 5, 6, 8, 9, 10, 11, 12, 13, 14, 15, 16, 20};
 
 const struct pmc_bit_map arl_socs_ltr_show_map[] = {
@@ -650,6 +655,7 @@ const struct pmc_reg_map arl_pchs_reg_map = {
 	.etr3_offset = ETR3_OFFSET,
 };
 
+#define PMC_DEVID_SOCM 0x7e7f
 #define PMC_DEVID_SOCS 0xae7f
 #define PMC_DEVID_IOEP 0x7ecf
 #define PMC_DEVID_PCHS 0x7f27
@@ -705,8 +711,8 @@ int arl_core_init(struct pmc_dev *pmcdev)
 int arl_core_generic_init(struct pmc_dev *pmcdev, int soc_tp)
 {
 	struct pmc *pmc = pmcdev->pmcs[PMC_IDX_SOC];
+	unsigned int devid;
 	int ret;
-	int func = 0;
 	bool ssram_init = true;
 
 	arl_d3_fixup();
@@ -715,21 +721,23 @@ int arl_core_generic_init(struct pmc_dev *pmcdev, int soc_tp)
 	pmcdev->regmap_list = arl_pmc_info_list;
 
 	if (soc_tp == SOC_M)
-		func = 2;
+		devid =  PMC_DEVID_SOCM;
+	else if (soc_tp == SOC_S)
+		devid =  PMC_DEVID_SOCS;
+	else
+		return -EINVAL;
 
 	/*
 	 * If ssram init fails use legacy method to at least get the
 	 * primary PMC
 	 */
-	ret = pmc_core_ssram_init(pmcdev, func);
+	ret = pmc_core_ssram_init(pmcdev, devid);
 	if (ret) {
 		ssram_init = false;
 		if (soc_tp == SOC_M)
 			pmc->map = &mtl_socm_reg_map;
-		else if (soc_tp == SOC_S)
-			pmc->map = &arl_socs_reg_map;
 		else
-			return -EINVAL;
+			pmc->map = &arl_socs_reg_map;
 
 		ret = get_primary_reg_base(pmc);
 		if (ret)

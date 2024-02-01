@@ -588,7 +588,7 @@ extern void pmc_core_get_low_power_modes(struct pmc_dev *pmcdev);
 extern void pmc_core_punit_pmt_init(struct pmc_dev *pmcdev, u32 guid);
 extern void pmc_core_set_device_d3(unsigned int device);
 
-extern int pmc_core_ssram_init(struct pmc_dev *pmcdev, int func);
+extern int pmc_core_ssram_init(struct pmc_dev *pmcdev, unsigned int devid);
 
 int spt_core_init(struct pmc_dev *pmcdev);
 int cnp_core_init(struct pmc_dev *pmcdev);
