@@ -3,6 +3,7 @@
  * internal.h - printk internal definitions
  */
 #include <linux/console.h>
+#include <linux/jump_label.h>
 #include <linux/percpu.h>
 #include <linux/types.h>
 
@@ -24,7 +25,8 @@ int devkmsg_sysctl_set_loglvl(struct ctl_table *table, int write,
 #ifdef CONFIG_PREEMPT_RT
 # define force_printkthreads()		(true)
 #else
-# define force_printkthreads()		(false)
+DECLARE_STATIC_KEY_FALSE(force_printkthreads_key);
+# define force_printkthreads()		(static_branch_unlikely(&force_printkthreads_key))
 #endif
 
 #ifdef CONFIG_PRINTK
