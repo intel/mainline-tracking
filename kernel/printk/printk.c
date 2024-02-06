@@ -195,6 +195,17 @@ static int __init control_devkmsg(char *str)
 }
 __setup("printk.devkmsg=", control_devkmsg);
 
+#if !defined(CONFIG_PREEMPT_RT)
+DEFINE_STATIC_KEY_FALSE(force_printkthreads_key);
+
+static int __init setup_forced_printkthreads(char *arg)
+{
+	static_branch_enable(&force_printkthreads_key);
+	return 0;
+}
+early_param("threadprintk", setup_forced_printkthreads);
+#endif
+
 char devkmsg_log_str[DEVKMSG_STR_MAX_SIZE] = "ratelimit";
 #if defined(CONFIG_PRINTK) && defined(CONFIG_SYSCTL)
 int devkmsg_sysctl_set_loglvl(struct ctl_table *table, int write,
