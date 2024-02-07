@@ -303,7 +303,7 @@ struct nbcon_write_context {
 /**
  * struct console - The console descriptor structure
  * @name:		The name of the console driver
- * @write:		Write callback to output messages (Optional)
+ * @write:		Legacy write callback to output messages (Optional)
  * @read:		Read callback for console input (Optional)
  * @device:		The underlying TTY device driver (Optional)
  * @unblank:		Callback to unblank the console (Optional)
@@ -320,7 +320,6 @@ struct nbcon_write_context {
  * @data:		Driver private data
  * @node:		hlist node for the console list
  *
- * @write_atomic:	Write callback for atomic context
  * @nbcon_state:	State for nbcon consoles
  * @nbcon_seq:		Sequence number of the next record for nbcon to print
  * @pbufs:		Pointer to nbcon private buffer
@@ -345,8 +344,32 @@ struct console {
 	struct hlist_node	node;
 
 	/* nbcon console specific members */
-	void			(*write_atomic)(struct console *con,
-						struct nbcon_write_context *wctxt);
+
+	/**
+	 * @write_atomic:
+	 *
+	 * NBCON callback to write out text in any context.
+	 *
+	 * This callback is called with the console already acquired. The
+	 * callback can use nbcon_can_proceed() at any time to verify that
+	 * it is still the owner of the console. In the case that it has
+	 * lost ownership, it is no longer allowed to go forward. In this
+	 * case it must back out immediately and carefully. The buffer
+	 * content is also no longer trusted since it no longer belongs to
+	 * the context.
+	 *
+	 * If the callback needs to perform actions where ownership is not
+	 * allowed to be taken over, nbcon_enter_unsafe() and
+	 * nbcon_exit_unsafe() can be used to mark such sections. These
+	 * functions are also points of possible ownership transfer. If
+	 * either function returns false, ownership has been lost.
+	 *
+	 * This callback can be called from any context (including NMI).
+	 * Therefore it must avoid usage of any locking and instead rely
+	 * on the console ownership for synchronization.
+	 */
+	void (*write_atomic)(struct console *con, struct nbcon_write_context *wctxt);
+
 	atomic_t		__private nbcon_state;
 	atomic_long_t		__private nbcon_seq;
 	struct printk_buffers	*pbufs;
