@@ -1464,7 +1464,6 @@ static void x86_pmu_enable(struct pmu *pmu)
 			x86_pmu_start(event, PERF_EF_RELOAD);
 		}
 		cpuc->n_added = 0;
-		perf_events_lapic_init();
 	}
 
 	cpuc->enabled = 1;
