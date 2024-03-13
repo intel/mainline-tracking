@@ -28,7 +28,10 @@ static int vt_max_vcpus(struct kvm *kvm)
 
 	return kvm->max_vcpus;
 }
+
+#if IS_ENABLED(CONFIG_HYPERV)
 static int vt_flush_remote_tlbs(struct kvm *kvm);
+#endif
 
 static int vt_hardware_enable(void)
 {
@@ -83,6 +86,7 @@ static __init int vt_hardware_setup(void)
 		pr_warn_ratelimited("TDX requires mmio caching.  Please enable mmio caching for TDX.\n");
 	}
 
+#if IS_ENABLED(CONFIG_HYPERV)
 	/*
 	 * TDX KVM overrides flush_remote_tlbs method and assumes
 	 * flush_remote_tlbs_range = NULL that falls back to
@@ -93,12 +97,16 @@ static __init int vt_hardware_setup(void)
 		enable_tdx = false;
 		pr_warn_ratelimited("TDX requires baremetal. Not Supported on VMM guest.\n");
 	}
+#endif
 
 	enable_tdx = enable_tdx && !tdx_hardware_setup(&vt_x86_ops);
 
+#if IS_ENABLED(CONFIG_HYPERV)
 	if (enable_tdx)
 		vt_x86_ops.flush_remote_tlbs = vt_flush_remote_tlbs;
-	else
+#endif
+
+	if (!enable_tdx)
 		vt_x86_ops.protected_apic_has_interrupt = NULL;
 
 	return 0;
@@ -670,6 +678,7 @@ static void vt_flush_tlb_current(struct kvm_vcpu *vcpu)
 	vmx_flush_tlb_current(vcpu);
 }
 
+#if IS_ENABLED(CONFIG_HYPERV)
 static int vt_flush_remote_tlbs(struct kvm *kvm)
 {
 	if (is_td(kvm))
@@ -681,6 +690,7 @@ static int vt_flush_remote_tlbs(struct kvm *kvm)
 	 */
 	return -EOPNOTSUPP;
 }
+#endif
 
 static void vt_flush_tlb_gva(struct kvm_vcpu *vcpu, gva_t addr)
 {
