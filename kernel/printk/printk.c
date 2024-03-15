@@ -3463,6 +3463,7 @@ void register_console(struct console *newcon)
 	struct console *con;
 	bool bootcon_registered = false;
 	bool realcon_registered = false;
+	unsigned long flags;
 	int err;
 
 	console_list_lock();
@@ -3555,6 +3556,19 @@ void register_console(struct console *newcon)
 	}
 
 	/*
+	 * If another context is actively using the hardware of this new
+	 * console, it will not be aware of the nbcon synchronization. This
+	 * is a risk that two contexts could access the hardware
+	 * simultaneously if this new console is used for atomic printing
+	 * and the other context is still using the hardware.
+	 *
+	 * Use the driver synchronization to ensure that the hardware is not
+	 * in use while this new console transitions to being registered.
+	 */
+	if ((newcon->flags & CON_NBCON) && newcon->write_atomic)
+		newcon->device_lock(newcon, &flags);
+
+	/*
 	 * Put this console in the list - keep the
 	 * preferred driver at the head of the list.
 	 */
@@ -3577,6 +3591,10 @@ void register_console(struct console *newcon)
 	 * on all contexts being able to see the new console before
 	 * register_console() completes.
 	 */
+
+	/* This new console is now registered. */
+	if ((newcon->flags & CON_NBCON) && newcon->write_atomic)
+		newcon->device_unlock(newcon, flags);
 
 	console_sysfs_notify();
 
