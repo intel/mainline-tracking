@@ -2883,6 +2883,25 @@ void console_prepend_dropped(struct printk_message *pmsg, unsigned long dropped)
 }
 
 /*
+ * Prepend the message in @pmsg->pbufs->outbuf with a "replay message".
+ * @pmsg->outbuf_len is updated appropriately.
+ *
+ * @pmsg is the printk message to prepend.
+ */
+void console_prepend_replay(struct printk_message *pmsg)
+{
+	struct printk_buffers *pbufs = pmsg->pbufs;
+	const size_t scratchbuf_sz = sizeof(pbufs->scratchbuf);
+	char *scratchbuf = &pbufs->scratchbuf[0];
+	size_t len;
+
+	len = scnprintf(scratchbuf, scratchbuf_sz,
+			"** replaying previous printk message **\n");
+
+	__console_prepend_scratch(pmsg, len);
+}
+
+/*
  * Read and format the specified record (or a later record if the specified
  * record is not available).
  *
