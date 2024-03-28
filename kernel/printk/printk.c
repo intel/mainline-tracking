@@ -2821,30 +2821,25 @@ static void __console_unlock(void)
 #ifdef CONFIG_PRINTK
 
 /*
- * Prepend the message in @pmsg->pbufs->outbuf with a "dropped message". This
- * is achieved by shifting the existing message over and inserting the dropped
- * message.
+ * Prepend the message in @pmsg->pbufs->outbuf with the message in
+ * @pmsg->pbufs->scratchbuf. This is achieved by shifting the existing message
+ * over and inserting the scratchbuf message.
  *
  * @pmsg is the printk message to prepend.
  *
- * @dropped is the dropped count to report in the dropped message.
+ * @len is the length of the message in @pmsg->pbufs->scratchbuf.
  *
  * If the message text in @pmsg->pbufs->outbuf does not have enough space for
- * the dropped message, the message text will be sufficiently truncated.
+ * the scratchbuf message, the message text will be sufficiently truncated.
  *
  * If @pmsg->pbufs->outbuf is modified, @pmsg->outbuf_len is updated.
  */
-void console_prepend_dropped(struct printk_message *pmsg, unsigned long dropped)
+static void __console_prepend_scratch(struct printk_message *pmsg, size_t len)
 {
 	struct printk_buffers *pbufs = pmsg->pbufs;
-	const size_t scratchbuf_sz = sizeof(pbufs->scratchbuf);
 	const size_t outbuf_sz = sizeof(pbufs->outbuf);
 	char *scratchbuf = &pbufs->scratchbuf[0];
 	char *outbuf = &pbufs->outbuf[0];
-	size_t len;
-
-	len = scnprintf(scratchbuf, scratchbuf_sz,
-		       "** %lu printk messages dropped **\n", dropped);
 
 	/*
 	 * Make sure outbuf is sufficiently large before prepending.
@@ -2864,6 +2859,27 @@ void console_prepend_dropped(struct printk_message *pmsg, unsigned long dropped)
 	memmove(outbuf + len, outbuf, pmsg->outbuf_len + 1);
 	memcpy(outbuf, scratchbuf, len);
 	pmsg->outbuf_len += len;
+}
+
+/*
+ * Prepend the message in @pmsg->pbufs->outbuf with a "dropped message".
+ * @pmsg->outbuf_len is updated appropriately.
+ *
+ * @pmsg is the printk message to prepend.
+ *
+ * @dropped is the dropped count to report in the dropped message.
+ */
+void console_prepend_dropped(struct printk_message *pmsg, unsigned long dropped)
+{
+	struct printk_buffers *pbufs = pmsg->pbufs;
+	const size_t scratchbuf_sz = sizeof(pbufs->scratchbuf);
+	char *scratchbuf = &pbufs->scratchbuf[0];
+	size_t len;
+
+	len = scnprintf(scratchbuf, scratchbuf_sz,
+		       "** %lu printk messages dropped **\n", dropped);
+
+	__console_prepend_scratch(pmsg, len);
 }
 
 /*
