@@ -6377,6 +6377,21 @@ static void igc_taprio_queue_stats(struct net_device *dev,
 	stats->tx_overruns = 0;
 }
 
+/* Taprio could be self-triggered by igc when processing non-taprio commands,
+ * such as the TC_SETUP_QDISC_ETF command. This function specifically checks if
+ * the current running taprio  was externally triggered by TAPRIO_CMD_REPLACE.
+ */
+static bool is_externally_triggered_taprio_running(struct igc_adapter *adapter)
+{
+	struct igc_hw *hw = &adapter->hw;
+
+	if ((rd32(IGC_BASET_H) || rd32(IGC_BASET_L)) &&
+	    adapter->taprio_offload_enable)
+		return true;
+	else
+		return false;
+}
+
 static int igc_save_qbv_schedule(struct igc_adapter *adapter,
 				 struct tc_taprio_qopt_offload *qopt)
 {
@@ -6397,11 +6412,15 @@ static int igc_save_qbv_schedule(struct igc_adapter *adapter,
 	if (!validate_schedule(adapter, qopt))
 		return -EINVAL;
 
+	igc_ptp_read(adapter, &now);
+
+	if (is_externally_triggered_taprio_running(adapter) &&
+	    is_base_time_past(qopt->base_time, &now))
+		adapter->qbv_config_change_errors++;
+
 	adapter->cycle_time = qopt->cycle_time;
 	adapter->base_time = qopt->base_time;
 	adapter->taprio_offload_enable = true;
-
-	igc_ptp_read(adapter, &now);
 
 	for (n = 0; n < qopt->num_entries; n++) {
 		struct tc_taprio_sched_entry *e = &qopt->entries[n];
