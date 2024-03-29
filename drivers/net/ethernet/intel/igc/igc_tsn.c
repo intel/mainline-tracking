@@ -340,8 +340,11 @@ int igc_tsn_reset(struct igc_adapter *adapter)
 
 	new_flags = igc_tsn_new_flags(adapter);
 
-	if (!(new_flags & IGC_FLAG_TSN_ANY_ENABLED))
-		return igc_tsn_disable_offload(adapter);
+	if (!(new_flags & IGC_FLAG_TSN_ANY_ENABLED)) {
+		igc_tsn_clear_schedule(adapter);
+		igc_tsn_disable_offload(adapter);
+		return 0;
+	}
 
 	err = igc_tsn_enable_offload(adapter);
 	if (err < 0)

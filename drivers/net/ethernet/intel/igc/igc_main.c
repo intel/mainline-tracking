@@ -6350,9 +6350,51 @@ static int igc_qbv_clear_schedule(struct igc_adapter *adapter)
 	return 0;
 }
 
-static int igc_tsn_clear_schedule(struct igc_adapter *adapter)
+static void igc_qbu_clear_data(struct igc_adapter *adapter)
+{
+	int i;
+
+	for (i = 0; i < adapter->num_tx_queues; i++) {
+		struct igc_ring *ring = adapter->tx_ring[i];
+
+		ring->preemptible = false;
+	}
+
+	adapter->frame_preemption_active = false;
+}
+
+static void igc_cbs_clear_data(struct igc_adapter *adapter)
+{
+	int i;
+
+	for (i = 0; i < adapter->num_tx_queues; i++) {
+		struct igc_ring *ring = adapter->tx_ring[i];
+
+		ring->cbs_enable = false;
+		ring->idleslope = 0;
+		ring->sendslope = 0;
+		ring->hicredit = 0;
+		ring->locredit = 0;
+	}
+}
+
+static void igc_etf_clear_data(struct igc_adapter *adapter)
+{
+	int i;
+
+	for (i = 0; i < adapter->num_tx_queues; i++) {
+		struct igc_ring *ring = adapter->tx_ring[i];
+
+		ring->launchtime_enable = false;
+	}
+}
+
+int igc_tsn_clear_schedule(struct igc_adapter *adapter)
 {
 	igc_qbv_clear_schedule(adapter);
+	igc_qbu_clear_data(adapter);
+	igc_cbs_clear_data(adapter);
+	igc_etf_clear_data(adapter);
 
 	return 0;
 }
@@ -6543,7 +6585,7 @@ static int igc_tsn_enable_qbv_scheduling(struct igc_adapter *adapter,
 		err = igc_save_qbv_schedule(adapter, qopt);
 		break;
 	case TAPRIO_CMD_DESTROY:
-		err = igc_tsn_clear_schedule(adapter);
+		err = igc_qbv_clear_schedule(adapter);
 		break;
 	default:
 		return -EOPNOTSUPP;
