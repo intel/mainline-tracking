@@ -1132,6 +1132,7 @@ extern u64 __read_mostly hw_cache_extra_regs
 				[PERF_COUNT_HW_CACHE_RESULT_MAX];
 
 u64 x86_perf_event_update(struct perf_event *event, u64 *cntr);
+DECLARE_STATIC_CALL(intel_pmu_update_topdown_event, x86_perf_event_update);
 
 static inline unsigned int x86_pmu_config_addr(int index)
 {
@@ -1625,6 +1626,8 @@ void intel_pmu_pebs_enable_all(void);
 void intel_pmu_pebs_disable_all(void);
 
 void intel_pmu_pebs_sched_task(struct perf_event_pmu_context *pmu_ctx, bool sched_in);
+
+void intel_pmu_pebs_update_cfg(struct cpu_hw_events *cpuc, int n, int *assign);
 
 void intel_pmu_auto_reload_read(struct perf_event *event);
 
