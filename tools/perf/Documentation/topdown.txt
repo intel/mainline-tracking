@@ -280,8 +280,13 @@ with no longer interval than a few seconds
 
 	perf stat -I 1000 --topdown ...
 
-For user programs using RDPMC directly the counter can
-be reset explicitly using ioctl:
+Starting from the Lunar Lake p-core, a RDPMC metrics clear mode is
+introduced. The metrics and the fixed counter 3 are automatically
+cleared after the read is performed. It is recommended to always enable
+the mode. To enable the mode, the config1 of slots event is set to 1.
+
+On the previous platforms, for user programs using RDPMC directly, the
+counter has to be reset explicitly using ioctl:
 
 	ioctl(perf_fd, PERF_EVENT_IOC_RESET, 0);
 
