@@ -238,6 +238,9 @@ nouveau_dp_detect(struct nouveau_connector *nv_connector,
 	// Ensure that the aux bus is enabled for probing
 	drm_dp_dpcd_set_powered(&nv_connector->aux, true);
 
+	// Ensure that the aux bus is enabled for probing
+	drm_dp_dpcd_set_powered(&nv_connector->aux, true);
+
 	mutex_lock(&nv_encoder->dp.hpd_irq_lock);
 	if (mstm) {
 		/* If we're not ready to handle MST state changes yet, just
