@@ -18,6 +18,7 @@
 #include "xe_device.h"
 #include "xe_bo.h"
 #include "xe_pm.h"
+#include "xe_sriov.h"
 #include "xe_step.h"
 #include "i915_gem_stolen.h"
 #include "i915_gpu_error.h"
@@ -38,6 +39,12 @@ static inline struct drm_i915_private *kdev_to_i915(struct device *kdev)
 {
 	return dev_get_drvdata(kdev);
 }
+
+#define IOV_MODE(i915) ({                               \
+        BUILD_BUG_ON(!I915_IOV_MODE_NONE);              \
+        GEM_BUG_ON(!(i915)->sriov.__mode);                    \
+        (i915)->sriov.__mode;                                 \
+})
 
 #define IS_PLATFORM(xe, x) ((xe)->info.platform == x)
 #define INTEL_INFO(dev_priv)	(&((dev_priv)->info))
