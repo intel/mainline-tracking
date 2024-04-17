@@ -1205,9 +1205,12 @@ static int stmmac_phy_setup(struct stmmac_priv *priv)
 	priv->phylink_config.mac_managed_pm = true;
 
 	mdio_bus_data = priv->plat->mdio_bus_data;
-	if (mdio_bus_data)
+	if (mdio_bus_data) {
 		priv->phylink_config.ovr_an_inband =
 			mdio_bus_data->xpcs_an_inband;
+		priv->phylink_config.allow_switch_interface =
+			mdio_bus_data->allow_switch_interface;
+	}
 
 	/* Set the platform/firmware specified interface mode. Note, phylink
 	 * deals with the PHY interface mode, not the MAC interface mode.
