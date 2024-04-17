@@ -1839,10 +1839,11 @@ static int phylink_validate_phy(struct phylink *pl, struct phy_device *phy,
 	 * against all interface modes, which may lead to more ethtool link
 	 * modes being advertised than are actually supported.
 	 */
-	if (phy->is_c45 && state->rate_matching == RATE_MATCH_NONE &&
-	    state->interface != PHY_INTERFACE_MODE_RXAUI &&
-	    state->interface != PHY_INTERFACE_MODE_XAUI &&
-	    state->interface != PHY_INTERFACE_MODE_USXGMII)
+	if ((phy->is_c45 && state->rate_matching == RATE_MATCH_NONE &&
+	     state->interface != PHY_INTERFACE_MODE_RXAUI &&
+	     state->interface != PHY_INTERFACE_MODE_XAUI &&
+	     state->interface != PHY_INTERFACE_MODE_USXGMII) ||
+	     pl->config->allow_switch_interface)
 		state->interface = PHY_INTERFACE_MODE_NA;
 
 	return phylink_validate(pl, supported, state);

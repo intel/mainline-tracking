@@ -87,6 +87,7 @@ struct stmmac_mdio_bus_data {
 	int *irqs;
 	int probed_phy_irq;
 	bool needs_reset;
+	bool allow_switch_interface;
 };
 
 struct stmmac_dma_cfg {
