@@ -322,6 +322,7 @@ struct nbcon_write_context {
  *
  * @nbcon_state:	State for nbcon consoles
  * @nbcon_seq:		Sequence number of the next record for nbcon to print
+ * @nbcon_driver_ctxt:	Context available for driver non-printing operations
  * @pbufs:		Pointer to nbcon private buffer
  */
 struct console {
@@ -417,6 +418,7 @@ struct console {
 
 	atomic_t		__private nbcon_state;
 	atomic_long_t		__private nbcon_seq;
+	struct nbcon_context	__private nbcon_driver_ctxt;
 	struct printk_buffers	*pbufs;
 };
 
