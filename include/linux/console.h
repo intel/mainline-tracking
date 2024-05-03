@@ -303,25 +303,6 @@ struct nbcon_write_context {
 };
 
 /**
- * struct nbcon_drvdata - Data to allow nbcon acquire in non-print context
- * @ctxt:		The core console context
- * @srcu_cookie:	Storage for a console_srcu_lock cookie, if needed
- * @owner_index:	Storage for the owning console index, if needed
- * @locked:		Storage for the locked state, if needed
- *
- * All fields (except for @ctxt) are available exclusively to the driver to
- * use as needed. They are not used by the printk subsystem.
- */
-struct nbcon_drvdata {
-	struct nbcon_context	__private ctxt;
-
-	/* reserved for driver use */
-	int			srcu_cookie;
-	short			owner_index;
-	bool			locked;
-};
-
-/**
  * struct console - The console descriptor structure
  * @name:		The name of the console driver
  * @write:		Legacy write callback to output messages (Optional)
@@ -343,6 +324,7 @@ struct nbcon_drvdata {
  *
  * @nbcon_state:	State for nbcon consoles
  * @nbcon_seq:		Sequence number of the next record for nbcon to print
+ * @nbcon_driver_ctxt:	Context available for driver non-printing operations
  * @nbcon_prev_seq:	Seq num the previous nbcon owner was assigned to print
  * @pbufs:		Pointer to nbcon private buffer
  * @kthread:		Printer kthread for this console
@@ -375,26 +357,28 @@ struct console {
 	 *
 	 * NBCON callback to write out text in any context.
 	 *
-	 * This callback is called with the console already acquired. The
-	 * callback can use nbcon_can_proceed() at any time to verify that
-	 * it is still the owner of the console. In the case that it has
-	 * lost ownership, it is no longer allowed to go forward. In this
-	 * case it must back out immediately and carefully. The buffer
-	 * content is also no longer trusted since it no longer belongs to
-	 * the context.
+	 * This callback is called with the console already acquired. However,
+	 * a higher priority context is allowed to take it over by default.
 	 *
-	 * If the callback needs to perform actions where ownership is not
-	 * allowed to be taken over, nbcon_enter_unsafe() and
-	 * nbcon_exit_unsafe() can be used to mark such sections. These
-	 * functions are also points of possible ownership transfer. If
-	 * either function returns false, ownership has been lost.
+	 * The callback must call nbcon_enter_unsafe() and nbcon_exit_unsafe()
+	 * around any code where the takeover is not safe, for example, when
+	 * manipulating the serial port registers.
+	 *
+	 * nbcon_enter_unsafe() will fail if the context has lost the console
+	 * ownership in the meantime. In this case, the callback is no longer
+	 * allowed to go forward. It must back out immediately and carefully.
+	 * The buffer content is also no longer trusted since it no longer
+	 * belongs to the context.
+	 *
+	 * The callback should allow the takeover whenever it is safe. It
+	 * increases the chance to see messages when the system is in trouble.
 	 *
 	 * If the driver must reacquire ownership in order to finalize or
 	 * revert hardware changes, nbcon_reacquire() can be used. However,
 	 * on reacquire the buffer content is no longer available. A
 	 * reacquire cannot be used to resume printing.
 	 *
-	 * This callback can be called from any context (including NMI).
+	 * The callback can be called from any context (including NMI).
 	 * Therefore it must avoid usage of any locking and instead rely
 	 * on the console ownership for synchronization.
 	 */
@@ -434,12 +418,13 @@ struct console {
 	 * use whatever synchronization mechanism the driver is using for
 	 * itself (for example, the port lock for uart serial consoles).
 	 *
-	 * This callback is always called from task context. It may use any
-	 * synchronization method required by the driver. BUT this callback
-	 * MUST also disable migration. The console driver may be using a
-	 * synchronization mechanism that already takes care of this (such as
-	 * spinlocks). Otherwise this function must explicitly call
-	 * migrate_disable().
+	 * The callback is always called from task context. It may use any
+	 * synchronization method required by the driver.
+	 *
+	 * IMPORTANT: The callback MUST disable migration. The console driver
+	 *	may be using a synchronization mechanism that already takes
+	 *	care of this (such as spinlocks). Otherwise this function must
+	 *	explicitly call migrate_disable().
 	 *
 	 * The flags argument is provided as a convenience to the driver. It
 	 * will be passed again to device_unlock(). It can be ignored if the
@@ -465,21 +450,8 @@ struct console {
 
 	atomic_t		__private nbcon_state;
 	atomic_long_t		__private nbcon_seq;
+	struct nbcon_context	__private nbcon_driver_ctxt;
 	atomic_long_t           __private nbcon_prev_seq;
-
-	/**
-	 * @nbcon_drvdata:
-	 *
-	 * Data for nbcon ownership tracking to allow acquiring nbcon consoles
-	 * in non-printing contexts.
-	 *
-	 * Drivers may need to acquire nbcon consoles in non-printing
-	 * contexts. This is achieved by providing a struct nbcon_drvdata.
-	 * Then the driver can call nbcon_driver_acquire() and
-	 * nbcon_driver_release(). The struct does not require any special
-	 * initialization.
-	 */
-	struct nbcon_drvdata	*nbcon_drvdata;
 
 	struct printk_buffers	*pbufs;
 	struct task_struct	*kthread;
@@ -522,8 +494,13 @@ extern struct hlist_head console_list;
  * read-modify-write operations to do so.
  *
  * Requires console_srcu_read_lock to be held, which implies that @con might
- * be a registered console. If the caller is holding the console_list_lock or
- * it is certain that the console is not registered, the caller may read
+ * be a registered console. The purpose of holding console_srcu_read_lock is
+ * to guarantee that the console state is valid (CON_SUSPENDED/CON_ENABLED)
+ * and that no exit/cleanup routines will run if the console is currently
+ * undergoing unregistration.
+ *
+ * If the caller is holding the console_list_lock or it is _certain_ that
+ * @con is not and will not become registered, the caller may read
  * @con->flags directly instead.
  *
  * Context: Any context.
@@ -615,6 +592,7 @@ static inline bool console_is_registered(const struct console *con)
 #ifdef CONFIG_PRINTK
 extern void nbcon_cpu_emergency_enter(void);
 extern void nbcon_cpu_emergency_exit(void);
+extern void nbcon_cpu_emergency_flush(void);
 extern bool nbcon_can_proceed(struct nbcon_write_context *wctxt);
 extern bool nbcon_enter_unsafe(struct nbcon_write_context *wctxt);
 extern bool nbcon_exit_unsafe(struct nbcon_write_context *wctxt);
@@ -622,6 +600,7 @@ extern void nbcon_reacquire(struct nbcon_write_context *wctxt);
 #else
 static inline void nbcon_cpu_emergency_enter(void) { }
 static inline void nbcon_cpu_emergency_exit(void) { }
+static inline void nbcon_cpu_emergency_flush(void) { }
 static inline bool nbcon_can_proceed(struct nbcon_write_context *wctxt) { return false; }
 static inline bool nbcon_enter_unsafe(struct nbcon_write_context *wctxt) { return false; }
 static inline bool nbcon_exit_unsafe(struct nbcon_write_context *wctxt) { return false; }

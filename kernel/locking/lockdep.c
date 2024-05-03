@@ -785,8 +785,6 @@ static void lockdep_print_held_locks(struct task_struct *p)
 {
 	int i, depth = READ_ONCE(p->lockdep_depth);
 
-	nbcon_cpu_emergency_enter();
-
 	if (!depth)
 		printk("no locks held by %s/%d.\n", p->comm, task_pid_nr(p));
 	else
@@ -797,13 +795,11 @@ static void lockdep_print_held_locks(struct task_struct *p)
 	 * and it's not the current task.
 	 */
 	if (p != current && task_is_running(p))
-		goto out;
+		return;
 	for (i = 0; i < depth; i++) {
 		printk(" #%d: ", i);
 		print_lock(p->held_locks + i);
 	}
-out:
-	nbcon_cpu_emergency_exit();
 }
 
 static void print_kernel_ident(void)
@@ -6688,7 +6684,6 @@ void debug_show_all_locks(void)
 		pr_warn("INFO: lockdep is turned off.\n");
 		return;
 	}
-	nbcon_cpu_emergency_enter();
 	pr_warn("\nShowing all locks held in the system:\n");
 
 	rcu_read_lock();
@@ -6696,6 +6691,7 @@ void debug_show_all_locks(void)
 		if (!p->lockdep_depth)
 			continue;
 		lockdep_print_held_locks(p);
+		nbcon_cpu_emergency_flush();
 		touch_nmi_watchdog();
 		touch_all_softlockup_watchdogs();
 	}
@@ -6703,7 +6699,6 @@ void debug_show_all_locks(void)
 
 	pr_warn("\n");
 	pr_warn("=============================================\n\n");
-	nbcon_cpu_emergency_exit();
 }
 EXPORT_SYMBOL_GPL(debug_show_all_locks);
 #endif

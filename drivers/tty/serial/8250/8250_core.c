@@ -630,8 +630,6 @@ static void univ8250_console_device_unlock(struct console *con, unsigned long fl
 
 	__uart_port_unlock_irqrestore(up, flags);
 }
-
-static struct nbcon_drvdata serial8250_nbcon_drvdata;
 #endif /* CONFIG_SERIAL_8250_LEGACY_CONSOLE */
 
 static int univ8250_console_setup(struct console *co, char *options)
@@ -741,7 +739,6 @@ static struct console univ8250_console = {
 	.device_lock	= univ8250_console_device_lock,
 	.device_unlock	= univ8250_console_device_unlock,
 	.flags		= CON_PRINTBUFFER | CON_ANYTIME | CON_NBCON,
-	.nbcon_drvdata	= &serial8250_nbcon_drvdata,
 #endif
 	.device		= uart_console_device,
 	.setup		= univ8250_console_setup,

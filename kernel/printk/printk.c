@@ -3679,20 +3679,21 @@ static void try_enable_default_console(struct console *newcon)
 		newcon->flags |= CON_CONSDEV;
 }
 
-/* Set @newcon->seq to the first record this console should print. */
-static void console_init_seq(struct console *newcon, bool bootcon_registered)
+/* Return the starting sequence number for a newly registered console. */
+static u64 get_init_console_seq(struct console *newcon, bool bootcon_registered)
 {
 	struct console *con;
 	bool handover;
+	u64 init_seq;
 
 	if (newcon->flags & (CON_PRINTBUFFER | CON_BOOT)) {
 		/* Get a consistent copy of @syslog_seq. */
 		mutex_lock(&syslog_lock);
-		newcon->seq = syslog_seq;
+		init_seq = syslog_seq;
 		mutex_unlock(&syslog_lock);
 	} else {
 		/* Begin with next message added to ringbuffer. */
-		newcon->seq = prb_next_seq(prb);
+		init_seq = prb_next_seq(prb);
 
 		/*
 		 * If any enabled boot consoles are due to be unregistered
@@ -3713,7 +3714,7 @@ static void console_init_seq(struct console *newcon, bool bootcon_registered)
 			 * Flush all consoles and set the console to start at
 			 * the next unprinted sequence number.
 			 */
-			if (!console_flush_all(true, &newcon->seq, &handover)) {
+			if (!console_flush_all(true, &init_seq, &handover)) {
 				/*
 				 * Flushing failed. Just choose the lowest
 				 * sequence of the enabled boot consoles.
@@ -3726,12 +3727,12 @@ static void console_init_seq(struct console *newcon, bool bootcon_registered)
 				if (handover)
 					console_lock();
 
-				newcon->seq = prb_next_seq(prb);
+				init_seq = prb_next_seq(prb);
 				for_each_console(con) {
 					u64 seq;
 
-					if (!((con->flags & CON_BOOT) &&
-					      (con->flags & CON_ENABLED))) {
+					if (!(con->flags & CON_BOOT) ||
+					    !(con->flags & CON_ENABLED)) {
 						continue;
 					}
 
@@ -3740,14 +3741,16 @@ static void console_init_seq(struct console *newcon, bool bootcon_registered)
 					else
 						seq = con->seq;
 
-					if (seq < newcon->seq)
-						newcon->seq = seq;
+					if (seq < init_seq)
+						init_seq = seq;
 				}
 			}
 
 			console_unlock();
 		}
 	}
+
+	return init_seq;
 }
 
 #define console_first()				\
@@ -3780,6 +3783,7 @@ void register_console(struct console *newcon)
 	bool bootcon_registered = false;
 	bool realcon_registered = false;
 	unsigned long flags;
+	u64 init_seq;
 	int err;
 
 	console_list_lock();
@@ -3857,21 +3861,14 @@ void register_console(struct console *newcon)
 	}
 
 	newcon->dropped = 0;
-	console_init_seq(newcon, bootcon_registered);
+	init_seq = get_init_console_seq(newcon, bootcon_registered);
 
 	if (newcon->flags & CON_NBCON) {
 		have_nbcon_console = true;
-		nbcon_init(newcon);
-
-		/*
-		 * nbcon consoles have their own sequence counter. The legacy
-		 * sequence counter is reset so that it is clear it is not
-		 * being used.
-		 */
-		nbcon_seq_force(newcon, newcon->seq);
-		newcon->seq = 0;
+		nbcon_init(newcon, init_seq);
 	} else {
 		have_legacy_console = true;
+		newcon->seq = init_seq;
 		nbcon_legacy_kthread_create();
 	}
 
@@ -3951,6 +3948,7 @@ static int unregister_console_locked(struct console *console)
 	bool found_legacy_con = false;
 	bool found_nbcon_con = false;
 	bool found_boot_con = false;
+	unsigned long flags;
 	struct console *c;
 	int res;
 
@@ -3970,7 +3968,17 @@ static int unregister_console_locked(struct console *console)
 	if (!console_is_registered_locked(console))
 		return -ENODEV;
 
+	/*
+	 * Use the driver synchronization to ensure that the hardware is not
+	 * in use while this console transitions to being unregistered.
+	 */
+	if ((console->flags & CON_NBCON) && console->write_atomic)
+		console->device_lock(console, &flags);
+
 	hlist_del_init_rcu(&console->node);
+
+	if ((console->flags & CON_NBCON) && console->write_atomic)
+		console->device_unlock(console, flags);
 
 	/*
 	 * <HISTORICAL>

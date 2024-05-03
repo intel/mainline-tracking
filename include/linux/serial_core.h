@@ -8,7 +8,6 @@
 #define LINUX_SERIAL_CORE_H
 
 #include <linux/bitops.h>
-#include <linux/bug.h>
 #include <linux/compiler.h>
 #include <linux/console.h>
 #include <linux/interrupt.h>
@@ -631,62 +630,56 @@ static inline void uart_port_set_cons(struct uart_port *up, struct console *con)
 }
 
 /* Only for internal port lock wrapper usage. */
-static inline void __uart_port_nbcon_acquire(struct uart_port *up)
+static inline bool __uart_port_using_nbcon(struct uart_port *up)
 {
 	lockdep_assert_held_once(&up->lock);
 
 	if (likely(!uart_console(up)))
+		return false;
+
+	/*
+	 * @up->cons is only modified under the port lock. Therefore it is
+	 * certain that it cannot disappear here.
+	 *
+	 * @up->cons->node is added/removed from the console list under the
+	 * port lock. Therefore it is certain that the registration status
+	 * cannot change here, thus @up->cons->flags can be read directly.
+	 */
+	if (hlist_unhashed_lockless(&up->cons->node) ||
+	    !(up->cons->flags & CON_NBCON) ||
+	    !up->cons->write_atomic) {
+		return false;
+	}
+
+	return true;
+}
+
+/* Only for internal port lock wrapper usage. */
+static inline bool __uart_port_nbcon_try_acquire(struct uart_port *up)
+{
+	if (!__uart_port_using_nbcon(up))
+		return true;
+
+	return nbcon_driver_try_acquire(up->cons);
+}
+
+/* Only for internal port lock wrapper usage. */
+static inline void __uart_port_nbcon_acquire(struct uart_port *up)
+{
+	if (!__uart_port_using_nbcon(up))
 		return;
 
-	if (up->cons->nbcon_drvdata) {
-		/*
-		 * If @up->cons is registered, prevent it from fully
-		 * unregistering until this context releases the nbcon.
-		 */
-		int cookie = console_srcu_read_lock();
-
-		/* Ensure console is registered and is an nbcon console. */
-		if (!hlist_unhashed_lockless(&up->cons->node) &&
-		    (console_srcu_read_flags(up->cons) & CON_NBCON)) {
-			WARN_ON_ONCE(up->cons->nbcon_drvdata->locked);
-
-			nbcon_driver_acquire(up->cons);
-
-			/*
-			 * Record @up->line to be used during release because
-			 * @up->cons->index can change while the port and
-			 * nbcon are locked.
-			 */
-			up->cons->nbcon_drvdata->owner_index = up->line;
-			up->cons->nbcon_drvdata->srcu_cookie = cookie;
-			up->cons->nbcon_drvdata->locked = true;
-		} else {
-			console_srcu_read_unlock(cookie);
-		}
-	}
+	while (!nbcon_driver_try_acquire(up->cons))
+		cpu_relax();
 }
 
 /* Only for internal port lock wrapper usage. */
 static inline void __uart_port_nbcon_release(struct uart_port *up)
 {
-	lockdep_assert_held_once(&up->lock);
+	if (!__uart_port_using_nbcon(up))
+		return;
 
-	/*
-	 * uart_console() cannot be used here because @up->cons->index might
-	 * have changed. Check against @up->cons->nbcon_drvdata->owner_index
-	 * instead.
-	 */
-
-	if (unlikely(up->cons &&
-		     up->cons->nbcon_drvdata &&
-		     up->cons->nbcon_drvdata->locked &&
-		     up->cons->nbcon_drvdata->owner_index == up->line)) {
-		WARN_ON_ONCE(!up->cons->nbcon_drvdata->locked);
-
-		up->cons->nbcon_drvdata->locked = false;
-		nbcon_driver_release(up->cons);
-		console_srcu_read_unlock(up->cons->nbcon_drvdata->srcu_cookie);
-	}
+	nbcon_driver_release(up->cons);
 }
 
 /**
@@ -731,7 +724,11 @@ static inline bool uart_port_trylock(struct uart_port *up)
 	if (!spin_trylock(&up->lock))
 		return false;
 
-	__uart_port_nbcon_acquire(up);
+	if (!__uart_port_nbcon_try_acquire(up)) {
+		spin_unlock(&up->lock);
+		return false;
+	}
+
 	return true;
 }
 
@@ -747,7 +744,11 @@ static inline bool uart_port_trylock_irqsave(struct uart_port *up, unsigned long
 	if (!spin_trylock_irqsave(&up->lock, *flags))
 		return false;
 
-	__uart_port_nbcon_acquire(up);
+	if (!__uart_port_nbcon_try_acquire(up)) {
+		spin_unlock_irqrestore(&up->lock, *flags);
+		return false;
+	}
+
 	return true;
 }
 
