@@ -847,6 +847,60 @@ static int xpcs_config_2500basex(struct dw_xpcs *xpcs)
 	return xpcs_write(xpcs, MDIO_MMD_VEND2, DW_VR_MII_MMD_CTRL, ret);
 }
 
+static int xpcs_switch_to_aneg_c37_sgmii(const struct xpcs_compat *compat,
+					 struct dw_xpcs *xpcs,
+					 unsigned int neg_mode)
+{
+	bool an_c37_enabled;
+	int ret, mdio_ctrl;
+
+	if (neg_mode == PHYLINK_PCS_NEG_INBAND_ENABLED) {
+		mdio_ctrl = xpcs_read(xpcs, MDIO_MMD_VEND2, DW_VR_MII_MMD_CTRL);
+		if (mdio_ctrl < 0)
+			return mdio_ctrl;
+
+		an_c37_enabled = mdio_ctrl & AN_CL37_EN;
+		if (!an_c37_enabled) {
+			//Perform soft reset to initiate C37 auto-negotiation
+			ret = xpcs_soft_reset(xpcs, compat);
+			if (ret)
+				return ret;
+		}
+	}
+	return 0;
+}
+
+static int xpcs_switch_interface_mode(const struct xpcs_compat *compat,
+				      struct dw_xpcs *xpcs,
+				      phy_interface_t interface,
+				      unsigned int neg_mode)
+{
+	int ret;
+
+	if (xpcs->dev_flag == DW_DEV_TXGBE) {
+		ret = txgbe_xpcs_switch_mode(xpcs, interface);
+		if (ret)
+			return ret;
+	} else {
+		if (xpcs->interface != interface) {
+			xpcs->interface = interface;
+
+			switch (compat->an_mode) {
+			case DW_AN_C37_SGMII:
+				ret = xpcs_switch_to_aneg_c37_sgmii(compat,
+								    xpcs,
+								    neg_mode);
+				if (ret)
+					return ret;
+				break;
+			default:
+				return 0;
+			}
+		}
+	}
+	return 0;
+}
+
 int xpcs_do_config(struct dw_xpcs *xpcs, phy_interface_t interface,
 		   const unsigned long *advertising, unsigned int neg_mode)
 {
@@ -857,11 +911,9 @@ int xpcs_do_config(struct dw_xpcs *xpcs, phy_interface_t interface,
 	if (!compat)
 		return -ENODEV;
 
-	if (xpcs->dev_flag == DW_DEV_TXGBE) {
-		ret = txgbe_xpcs_switch_mode(xpcs, interface);
-		if (ret)
-			return ret;
-	}
+	ret = xpcs_switch_interface_mode(compat, xpcs, interface, neg_mode);
+	if (ret)
+		return ret;
 
 	switch (compat->an_mode) {
 	case DW_10GBASER:
@@ -1366,7 +1418,8 @@ static const struct phylink_pcs_ops xpcs_phylink_ops = {
 };
 
 static struct dw_xpcs *xpcs_create(struct mdio_device *mdiodev,
-				   phy_interface_t interface)
+				   phy_interface_t interface,
+				   bool skip_reset)
 {
 	struct dw_xpcs *xpcs;
 	u32 xpcs_id;
@@ -1406,9 +1459,16 @@ static struct dw_xpcs *xpcs_create(struct mdio_device *mdiodev,
 		if (xpcs->dev_flag != DW_DEV_TXGBE) {
 			xpcs->pcs.poll = true;
 
-			ret = xpcs_soft_reset(xpcs, compat);
-			if (ret)
-				goto out;
+			if (!skip_reset) {
+				dev_warn(&xpcs->mdiodev->dev, "%s: xpcs reset\n",
+					 __func__);
+				ret = xpcs_soft_reset(xpcs, compat);
+				if (ret)
+					goto out;
+			} else {
+				dev_warn(&xpcs->mdiodev->dev, "%s: skip xpcs reset\n",
+					  __func__);
+			}
 		}
 
 		return xpcs;
@@ -1432,7 +1492,8 @@ void xpcs_destroy(struct dw_xpcs *xpcs)
 EXPORT_SYMBOL_GPL(xpcs_destroy);
 
 struct dw_xpcs *xpcs_create_mdiodev(struct mii_bus *bus, int addr,
-				    phy_interface_t interface)
+				    phy_interface_t interface,
+				    bool skip_reset)
 {
 	struct mdio_device *mdiodev;
 	struct dw_xpcs *xpcs;
@@ -1441,7 +1502,7 @@ struct dw_xpcs *xpcs_create_mdiodev(struct mii_bus *bus, int addr,
 	if (IS_ERR(mdiodev))
 		return ERR_CAST(mdiodev);
 
-	xpcs = xpcs_create(mdiodev, interface);
+	xpcs = xpcs_create(mdiodev, interface, skip_reset);
 
 	/* xpcs_create() has taken a refcount on the mdiodev if it was
 	 * successful. If xpcs_create() fails, this will free the mdio

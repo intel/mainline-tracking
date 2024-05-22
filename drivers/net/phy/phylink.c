@@ -1093,9 +1093,9 @@ static void phylink_pcs_an_restart(struct phylink *pl)
  * Note: this is for cases where the PCS itself is involved in negotiation
  * (e.g. Clause 37, SGMII and similar) not Clause 73.
  */
-static unsigned int phylink_pcs_neg_mode(unsigned int mode,
-					 phy_interface_t interface,
-					 const unsigned long *advertising)
+unsigned int phylink_pcs_neg_mode(unsigned int mode,
+				  phy_interface_t interface,
+				  const unsigned long *advertising)
 {
 	unsigned int neg_mode;
 
@@ -1139,6 +1139,7 @@ static unsigned int phylink_pcs_neg_mode(unsigned int mode,
 
 	return neg_mode;
 }
+EXPORT_SYMBOL_GPL(phylink_pcs_neg_mode);
 
 static void phylink_major_config(struct phylink *pl, bool restart,
 				  const struct phylink_link_state *state)
@@ -1151,9 +1152,17 @@ static void phylink_major_config(struct phylink *pl, bool restart,
 
 	phylink_dbg(pl, "major config %s\n", phy_modes(state->interface));
 
-	pl->pcs_neg_mode = phylink_pcs_neg_mode(pl->cur_link_an_mode,
-						state->interface,
-						state->advertising);
+	if (pl->mac_ops->mac_get_pcs_neg_mode) {
+		pl->pcs_neg_mode = pl->mac_ops->mac_get_pcs_neg_mode
+						(pl->config,
+						 pl->cur_link_an_mode,
+						 state->interface,
+						 state->advertising);
+	} else {
+		pl->pcs_neg_mode = phylink_pcs_neg_mode(pl->cur_link_an_mode,
+							state->interface,
+							state->advertising);
+	}
 
 	if (pl->using_mac_select_pcs) {
 		pcs = pl->mac_ops->mac_select_pcs(pl->config, state->interface);
@@ -1839,10 +1848,11 @@ static int phylink_validate_phy(struct phylink *pl, struct phy_device *phy,
 	 * against all interface modes, which may lead to more ethtool link
 	 * modes being advertised than are actually supported.
 	 */
-	if (phy->is_c45 && state->rate_matching == RATE_MATCH_NONE &&
-	    state->interface != PHY_INTERFACE_MODE_RXAUI &&
-	    state->interface != PHY_INTERFACE_MODE_XAUI &&
-	    state->interface != PHY_INTERFACE_MODE_USXGMII)
+	if ((phy->is_c45 && state->rate_matching == RATE_MATCH_NONE &&
+	     state->interface != PHY_INTERFACE_MODE_RXAUI &&
+	     state->interface != PHY_INTERFACE_MODE_XAUI &&
+	     state->interface != PHY_INTERFACE_MODE_USXGMII) ||
+	     pl->config->allow_switch_interface)
 		state->interface = PHY_INTERFACE_MODE_NA;
 
 	return phylink_validate(pl, supported, state);
@@ -3799,6 +3809,12 @@ static int __init phylink_init(void)
 }
 
 module_init(phylink_init);
+
+static void __exit phylink_exit(void)
+{
+}
+
+module_exit(phylink_exit);
 
 MODULE_LICENSE("GPL v2");
 MODULE_DESCRIPTION("phylink models the MAC to optional PHY connection");

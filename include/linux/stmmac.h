@@ -87,6 +87,7 @@ struct stmmac_mdio_bus_data {
 	int *irqs;
 	int probed_phy_irq;
 	bool needs_reset;
+	bool allow_switch_interface;
 };
 
 struct stmmac_dma_cfg {
@@ -126,6 +127,8 @@ struct stmmac_est {
 	u32 ter;
 	u32 gcl_unaligned[EST_GCL];
 	u32 gcl[EST_GCL];
+	u32 ti_ns[EST_GCL];
+	u32 gates[EST_GCL];
 	u32 gcl_size;
 	u32 max_sdu[MTL_MAX_TX_QUEUES];
 };
@@ -174,6 +177,7 @@ enum stmmac_fpe_task_state_t {
 struct stmmac_fpe_cfg {
 	bool enable;				/* FPE enable */
 	bool hs_enable;				/* FPE handshake enable */
+	u32 txqpec;				/* Preemption classification */
 	enum stmmac_fpe_state lp_fpe_state;	/* Link Partner FPE state */
 	enum stmmac_fpe_state lo_fpe_state;	/* Local station FPE state */
 	u32 fpe_csr;				/* MAC_FPE_CTRL_STS reg cache */
@@ -277,6 +281,11 @@ struct plat_stmmacenet_data {
 	int (*serdes_powerup)(struct net_device *ndev, void *priv);
 	void (*serdes_powerdown)(struct net_device *ndev, void *priv);
 	void (*speed_mode_2500)(struct net_device *ndev, void *priv);
+	unsigned int (*get_pcs_neg_mode)(phy_interface_t interface,
+					 struct pci_dev *pdev);
+	int (*config_serdes)(struct net_device *ndev,
+			     void *priv,
+			     phy_interface_t interface);
 	void (*ptp_clk_freq_config)(struct stmmac_priv *priv);
 	int (*init)(struct platform_device *pdev, void *priv);
 	void (*exit)(struct platform_device *pdev, void *priv);
@@ -314,5 +323,7 @@ struct plat_stmmacenet_data {
 	int msi_tx_base_vec;
 	const struct dwmac4_addrs *dwmac4_addrs;
 	unsigned int flags;
+	bool skip_reset;
+	bool fixed_2G5_clock_rate;
 };
 #endif
