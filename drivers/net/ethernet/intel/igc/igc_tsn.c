@@ -57,7 +57,7 @@ void igc_tsn_adjust_txtime_offset(struct igc_adapter *adapter)
 	struct igc_hw *hw = &adapter->hw;
 	u16 txoffset;
 
-	if (!is_any_launchtime(adapter))
+	if (!is_any_launchtime(adapter) && !adapter->taprio_offload_enable)
 		return;
 
 	switch (adapter->link_speed) {
