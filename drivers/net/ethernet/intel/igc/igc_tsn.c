@@ -87,7 +87,7 @@ void igc_tsn_adjust_txtime_offset(struct igc_adapter *adapter)
 static int igc_tsn_disable_offload(struct igc_adapter *adapter)
 {
 	struct igc_hw *hw = &adapter->hw;
-	u32 tqavctrl, rxpbs;
+	u32 tqavctrl, rxpbs, retxctl;
 	int i;
 
 	adapter->add_frag_size = IGC_I225_MIN_FRAG_SIZE_DEFAULT;
@@ -100,6 +100,10 @@ static int igc_tsn_disable_offload(struct igc_adapter *adapter)
 	rxpbs |= I225_RXPBSIZE_DEFAULT;
 
 	wr32(IGC_RXPBS, rxpbs);
+
+	/* Reset everything except watermark default value */
+	retxctl = rd32(IGC_RETX_CTL) & IGC_RETX_CTL_WATERMARK_MASK;
+	wr32(IGC_RETX_CTL, retxctl);
 
 	tqavctrl = rd32(IGC_TQAVCTRL);
 	tqavctrl &= ~(IGC_TQAVCTRL_TRANSMIT_MODE_TSN |
@@ -128,12 +132,19 @@ static int igc_tsn_enable_offload(struct igc_adapter *adapter)
 	u32 tqavctrl, baset_l, baset_h;
 	u32 sec, nsec, cycle, rxpbs;
 	ktime_t base_time, systim;
-	u32 frag_size_mult;
+	u32 frag_size_mult, retxctl, retxctl_watermark;
 	int i;
 
 	wr32(IGC_TSAUXC, 0);
 	wr32(IGC_DTXMXPKTSZ, IGC_DTXMXPKTSZ_TSN);
 	wr32(IGC_TXPBS, IGC_TXPBSIZE_TSN);
+
+	retxctl = rd32(IGC_RETX_CTL);
+	retxctl_watermark = retxctl & IGC_RETX_CTL_WATERMARK_MASK;
+	/* Set retxctl_watermark value to QBVFULLTH and set QBVFULLEN */
+	retxctl |= (retxctl_watermark << IGC_RETX_CTL_QBVFULLTH_SHIFT) |
+		   IGC_RETX_CTL_QBVFULLEN_ENA;
+	wr32(IGC_RETX_CTL, retxctl);
 
 	rxpbs = rd32(IGC_RXPBS) & ~IGC_RXPBSIZE_SIZE_MASK;
 	rxpbs |= IGC_RXPBSIZE_TSN;
