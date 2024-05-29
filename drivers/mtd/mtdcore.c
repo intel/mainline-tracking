@@ -956,8 +956,10 @@ static int mtd_otp_nvmem_add(struct mtd_info *mtd)
 
 	if (mtd->_get_user_prot_info && mtd->_read_user_prot_reg) {
 		size = mtd_otp_size(mtd, true);
-		if (size < 0)
-			return size;
+		if (size < 0) {
+			err = size;
+			goto err;
+		}
 
 		if (size > 0) {
 			nvmem = mtd_otp_nvmem_register(mtd, "user-otp", size,
@@ -1052,8 +1054,14 @@ int mtd_device_parse_register(struct mtd_info *mtd, const char * const *types,
 
 	mtd_set_dev_defaults(mtd);
 
+	/*
+	 * Don't abort MTD init if OTP functionality is unsupported. The
+	 * cleanup of the OTP init is contained within mtd_otp_nvmem_add().
+	 * Omitting goto out here is safe since the cleanup code there
+	 * should be no-ops.
+	 */
 	ret = mtd_otp_nvmem_add(mtd);
-	if (ret)
+	if (ret && ret != -EOPNOTSUPP)
 		goto out;
 
 	if (IS_ENABLED(CONFIG_MTD_PARTITIONED_MASTER)) {
