@@ -130,7 +130,7 @@ static unsigned int tb_available_credits(const struct tb_port *port,
 	size_t ndp;
 
 	usb3 = tb_acpi_may_tunnel_usb3() ? sw->max_usb3_credits : 0;
-	pcie = tb_acpi_may_tunnel_pcie() ? sw->max_pcie_credits : 0;
+	pcie = tb_may_tunnel_pcie() ? sw->max_pcie_credits : 0;
 
 	if (tb_acpi_is_xdomain_allowed()) {
 		spare = min_not_zero(sw->max_dma_credits, dma_credits);
@@ -553,7 +553,7 @@ bool tb_tunnel_reserved_pci(struct tb_port *port, int *reserved_up,
 	if (WARN_ON_ONCE(!port->remote))
 		return false;
 
-	if (!tb_acpi_may_tunnel_pcie())
+	if (!tb_may_tunnel_pcie())
 		return false;
 
 	if (tb_port_get_link_generation(port) < 4)
@@ -1720,7 +1720,7 @@ static unsigned int tb_dma_available_credits(const struct tb_port *port)
 	int credits;
 
 	credits = tb_available_credits(port, NULL);
-	if (tb_acpi_may_tunnel_pcie())
+	if (tb_may_tunnel_pcie())
 		credits -= sw->max_pcie_credits;
 	credits -= port->dma_credits;
 
@@ -2031,7 +2031,7 @@ static int tb_usb3_consumed_bandwidth(struct tb_tunnel *tunnel,
 		int *consumed_up, int *consumed_down)
 {
 	struct tb_port *port = tb_upstream_port(tunnel->dst_port->sw);
-	int pcie_weight = tb_acpi_may_tunnel_pcie() ? TB_PCI_WEIGHT : 0;
+	int pcie_weight = tb_may_tunnel_pcie() ? TB_PCI_WEIGHT : 0;
 
 	/*
 	 * PCIe tunneling, if enabled, affects the USB3 bandwidth so

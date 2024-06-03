@@ -18,6 +18,24 @@ menuconfig USB4
 
 if USB4
 
+config USB4_PCIE_TUNNELING
+	bool "Allow PCI Express tunneling over USB4 fabric"
+	depends on PCI
+	default y
+	help
+	  USB4 and Thunderbolt devices typically include PCIe switch
+	  with a number of PCIe endpoints such as USB host controllers,
+	  GPUs and network adapters. These are made available to the
+	  host system through PCIe tunneling. These can use DMA and
+	  therefore have access to the host memory which is typically
+	  guarded by an IOMMU. This option allows disabling PCIe
+	  tunneling completely.
+
+	  For devices to be usable it is recommended to say Y here.
+
+	  Note this only works with systems that use Software Based
+	  Connection Manager (this is most USB4 hosts).
+
 config USB4_DEBUGFS_WRITE
 	bool "Enable write by debugfs to configuration spaces (DANGEROUS)"
 	help
