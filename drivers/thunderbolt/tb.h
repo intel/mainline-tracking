@@ -1518,6 +1518,15 @@ static inline int tb_acpi_power_on_retimers(struct tb_port *port) { return 0; }
 static inline int tb_acpi_power_off_retimers(struct tb_port *port) { return 0; }
 #endif
 
+static inline bool tb_may_tunnel_pcie(void)
+{
+#ifdef CONFIG_USB4_PCIE_TUNNELING
+	return tb_acpi_may_tunnel_pcie();
+#else
+	return false;
+#endif
+}
+
 #ifdef CONFIG_DEBUG_FS
 void tb_debugfs_init(void);
 void tb_debugfs_exit(void);
