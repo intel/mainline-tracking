@@ -746,6 +746,9 @@ struct bpf_redirect_info {
 
 struct bpf_net_context {
 	struct bpf_redirect_info ri;
+	struct list_head cpu_map_flush_list;
+	struct list_head dev_map_flush_list;
+	struct list_head xskmap_map_flush_list;
 };
 
 static inline struct bpf_net_context *bpf_net_ctx_set(struct bpf_net_context *bpf_net_ctx)
@@ -755,6 +758,14 @@ static inline struct bpf_net_context *bpf_net_ctx_set(struct bpf_net_context *bp
 	if (tsk->bpf_net_context != NULL)
 		return NULL;
 	memset(&bpf_net_ctx->ri, 0, sizeof(bpf_net_ctx->ri));
+
+	if (IS_ENABLED(CONFIG_BPF_SYSCALL)) {
+		INIT_LIST_HEAD(&bpf_net_ctx->cpu_map_flush_list);
+		INIT_LIST_HEAD(&bpf_net_ctx->dev_map_flush_list);
+	}
+	if (IS_ENABLED(CONFIG_XDP_SOCKETS))
+		INIT_LIST_HEAD(&bpf_net_ctx->xskmap_map_flush_list);
+
 	tsk->bpf_net_context = bpf_net_ctx;
 	return bpf_net_ctx;
 }
@@ -775,6 +786,27 @@ static inline struct bpf_redirect_info *bpf_net_ctx_get_ri(void)
 	struct bpf_net_context *bpf_net_ctx = bpf_net_ctx_get();
 
 	return &bpf_net_ctx->ri;
+}
+
+static inline struct list_head *bpf_net_ctx_get_cpu_map_flush_list(void)
+{
+	struct bpf_net_context *bpf_net_ctx = bpf_net_ctx_get();
+
+	return &bpf_net_ctx->cpu_map_flush_list;
+}
+
+static inline struct list_head *bpf_net_ctx_get_dev_flush_list(void)
+{
+	struct bpf_net_context *bpf_net_ctx = bpf_net_ctx_get();
+
+	return &bpf_net_ctx->dev_map_flush_list;
+}
+
+static inline struct list_head *bpf_net_ctx_get_xskmap_flush_list(void)
+{
+	struct bpf_net_context *bpf_net_ctx = bpf_net_ctx_get();
+
+	return &bpf_net_ctx->xskmap_map_flush_list;
 }
 
 DEFINE_FREE(bpf_net_ctx_clear, struct bpf_net_context *, bpf_net_ctx_clear(_T));
