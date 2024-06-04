@@ -3336,7 +3336,7 @@ struct tb *tb_probe(struct tb_nhi *nhi)
 	if (!tb)
 		return NULL;
 
-	if (tb_acpi_may_tunnel_pcie())
+	if (tb_may_tunnel_pcie())
 		tb->security_level = TB_SECURITY_USER;
 	else
 		tb->security_level = TB_SECURITY_NOPCIE;
