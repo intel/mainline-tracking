@@ -1443,8 +1443,19 @@ void nbcon_cpu_emergency_exit(void)
  */
 void nbcon_cpu_emergency_flush(void)
 {
+	bool is_emergency;
+
+	/*
+	 * If this context is not an emergency context, preemption might be
+	 * enabled. To be sure, disable preemption when checking if this is
+	 * an emergency context.
+	 */
+	preempt_disable();
+	is_emergency = (*nbcon_get_cpu_emergency_nesting() != 0);
+	preempt_enable();
+
 	/* The explicit flush is needed only in the emergency context. */
-	if (*(nbcon_get_cpu_emergency_nesting()) == 0)
+	if (!is_emergency)
 		return;
 
 	nbcon_atomic_flush_pending();
