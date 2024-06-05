@@ -616,7 +616,6 @@ static void synchronize_rcu_expedited_wait(void)
 			}
 			pr_cont("\n");
 		}
-		nbcon_cpu_emergency_flush();
 		rcu_for_each_leaf_node(rnp) {
 			for_each_leaf_node_possible_cpu(rnp, cpu) {
 				mask = leaf_node_cpu_bit(rnp, cpu);
@@ -625,6 +624,7 @@ static void synchronize_rcu_expedited_wait(void)
 				preempt_disable(); // For smp_processor_id() in dump_cpu_task().
 				dump_cpu_task(cpu);
 				preempt_enable();
+				nbcon_cpu_emergency_flush();
 			}
 			rcu_exp_print_detail_task_stall_rnp(rnp);
 		}

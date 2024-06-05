@@ -10,9 +10,9 @@
 #include <linux/bitops.h>
 #include <linux/compiler.h>
 #include <linux/console.h>
+#include <linux/interrupt.h>
 #include <linux/lockdep.h>
 #include <linux/printk.h>
-#include <linux/interrupt.h>
 #include <linux/spinlock.h>
 #include <linux/sched.h>
 #include <linux/tty.h>
@@ -659,7 +659,7 @@ static inline bool __uart_port_nbcon_try_acquire(struct uart_port *up)
 	if (!__uart_port_using_nbcon(up))
 		return true;
 
-	return nbcon_driver_try_acquire(up->cons);
+	return nbcon_device_try_acquire(up->cons);
 }
 
 /* Only for internal port lock wrapper usage. */
@@ -668,7 +668,7 @@ static inline void __uart_port_nbcon_acquire(struct uart_port *up)
 	if (!__uart_port_using_nbcon(up))
 		return;
 
-	while (!nbcon_driver_try_acquire(up->cons))
+	while (!nbcon_device_try_acquire(up->cons))
 		cpu_relax();
 }
 
@@ -678,7 +678,7 @@ static inline void __uart_port_nbcon_release(struct uart_port *up)
 	if (!__uart_port_using_nbcon(up))
 		return;
 
-	nbcon_driver_release(up->cons);
+	nbcon_device_release(up->cons);
 }
 
 /**

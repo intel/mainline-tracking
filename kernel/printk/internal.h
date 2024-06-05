@@ -85,6 +85,8 @@ bool printk_percpu_data_ready(void);
 
 void defer_console_output(void);
 
+bool is_printk_deferred(void);
+
 u16 printk_parse_prefix(const char *text, int *level,
 			enum printk_info_flags *flags);
 void console_lock_spinning_enable(void);

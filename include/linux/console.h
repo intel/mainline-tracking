@@ -324,7 +324,7 @@ struct nbcon_write_context {
  *
  * @nbcon_state:	State for nbcon consoles
  * @nbcon_seq:		Sequence number of the next record for nbcon to print
- * @nbcon_driver_ctxt:	Context available for driver non-printing operations
+ * @nbcon_device_ctxt:	Context available for non-printing operations
  * @nbcon_prev_seq:	Seq num the previous nbcon owner was assigned to print
  * @pbufs:		Pointer to nbcon private buffer
  * @kthread:		Printer kthread for this console
@@ -372,7 +372,6 @@ struct console {
 	 *
 	 * The callback should allow the takeover whenever it is safe. It
 	 * increases the chance to see messages when the system is in trouble.
-	 *
 	 * If the driver must reacquire ownership in order to finalize or
 	 * revert hardware changes, nbcon_reacquire() can be used. However,
 	 * on reacquire the buffer content is no longer available. A
@@ -387,11 +386,11 @@ struct console {
 	/**
 	 * @write_thread:
 	 *
-	 * NBCON callback to write out text in task context. (Optional)
+	 * NBCON callback to write out text in task context.
 	 *
-	 * This callback is called with the console already acquired. Any
-	 * additional driver synchronization should have been performed by
-	 * device_lock().
+	 * This callback is called after device_lock() and with the nbcon
+	 * console acquired. Any necessary driver synchronization should have
+	 * been performed by the device_lock() callback.
 	 *
 	 * This callback is always called from task context but with migration
 	 * disabled.
@@ -400,8 +399,8 @@ struct console {
 	 * sections applies as with write_atomic(). The difference between
 	 * this callback and write_atomic() is that this callback is used
 	 * during normal operation and is always called from task context.
-	 * This provides drivers with a relatively relaxed locking context
-	 * for synchronizing output to the hardware.
+	 * This allows drivers to operate in their own locking context for
+	 * synchronizing output to the hardware.
 	 */
 	void (*write_thread)(struct console *con, struct nbcon_write_context *wctxt);
 
@@ -450,7 +449,7 @@ struct console {
 
 	atomic_t		__private nbcon_state;
 	atomic_long_t		__private nbcon_seq;
-	struct nbcon_context	__private nbcon_driver_ctxt;
+	struct nbcon_context	__private nbcon_device_ctxt;
 	atomic_long_t           __private nbcon_prev_seq;
 
 	struct printk_buffers	*pbufs;

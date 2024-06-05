@@ -2356,8 +2356,8 @@ asmlinkage int vprintk_emit(int facility, int level,
 			    const struct dev_printk_info *dev_info,
 			    const char *fmt, va_list args)
 {
-	bool do_trylock_unlock = printing_via_unlock &&
-				 !force_printkthreads();
+	bool do_trylock_unlock = !force_printkthreads() &&
+				 printing_via_unlock;
 	int printed_len;
 
 	/* Suppress unimportant messages after panic happens */
@@ -2782,8 +2782,9 @@ void resume_console(void)
  */
 static int console_cpu_notify(unsigned int cpu)
 {
-	if (!cpuhp_tasks_frozen && printing_via_unlock &&
-	    !force_printkthreads()) {
+	if (!force_printkthreads() &&
+	    !cpuhp_tasks_frozen &&
+	    printing_via_unlock) {
 		/* If trylock fails, someone else is doing the printing */
 		if (console_trylock())
 			console_unlock();
@@ -3493,10 +3494,10 @@ EXPORT_SYMBOL(console_stop);
 void console_start(struct console *console)
 {
 	short flags;
+	int cookie;
 
 	console_list_lock();
 	console_srcu_write_flags(console, console->flags | CON_ENABLED);
-	flags = console->flags;
 	console_list_unlock();
 
 	/*
@@ -3506,10 +3507,13 @@ void console_start(struct console *console)
 	 */
 	synchronize_srcu(&console_srcu);
 
+	cookie = console_srcu_read_lock();
+	flags = console_srcu_read_flags(console);
 	if (flags & CON_NBCON)
 		nbcon_kthread_wake(console);
 	else
 		wake_up_legacy_kthread();
+	console_srcu_read_unlock(cookie);
 
 	__pr_flush(console, 1000, true);
 }
@@ -3537,7 +3541,7 @@ static bool printer_should_wake(void)
 		if ((flags & CON_NBCON) && con->kthread)
 			continue;
 
-		if (!console_is_usable(con, flags, true))
+		if (!console_is_usable(con, flags, false))
 			continue;
 
 		if (flags & CON_NBCON) {
@@ -3806,9 +3810,10 @@ static int unregister_console_locked(struct console *console);
  */
 void register_console(struct console *newcon)
 {
-	struct console *con;
+	bool use_device_lock = (newcon->flags & CON_NBCON) && newcon->write_atomic;
 	bool bootcon_registered = false;
 	bool realcon_registered = false;
+	struct console *con;
 	unsigned long flags;
 	u64 init_seq;
 	int err;
@@ -3912,7 +3917,7 @@ void register_console(struct console *newcon)
 	 * Use the driver synchronization to ensure that the hardware is not
 	 * in use while this new console transitions to being registered.
 	 */
-	if ((newcon->flags & CON_NBCON) && newcon->write_atomic)
+	if (use_device_lock)
 		newcon->device_lock(newcon, &flags);
 
 	/*
@@ -3940,7 +3945,7 @@ void register_console(struct console *newcon)
 	 */
 
 	/* This new console is now registered. */
-	if ((newcon->flags & CON_NBCON) && newcon->write_atomic)
+	if (use_device_lock)
 		newcon->device_unlock(newcon, flags);
 
 	console_sysfs_notify();
@@ -3971,6 +3976,7 @@ EXPORT_SYMBOL(register_console);
 /* Must be called under console_list_lock(). */
 static int unregister_console_locked(struct console *console)
 {
+	bool use_device_lock = (console->flags & CON_NBCON) && console->write_atomic;
 	bool is_boot_con = (console->flags & CON_BOOT);
 	bool found_legacy_con = false;
 	bool found_nbcon_con = false;
@@ -3999,12 +4005,12 @@ static int unregister_console_locked(struct console *console)
 	 * Use the driver synchronization to ensure that the hardware is not
 	 * in use while this console transitions to being unregistered.
 	 */
-	if ((console->flags & CON_NBCON) && console->write_atomic)
+	if (use_device_lock)
 		console->device_lock(console, &flags);
 
 	hlist_del_init_rcu(&console->node);
 
-	if ((console->flags & CON_NBCON) && console->write_atomic)
+	if (use_device_lock)
 		console->device_unlock(console, flags);
 
 	/*
@@ -4233,7 +4239,7 @@ static bool __pr_flush(struct console *con, int timeout_ms, bool reset_on_progre
 	 * Otherwise this function will just wait for the threaded printers
 	 * to print up to @seq.
 	 */
-	if (printing_via_unlock && !force_printkthreads()) {
+	if (printing_via_unlock) {
 		console_lock();
 		console_unlock();
 	}
@@ -4765,18 +4771,19 @@ void kmsg_dump_rewind(struct kmsg_dump_iter *iter)
 EXPORT_SYMBOL_GPL(kmsg_dump_rewind);
 
 /**
- * console_replay_all - replay kernel log on consoles
+ * console_try_replay_all - try to replay kernel log on consoles
  *
  * Try to obtain lock on console subsystem and replay all
  * available records in printk buffer on the consoles.
  * Does nothing if lock is not obtained.
  *
- * Context: Any context.
+ * Context: Any, except for NMI.
  */
-void console_replay_all(void)
+void console_try_replay_all(void)
 {
 	if (console_trylock()) {
 		__console_rewind_all();
+		nbcon_wake_threads();
 		/* Consoles are flushed as part of console_unlock(). */
 		console_unlock();
 	}
