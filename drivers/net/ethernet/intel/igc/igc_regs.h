@@ -222,6 +222,16 @@
 
 #define IGC_FTQF(_n)	(0x059E0 + (4 * (_n)))  /* 5-tuple Queue Fltr */
 
+/* Time sync registers - preemption statistics */
+#define IGC_PRMPTDTCNT	0x04280  /* Good TX Preempted Packets */
+#define IGC_PRMEVNTTCNT	0x04298  /* TX Preemption event counter */
+#define IGC_PRMPTDRCNT	0x04284  /* Good RX Preempted Packets */
+#define IGC_PRMEVNTRCNT	0x0429C  /* RX Preemption event counter */
+#define IGC_PRMPBLTCNT	0x04288  /* Good TX Preemptible Packets */
+#define IGC_PRMPBLRCNT	0x0428C  /* Good RX Preemptible Packets */
+#define IGC_PRMEXPTCNT	0x04290  /* Good TX Express Packets */
+#define IGC_PRMEXPRCNT	0x042A0  /* Preemption Exception Counter */
+
 /* Transmit Scheduling Registers */
 #define IGC_TQAVCTRL		0x3570
 #define IGC_TXQCTL(_n)		(0x3344 + 0x4 * (_n))
@@ -243,11 +253,6 @@
 #define IGC_SYSTIMH	0x0B604  /* System time register High - RO */
 #define IGC_SYSTIMR	0x0B6F8  /* System time register Residue */
 #define IGC_TIMINCA	0x0B608  /* Increment attributes register - RW */
-
-#define IGC_SYSTIML_1	0x0B688  /* System time register Low - RO (timer 1) */
-#define IGC_SYSTIMH_1	0x0B68C  /* System time register High - RO (timer 1) */
-#define IGC_SYSTIMR_1	0x0B684  /* System time register Residue (timer 1) */
-#define IGC_TIMINCA_1	0x0B690  /* Increment attributes register - RW (timer 1) */
 
 /* TX Timestamp Low */
 #define IGC_TXSTMPL_0		0x0B618

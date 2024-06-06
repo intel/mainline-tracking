@@ -228,6 +228,8 @@ Userspace to kernel:
   ``ETHTOOL_MSG_PLCA_GET_STATUS``       get PLCA RS status
   ``ETHTOOL_MSG_MM_GET``                get MAC merge layer state
   ``ETHTOOL_MSG_MM_SET``                set MAC merge layer parameters
+  ``ETHTOOL_MSG_PREEMPT_GET``           get frame preemption parameters
+  ``ETHTOOL_MSG_PREEMPT_SET``           set frame preemption parameters
   ===================================== =================================
 
 Kernel to userspace:
@@ -274,6 +276,7 @@ Kernel to userspace:
   ``ETHTOOL_MSG_PLCA_GET_STATUS_REPLY``    PLCA RS status
   ``ETHTOOL_MSG_PLCA_NTF``                 PLCA RS parameters
   ``ETHTOOL_MSG_MM_GET_REPLY``             MAC merge layer status
+  ``ETHTOOL_MSG_PREEMPT_GET_REPLY``        frame preemption parameters
   ======================================== =================================
 
 ``GET`` requests are sent by userspace applications to retrieve device
@@ -1652,6 +1655,17 @@ Request contents:
   ``ETHTOOL_A_MODULE_HEADER``            nested  request header
   =====================================  ======  ==========================
 
+PREEMPT_GET
+===========
+
+Get information about frame preemption state.
+
+Request contents:
+
+  ====================================  ======  ==========================
+  ``ETHTOOL_A_PREEMPT_HEADER``          nested  request header
+  ====================================  ======  ==========================
+
 Kernel response contents:
 
   ======================================  ======  ==========================
@@ -1677,6 +1691,26 @@ MODULE_SET
 ==========
 
 Sets transceiver module parameters.
+=======
+  ``ETHTOOL_A_PREEMPT_HEADER``            nested  reply header
+  ``ETHTOOL_A_PREEMPT_ENABLED``           bool    frame preemption enabled
+  ``ETHTOOL_A_PREEMPT_PREEMPTIBLE_MASK``  bitset  preemptible queue mask
+  ``ETHTOOL_A_PREEMPT_ADD_FRAG_SIZE``     u32     Min additional frag size
+  ``ETHTOOL_A_PREEMPT_DISABLE_VERIFY``    u32     disable verification
+  ``ETHTOOL_A_PREEMPT_VERIFIED``          u32     verification procedure
+  ======================================  ======  ==========================
+
+``ETHTOOL_A_PREEMPT_ADD_FRAG_SIZE`` configures the minimum non-final
+fragment size that the receiver device supports.
+
+``ETHTOOL_A_PREEMPT_PREEMPTIBLE_MASK`` configures which queues should
+be marked as preemptible. If bit X is '1' then queue X is preemptible,
+the queue is express otherwise.
+
+PREEMPT_SET
+===========
+
+Sets frame preemption parameters.
 
 Request contents:
 
@@ -1697,6 +1731,19 @@ For SFF-8636 modules, low power mode is forced by the host according to table
 
 For CMIS modules, low power mode is forced by the host according to table 6-12
 in revision 5.0 of the specification.
+=======
+  ``ETHTOOL_A_PREEMPT_HEADER``            nested  reply header
+  ``ETHTOOL_A_PREEMPT_ENABLED``           bool    frame preemption enabled
+  ``ETHTOOL_A_PREEMPT_PREEMPTIBLE_MASK``  bitset  preemptible queue mask
+  ``ETHTOOL_A_PREEMPT_ADD_FRAG_SIZE``     u32     Min additional frag size
+  ``ETHTOOL_A_PREEMPT_DISABLE_VERIFY``    bool    disable verification
+  ======================================  ======  ==========================
+
+``ETHTOOL_A_PREEMPT_ADD_FRAG_SIZE`` configures the minimum non-final
+fragment size that the receiver device supports.
+
+``ETHTOOL_A_PREEMPT_PREEMPTIBLE_MASK`` configures which queues should be marked as
+preemptible.
 
 PSE_GET
 =======
@@ -2110,4 +2157,5 @@ are netlink only.
   n/a                                 ``ETHTOOL_MSG_PLCA_GET_STATUS``
   n/a                                 ``ETHTOOL_MSG_MM_GET``
   n/a                                 ``ETHTOOL_MSG_MM_SET``
-  =================================== =====================================
+  n/a                                 ``ETHTOOL_MSG_PREEMPT_GET``
+  n/a                                 ``ETHTOOL_MSG_PREEMPT_SET``

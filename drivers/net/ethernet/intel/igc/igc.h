@@ -81,21 +81,6 @@ struct igc_tx_timestamp_request {
 	u32 flags;             /* flags that should be added to the tx_buffer */
 };
 
-struct igc_inline_rx_tstamps {
-	/* Timestamps are saved in little endian at the beginning of the packet
-	 * buffer following the layout:
-	 *
-	 * DWORD: | 0              | 1              | 2              | 3              |
-	 * Field: | Timer1 SYSTIML | Timer1 SYSTIMH | Timer0 SYSTIML | Timer0 SYSTIMH |
-	 *
-	 * SYSTIML holds the nanoseconds part while SYSTIMH holds the seconds
-	 * part of the timestamp.
-	 *
-	 */
-	__le32 timer1[2];
-	__le32 timer0[2];
-};
-
 struct igc_ring_container {
 	struct igc_ring *ring;          /* pointer to linked list of rings */
 	unsigned int total_bytes;       /* total bytes processed this int */
@@ -123,6 +108,7 @@ struct igc_ring {
 	u8 queue_index;                 /* logical index of the ring*/
 	u8 reg_idx;                     /* physical index of the ring */
 	bool launchtime_enable;         /* true if LaunchTime is enabled */
+	bool preemptible;               /* true if not express */
 	ktime_t last_tx_cycle;          /* end of the cycle with a launchtime transmission */
 	ktime_t last_ff_cycle;          /* Last cycle with an active first flag */
 
@@ -163,6 +149,13 @@ struct igc_ring {
 	struct xdp_rxq_info xdp_rxq;
 	struct xsk_buff_pool *xsk_pool;
 } ____cacheline_internodealigned_in_smp;
+
+enum frame_preemption_state {
+	FRAME_PREEMPTION_STATE_FAILED,
+	FRAME_PREEMPTION_STATE_DONE,
+	FRAME_PREEMPTION_STATE_START,
+	FRAME_PREEMPTION_STATE_SENT,
+};
 
 /* Board specific private data structure */
 struct igc_adapter {
@@ -227,6 +220,9 @@ struct igc_adapter {
 	 */
 	spinlock_t qbv_tx_lock;
 
+	bool frame_preemption_active;
+	u32 add_frag_size;
+
 	/* OS defined structs */
 	struct pci_dev *pdev;
 	/* lock for statistics */
@@ -276,8 +272,6 @@ struct igc_adapter {
 	unsigned int ptp_flags;
 	/* System time value lock */
 	spinlock_t tmreg_lock;
-	/* Free-running timer lock */
-	spinlock_t free_timer_lock;
 	struct cyclecounter cc;
 	struct timecounter tc;
 	struct timespec64 prev_ptp_time; /* Pre-reset PTP clock */
@@ -287,6 +281,8 @@ struct igc_adapter {
 	char fw_version[32];
 
 	struct bpf_prog *xdp_prog;
+	struct btf *btf;
+	u8 btf_enabled;
 
 	bool pps_sys_wrap_on;
 
@@ -299,6 +295,14 @@ struct igc_adapter {
 	/* LEDs */
 	struct mutex led_mutex;
 	struct igc_led_classdev *leds;
+
+	struct delayed_work fp_verification_work;
+	unsigned long fp_start;
+	bool fp_received_smd_v;
+	bool fp_received_smd_r;
+	unsigned int fp_verify_cnt;
+	enum frame_preemption_state fp_tx_state;
+	bool fp_disable_verify;
 };
 
 void igc_up(struct igc_adapter *adapter);
@@ -346,10 +350,12 @@ extern char igc_driver_name[];
 #define IGC_FLAG_VLAN_PROMISC		BIT(15)
 #define IGC_FLAG_RX_LEGACY		BIT(16)
 #define IGC_FLAG_TSN_QBV_ENABLED	BIT(17)
-#define IGC_FLAG_TSN_QAV_ENABLED	BIT(18)
+#define IGC_FLAG_TSN_PREEMPT_ENABLED	BIT(18)
+#define IGC_FLAG_TSN_QAV_ENABLED	BIT(19)
 
 #define IGC_FLAG_TSN_ANY_ENABLED \
-	(IGC_FLAG_TSN_QBV_ENABLED | IGC_FLAG_TSN_QAV_ENABLED)
+	(IGC_FLAG_TSN_QBV_ENABLED | IGC_FLAG_TSN_PREEMPT_ENABLED | \
+	 IGC_FLAG_TSN_QAV_ENABLED)
 
 #define IGC_FLAG_RSS_FIELD_IPV4_UDP	BIT(6)
 #define IGC_FLAG_RSS_FIELD_IPV6_UDP	BIT(7)
@@ -425,6 +431,11 @@ static inline u32 igc_rss_type(const union igc_adv_rx_desc *rx_desc)
 #define IGC_I225_RX_LATENCY_1000	300
 #define IGC_I225_RX_LATENCY_2500	1485
 
+/* From the datasheet section 8.12.4 Tx Qav Control TQAVCTRL,
+ * MIN_FRAG initial value.
+ */
+#define IGC_I225_MIN_FRAG_SIZE_DEFAULT	68
+
 /* RX and TX descriptor control thresholds.
  * PTHRESH - MAC will consider prefetch if it has fewer than this number of
  *           descriptors available in its onboard memory.
@@ -491,7 +502,7 @@ enum igc_tx_flags {
 	IGC_TX_FLAGS_TSTAMP_2	= 0x200,
 	IGC_TX_FLAGS_TSTAMP_3	= 0x400,
 
-	IGC_TX_FLAGS_TSTAMP_TIMER_1 = 0x800,
+	IGC_TX_FLAGS_DMA_TSTAMP	= 0x200,
 };
 
 enum igc_boards {
@@ -554,7 +565,7 @@ struct igc_rx_buffer {
 struct igc_xdp_buff {
 	struct xdp_buff xdp;
 	union igc_adv_rx_desc *rx_desc;
-	struct igc_inline_rx_tstamps *rx_ts; /* data indication bit IGC_RXDADV_STAT_TSIP */
+	ktime_t rx_ts; /* data indication bit IGC_RXDADV_STAT_TSIP */
 };
 
 struct igc_q_vector {
@@ -717,11 +728,14 @@ void igc_ptp_reset(struct igc_adapter *adapter);
 void igc_ptp_suspend(struct igc_adapter *adapter);
 void igc_ptp_stop(struct igc_adapter *adapter);
 ktime_t igc_ptp_rx_pktstamp(struct igc_adapter *adapter, __le32 *buf);
+void igc_ptp_tx_dma_tstamp(struct igc_adapter *adapter,
+			   struct sk_buff *skb, u64 tstamp);
 int igc_ptp_set_ts_config(struct net_device *netdev, struct ifreq *ifr);
 int igc_ptp_get_ts_config(struct net_device *netdev, struct ifreq *ifr);
 void igc_ptp_tx_hang(struct igc_adapter *adapter);
 void igc_ptp_read(struct igc_adapter *adapter, struct timespec64 *ts);
 void igc_ptp_tx_tstamp_event(struct igc_adapter *adapter);
+ktime_t igc_tx_dma_hw_tstamp(struct igc_adapter *adapter, u64 tstamp);
 
 int igc_led_setup(struct igc_adapter *adapter);
 void igc_led_free(struct igc_adapter *adapter);

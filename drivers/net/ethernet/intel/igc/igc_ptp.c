@@ -456,13 +456,43 @@ static int igc_ptp_systim_to_hwtstamp(struct igc_adapter *adapter,
 	return 0;
 }
 
+static void igc_ptp_dma_time_to_hwtstamp(struct igc_adapter *adapter,
+					 struct skb_shared_hwtstamps *hwtstamps,
+					 u64 systim)
+{
+	struct igc_hw *hw = &adapter->hw;
+	u32 sec, nsec;
+
+	/* FIXME: use a workqueue to read these values to avoid
+	 * reading these registers in the hot path.
+	 */
+	nsec = rd32(IGC_SYSTIML);
+	sec = rd32(IGC_SYSTIMH);
+
+	if (unlikely(nsec < (systim & 0xFFFFFFFF)))
+		--sec;
+
+	switch (adapter->hw.mac.type) {
+	case igc_i225:
+		memset(hwtstamps, 0, sizeof(*hwtstamps));
+
+		/* HACK */
+		hwtstamps->hwtstamp = ktime_set(sec, systim & 0xFFFFFFFF);
+		break;
+	default:
+		break;
+	}
+}
+
 /**
  * igc_ptp_rx_pktstamp - Retrieve timestamp from Rx packet buffer
  * @adapter: Pointer to adapter the packet buffer belongs to
- * @buf: Pointer to start of timestamp in HW format (2 32-bit words)
+ * @buf: Pointer to packet buffer
  *
- * This function retrieves and converts the timestamp stored at @buf
- * to ktime_t, adjusting for hardware latencies.
+ * This function retrieves the timestamp saved in the beginning of packet
+ * buffer. While two timestamps are available, one in timer0 reference and the
+ * other in timer1 reference, this function considers only the timestamp in
+ * timer0 reference.
  *
  * Returns timestamp value.
  */
@@ -472,8 +502,17 @@ ktime_t igc_ptp_rx_pktstamp(struct igc_adapter *adapter, __le32 *buf)
 	u32 secs, nsecs;
 	int adjust;
 
-	nsecs = le32_to_cpu(buf[0]);
-	secs = le32_to_cpu(buf[1]);
+	/* Timestamps are saved in little endian at the beginning of the packet
+	 * buffer following the layout:
+	 *
+	 * DWORD: | 0              | 1              | 2              | 3              |
+	 * Field: | Timer1 SYSTIML | Timer1 SYSTIMH | Timer0 SYSTIML | Timer0 SYSTIMH |
+	 *
+	 * SYSTIML holds the nanoseconds part while SYSTIMH holds the seconds
+	 * part of the timestamp.
+	 */
+	nsecs = le32_to_cpu(buf[2]);
+	secs = le32_to_cpu(buf[3]);
 
 	timestamp = ktime_set(secs, nsecs);
 
@@ -531,11 +570,10 @@ static void igc_ptp_enable_rx_timestamp(struct igc_adapter *adapter)
 
 	for (i = 0; i < adapter->num_rx_queues; i++) {
 		val = rd32(IGC_SRRCTL(i));
-		/* Enable retrieving timestamps from timer 0, the
-		 * "adjustable clock" and timer 1 the "free running
-		 * clock".
+		/* FIXME: For now, only support retrieving RX timestamps from
+		 * timer 0.
 		 */
-		val |= IGC_SRRCTL_TIMER1SEL(1) | IGC_SRRCTL_TIMER0SEL(0) |
+		val |= IGC_SRRCTL_TIMER1SEL(0) | IGC_SRRCTL_TIMER0SEL(0) |
 		       IGC_SRRCTL_TIMESTAMP;
 		wr32(IGC_SRRCTL(i), val);
 	}
@@ -565,6 +603,7 @@ static void igc_ptp_clear_tx_tstamp(struct igc_adapter *adapter)
 static void igc_ptp_disable_tx_timestamp(struct igc_adapter *adapter)
 {
 	struct igc_hw *hw = &adapter->hw;
+	u32 tqavctrl;
 	int i;
 
 	/* Clear the flags first to avoid new packets to be enqueued
@@ -579,13 +618,25 @@ static void igc_ptp_disable_tx_timestamp(struct igc_adapter *adapter)
 	/* Now we can clean the pending TX timestamp requests. */
 	igc_ptp_clear_tx_tstamp(adapter);
 
+	tqavctrl = rd32(IGC_TQAVCTRL);
+	tqavctrl &= ~IGC_TQAVCTRL_1588_STAT_EN;
+
+	wr32(IGC_TQAVCTRL, tqavctrl);
+
 	wr32(IGC_TSYNCTXCTL, 0);
 }
 
 static void igc_ptp_enable_tx_timestamp(struct igc_adapter *adapter)
 {
 	struct igc_hw *hw = &adapter->hw;
+	u32 tqavctrl;
 	int i;
+
+	/* Enable DMA Fetch timestamping */
+	tqavctrl = rd32(IGC_TQAVCTRL);
+	tqavctrl |= IGC_TQAVCTRL_1588_STAT_EN;
+
+	wr32(IGC_TQAVCTRL, tqavctrl);
 
 	wr32(IGC_TSYNCTXCTL, IGC_TSYNCTXCTL_ENABLED | IGC_TSYNCTXCTL_TXSYNSIG);
 
@@ -808,6 +859,64 @@ done:
 	}
 }
 
+void igc_ptp_tx_dma_tstamp(struct igc_adapter *adapter,
+			   struct sk_buff *skb, u64 tstamp)
+{
+	struct skb_shared_hwtstamps shhwtstamps;
+	int adjust = 0;
+
+	if (!(skb_shinfo(skb)->tx_flags & SKBTX_IN_PROGRESS))
+		return;
+
+	igc_ptp_dma_time_to_hwtstamp(adapter, &shhwtstamps, tstamp);
+
+	/* FIXME: Use different latencies for DMA timestamps? */
+	switch (adapter->link_speed) {
+	case SPEED_10:
+		adjust = IGC_I225_TX_LATENCY_10;
+		break;
+	case SPEED_100:
+		adjust = IGC_I225_TX_LATENCY_100;
+		break;
+	case SPEED_1000:
+		adjust = IGC_I225_TX_LATENCY_1000;
+		break;
+	case SPEED_2500:
+		adjust = IGC_I225_TX_LATENCY_2500;
+		break;
+	}
+
+	shhwtstamps.hwtstamp =
+		ktime_add_ns(shhwtstamps.hwtstamp, adjust);
+
+	/* Notify the stack and free the skb after we've unlocked */
+	skb_tstamp_tx(skb, &shhwtstamps);
+}
+
+ktime_t igc_tx_dma_hw_tstamp(struct igc_adapter *adapter, u64 tstamp)
+{
+	struct skb_shared_hwtstamps shhwtstamps;
+	int adjust = 0;
+
+	igc_ptp_dma_time_to_hwtstamp(adapter, &shhwtstamps, tstamp);
+
+	switch (adapter->link_speed) {
+	case SPEED_10:
+		adjust = IGC_I225_TX_LATENCY_10;
+		break;
+	case SPEED_100:
+		adjust = IGC_I225_TX_LATENCY_100;
+		break;
+	case SPEED_1000:
+		adjust = IGC_I225_TX_LATENCY_1000;
+		break;
+	case SPEED_2500:
+		adjust = IGC_I225_TX_LATENCY_2500;
+		break;
+	}
+	return ktime_add_ns(shhwtstamps.hwtstamp, adjust);
+}
+
 /**
  * igc_ptp_tx_tstamp_event
  * @adapter: board private structure
@@ -1025,26 +1134,6 @@ static int igc_ptp_getcrosststamp(struct ptp_clock_info *ptp,
 					     adapter, &adapter->snapshot, cts);
 }
 
-static int igc_ptp_getcyclesx64(struct ptp_clock_info *ptp,
-				struct timespec64 *ts,
-				struct ptp_system_timestamp *sts)
-{
-	struct igc_adapter *igc = container_of(ptp, struct igc_adapter, ptp_caps);
-	struct igc_hw *hw = &igc->hw;
-	unsigned long flags;
-
-	spin_lock_irqsave(&igc->free_timer_lock, flags);
-
-	ptp_read_system_prets(sts);
-	ts->tv_nsec = rd32(IGC_SYSTIML_1);
-	ts->tv_sec = rd32(IGC_SYSTIMH_1);
-	ptp_read_system_postts(sts);
-
-	spin_unlock_irqrestore(&igc->free_timer_lock, flags);
-
-	return 0;
-}
-
 /**
  * igc_ptp_init - Initialize PTP functionality
  * @adapter: Board private structure
@@ -1098,7 +1187,6 @@ void igc_ptp_init(struct igc_adapter *adapter)
 		adapter->ptp_caps.adjfine = igc_ptp_adjfine_i225;
 		adapter->ptp_caps.adjtime = igc_ptp_adjtime_i225;
 		adapter->ptp_caps.gettimex64 = igc_ptp_gettimex64_i225;
-		adapter->ptp_caps.getcyclesx64 = igc_ptp_getcyclesx64;
 		adapter->ptp_caps.settime64 = igc_ptp_settime_i225;
 		adapter->ptp_caps.enable = igc_ptp_feature_enable_i225;
 		adapter->ptp_caps.pps = 1;
@@ -1119,7 +1207,6 @@ void igc_ptp_init(struct igc_adapter *adapter)
 	}
 
 	spin_lock_init(&adapter->ptp_tx_lock);
-	spin_lock_init(&adapter->free_timer_lock);
 	spin_lock_init(&adapter->tmreg_lock);
 
 	adapter->tstamp_config.rx_filter = HWTSTAMP_FILTER_NONE;
