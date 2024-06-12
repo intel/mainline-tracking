@@ -2019,6 +2019,7 @@ BPF_CALL_5(bpf_csum_diff, __be32 *, from, u32, from_size,
 	struct bpf_scratchpad *sp = this_cpu_ptr(&bpf_sp);
 	u32 diff_size = from_size + to_size;
 	int i, j = 0;
+	__wsum ret;
 
 	/* This is quite flexible, some examples:
 	 *
@@ -2032,13 +2033,15 @@ BPF_CALL_5(bpf_csum_diff, __be32 *, from, u32, from_size,
 		     diff_size > sizeof(sp->diff)))
 		return -EINVAL;
 
-	guard(local_lock_nested_bh)(&bpf_sp.bh_lock);
+	local_lock_nested_bh(&bpf_sp.bh_lock);
 	for (i = 0; i < from_size / sizeof(__be32); i++, j++)
 		sp->diff[j] = ~from[i];
 	for (i = 0; i <   to_size / sizeof(__be32); i++, j++)
 		sp->diff[j] = to[i];
 
-	return csum_partial(sp->diff, diff_size, seed);
+	ret = csum_partial(sp->diff, diff_size, seed);
+	local_unlock_nested_bh(&bpf_sp.bh_lock);
+	return ret;
 }
 
 static const struct bpf_func_proto bpf_csum_diff_proto = {
