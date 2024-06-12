@@ -27,6 +27,7 @@ const char *mei_dev_state_str(int state)
 	MEI_DEV_STATE(POWERING_DOWN);
 	MEI_DEV_STATE(POWER_DOWN);
 	MEI_DEV_STATE(POWER_UP);
+	MEI_DEV_STATE(FW_DOWN);
 	default:
 		return "unknown";
 	}
@@ -121,7 +122,8 @@ int mei_reset(struct mei_device *dev)
 	if (state != MEI_DEV_INITIALIZING &&
 	    state != MEI_DEV_DISABLED &&
 	    state != MEI_DEV_POWER_DOWN &&
-	    state != MEI_DEV_POWER_UP) {
+	    state != MEI_DEV_POWER_UP &&
+	    state != MEI_DEV_FW_DOWN) {
 		char fw_sts_str[MEI_FW_STATUS_STR_SZ];
 
 		mei_fw_status_str(dev, fw_sts_str, MEI_FW_STATUS_STR_SZ);
@@ -360,7 +362,8 @@ EXPORT_SYMBOL_GPL(mei_stop);
  */
 bool mei_write_is_idle(struct mei_device *dev)
 {
-	bool idle = (dev->dev_state == MEI_DEV_ENABLED &&
+	bool idle = ((dev->dev_state == MEI_DEV_ENABLED ||
+		      dev->dev_state == MEI_DEV_FW_DOWN) &&
 		list_empty(&dev->ctrl_wr_list) &&
 		list_empty(&dev->write_list)   &&
 		list_empty(&dev->write_waiting_list));
@@ -400,6 +403,7 @@ void mei_device_init(struct mei_device *dev,
 	init_waitqueue_head(&dev->wait_pg);
 	init_waitqueue_head(&dev->wait_hbm_start);
 	dev->dev_state = MEI_DEV_INITIALIZING;
+	init_waitqueue_head(&dev->wait_dev_state);
 	dev->reset_count = 0;
 
 	INIT_LIST_HEAD(&dev->write_list);
@@ -433,6 +437,8 @@ void mei_device_init(struct mei_device *dev,
 	dev->timeouts.client_init = MEI_CLIENTS_INIT_TIMEOUT;
 	dev->timeouts.pgi = mei_secs_to_jiffies(MEI_PGI_TIMEOUT);
 	dev->timeouts.d0i3 = mei_secs_to_jiffies(MEI_D0I3_TIMEOUT);
+	dev->timeouts.gt_forcewake = mei_secs_to_jiffies(MEI_GT_FORCEWAKE_TIMEOUT);
+	dev->timeouts.gt_forcewake_link = mei_secs_to_jiffies(MEI_GT_FORCEWAKE_LINK_TIMEOUT);
 	if (slow_fw) {
 		dev->timeouts.cl_connect = mei_secs_to_jiffies(MEI_CL_CONNECT_TIMEOUT_SLOW);
 		dev->timeouts.hbm = mei_secs_to_jiffies(MEI_HBM_TIMEOUT_SLOW);

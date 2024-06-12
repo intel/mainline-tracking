@@ -329,7 +329,7 @@ static ssize_t mei_write(struct file *file, const char __user *ubuf,
 	}
 
 	if (!mei_cl_is_connected(cl)) {
-		cl_err(dev, cl, "is not connected");
+		cl_dbg(dev, cl, "is not connected");
 		rets = -ENODEV;
 		goto out;
 	}
@@ -1117,6 +1117,7 @@ void mei_set_devstate(struct mei_device *dev, enum mei_dev_state state)
 		return;
 
 	dev->dev_state = state;
+	wake_up(&dev->wait_dev_state);
 
 	clsdev = class_find_device_by_devt(&mei_class, dev->cdev.dev);
 	if (clsdev) {
@@ -1124,6 +1125,7 @@ void mei_set_devstate(struct mei_device *dev, enum mei_dev_state state)
 		put_device(clsdev);
 	}
 }
+EXPORT_SYMBOL_GPL(mei_set_devstate);
 
 /**
  * kind_show - display device kind
