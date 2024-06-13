@@ -431,9 +431,22 @@ void kvm_deliver_exception_payload(struct kvm_vcpu *vcpu,
 		 * breakpoint), it is reserved and must be zero in DR6.
 		 */
 		vcpu->arch.dr6 &= ~BIT(12);
+
+		/*
+		 * FRED #DB event data matches DR6, but follows the polarity of
+		 * VMX's pending debug exceptions, not DR6.
+		 */
+		ex->event_data = ex->payload & ~BIT(12);
+		break;
+	case NM_VECTOR:
+		ex->event_data = ex->payload;
 		break;
 	case PF_VECTOR:
 		vcpu->arch.cr2 = ex->payload;
+		ex->event_data = ex->payload;
+		break;
+	default:
+		ex->event_data = 0;
 		break;
 	}
 
@@ -493,6 +506,10 @@ static void kvm_multiple_exception(struct kvm_vcpu *vcpu, unsigned int nr,
 						 (is_nested ||
 						  vcpu->arch.nmi_injected ||
 						  vcpu->arch.interrupt.injected);
+		/*
+		 * Do not update the event data, as the current value may have
+		 * just been restored during a VM save/restore or live migration.
+		 */
 		return;
 	}
 
@@ -548,7 +565,7 @@ static void kvm_queue_exception_e_p(struct kvm_vcpu *vcpu, unsigned nr,
 
 void kvm_requeue_exception(struct kvm_vcpu *vcpu, unsigned int nr,
 			   bool has_error_code, u32 error_code,
-			   bool is_nested)
+			   bool is_nested, u64 event_data)
 {
 
 	/*
@@ -574,6 +591,7 @@ void kvm_requeue_exception(struct kvm_vcpu *vcpu, unsigned int nr,
 	vcpu->arch.exception.has_payload = false;
 	vcpu->arch.exception.payload = 0;
 	vcpu->arch.exception.is_nested = is_nested;
+	vcpu->arch.exception.event_data = event_data;
 }
 EXPORT_SYMBOL_FOR_KVM_INTERNAL(kvm_requeue_exception);
 
@@ -3012,6 +3030,7 @@ static void kvm_vcpu_ioctl_x86_get_vcpu_events(struct kvm_vcpu *vcpu,
 	events->exception_has_payload = ex->has_payload;
 	events->exception_payload = ex->payload;
 	events->exception_is_nested = ex->is_nested;
+	events->exception_event_data = ex->event_data;
 
 	events->interrupt.injected =
 		vcpu->arch.interrupt.injected && !vcpu->arch.interrupt.soft;
@@ -3074,6 +3093,7 @@ static int kvm_vcpu_ioctl_x86_set_vcpu_events(struct kvm_vcpu *vcpu,
 			return -EINVAL;
 	} else {
 		events->exception_is_nested = 0;
+		events->exception_event_data = 0;
 	}
 
 	if ((events->exception.injected || events->exception.pending) &&
@@ -3102,6 +3122,7 @@ static int kvm_vcpu_ioctl_x86_set_vcpu_events(struct kvm_vcpu *vcpu,
 	vcpu->arch.exception.has_payload = events->exception_has_payload;
 	vcpu->arch.exception.payload = events->exception_payload;
 	vcpu->arch.exception.is_nested = events->exception_is_nested;
+	vcpu->arch.exception.event_data = events->exception_event_data;
 
 	vcpu->arch.interrupt.injected = events->interrupt.injected;
 	vcpu->arch.interrupt.nr = events->interrupt.nr;

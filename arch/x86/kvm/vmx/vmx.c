@@ -2004,15 +2004,39 @@ void vmx_inject_exception(struct kvm_vcpu *vcpu)
 
 	WARN_ON_ONCE(vmx->vt.emulation_required);
 
+	/*
+	 * Event data is strictly required only for #PF, #DB, and #NM (due to
+	 * extended feature disable) hardware exceptions under FRED, making it
+	 * straightforward to correctly populate for just these vectors.
+	 *
+	 * Conversely, trying to guarantee that event data is cleanly managed or
+	 * zeroed out across all other exception paths is highly complicated
+	 * and error-prone. A blanket fallback to 0 handles those cases safely.
+	 *
+	 * Therefore, set INJECTED_EVENT_DATA only if all the following are true:
+	 * - Guest has FRED enabled.
+	 * - Exception type is a hardware exception.
+	 * - Exception vector is #PF, #DB, or #NM.
+	 *
+	 * Otherwise, clear it to 0 to prevent stale data leakage.
+	 */
 	if (kvm_exception_is_soft(ex->vector)) {
 		vmcs_write32(VM_ENTRY_INSTRUCTION_LEN,
 			     vmx->vcpu.arch.event_exit_inst_len);
 		intr_info |= INTR_TYPE_SOFT_EXCEPTION;
+		if (is_fred_enabled(vcpu))
+			vmcs_write64(INJECTED_EVENT_DATA, 0);
 	} else {
 		intr_info |= INTR_TYPE_HARD_EXCEPTION;
 		if (is_fred_enabled(vcpu)) {
 			if (ex->is_nested)
 				intr_info |= INTR_INFO_NESTED_EXCEPTION_MASK;
+			if (ex->vector == PF_VECTOR ||
+			    ex->vector == DB_VECTOR ||
+			    ex->vector == NM_VECTOR)
+				vmcs_write64(INJECTED_EVENT_DATA, ex->event_data);
+			else
+				vmcs_write64(INJECTED_EVENT_DATA, 0);
 		}
 	}
 
@@ -5330,6 +5354,14 @@ void vmx_inject_irq(struct kvm_vcpu *vcpu, bool reinjected)
 			     vmx->vcpu.arch.event_exit_inst_len);
 	} else
 		intr |= INTR_TYPE_EXT_INTR;
+
+	/*
+	 * Interrupts define no event data, so clear any value left behind
+	 * by a previously injected exception.
+	 */
+	if (is_fred_enabled(vcpu))
+		vmcs_write64(INJECTED_EVENT_DATA, 0);
+
 	vmcs_write32(VM_ENTRY_INTR_INFO_FIELD, intr);
 
 	vmx_clear_hlt(vcpu);
@@ -5359,6 +5391,13 @@ void vmx_inject_nmi(struct kvm_vcpu *vcpu)
 		kvm_inject_realmode_interrupt(vcpu, NMI_VECTOR, 0);
 		return;
 	}
+
+	/*
+	 * KVM doesn't virtualize the NMI-source reporting feature. So clear
+	 * any value left behind by a previously injected exception.
+	 */
+	if (is_fred_enabled(vcpu))
+		vmcs_write64(INJECTED_EVENT_DATA, 0);
 
 	vmcs_write32(VM_ENTRY_INTR_INFO_FIELD,
 			INTR_TYPE_NMI_INTR | INTR_INFO_VALID_MASK | NMI_VECTOR);
@@ -7467,7 +7506,8 @@ static void vmx_recover_nmi_blocking(struct vcpu_vmx *vmx)
 static void __vmx_complete_interrupts(struct kvm_vcpu *vcpu,
 				      u32 idt_vectoring_info,
 				      int instr_len_field,
-				      int error_code_field)
+				      int error_code_field,
+				      int event_data_field)
 {
 	u8 vector;
 	int type;
@@ -7502,14 +7542,18 @@ static void __vmx_complete_interrupts(struct kvm_vcpu *vcpu,
 		fallthrough;
 	case INTR_TYPE_HARD_EXCEPTION: {
 		u32 error_code = 0;
+		u64 event_data = 0;
 
 		if (idt_vectoring_info & VECTORING_INFO_DELIVER_CODE_MASK)
 			error_code = vmcs_read32(error_code_field);
+		if (is_fred_enabled(vcpu))
+			event_data = vmcs_read64(event_data_field);
 
 		kvm_requeue_exception(vcpu, vector,
 				      idt_vectoring_info & VECTORING_INFO_DELIVER_CODE_MASK,
 				      error_code,
-				      idt_vectoring_info & VECTORING_INFO_NESTED_EXCEPTION_MASK);
+				      idt_vectoring_info & VECTORING_INFO_NESTED_EXCEPTION_MASK,
+				      event_data);
 		break;
 	}
 	case INTR_TYPE_SOFT_INTR:
@@ -7527,7 +7571,8 @@ static void vmx_complete_interrupts(struct vcpu_vmx *vmx)
 {
 	__vmx_complete_interrupts(&vmx->vcpu, vmx->idt_vectoring_info,
 				  VM_EXIT_INSTRUCTION_LEN,
-				  IDT_VECTORING_ERROR_CODE);
+				  IDT_VECTORING_ERROR_CODE,
+				  ORIGINAL_EVENT_DATA);
 }
 
 void vmx_cancel_injection(struct kvm_vcpu *vcpu)
@@ -7535,7 +7580,8 @@ void vmx_cancel_injection(struct kvm_vcpu *vcpu)
 	__vmx_complete_interrupts(vcpu,
 				  vmcs_read32(VM_ENTRY_INTR_INFO_FIELD),
 				  VM_ENTRY_INSTRUCTION_LEN,
-				  VM_ENTRY_EXCEPTION_ERROR_CODE);
+				  VM_ENTRY_EXCEPTION_ERROR_CODE,
+				  INJECTED_EVENT_DATA);
 
 	vmcs_write32(VM_ENTRY_INTR_INFO_FIELD, 0);
 }
@@ -7647,6 +7693,10 @@ static noinstr void vmx_vcpu_enter_exit(struct kvm_vcpu *vcpu,
 
 	vmx_disable_fb_clear(vmx);
 
+	/*
+	 * Note, even though FRED delivers the faulting linear address via the
+	 * event data field on the stack, CR2 is still updated.
+	 */
 	if (vcpu->arch.cr2 != native_read_cr2())
 		native_write_cr2(vcpu->arch.cr2);
 

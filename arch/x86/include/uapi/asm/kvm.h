@@ -369,7 +369,10 @@ struct kvm_vcpu_events {
 	struct {
 		__u8 pending;
 	} triple_fault;
-	__u8 reserved[25];
+	__u8 reserved0[11];
+	/* Aligned to a 64-bit boundary */
+	__u64 exception_event_data;
+	__u8 reserved1[6];
 	__u8 exception_is_nested;
 	__u8 exception_has_payload;
 	__u64 exception_payload;
