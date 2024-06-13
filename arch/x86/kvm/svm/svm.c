@@ -4392,7 +4392,7 @@ static void svm_complete_interrupts(struct kvm_vcpu *vcpu)
 
 		kvm_requeue_exception(vcpu, vector,
 				      exitintinfo & SVM_EXITINTINFO_VALID_ERR,
-				      error_code);
+				      error_code, false);
 		break;
 	}
 	case SVM_EXITINTINFO_TYPE_INTR:
