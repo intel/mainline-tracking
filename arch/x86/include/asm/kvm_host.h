@@ -696,6 +696,7 @@ struct kvm_queued_exception {
 	unsigned long payload;
 	bool has_payload;
 	bool is_nested;
+	u64 event_data;
 };
 
 /*

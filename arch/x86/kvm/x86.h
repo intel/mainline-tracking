@@ -159,6 +159,7 @@ static inline void kvm_clear_exception_queue(struct kvm_vcpu *vcpu)
 	vcpu->arch.exception.pending = false;
 	vcpu->arch.exception.injected = false;
 	vcpu->arch.exception.is_nested = false;
+	vcpu->arch.exception.event_data = 0;
 	vcpu->arch.exception_vmexit.pending = false;
 }
 
@@ -504,7 +505,7 @@ void kvm_queue_exception_e(struct kvm_vcpu *vcpu, unsigned nr, u32 error_code);
 void kvm_queue_exception_p(struct kvm_vcpu *vcpu, unsigned nr, unsigned long payload);
 void kvm_requeue_exception(struct kvm_vcpu *vcpu, unsigned int nr,
 			   bool has_error_code, u32 error_code,
-			   bool is_nested);
+			   bool is_nested, u64 event_data);
 void kvm_inject_page_fault(struct kvm_vcpu *vcpu, struct x86_exception *fault,
 			   bool from_hardware);
 void __kvm_inject_emulated_page_fault(struct kvm_vcpu *vcpu,
