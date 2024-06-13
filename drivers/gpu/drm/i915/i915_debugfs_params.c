@@ -4,6 +4,7 @@
  */
 
 #include <linux/kernel.h>
+#include <linux/debugfs.h>
 
 #include "i915_debugfs_params.h"
 #include "gt/intel_gt.h"
@@ -40,6 +41,17 @@ static int notify_guc(struct drm_i915_private *i915)
 {
 	struct intel_gt *gt;
 	int i, ret = 0;
+
+	/*
+	 * FIXME: This needs to return -EPERM to userland to indicate
+	 * that a VF is not allowed to change the scheduling policies.
+	 * However, doing so will currently 'break' a whole bunch of IGT
+	 * tests that rely on disabling engine reset. Although, they are
+	 * already broken as they will not correctly detect hang failures
+	 * and are potentially returning false successes.
+	 */
+	if (IS_SRIOV_VF(i915))
+		return 0;
 
 	for_each_gt(gt, i915, i) {
 		if (intel_uc_uses_guc_submission(&gt->uc))

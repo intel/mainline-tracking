@@ -88,12 +88,12 @@ void intel_uc_fw_change_status(struct intel_uc_fw *uc_fw,
  * security fixes, etc. to be enabled.
  */
 #define INTEL_GUC_FIRMWARE_DEFS(fw_def, guc_maj, guc_mmp) \
-	fw_def(METEORLAKE,   0, guc_maj(mtl,  70, 12, 1)) \
-	fw_def(DG2,          0, guc_maj(dg2,  70, 12, 1)) \
-	fw_def(ALDERLAKE_P,  0, guc_maj(adlp, 70, 12, 1)) \
+	fw_def(METEORLAKE,   0, guc_maj(mtl,  70, 20, 0)) \
+	fw_def(DG2,          0, guc_maj(dg2,  70, 20, 0)) \
+	fw_def(ALDERLAKE_P,  0, guc_maj(adlp, 70, 20, 0)) \
 	fw_def(ALDERLAKE_P,  0, guc_mmp(adlp, 70, 1, 1)) \
 	fw_def(ALDERLAKE_P,  0, guc_mmp(adlp, 69, 0, 3)) \
-	fw_def(ALDERLAKE_S,  0, guc_maj(tgl,  70, 12, 1)) \
+	fw_def(ALDERLAKE_S,  0, guc_maj(tgl,  70, 20, 0)) \
 	fw_def(ALDERLAKE_S,  0, guc_mmp(tgl,  70, 1, 1)) \
 	fw_def(ALDERLAKE_S,  0, guc_mmp(tgl,  69, 0, 3)) \
 	fw_def(DG1,          0, guc_maj(dg1,  70, 5, 1)) \
@@ -542,6 +542,31 @@ void intel_uc_fw_init_early(struct intel_uc_fw *uc_fw,
 				  INTEL_UC_FIRMWARE_NOT_SUPPORTED);
 }
 
+/**
+ * intel_uc_fw_set_preloaded() - set uC firmware as pre-loaded
+ * @uc_fw: uC firmware structure
+ * @major: major version of the pre-loaded firmware
+ * @minor: minor version of the pre-loaded firmware
+ * @patch: patch version of the pre-loaded firmware
+ *
+ * If the uC firmware was loaded to h/w by other entity, just
+ * mark it as loaded.
+ */
+void intel_uc_fw_set_preloaded(struct intel_uc_fw *uc_fw, u32 major, u32 minor, u32 patch)
+{
+	uc_fw->file_selected.path = "PRELOADED";
+
+	if (uc_fw->type == INTEL_UC_FW_TYPE_GUC) {
+		struct intel_guc *guc = container_of(uc_fw, struct intel_guc, fw);
+
+		guc->submission_version.major = major;
+		guc->submission_version.minor = minor;
+		guc->submission_version.patch = patch;
+	}
+
+	intel_uc_fw_change_status(uc_fw, INTEL_UC_FIRMWARE_PRELOADED);
+}
+
 static void __force_fw_fetch_failures(struct intel_uc_fw *uc_fw, int e)
 {
 	struct drm_i915_private *i915 = __uc_fw_to_gt(uc_fw)->i915;
@@ -807,7 +832,7 @@ static int try_firmware_load(struct intel_uc_fw *uc_fw, const struct firmware **
 static int check_mtl_huc_guc_compatibility(struct intel_gt *gt,
 					   struct intel_uc_fw_file *huc_selected)
 {
-	struct intel_uc_fw_file *guc_selected = &gt->uc.guc.fw.file_selected;
+	struct intel_uc_fw_file *guc_selected = &gt_to_guc(gt)->fw.file_selected;
 	struct intel_uc_fw_ver *huc_ver = &huc_selected->ver;
 	struct intel_uc_fw_ver *guc_ver = &guc_selected->ver;
 	bool new_huc, new_guc;
@@ -1209,7 +1234,7 @@ static int uc_fw_rsa_data_create(struct intel_uc_fw *uc_fw)
 	 * since its GGTT offset will be GuC accessible.
 	 */
 	GEM_BUG_ON(uc_fw->rsa_size > PAGE_SIZE);
-	vma = intel_guc_allocate_vma(&gt->uc.guc, PAGE_SIZE);
+	vma = intel_guc_allocate_vma(gt_to_guc(gt), PAGE_SIZE);
 	if (IS_ERR(vma))
 		return PTR_ERR(vma);
 
@@ -1400,6 +1425,15 @@ void intel_uc_fw_dump(const struct intel_uc_fw *uc_fw, struct drm_printer *p)
 
 	drm_printf(p, "%s firmware: %s\n",
 		   intel_uc_fw_type_repr(uc_fw->type), uc_fw->file_selected.path);
+
+	/*
+	 * The pre-loaded status indicates that GuC is loaded by something else,
+	 * and we do not directly manage GUC, so the below values are not
+	 * applicable.
+	 */
+	if (uc_fw->status == INTEL_UC_FIRMWARE_PRELOADED)
+		return;
+
 	if (uc_fw->file_selected.path != uc_fw->file_wanted.path)
 		drm_printf(p, "%s firmware wanted: %s\n",
 			   intel_uc_fw_type_repr(uc_fw->type), uc_fw->file_wanted.path);

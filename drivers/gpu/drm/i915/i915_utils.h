@@ -73,20 +73,6 @@ bool i915_error_injected(void);
 	__i915_printk(i915, i915_error_injected() ? KERN_DEBUG : KERN_ERR, \
 		      fmt, ##__VA_ARGS__)
 
-#if defined(GCC_VERSION) && GCC_VERSION >= 70000
-#define add_overflows_t(T, A, B) \
-	__builtin_add_overflow_p((A), (B), (T)0)
-#else
-#define add_overflows_t(T, A, B) ({ \
-	typeof(A) a = (A); \
-	typeof(B) b = (B); \
-	(T)(a + b) < a; \
-})
-#endif
-
-#define add_overflows(A, B) \
-	add_overflows_t(typeof((A) + (B)), (A), (B))
-
 #define range_overflows(start, size, max) ({ \
 	typeof(start) start__ = (start); \
 	typeof(size) size__ = (size); \
@@ -110,6 +96,17 @@ bool i915_error_injected(void);
 
 #define range_overflows_end_t(type, start, size, max) \
 	range_overflows_end((type)(start), (type)(size), (type)(max))
+
+#ifndef check_round_up_overflow
+#define check_round_up_overflow(a, b, d) __must_check_overflow(({		\
+	typeof(a) __a = (a);							\
+	typeof(b) __b = (b);							\
+	typeof(d) __d = (d);							\
+	(void) (&__a == &__b);							\
+	(void) (&__a == __d);							\
+	(*__d = __a) && __builtin_add_overflow((__a-1) | (__b-1), 1, __d);	\
+}))
+#endif
 
 #define ptr_mask_bits(ptr, n) ({					\
 	unsigned long __v = (unsigned long)(ptr);			\
@@ -390,6 +387,8 @@ static inline bool i915_run_as_guest(void)
 }
 
 bool i915_vtd_active(struct drm_i915_private *i915);
+
+#define make_u64(hi__, low__) ((u64)(hi__) << 32 | (low__))
 
 bool i915_direct_stolen_access(struct drm_i915_private *i915);
 

@@ -122,8 +122,8 @@ static const struct intel_device_info mock_info = {
 	.__runtime.page_sizes = (I915_GTT_PAGE_SIZE_4K |
 				 I915_GTT_PAGE_SIZE_64K |
 				 I915_GTT_PAGE_SIZE_2M),
-	.memory_regions = REGION_SMEM,
-	.platform_engine_mask = BIT(0),
+	.__runtime.memory_regions = REGION_SMEM,
+	.__runtime.platform_engine_mask = BIT(0),
 
 	/* simply use legacy cache level for mock device */
 	.max_pat_index = 3,
@@ -187,6 +187,8 @@ struct drm_i915_private *mock_gem_device(void)
 	pm_runtime_dont_use_autosuspend(&pdev->dev);
 	if (pm_runtime_enabled(&pdev->dev))
 		WARN_ON(pm_runtime_get_sync(&pdev->dev));
+
+	i915->__mode = I915_IOV_MODE_NONE;
 
 	intel_runtime_pm_init_early(&i915->runtime_pm);
 	/* wakeref tracking has significant overhead */

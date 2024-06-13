@@ -87,9 +87,7 @@ enum intel_platform {
 	INTEL_DG1,
 	INTEL_ALDERLAKE_S,
 	INTEL_ALDERLAKE_P,
-	INTEL_XEHPSDV,
 	INTEL_DG2,
-	INTEL_PONTEVECCHIO,
 	INTEL_METEORLAKE,
 	INTEL_MAX_PLATFORMS
 };
@@ -160,6 +158,7 @@ enum intel_ppgtt_type {
 	func(has_logical_ring_contexts); \
 	func(has_logical_ring_elsq); \
 	func(has_media_ratio_mode); \
+	func(has_memirq); \
 	func(has_mslice_steering); \
 	func(has_oa_bpc_reporting); \
 	func(has_oa_slice_contrib_limits); \
@@ -171,6 +170,7 @@ enum intel_ppgtt_type {
 	func(has_rps); \
 	func(has_runtime_pm); \
 	func(has_snoop); \
+	func(has_sriov); \
 	func(has_coherent_ggtt); \
 	func(tuning_thread_rr_after_dep); \
 	func(unfenced_needs_alignment); \
@@ -180,6 +180,10 @@ struct intel_ip_version {
 	u8 ver;
 	u8 rel;
 	u8 step;
+#if IS_ENABLED(CONFIG_DRM_I915_DEBUG)
+	/* @preliminary: indicates that IP values are not confirmed yet. */
+	bool preliminary;
+#endif
 };
 
 struct intel_runtime_info {
@@ -206,6 +210,8 @@ struct intel_runtime_info {
 
 	u16 device_id;
 
+	intel_engine_mask_t platform_engine_mask; /* Engines supported by the HW */
+
 	u32 rawclk_freq;
 
 	struct intel_step_info step;
@@ -214,6 +220,8 @@ struct intel_runtime_info {
 
 	enum intel_ppgtt_type ppgtt_type;
 	unsigned int ppgtt_size; /* log2, e.g. 31/32/48 bits */
+
+	u32 memory_regions; /* regions supported by the HW */
 
 	bool has_pooled_eu;
 };
@@ -226,9 +234,6 @@ struct intel_device_info {
 	const struct intel_gt_definition *extra_gt_list;
 
 	u8 gt; /* GT number, 0 if undefined */
-
-	intel_engine_mask_t platform_engine_mask; /* Engines supported by the HW */
-	u32 memory_regions; /* regions supported by the HW */
 
 #define DEFINE_FLAG(name) u8 name:1
 	DEV_INFO_FOR_EACH_FLAG(DEFINE_FLAG);

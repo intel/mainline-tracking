@@ -198,7 +198,7 @@ void intel_huc_register_gsc_notifier(struct intel_huc *huc, const struct bus_typ
 {
 	int ret;
 
-	if (!intel_huc_is_loaded_by_gsc(huc))
+	if (!intel_huc_is_loaded_by_gsc(huc) || HAS_ENGINE(huc_to_gt(huc), GSC0))
 		return;
 
 	huc->delayed_load.nb.notifier_call = gsc_notifier;
@@ -268,7 +268,7 @@ static bool vcs_supported(struct intel_gt *gt)
 	GEM_BUG_ON(!gt_is_root(gt) && !gt->info.engine_mask);
 
 	if (gt_is_root(gt))
-		mask = INTEL_INFO(gt->i915)->platform_engine_mask;
+		mask = RUNTIME_INFO(gt->i915)->platform_engine_mask;
 	else
 		mask = gt->info.engine_mask;
 
@@ -385,7 +385,7 @@ int intel_huc_init(struct intel_huc *huc)
 	if (HAS_ENGINE(gt, GSC0)) {
 		struct i915_vma *vma;
 
-		vma = intel_guc_allocate_vma(&gt->uc.guc, PXP43_HUC_AUTH_INOUT_SIZE * 2);
+		vma = intel_guc_allocate_vma(gt_to_guc(gt), PXP43_HUC_AUTH_INOUT_SIZE * 2);
 		if (IS_ERR(vma)) {
 			err = PTR_ERR(vma);
 			huc_info(huc, "Failed to allocate heci pkt\n");
@@ -540,7 +540,7 @@ int intel_huc_wait_for_auth_complete(struct intel_huc *huc,
 int intel_huc_auth(struct intel_huc *huc, enum intel_huc_authentication_type type)
 {
 	struct intel_gt *gt = huc_to_gt(huc);
-	struct intel_guc *guc = &gt->uc.guc;
+	struct intel_guc *guc = gt_to_guc(gt);
 	int ret;
 
 	if (!intel_uc_fw_is_loaded(&huc->fw))
@@ -601,6 +601,14 @@ static bool huc_is_fully_authenticated(struct intel_huc *huc)
 {
 	struct intel_uc_fw *huc_fw = &huc->fw;
 
+	/*
+	 * in the non-POR MTL flow, the GSC re-uses the same regs as GuC (like
+	 * on DG2). This check can be dropped once the new IFWI which supports
+	 * the POR flow has been propagated to all users.
+	 */
+	if (IS_METEORLAKE(huc_to_gt(huc)->i915) && huc->loaded_via_gsc)
+		return intel_huc_is_authenticated(huc, INTEL_HUC_AUTH_BY_GUC);
+
 	if (!huc_fw->has_gsc_headers)
 		return intel_huc_is_authenticated(huc, INTEL_HUC_AUTH_BY_GUC);
 	else if (intel_huc_is_loaded_by_gsc(huc) || HAS_ENGINE(huc_to_gt(huc), GSC0))
@@ -609,6 +617,10 @@ static bool huc_is_fully_authenticated(struct intel_huc *huc)
 		return false;
 }
 
+bool intel_huc_is_fully_authenticated(struct intel_huc *huc)
+{
+	return huc_is_fully_authenticated(huc);
+}
 /**
  * intel_huc_check_status() - check HuC status
  * @huc: intel_huc structure

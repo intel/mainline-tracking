@@ -9,6 +9,7 @@
 #include "intel_engine_types.h"
 #include "intel_gt_types.h"
 #include "intel_reset.h"
+#include "i915_irq.h"
 
 struct drm_i915_private;
 struct drm_printer;
@@ -122,6 +123,11 @@ static inline struct intel_gt *gsc_to_gt(struct intel_gsc *gsc)
 static inline struct drm_i915_private *guc_to_i915(struct intel_guc *guc)
 {
 	return guc_to_gt(guc)->i915;
+}
+
+static inline struct intel_guc *gt_to_guc(struct intel_gt *gt)
+{
+	return &gt->uc.guc;
 }
 
 void intel_gt_common_init_early(struct intel_gt *gt);

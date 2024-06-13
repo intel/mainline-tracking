@@ -73,6 +73,8 @@
 #include "gt/intel_gt_pm.h"
 #include "gt/intel_gt_print.h"
 #include "gt/intel_rc6.h"
+#include "gt/iov/intel_iov_query.h"
+#include "gt/uc/intel_guc.h"
 
 #include "pxp/intel_pxp.h"
 #include "pxp/intel_pxp_debugfs.h"
@@ -94,6 +96,7 @@
 #include "i915_memcpy.h"
 #include "i915_perf.h"
 #include "i915_query.h"
+#include "i915_sriov.h"
 #include "i915_suspend.h"
 #include "i915_switcheroo.h"
 #include "i915_sysfs.h"
@@ -202,7 +205,7 @@ static void sanitize_gpu(struct drm_i915_private *i915)
 		unsigned int i;
 
 		for_each_gt(gt, i915, i)
-			__intel_gt_reset(gt, ALL_ENGINES);
+			intel_gt_reset_all_engines(gt);
 	}
 }
 
@@ -513,6 +516,10 @@ static int i915_driver_hw_probe(struct drm_i915_private *dev_priv)
 
 	pci_set_master(pdev);
 
+	/* Assume that VF is up, otherwise we may end with unknown state */
+	if (IS_SRIOV_VF(dev_priv))
+		ret = pci_set_power_state(pdev, PCI_D0);
+
 	/* On the 945G/GM, the chipset reports the MSI capability on the
 	 * integrated graphics even though the support isn't actually there
 	 * according to the published specs.  It doesn't appear to function
@@ -541,7 +548,8 @@ static int i915_driver_hw_probe(struct drm_i915_private *dev_priv)
 	if (ret)
 		goto err_msi;
 
-	intel_opregion_setup(dev_priv);
+	if (!IS_SRIOV_VF(dev_priv))
+		intel_opregion_setup(dev_priv);
 
 	ret = i915_pcode_init(dev_priv);
 	if (ret)
@@ -589,6 +597,12 @@ static void i915_driver_hw_remove(struct drm_i915_private *dev_priv)
 		pci_disable_msi(pdev);
 }
 
+static void i915_virtualization_commit(struct drm_i915_private *i915)
+{
+	if (IS_SRIOV_PF(i915))
+		i915_sriov_pf_confirm(i915);
+}
+
 /**
  * i915_driver_register - register the driver with the rest of the system
  * @dev_priv: device private
@@ -624,7 +638,8 @@ static void i915_driver_register(struct drm_i915_private *dev_priv)
 
 	intel_pxp_debugfs_register(dev_priv->pxp);
 
-	i915_hwmon_register(dev_priv);
+	if (!IS_SRIOV_VF(dev_priv))
+		i915_hwmon_register(dev_priv);
 
 	intel_display_driver_register(dev_priv);
 
@@ -699,6 +714,8 @@ static void i915_welcome_messages(struct drm_i915_private *dev_priv)
 		i915_print_iommu_status(dev_priv, &p);
 		for_each_gt(gt, dev_priv, i)
 			intel_gt_info_print(&gt->info, &p);
+
+		drm_printf(&p, "mode: %s\n", i915_iov_mode_to_string(IOV_MODE(dev_priv)));
 	}
 
 	if (IS_ENABLED(CONFIG_DRM_I915_DEBUG))
@@ -735,6 +752,23 @@ i915_driver_create(struct pci_dev *pdev, const struct pci_device_id *ent)
 	return i915;
 }
 
+static void i915_virtualization_probe(struct drm_i915_private *i915)
+{
+	GEM_BUG_ON(i915->__mode);
+
+	intel_vgpu_detect(i915);
+	if (intel_vgpu_active(i915))
+		i915->__mode = I915_IOV_MODE_GVT_VGPU;
+	else
+		i915->__mode = i915_sriov_probe(i915);
+
+	GEM_BUG_ON(!i915->__mode);
+
+	if (IS_IOV_ACTIVE(i915))
+		dev_info(i915->drm.dev, "Running in %s mode\n",
+			 i915_iov_mode_to_string(IOV_MODE(i915)));
+}
+
 /**
  * i915_driver_probe - setup chip and create an initial config
  * @pdev: PCI device
@@ -748,6 +782,8 @@ i915_driver_create(struct pci_dev *pdev, const struct pci_device_id *ent)
  */
 int i915_driver_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 {
+	const struct intel_device_info *match_info =
+		(struct intel_device_info *)ent->driver_data;
 	struct drm_i915_private *i915;
 	int ret;
 
@@ -763,13 +799,43 @@ int i915_driver_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 		return PTR_ERR(i915);
 	}
 
+	/*
+	 * Hack to enable CCS and set ppgtt_size to 47
+	 * on TGL and DG1 for testing purpose
+	 *
+	 */
+	if ((match_info->platform == INTEL_DG1 ||
+	    match_info->platform == INTEL_TIGERLAKE ||
+		match_info->platform == INTEL_ALDERLAKE_S ||
+		match_info->platform == INTEL_ALDERLAKE_P) &&
+	    (i915->params.enable_guc & ENABLE_GUC_SUBMISSION)
+	    && i915->params.enable_guc != -1) {
+		RUNTIME_INFO(i915)->ppgtt_size = 47;
+		RUNTIME_INFO(i915)->platform_engine_mask |= BIT(CCS0);
+	}
+
+	/*
+	 * Force to disable CCS on MTL.
+	 * Will remove this code once CCS enablement is completed on MTL
+	 *
+	 */
+	if (i915->params.force_disable_ccs &&
+		match_info->platform == INTEL_METEORLAKE) {
+		RUNTIME_INFO(i915)->platform_engine_mask = BIT(RCS0) | BIT(BCS0);
+	}
+
+	/* This must be called before any calls to IS/IOV_MODE() macros */
+	i915_virtualization_probe(i915);
+
 	ret = i915_driver_early_probe(i915);
 	if (ret < 0)
 		goto out_pci_disable;
 
 	disable_rpm_wakeref_asserts(&i915->runtime_pm);
 
-	intel_vgpu_detect(i915);
+	ret = i915_sriov_early_tweaks(i915);
+	if (ret < 0)
+		goto out_runtime_pm_put;
 
 	ret = intel_gt_probe_all(i915);
 	if (ret < 0)
@@ -810,6 +876,8 @@ int i915_driver_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 	i915_driver_register(i915);
 
 	enable_rpm_wakeref_asserts(&i915->runtime_pm);
+
+	i915_virtualization_commit(i915);
 
 	i915_welcome_messages(i915);
 
@@ -918,27 +986,6 @@ static int i915_driver_open(struct drm_device *dev, struct drm_file *file)
 		return ret;
 
 	return 0;
-}
-
-/**
- * i915_driver_lastclose - clean up after all DRM clients have exited
- * @dev: DRM device
- *
- * Take care of cleaning up after all DRM clients have exited.  In the
- * mode setting case, we want to restore the kernel's initial mode (just
- * in case the last client left us in a bad state).
- *
- * Additionally, in the non-mode setting case, we'll tear down the GTT
- * and DMA structures, since the kernel won't be using them, and clea
- * up any GEM state.
- */
-static void i915_driver_lastclose(struct drm_device *dev)
-{
-	struct drm_i915_private *i915 = to_i915(dev);
-
-	intel_fbdev_restore_mode(i915);
-
-	vga_switcheroo_process_delayed_switch();
 }
 
 static void i915_driver_postclose(struct drm_device *dev, struct drm_file *file)
@@ -1080,6 +1127,8 @@ static int i915_drm_suspend(struct drm_device *dev)
 	struct drm_i915_private *dev_priv = to_i915(dev);
 	struct pci_dev *pdev = to_pci_dev(dev_priv->drm.dev);
 	pci_power_t opregion_target_state;
+	struct intel_gt *gt;
+	int i;
 
 	disable_rpm_wakeref_asserts(&dev_priv->runtime_pm);
 
@@ -1099,6 +1148,10 @@ static int i915_drm_suspend(struct drm_device *dev)
 	intel_dp_mst_suspend(dev_priv);
 
 	intel_runtime_pm_disable_interrupts(dev_priv);
+
+	for_each_gt(gt, dev_priv, i)
+		wake_up_all_tlb_invalidate(&gt->uc.guc);
+
 	intel_hpd_cancel_work(dev_priv);
 
 	if (HAS_DISPLAY(dev_priv))
@@ -1202,8 +1255,16 @@ int i915_driver_suspend_switcheroo(struct drm_i915_private *i915,
 static int i915_drm_resume(struct drm_device *dev)
 {
 	struct drm_i915_private *dev_priv = to_i915(dev);
+	struct pci_dev *pdev = to_pci_dev(dev_priv->drm.dev);
 	struct intel_gt *gt;
 	int ret, i;
+
+	/*
+	 * In case the VF and the PF are both probed on the same kernel,
+	 * let the VF wait until the PF finish resume first.
+	 */
+	if (pdev->is_virtfn && pdev->physfn)
+		device_pm_wait_for_dev(&pdev->dev, &pdev->physfn->dev);
 
 	disable_rpm_wakeref_asserts(&dev_priv->runtime_pm);
 
@@ -1216,6 +1277,13 @@ static int i915_drm_resume(struct drm_device *dev)
 	ret = i915_ggtt_enable_hw(dev_priv);
 	if (ret)
 		drm_err(&dev_priv->drm, "failed to re-enable GGTT\n");
+	 /*
+	 * Wa_22018453856:
+	 * We need to establish communication with GuC to be able to
+	 * update GGTT via PF.
+	 */
+	if (IS_SRIOV_VF(dev_priv) && i915_ggtt_require_binder(dev_priv))
+		intel_iov_query_bootstrap(&to_gt(dev_priv)->iov);
 
 	i915_ggtt_resume(to_gt(dev_priv)->ggtt);
 
@@ -1831,7 +1899,6 @@ static const struct drm_driver i915_drm_driver = {
 	    DRIVER_SYNCOBJ_TIMELINE,
 	.release = i915_driver_release,
 	.open = i915_driver_open,
-	.lastclose = i915_driver_lastclose,
 	.postclose = i915_driver_postclose,
 	.show_fdinfo = PTR_IF(IS_ENABLED(CONFIG_PROC_FS), i915_drm_client_fdinfo),
 

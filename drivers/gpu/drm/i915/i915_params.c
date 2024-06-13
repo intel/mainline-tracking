@@ -108,9 +108,6 @@ i915_param_named_unsafe(guc_firmware_path, charp, 0400,
 i915_param_named_unsafe(huc_firmware_path, charp, 0400,
 	"HuC firmware path to use instead of the default one");
 
-i915_param_named_unsafe(dmc_firmware_path, charp, 0400,
-	"DMC firmware path to use instead of the default one");
-
 i915_param_named_unsafe(gsc_firmware_path, charp, 0400,
 	"GSC firmware path to use instead of the default one");
 
@@ -133,6 +130,17 @@ i915_param_named_unsafe(lmem_size, uint, 0400,
 			"Set the lmem size(in MiB) for each region. (default: 0, all memory)");
 i915_param_named_unsafe(lmem_bar_size, uint, 0400,
 			"Set the lmem bar size(in MiB).");
+
+i915_param_named(max_vfs, uint, 0400,
+	"Limit number of virtual functions to allocate. "
+	"(0 = no VFs [default]; N = allow up to N VFs)");
+
+i915_param_named(enable_mtl_rcs_ccs_wa, bool, 0400,
+	"Enable the RCS/CCS switchout hold workaround for MTL (only some workloads are affected by issue and w/a has a performance penalty) (default:false)");
+
+i915_param_named(force_disable_ccs, int, 0400,
+	"Force to disable CCS engine. "
+	"(0 = fallback to default [default]; 1 = disable CCS)");
 
 static void _param_print_bool(struct drm_printer *p, const char *name,
 			      bool val)

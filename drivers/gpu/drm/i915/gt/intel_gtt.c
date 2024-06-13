@@ -437,6 +437,9 @@ void gtt_write_workarounds(struct intel_gt *gt)
 	struct drm_i915_private *i915 = gt->i915;
 	struct intel_uncore *uncore = gt->uncore;
 
+	if (IS_SRIOV_VF(i915))
+		return;
+
 	/*
 	 * This function is for gtt related workarounds. This function is
 	 * called on driver load and after a GPU reset, so you can place
@@ -673,6 +676,9 @@ void setup_private_pat(struct intel_gt *gt)
 
 	GEM_BUG_ON(GRAPHICS_VER(i915) < 8);
 
+	if (IS_SRIOV_VF(i915))
+		return;
+
 	if (gt->type == GT_MEDIA) {
 		xelpmp_setup_private_ppat(gt->uncore);
 		return;
@@ -680,7 +686,7 @@ void setup_private_pat(struct intel_gt *gt)
 
 	if (GRAPHICS_VER_FULL(i915) >= IP_VER(12, 70))
 		xelpg_setup_private_ppat(gt);
-	else if (GRAPHICS_VER_FULL(i915) >= IP_VER(12, 50))
+	else if (GRAPHICS_VER_FULL(i915) >= IP_VER(12, 55))
 		xehp_setup_private_ppat(gt);
 	else if (GRAPHICS_VER(i915) >= 12)
 		tgl_setup_private_ppat(uncore);

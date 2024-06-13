@@ -32,11 +32,6 @@ endif
 # Enable -Werror in CI and development
 subdir-ccflags-$(CONFIG_DRM_I915_WERROR) += -Werror
 
-# Fine grained warnings disable
-CFLAGS_i915_pci.o = -Wno-override-init
-CFLAGS_display/intel_display_device.o = -Wno-override-init
-CFLAGS_display/intel_fbdev.o = -Wno-override-init
-
 # Support compiling the display code separately for both i915 and xe
 # drivers. Define I915 when building i915.
 subdir-ccflags-y += -DI915
@@ -239,6 +234,23 @@ i915-y += \
 i915-y += \
 	gt/intel_gsc.o
 
+# Virtualization support
+iov-y += \
+	i915_sriov.o \
+	i915_sriov_sysfs.o \
+	gt/iov/intel_iov.o \
+	gt/iov/intel_iov_debugfs.o \
+	gt/iov/intel_iov_event.o \
+	gt/iov/intel_iov_ggtt.o \
+	gt/iov/intel_iov_memirq.o \
+	gt/iov/intel_iov_provisioning.o \
+	gt/iov/intel_iov_query.o \
+	gt/iov/intel_iov_relay.o \
+	gt/iov/intel_iov_service.o \
+	gt/iov/intel_iov_state.o \
+	gt/iov/intel_iov_sysfs.o
+i915-y += $(iov-y)
+
 # graphics hardware monitoring (HWMON) support
 i915-$(CONFIG_HWMON) += \
 	i915_hwmon.o
@@ -271,6 +283,7 @@ i915-y += \
 	display/intel_display_rps.o \
 	display/intel_display_wa.o \
 	display/intel_dmc.o \
+	display/intel_dmc_wl.o \
 	display/intel_dpio_phy.o \
 	display/intel_dpll.o \
 	display/intel_dpll_mgr.o \

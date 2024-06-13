@@ -103,19 +103,6 @@ static const struct gsc_def gsc_def_dg1[] = {
 	}
 };
 
-static const struct gsc_def gsc_def_xehpsdv[] = {
-	{
-		/* HECI1 not enabled on the device. */
-	},
-	{
-		.name = "mei-gscfi",
-		.bar = DG1_GSC_HECI2_BASE,
-		.bar_size = GSC_BAR_LENGTH,
-		.use_polling = true,
-		.slow_firmware = true,
-	}
-};
-
 static const struct gsc_def gsc_def_dg2[] = {
 	{
 		.name = "mei-gsc",
@@ -188,8 +175,6 @@ static void gsc_init_one(struct drm_i915_private *i915, struct intel_gsc *gsc,
 
 	if (IS_DG1(i915)) {
 		def = &gsc_def_dg1[intf_id];
-	} else if (IS_XEHPSDV(i915)) {
-		def = &gsc_def_xehpsdv[intf_id];
 	} else if (IS_DG2(i915)) {
 		def = &gsc_def_dg2[intf_id];
 	} else {
@@ -316,7 +301,7 @@ void intel_gsc_init(struct intel_gsc *gsc, struct drm_i915_private *i915)
 {
 	unsigned int i;
 
-	if (!HAS_HECI_GSC(i915))
+	if (!HAS_HECI_GSC(i915) || IS_SRIOV_VF(i915))
 		return;
 
 	for (i = 0; i < INTEL_GSC_NUM_INTERFACES; i++)
@@ -328,7 +313,7 @@ void intel_gsc_fini(struct intel_gsc *gsc)
 	struct intel_gt *gt = gsc_to_gt(gsc);
 	unsigned int i;
 
-	if (!HAS_HECI_GSC(gt->i915))
+	if (!HAS_HECI_GSC(gt->i915) || IS_SRIOV_VF(gt->i915))
 		return;
 
 	for (i = 0; i < INTEL_GSC_NUM_INTERFACES; i++)

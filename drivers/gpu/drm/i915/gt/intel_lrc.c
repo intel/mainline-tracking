@@ -18,6 +18,7 @@
 #include "intel_lrc.h"
 #include "intel_lrc_reg.h"
 #include "intel_ring.h"
+#include "iov/intel_iov_reg.h"
 #include "shmem_utils.h"
 
 /*
@@ -546,47 +547,6 @@ static const u8 gen12_rcs_offsets[] = {
 	END
 };
 
-static const u8 xehp_rcs_offsets[] = {
-	NOP(1),
-	LRI(13, POSTED),
-	REG16(0x244),
-	REG(0x034),
-	REG(0x030),
-	REG(0x038),
-	REG(0x03c),
-	REG(0x168),
-	REG(0x140),
-	REG(0x110),
-	REG(0x1c0),
-	REG(0x1c4),
-	REG(0x1c8),
-	REG(0x180),
-	REG16(0x2b4),
-
-	NOP(5),
-	LRI(9, POSTED),
-	REG16(0x3a8),
-	REG16(0x28c),
-	REG16(0x288),
-	REG16(0x284),
-	REG16(0x280),
-	REG16(0x27c),
-	REG16(0x278),
-	REG16(0x274),
-	REG16(0x270),
-
-	LRI(3, POSTED),
-	REG(0x1b0),
-	REG16(0x5a8),
-	REG16(0x5ac),
-
-	NOP(6),
-	LRI(1, 0),
-	REG(0x0c8),
-
-	END
-};
-
 static const u8 dg2_rcs_offsets[] = {
 	NOP(1),
 	LRI(15, POSTED),
@@ -695,8 +655,6 @@ static const u8 *reg_offsets(const struct intel_engine_cs *engine)
 			return mtl_rcs_offsets;
 		else if (GRAPHICS_VER_FULL(engine->i915) >= IP_VER(12, 55))
 			return dg2_rcs_offsets;
-		else if (GRAPHICS_VER_FULL(engine->i915) >= IP_VER(12, 50))
-			return xehp_rcs_offsets;
 		else if (GRAPHICS_VER(engine->i915) >= 12)
 			return gen12_rcs_offsets;
 		else if (GRAPHICS_VER(engine->i915) >= 11)
@@ -719,7 +677,7 @@ static const u8 *reg_offsets(const struct intel_engine_cs *engine)
 
 static int lrc_ring_mi_mode(const struct intel_engine_cs *engine)
 {
-	if (GRAPHICS_VER_FULL(engine->i915) >= IP_VER(12, 50))
+	if (GRAPHICS_VER_FULL(engine->i915) >= IP_VER(12, 55))
 		return 0x70;
 	else if (GRAPHICS_VER(engine->i915) >= 12)
 		return 0x60;
@@ -733,7 +691,7 @@ static int lrc_ring_mi_mode(const struct intel_engine_cs *engine)
 
 static int lrc_ring_bb_offset(const struct intel_engine_cs *engine)
 {
-	if (GRAPHICS_VER_FULL(engine->i915) >= IP_VER(12, 50))
+	if (GRAPHICS_VER_FULL(engine->i915) >= IP_VER(12, 55))
 		return 0x80;
 	else if (GRAPHICS_VER(engine->i915) >= 12)
 		return 0x70;
@@ -748,7 +706,7 @@ static int lrc_ring_bb_offset(const struct intel_engine_cs *engine)
 
 static int lrc_ring_gpr0(const struct intel_engine_cs *engine)
 {
-	if (GRAPHICS_VER_FULL(engine->i915) >= IP_VER(12, 50))
+	if (GRAPHICS_VER_FULL(engine->i915) >= IP_VER(12, 55))
 		return 0x84;
 	else if (GRAPHICS_VER(engine->i915) >= 12)
 		return 0x74;
@@ -795,13 +753,14 @@ static int lrc_ring_indirect_offset(const struct intel_engine_cs *engine)
 static int lrc_ring_cmd_buf_cctl(const struct intel_engine_cs *engine)
 {
 
-	if (GRAPHICS_VER_FULL(engine->i915) >= IP_VER(12, 50))
+	if (GRAPHICS_VER_FULL(engine->i915) >= IP_VER(12, 55))
 		/*
 		 * Note that the CSFE context has a dummy slot for CMD_BUF_CCTL
 		 * simply to match the RCS context image layout.
 		 */
 		return 0xc6;
-	else if (engine->class != RENDER_CLASS)
+	else if (engine->class != RENDER_CLASS &&
+		 engine->class != COMPUTE_CLASS)
 		return -1;
 	else if (GRAPHICS_VER(engine->i915) >= 12)
 		return 0xb6;
@@ -949,6 +908,29 @@ static struct i915_ppgtt *vm_alias(struct i915_address_space *vm)
 		return i915_vm_to_ppgtt(vm);
 }
 
+static void init_vf_irq_reg_state(u32 *regs, const struct intel_engine_cs *engine)
+{
+	struct i915_vma *vma = engine->gt->iov.vf.irq.vma;
+
+	GEM_BUG_ON(!IS_SRIOV_VF(engine->i915));
+	GEM_BUG_ON(!vma);
+
+	BUILD_BUG_ON(!IS_ALIGNED(I915_VF_IRQ_STATUS, SZ_4K));
+	BUILD_BUG_ON(!IS_ALIGNED(I915_VF_IRQ_SOURCE, SZ_64));
+
+	regs[GEN12_CTX_LRM_HEADER_0] =
+		MI_LOAD_REGISTER_MEM_GEN8 | MI_SRM_LRM_GLOBAL_GTT | MI_LRI_LRM_CS_MMIO;
+	regs[GEN12_CTX_INT_MASK_REG] = i915_mmio_reg_offset(GEN12_RING_INT_MASK(0));
+	regs[GEN12_CTX_INT_MASK_PTR] = i915_ggtt_offset(vma) + I915_VF_IRQ_ENABLE;
+
+	regs[GEN12_CTX_LRI_HEADER_4] =
+		MI_LOAD_REGISTER_IMM(2) | MI_LRI_FORCE_POSTED | MI_LRI_LRM_CS_MMIO;
+	regs[GEN12_CTX_INT_STATUS_REPORT_PTR] = i915_mmio_reg_offset(GEN12_RING_INT_STATUS(0));
+	regs[GEN12_CTX_INT_STATUS_REPORT_PTR + 1] = i915_ggtt_offset(vma) + I915_VF_IRQ_STATUS;
+	regs[GEN12_CTX_INT_SRC_REPORT_PTR] = i915_mmio_reg_offset(GEN12_RING_INT_SRC(0));
+	regs[GEN12_CTX_INT_SRC_REPORT_PTR + 1] = i915_ggtt_offset(vma) + I915_VF_IRQ_SOURCE;
+}
+
 static void __reset_stop_ring(u32 *regs, const struct intel_engine_cs *engine)
 {
 	int x;
@@ -985,6 +967,9 @@ static void __lrc_init_regs(u32 *regs,
 	init_ppgtt_regs(regs, vm_alias(ce->vm));
 
 	init_wa_bb_regs(regs, engine);
+
+	if (HAS_MEMORY_IRQ_STATUS(engine->i915))
+		init_vf_irq_reg_state(regs, engine);
 
 	__reset_stop_ring(regs, engine);
 }
