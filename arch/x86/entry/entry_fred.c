@@ -117,6 +117,9 @@ static idtentry_t sysvec_table[NR_SYSTEM_VECTORS] __ro_after_init = {
 	SYSVEC(POSTED_INTR_VECTOR,		kvm_posted_intr_ipi),
 	SYSVEC(POSTED_INTR_WAKEUP_VECTOR,	kvm_posted_intr_wakeup_ipi),
 	SYSVEC(POSTED_INTR_NESTED_VECTOR,	kvm_posted_intr_nested_ipi),
+#if IS_ENABLED(CONFIG_KVM)
+	SYSVEC(KVM_GUEST_PMI_VECTOR,		kvm_guest_pmi_handler),
+#endif
 
 	SYSVEC(POSTED_MSI_NOTIFICATION_VECTOR,	posted_msi_notification),
 };
