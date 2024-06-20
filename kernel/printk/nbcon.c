@@ -1119,6 +1119,7 @@ wait_for_event:
 		}
 
 		console_srcu_read_unlock(cookie);
+		cond_resched();
 
 	} while (backlog);
 
