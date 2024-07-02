@@ -351,6 +351,7 @@ static const struct xe_device_desc ptl_desc = {
 	PLATFORM(PANTHERLAKE),
 	.has_display = true,
 	.require_force_probe = true,
+	.has_sriov = true,
 };
 
 #undef PLATFORM
