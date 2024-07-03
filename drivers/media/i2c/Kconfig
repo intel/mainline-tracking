@@ -211,6 +211,12 @@ config VIDEO_IMX355
 	  To compile this driver as a module, choose M here: the
 	  module will be called imx355.
 
+config VIDEO_IMX390
+        depends on I2C && VIDEO_DEV
+        tristate "IMX390 Camera Driver"
+        help
+          This is a Video4Linux2 sensor-level driver for Sony IMX390 camera.
+
 config VIDEO_IMX412
 	tristate "Sony IMX412 sensor support"
 	depends on OF_GPIO
@@ -565,6 +571,15 @@ config VIDEO_OV8858
 
 	  To compile this driver as a module, choose M here: the
 	  module will be called ov8858.
+
+config VIDEO_AR0234
+	tristate "OnSemi AR0234 sensor support"
+	depends on VIDEO_DEV && I2C
+	select VIDEO_V4L2_SUBDEV_API
+	depends on MEDIA_CAMERA_SUPPORT
+	help
+	  This is a Video4Linux2 sensor-level driver for the OnSemi
+	  ar0234 camera.
 
 config VIDEO_OV8865
 	tristate "OmniVision OV8865 sensor support"
@@ -1299,6 +1314,12 @@ config VIDEO_VPX3220
 	  To compile this driver as a module, choose M here: the
 	  module will be called vpx3220.
 
+config VIDEO_TI960
+        tristate "TI960 driver support"
+        depends on I2C && VIDEO_DEV
+        help
+          This is a driver for TI960 Deserializer.
+
 comment "Video and audio decoders"
 
 config VIDEO_SAA717X
@@ -1525,6 +1546,35 @@ config VIDEO_THS7303
 
 	  To compile this driver as a module, choose M here: the
 	  module will be called ths7303.
+
+config VIDEO_LT6911UXC
+	tristate "Lontium LT6911UXC decoder"
+	depends on VIDEO_DEV && I2C
+	select VIDEO_V4L2_SUBDEV_API
+	help
+	This is a Video4Linux2 sensor-level driver for the Lontium
+	LT6911UXC HDMI to MIPI CSI-2 bridge.
+
+	To compile this driver as a module, choose M here: the
+	module will be called lt6911uxc.
+
+config VIDEO_LT6911UXE
+	tristate "Lontium LT6911UXE decoder"
+	depends on VIDEO_DEV && I2C
+	select VIDEO_V4L2_SUBDEV_API
+	help
+	This is a Video4Linux2 sensor-level driver for the Lontium
+	LT6911UXE HDMI to MIPI CSI-2 bridge.
+
+	To compile this driver as a module, choose M here: the
+	module will be called lt6911uxe.
+
+config VIDEO_D4XX
+        tristate "D4XX Camera Driver"
+        depends on VIDEO_DEV && I2C
+        select VIDEO_V4L2_SUBDEV_API
+        help
+          This is a Video4Linux2 sensor-level driver for intel realsence camera.
 
 endmenu
 
