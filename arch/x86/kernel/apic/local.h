@@ -22,24 +22,25 @@ void x2apic_send_IPI_allbutself(int vector);
 void x2apic_send_IPI_self(int vector);
 extern u32 x2apic_max_apicid;
 
+u16 __prepare_ICR_dm_and_vector(u16 dm, u8 vector);
+
 /* IPI */
 
 DECLARE_STATIC_KEY_FALSE(apic_use_ipi_shorthand);
 
-static inline unsigned int __prepare_ICR(unsigned int shortcut, int vector,
-					 unsigned int dest)
+static inline bool is_nmi(u16 dm_vector)
 {
-	unsigned int icr = shortcut | dest;
+	if ((dm_vector & APIC_DM_MASK) == APIC_DM_NMI)
+		return true;
+	if ((dm_vector & APIC_VECTOR_MASK) == NMI_VECTOR)
+		return true;
+	return false;
+}
 
-	switch (vector) {
-	default:
-		icr |= APIC_DM_FIXED | vector;
-		break;
-	case NMI_VECTOR:
-		icr |= APIC_DM_NMI;
-		break;
-	}
-	return icr;
+static inline u32 __prepare_ICR(u32 shortcut, u16 dm_vector, u32 dest)
+{
+	return shortcut | dest |
+	       __prepare_ICR_dm_and_vector(dm_vector & APIC_DM_MASK, dm_vector);
 }
 
 void default_init_apic_ldr(void);

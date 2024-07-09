@@ -23,7 +23,13 @@
 #define APIC_EXTNMI_ALL		1
 #define APIC_EXTNMI_NONE	2
 
+#define REBOOT_NMI		(APIC_DM_NMI | NMI_SOURCE_VEC_IPI_REBOOT)
+#define SMP_STOP_NMI		(APIC_DM_NMI | NMI_SOURCE_VEC_IPI_SMP_STOP)
+#define BT_NMI			(APIC_DM_NMI | NMI_SOURCE_VEC_IPI_BT)
 #define PERF_NMI		(APIC_DM_NMI | NMI_SOURCE_VEC_PMI)
+#define KGDB_NMI		(APIC_DM_NMI | NMI_SOURCE_VEC_IPI_KGDB)
+#define MCE_NMI			(APIC_DM_NMI | NMI_SOURCE_VEC_IPI_MCE)
+#define TEST_NMI		(APIC_DM_NMI | NMI_SOURCE_VEC_IPI_TEST)
 
 /*
  * Debugging macros
@@ -470,6 +476,29 @@ static __always_inline u32 safe_apic_wait_icr_idle(void)
 static __always_inline bool apic_id_valid(u32 apic_id)
 {
 	return apic_id <= apic->max_apic_id;
+}
+
+/*
+ * Encode the NMI source into the vector field for FRED NMI source.
+ */
+static inline u16 __prepare_ICR_dm_and_vector(u16 dm, u8 vector)
+{
+	if (dm == APIC_DM_NMI) {
+		/*
+		 * Pre-FRED, the actual vector is ignored for NMIs, but zero it
+		 * if NMI source reporting is unsupported so as not to risk
+		 * breakage on misbehaving hardware/hypervisors.
+		 */
+		if (!cpu_feature_enabled(X86_FEATURE_NMI_SOURCE))
+			vector = 0;
+
+		return dm | vector;
+	}
+
+	if (vector == NMI_VECTOR)
+		return APIC_DM_NMI;
+	else
+		return APIC_DM_FIXED | vector;
 }
 
 #else /* CONFIG_X86_LOCAL_APIC */
