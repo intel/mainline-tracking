@@ -53,8 +53,8 @@ NOKPROBE_SYMBOL(nmi_cpu_backtrace_handler);
 
 static int __init register_nmi_cpu_backtrace_handler(void)
 {
-	register_nmi_handler(NMI_LOCAL, nmi_cpu_backtrace_handler,
-				0, "arch_bt");
+	register_nmi_handler(NMI_LOCAL, nmi_cpu_backtrace_handler, 0, "arch_bt",
+			     NMI_SOURCE_VEC_IPI_BT);
 	return 0;
 }
 early_initcall(register_nmi_cpu_backtrace_handler);

@@ -167,6 +167,9 @@ int __register_nmi_handler(unsigned int type, struct nmiaction *action)
 
 	raw_spin_lock_irqsave(&desc->lock, flags);
 
+	if (!cpu_feature_enabled(X86_FEATURE_NMI_SOURCE) || type != NMI_LOCAL)
+		action->source_vector = 0;
+
 	/*
 	 * Indicate if there are multiple registrations on the
 	 * internal NMI handler call chains (SERR and IO_CHECK).
@@ -191,21 +194,22 @@ EXPORT_SYMBOL(__register_nmi_handler);
 void unregister_nmi_handler(unsigned int type, const char *name)
 {
 	struct nmi_desc *desc = nmi_to_desc(type);
-	struct nmiaction *n, *found = NULL;
+	struct nmiaction *action, *found = NULL;
 	unsigned long flags;
 
 	raw_spin_lock_irqsave(&desc->lock, flags);
 
-	list_for_each_entry_rcu(n, &desc->head, list) {
+	list_for_each_entry_rcu(action, &desc->head, list) {
 		/*
 		 * the name passed in to describe the nmi handler
 		 * is used as the lookup key
 		 */
-		if (!strcmp(n->name, name)) {
+		if (!strcmp(action->name, name)) {
 			WARN(in_nmi(),
-				"Trying to free NMI (%s) from NMI context!\n", n->name);
-			list_del_rcu(&n->list);
-			found = n;
+				"Trying to free NMI (%s) from NMI context!\n", action->name);
+
+			list_del_rcu(&action->list);
+			found = action;
 			break;
 		}
 	}
