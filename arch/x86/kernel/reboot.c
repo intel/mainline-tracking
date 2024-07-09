@@ -932,7 +932,7 @@ void nmi_shootdown_cpus(nmi_shootdown_cb callback)
 	 */
 	set_emergency_nmi_handler(NMI_LOCAL, crash_nmi_callback);
 
-	apic_send_IPI_allbutself(NMI_VECTOR);
+	apic_send_IPI_allbutself(REBOOT_NMI);
 
 	/* Kick CPUs looping in NMI context. */
 	WRITE_ONCE(crash_ipi_issued, 1);
