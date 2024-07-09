@@ -30,6 +30,7 @@
 #define BT_NMI			(APIC_DM_NMI | NMIS_VECTOR_BT)
 #define KGDB_NMI		(APIC_DM_NMI | NMIS_VECTOR_KGDB)
 #define MCE_NMI			(APIC_DM_NMI | NMIS_VECTOR_MCE)
+#define PERF_NMI		(APIC_DM_NMI | NMIS_VECTOR_PMI)
 
 /*
  * Debugging macros
