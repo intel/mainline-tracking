@@ -23,6 +23,8 @@
 #define APIC_EXTNMI_ALL		1
 #define APIC_EXTNMI_NONE	2
 
+#define PERF_NMI		(APIC_DM_NMI | NMI_SOURCE_VEC_PMI)
+
 /*
  * Debugging macros
  */
