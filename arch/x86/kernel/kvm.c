@@ -500,7 +500,7 @@ static bool pv_sched_yield_supported(void)
 
 #define KVM_IPI_CLUSTER_SIZE	(2 * BITS_PER_LONG)
 
-static void __send_ipi_mask(const struct cpumask *mask, int vector)
+static void __send_ipi_mask(const struct cpumask *mask, u16 dm_vector)
 {
 	unsigned long flags;
 	int cpu, min = 0, max = 0;
@@ -517,14 +517,7 @@ static void __send_ipi_mask(const struct cpumask *mask, int vector)
 
 	local_irq_save(flags);
 
-	switch (vector) {
-	default:
-		icr = APIC_DM_FIXED | vector;
-		break;
-	case NMI_VECTOR:
-		icr = APIC_DM_NMI;
-		break;
-	}
+	icr = __prepare_ICR_dm_and_vector(dm_vector & APIC_DM_MASK, dm_vector);
 
 	for_each_cpu(cpu, mask) {
 		apic_id = per_cpu(x86_cpu_to_apicid, cpu);
