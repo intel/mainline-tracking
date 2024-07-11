@@ -4897,8 +4897,8 @@ static void update_pmu_cap(struct x86_hybrid_pmu *pmu)
 	if (ebx & ARCH_PERFMON_EXT_EQ)
 		pmu->config_mask |= ARCH_PERFMON_EVENTSEL_EQ;
 
-	if (sub_bitmaps & ARCH_PERFMON_NUM_COUNTER_LEAF_BIT) {
-		cpuid_count(ARCH_PERFMON_EXT_LEAF, ARCH_PERFMON_NUM_COUNTER_LEAF,
+	if (sub_bitmaps & ARCH_PERFMON_NUM_COUNTER_LEAF) {
+		cpuid_count(ARCH_PERFMON_EXT_LEAF, ARCH_PERFMON_NUM_COUNTER_LEAF_BIT,
 			    &eax, &ebx, &ecx, &edx);
 		pmu->cntr_mask64 = eax;
 		pmu->fixed_cntr_mask64 = ebx;
