@@ -396,7 +396,8 @@ static void guest_test_rdpmc(uint32_t rdpmc_idx, bool expect_success,
 static void guest_rd_wr_counters(uint32_t base_msr, uint8_t nr_possible_counters,
 				 uint8_t nr_counters, uint32_t or_mask)
 {
-	const bool pmu_has_fast_mode = !guest_get_pmu_version();
+	uint8_t guest_pmu_version = guest_get_pmu_version();
+	const bool pmu_has_fast_mode = !guest_pmu_version;
 	uint8_t i;
 
 	for (i = 0; i < nr_possible_counters; i++) {
@@ -415,12 +416,13 @@ static void guest_rd_wr_counters(uint32_t base_msr, uint8_t nr_possible_counters
 		const bool expect_success = i < nr_counters || (or_mask & BIT(i));
 
 		/*
-		 * KVM drops writes to MSR_P6_PERFCTR[0|1] if the counters are
-		 * unsupported, i.e. doesn't #GP and reads back '0'.
+		 * KVM drops writes to MSR_P6_PERFCTR[0|1] for non-architectural PMUs
+		 * if the counters are unsupported, i.e. doesn't #GP and reads back '0'.
 		 */
 		const uint64_t expected_val = expect_success ? test_val : 0;
-		const bool expect_gp = !expect_success && msr != MSR_P6_PERFCTR0 &&
-				       msr != MSR_P6_PERFCTR1;
+		const bool expect_gp = !expect_success &&
+				       (guest_pmu_version ||
+					(msr != MSR_P6_PERFCTR0 && msr != MSR_P6_PERFCTR1));
 		uint32_t rdpmc_idx;
 		uint8_t vector;
 		uint64_t val;
