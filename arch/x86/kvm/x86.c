@@ -4204,16 +4204,6 @@ int kvm_set_msr_common(struct kvm_vcpu *vcpu, struct msr_data *msr_info)
 	case MSR_IA32_MC0_CTL2 ... MSR_IA32_MCx_CTL2(KVM_MAX_MCE_BANKS) - 1:
 		return set_msr_mce(vcpu, msr_info);
 
-	case MSR_K7_PERFCTR0 ... MSR_K7_PERFCTR3:
-	case MSR_P6_PERFCTR0 ... MSR_P6_PERFCTR1:
-	case MSR_K7_EVNTSEL0 ... MSR_K7_EVNTSEL3:
-	case MSR_P6_EVNTSEL0 ... MSR_P6_EVNTSEL1:
-		if (kvm_pmu_is_valid_msr(vcpu, msr))
-			return kvm_pmu_set_msr(vcpu, msr_info);
-
-		if (data)
-			kvm_pr_unimpl_wrmsr(vcpu, msr, data);
-		break;
 	case MSR_K7_CLK_CTL:
 		/*
 		 * Ignore all writes to this no longer documented MSR.
@@ -4292,6 +4282,24 @@ int kvm_set_msr_common(struct kvm_vcpu *vcpu, struct msr_data *msr_info)
 	case MSR_IA32_PL0_SSP ... MSR_IA32_PL3_SSP:
 		kvm_set_xstate_msr(vcpu, msr_info);
 		break;
+	case MSR_K7_PERFCTR0 ... MSR_K7_PERFCTR3:
+	case MSR_P6_PERFCTR0 ... MSR_P6_PERFCTR1:
+	case MSR_K7_EVNTSEL0 ... MSR_K7_EVNTSEL3:
+	case MSR_P6_EVNTSEL0 ... MSR_P6_EVNTSEL1:
+		/*
+		 * Some legacy guests don't expect to get a #GP if these MSRs
+		 * are invalid on the old platforms with non-architectural PMUs.
+		 * Refer: commit 5753785fa977 ("KVM: do not #GP on perf MSR writes
+		 * when vPMU is disabled")
+		 */
+		if (!vcpu_to_pmu(vcpu)->version) {
+			if (kvm_pmu_is_valid_msr(vcpu, msr))
+				return kvm_pmu_set_msr(vcpu, msr_info);
+			if (data)
+				kvm_pr_unimpl_wrmsr(vcpu, msr, data);
+			break;
+		}
+		fallthrough;
 	default:
 		if (kvm_pmu_is_valid_msr(vcpu, msr))
 			return kvm_pmu_set_msr(vcpu, msr_info);
@@ -4384,14 +4392,6 @@ int kvm_get_msr_common(struct kvm_vcpu *vcpu, struct msr_data *msr_info)
 	case MSR_PP1_ENERGY_STATUS:	/* Power plane 1 (graphics uncore) */
 	case MSR_PKG_ENERGY_STATUS:	/* Total package */
 	case MSR_DRAM_ENERGY_STATUS:	/* DRAM controller */
-		msr_info->data = 0;
-		break;
-	case MSR_K7_EVNTSEL0 ... MSR_K7_EVNTSEL3:
-	case MSR_K7_PERFCTR0 ... MSR_K7_PERFCTR3:
-	case MSR_P6_PERFCTR0 ... MSR_P6_PERFCTR1:
-	case MSR_P6_EVNTSEL0 ... MSR_P6_EVNTSEL1:
-		if (kvm_pmu_is_valid_msr(vcpu, msr_info->index))
-			return kvm_pmu_get_msr(vcpu, msr_info);
 		msr_info->data = 0;
 		break;
 	case MSR_IA32_UCODE_REV:
@@ -4645,6 +4645,23 @@ int kvm_get_msr_common(struct kvm_vcpu *vcpu, struct msr_data *msr_info)
 	case MSR_IA32_PL0_SSP ... MSR_IA32_PL3_SSP:
 		kvm_get_xstate_msr(vcpu, msr_info);
 		break;
+	case MSR_K7_EVNTSEL0 ... MSR_K7_EVNTSEL3:
+	case MSR_K7_PERFCTR0 ... MSR_K7_PERFCTR3:
+	case MSR_P6_PERFCTR0 ... MSR_P6_PERFCTR1:
+	case MSR_P6_EVNTSEL0 ... MSR_P6_EVNTSEL1:
+		/*
+		 * Some legacy guests don't expect to get a #GP if these MSRs
+		 * are invalid on the old platforms with non-architectural PMUs.
+		 * Refer: commit 5753785fa977 ("KVM: do not #GP on perf MSR writes
+		 * when vPMU is disabled")
+		 */
+		if (!vcpu_to_pmu(vcpu)->version) {
+			if (kvm_pmu_is_valid_msr(vcpu, msr_info->index))
+				return kvm_pmu_get_msr(vcpu, msr_info);
+			msr_info->data = 0;
+			break;
+		}
+		fallthrough;
 	default:
 		if (kvm_pmu_is_valid_msr(vcpu, msr_info->index))
 			return kvm_pmu_get_msr(vcpu, msr_info);
