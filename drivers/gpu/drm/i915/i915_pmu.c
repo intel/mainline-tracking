@@ -1154,6 +1154,11 @@ void i915_pmu_register(struct drm_i915_private *i915)
 	};
 	int ret = -ENOMEM;
 
+	if (IS_SRIOV_VF(i915)) {
+		drm_info(&i915->drm, "PMU not supported for this GPU.");
+		return;
+	}
+
 	spin_lock_init(&pmu->lock);
 	hrtimer_setup(&pmu->timer, i915_sample, CLOCK_MONOTONIC, HRTIMER_MODE_REL);
 	init_rc6(pmu);
