@@ -755,7 +755,6 @@ void kvm_pmu_refresh(struct kvm_vcpu *vcpu)
 
 	pmu->version = 0;
 	pmu->nr_arch_gp_counters = 0;
-	pmu->nr_arch_fixed_counters = 0;
 	pmu->counter_bitmask[KVM_PMC_GP] = 0;
 	pmu->counter_bitmask[KVM_PMC_FIXED] = 0;
 	pmu->reserved_bits = 0xffffffff00200000ull;
