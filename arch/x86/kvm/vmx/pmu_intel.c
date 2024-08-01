@@ -38,10 +38,12 @@ static void reprogram_fixed_counters(struct kvm_pmu *pmu, u64 data)
 {
 	struct kvm_pmc *pmc;
 	u64 old_fixed_ctr_ctrl = pmu->fixed_ctr_ctrl;
-	int i;
+	int s = INTEL_PMC_IDX_FIXED;
 
 	pmu->fixed_ctr_ctrl = data;
-	for (i = 0; i < pmu->nr_arch_fixed_counters; i++) {
+	for_each_set_bit_from(s, pmu->all_valid_pmc_idx,
+			      INTEL_PMC_IDX_FIXED + INTEL_PMC_MAX_FIXED) {
+		int i = s - INTEL_PMC_IDX_FIXED;
 		u8 new_ctrl = fixed_ctrl_field(data, i);
 		u8 old_ctrl = fixed_ctrl_field(old_fixed_ctr_ctrl, i);
 
@@ -53,6 +55,13 @@ static void reprogram_fixed_counters(struct kvm_pmu *pmu, u64 data)
 		__set_bit(KVM_FIXED_PMC_BASE_IDX + i, pmu->pmc_in_use);
 		kvm_pmu_request_counter_reprogram(pmc);
 	}
+}
+
+static inline bool intel_is_valid_pmc(struct kvm_pmu *pmu,
+				      unsigned int idx, bool fixed)
+{
+	return fixed ? fixed_ctr_is_supported(pmu, idx)
+		     : idx < pmu->nr_arch_gp_counters;
 }
 
 static struct kvm_pmc *intel_rdpmc_ecx_to_pmc(struct kvm_vcpu *vcpu,
@@ -88,7 +97,7 @@ static struct kvm_pmc *intel_rdpmc_ecx_to_pmc(struct kvm_vcpu *vcpu,
 	switch (type) {
 	case INTEL_RDPMC_FIXED:
 		counters = pmu->fixed_counters;
-		num_counters = pmu->nr_arch_fixed_counters;
+		num_counters = KVM_MAX_NR_FIXED_COUNTERS;
 		bitmask = pmu->counter_bitmask[KVM_PMC_FIXED];
 		break;
 	case INTEL_RDPMC_GP:
@@ -101,7 +110,7 @@ static struct kvm_pmc *intel_rdpmc_ecx_to_pmc(struct kvm_vcpu *vcpu,
 	}
 
 	idx &= INTEL_RDPMC_INDEX_MASK;
-	if (idx >= num_counters)
+	if (!intel_is_valid_pmc(pmu, idx, type == INTEL_RDPMC_FIXED))
 		return NULL;
 
 	*mask &= bitmask;
@@ -302,6 +311,7 @@ static u64 intel_pmu_global_inuse_emulation(struct kvm_pmu *pmu)
 {
 	u64 data = 0;
 	int i;
+	int s = INTEL_PMC_IDX_FIXED;
 
 	for (i = 0; i < pmu->nr_arch_gp_counters; i++) {
 		struct kvm_pmc *pmc = &pmu->gp_counters[i];
@@ -321,7 +331,10 @@ static u64 intel_pmu_global_inuse_emulation(struct kvm_pmu *pmu)
 			data |= MSR_CORE_PERF_GLOBAL_INUSE_PMI;
 	}
 
-	for (i = 0; i < pmu->nr_arch_fixed_counters; i++) {
+	for_each_set_bit_from(s, pmu->all_valid_pmc_idx,
+			      INTEL_PMC_IDX_FIXED + INTEL_PMC_MAX_FIXED) {
+		i = s - INTEL_PMC_IDX_FIXED;
+
 		/*
 		 * IA32_PERF_GLOBAL_INUSE.FCi_InUse[bit (i + 32)]: This bit
 		 * reflects the logical state of
@@ -329,7 +342,7 @@ static u64 intel_pmu_global_inuse_emulation(struct kvm_pmu *pmu)
 		 */
 		if (pmu->fixed_ctr_ctrl &
 		    intel_fixed_bits_by_idx(i, INTEL_FIXED_0_KERNEL | INTEL_FIXED_0_USER))
-			data |= 1ULL << (i + INTEL_PMC_IDX_FIXED);
+			data |= 1ULL << s;
 		/*
 		 * IA32_PERF_GLOBAL_INUSE.PMI_InUse[bit 63]: This bit is set if
 		 * IA32_FIXED_CTR_CTRL.ENi_PMI, i = 0, 1, 2 is set.
@@ -524,7 +537,8 @@ static int intel_pmu_set_msr(struct kvm_vcpu *vcpu, struct msr_data *msr_info)
  * Forcibly inlined to allow asserting on @index at build time, and there should
  * never be more than one user.
  */
-static __always_inline u64 intel_get_fixed_pmc_eventsel(unsigned int index)
+static __always_inline u64 intel_get_fixed_pmc_eventsel(struct kvm_pmu *pmu,
+							unsigned int index)
 {
 	const enum perf_hw_id fixed_pmc_perf_ids[] = {
 		[0] = PERF_COUNT_HW_INSTRUCTIONS,
@@ -541,16 +555,8 @@ static __always_inline u64 intel_get_fixed_pmc_eventsel(unsigned int index)
 	 * have a known encoding for the associated general purpose event.
 	 */
 	eventsel = perf_get_hw_event_config(fixed_pmc_perf_ids[index]);
-	WARN_ON_ONCE(!eventsel && index < kvm_pmu_cap.num_counters_fixed);
+	WARN_ON_ONCE(!eventsel && fixed_ctr_is_supported(pmu, index));
 	return eventsel;
-}
-
-static void intel_pmu_enable_fixed_counter_bits(struct kvm_pmu *pmu, u64 bits)
-{
-	int i;
-
-	for (i = 0; i < pmu->nr_arch_fixed_counters; i++)
-		pmu->fixed_ctr_ctrl_rsvd &= ~intel_fixed_bits_by_idx(i, bits);
 }
 
 static void intel_pmu_refresh(struct kvm_vcpu *vcpu)
@@ -562,6 +568,7 @@ static void intel_pmu_refresh(struct kvm_vcpu *vcpu)
 	union cpuid10_edx edx;
 	u64 perf_capabilities;
 	u64 counter_rsvd;
+	int i;
 
 	memset(&lbr_desc->records, 0, sizeof(lbr_desc->records));
 
@@ -594,23 +601,32 @@ static void intel_pmu_refresh(struct kvm_vcpu *vcpu)
 	pmu->available_event_types = ~entry->ebx &
 					((1ull << eax.split.mask_length) - 1);
 
-	if (pmu->version == 1) {
-		pmu->nr_arch_fixed_counters = 0;
-	} else {
-		pmu->nr_arch_fixed_counters = min_t(int, edx.split.num_counters_fixed,
-						    kvm_pmu_cap.num_counters_fixed);
+	counter_rsvd = ~(BIT_ULL(pmu->nr_arch_gp_counters) - 1);
+	bitmap_set(pmu->all_valid_pmc_idx, 0, pmu->nr_arch_gp_counters);
+
+	if (pmu->version > 1) {
+		for (i = 0; i < kvm_pmu_cap.num_counters_fixed; i++) {
+			/*
+			 * FxCtr[i]_is_supported :=
+			 *      CPUID.0xA.ECX[i] || EDX[4:0] > i
+			 */
+			if (!(entry->ecx & BIT_ULL(i) || edx.split.num_counters_fixed > i))
+				continue;
+
+			set_bit(INTEL_PMC_IDX_FIXED + i, pmu->all_valid_pmc_idx);
+			counter_rsvd &= ~BIT_ULL(INTEL_PMC_IDX_FIXED + i);
+			pmu->fixed_ctr_ctrl_rsvd &= ~intel_fixed_bits_by_idx(i,
+							INTEL_FIXED_0_KERNEL |
+							INTEL_FIXED_0_USER |
+							INTEL_FIXED_0_ENABLE_PMI);
+		}
+
 		edx.split.bit_width_fixed = min_t(int, edx.split.bit_width_fixed,
 						  kvm_pmu_cap.bit_width_fixed);
 		pmu->counter_bitmask[KVM_PMC_FIXED] =
 			((u64)1 << edx.split.bit_width_fixed) - 1;
 	}
 
-	intel_pmu_enable_fixed_counter_bits(pmu, INTEL_FIXED_0_KERNEL |
-						 INTEL_FIXED_0_USER |
-						 INTEL_FIXED_0_ENABLE_PMI);
-
-	counter_rsvd = ~(((1ull << pmu->nr_arch_gp_counters) - 1) |
-		(((1ull << pmu->nr_arch_fixed_counters) - 1) << KVM_FIXED_PMC_BASE_IDX));
 	pmu->global_ctrl_rsvd = counter_rsvd;
 
 	/*
@@ -636,11 +652,6 @@ static void intel_pmu_refresh(struct kvm_vcpu *vcpu)
 		pmu->raw_event_mask |= (HSW_IN_TX|HSW_IN_TX_CHECKPOINTED);
 	}
 
-	bitmap_set(pmu->all_valid_pmc_idx,
-		0, pmu->nr_arch_gp_counters);
-	bitmap_set(pmu->all_valid_pmc_idx,
-		INTEL_PMC_MAX_GENERIC, pmu->nr_arch_fixed_counters);
-
 	perf_capabilities = vcpu_get_perf_capabilities(vcpu);
 	if (cpuid_model_is_consistent(vcpu) &&
 	    (perf_capabilities & PMU_CAP_LBR_FMT))
@@ -653,10 +664,17 @@ static void intel_pmu_refresh(struct kvm_vcpu *vcpu)
 
 	if (perf_capabilities & PERF_CAP_PEBS_FORMAT) {
 		if (perf_capabilities & PERF_CAP_PEBS_BASELINE) {
+			int s = INTEL_PMC_IDX_FIXED;
+			int e = INTEL_PMC_IDX_FIXED + INTEL_PMC_MAX_FIXED;
+
 			pmu->pebs_enable_rsvd = counter_rsvd;
 			pmu->reserved_bits &= ~ICL_EVENTSEL_ADAPTIVE;
+			for_each_set_bit_from(s, pmu->all_valid_pmc_idx, e) {
+				i = s - INTEL_PMC_IDX_FIXED;
+				pmu->fixed_ctr_ctrl_rsvd &=
+					~intel_fixed_bits_by_idx(i, ICL_FIXED_0_ADAPTIVE);
+			}
 			pmu->pebs_data_cfg_rsvd = ~0xff00000full;
-			intel_pmu_enable_fixed_counter_bits(pmu, ICL_FIXED_0_ADAPTIVE);
 		} else {
 			pmu->pebs_enable_rsvd =
 				~((1ull << pmu->nr_arch_gp_counters) - 1);
@@ -682,7 +700,7 @@ static void intel_pmu_init(struct kvm_vcpu *vcpu)
 		pmu->fixed_counters[i].vcpu = vcpu;
 		pmu->fixed_counters[i].idx = i + KVM_FIXED_PMC_BASE_IDX;
 		pmu->fixed_counters[i].current_config = 0;
-		pmu->fixed_counters[i].eventsel = intel_get_fixed_pmc_eventsel(i);
+		pmu->fixed_counters[i].eventsel = intel_get_fixed_pmc_eventsel(pmu, i);
 	}
 
 	lbr_desc->records.nr = 0;
