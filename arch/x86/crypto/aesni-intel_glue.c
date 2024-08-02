@@ -1403,7 +1403,9 @@ gcm_crypt(struct aead_request *req, int flags)
 			aes_gcm_update(key, le_ctr, ghash_acc,
 				       walk.src.virt.addr, walk.dst.virt.addr,
 				       nbytes, flags);
+			kernel_fpu_end();
 			err = skcipher_walk_done(&walk, 0);
+			kernel_fpu_begin();
 			/*
 			 * The low word of the counter isn't used by the
 			 * finalize, so there's no need to increment it here.
