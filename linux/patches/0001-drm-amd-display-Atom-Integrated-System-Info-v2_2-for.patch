@@ -1,0 +1,37 @@
+From e0a51c2f43b0bc60227cc8830be78eec8e38b5be Mon Sep 17 00:00:00 2001
+From: Gabe Teeger <gabe.teeger@amd.com>
+Date: Tue, 9 Apr 2024 10:38:58 -0400
+Subject: [PATCH] drm/amd/display: Atom Integrated System Info v2_2 for DCN35
+
+New request from KMD/VBIOS in order to support new UMA carveout
+model. This fixes a null dereference from accessing
+Ctx->dc_bios->integrated_info while it was NULL.
+
+DAL parses through the BIOS and extracts the necessary
+integrated_info but was missing a case for the new BIOS
+version 2.3.
+
+Reviewed-by: Nicholas Kazlauskas <nicholas.kazlauskas@amd.com>
+Acked-by: Aurabindo Pillai <aurabindo.pillai@amd.com>
+Signed-off-by: Gabe Teeger <gabe.teeger@amd.com>
+Tested-by: Daniel Wheeler <daniel.wheeler@amd.com>
+Signed-off-by: Alex Deucher <alexander.deucher@amd.com>
+---
+ drivers/gpu/drm/amd/display/dc/bios/bios_parser2.c | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/drivers/gpu/drm/amd/display/dc/bios/bios_parser2.c b/drivers/gpu/drm/amd/display/dc/bios/bios_parser2.c
+index cce47d3f1a13..f5748119b5bb 100644
+--- a/drivers/gpu/drm/amd/display/dc/bios/bios_parser2.c
++++ b/drivers/gpu/drm/amd/display/dc/bios/bios_parser2.c
+@@ -2952,6 +2952,7 @@ static enum bp_result construct_integrated_info(
+ 				result = get_integrated_info_v2_1(bp, info);
+ 				break;
+ 			case 2:
++			case 3:
+ 				result = get_integrated_info_v2_2(bp, info);
+ 				break;
+ 			default:
+-- 
+2.25.1
+

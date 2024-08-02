@@ -1,0 +1,944 @@
+# CVE-2023-4921
+0001-net-sched-sch_qfq-Fix-UAF-in-qfq_dequeue.patch
+
+# CVE-2023-5197
+0001-netfilter-nf_tables-disallow-rule-removal-from-chain.patch
+
+# CVE-2023-31085
+0001-ubi-Refuse-attaching-if-mtd-s-erasesize-is-0.patch
+
+# CVE-2023-31083
+0001-Bluetooth-hci_ldisc-check-HCI_UART_PROTO_READY-flag-.patch
+
+# CVE-2023-42753
+0001-netfilter-ipset-add-the-missing-IP_SET_HASH_WITH_NET.patch
+
+# CVE-2023-4623
+0001-net-sched-sch_hfsc-Ensure-inner-classes-have-fsc-cur.patch
+
+# CVE-2023-37454
+0001-KASAN-use-after-free-Write-in-udf_close_lvid.patch
+
+# CVE-2023-37453
+0001-usb-phy-add-usb-phy-notify-port-status-API.patch
+0002-USB-core-Unite-old-scheme-and-new-scheme-descriptor-.patch
+0003-USB-core-Change-usb_get_device_descriptor-API.patch
+0004-USB-core-Fix-race-by-not-overwriting-udev-descriptor.patch
+0001-USB-core-Fix-oversight-in-SuperSpeed-initialization.patch
+
+# CVE-2023-42756
+0001-netfilter-ipset-Fix-race-between-IPSET_CMD_CREATE-an.patch
+
+# CVE-2023-5717
+0001-perf-Disallow-mis-matched-inherited-group-reads.patch
+
+# CVE-2023-39193
+0001-netfilter-xt_sctp-validate-the-flag_info-count.patch
+
+# CVE-2023-5345
+0001-fs-smb-client-Reset-password-pointer-to-NULL.patch
+
+# CVE-2023-39192
+0001-netfilter-xt_u32-validate-user-space-input.patch
+
+# CVE-2023-42754
+0001-ipv4-fix-null-deref-in-ipv4_link_failure.patch
+
+# CVE-2023-39189
+0001-netfilter-nfnetlink_osf-avoid-OOB-read.patch
+
+# CVE-2023-42752
+0001-igmp-limit-igmpv3_newpack-packet-size-to-IP_MAX_MTU.patch
+
+# CVE-2023-45871
+0001-igb-set-max-size-RX-buffer-when-store-bad-packet-is-.patch
+
+# CVE-2023-45898
+0001-ext4-fix-slab-use-after-free-in-ext4_es_insert_exten.patch
+
+# CVE-2023-5633
+0001-drm-vmwgfx-Keep-a-gem-reference-to-user-bos-in-surfa.patch
+
+# CVE-2023-46813
+0001-x86-sev-Disable-MMIO-emulation-from-user-mode.patch
+0002-x86-sev-Check-IOBM-for-IOIO-exceptions-from-user-spa.patch
+0003-x86-sev-Check-for-user-space-IOIO-pointing-to-kernel.patch
+
+# CVE-2023-46862
+0001-io_uring-fdinfo-lock-SQ-thread-while-retrieving-thre.patch
+
+# CVE-2023-5090
+0001-x86-KVM-SVM-always-update-the-x2avic-msr-interceptio.patch
+
+# CVE-2023-5178
+0001-nvmet-tcp-Fix-a-possible-UAF-in-queue-intialization-.patch
+
+# CVE-2023-6176
+0001-net-tls-do-not-free-tls_rec-on-async-operation-in-bp.patch
+
+# CVE-2023-25775
+0001-RDMA-irdma-Prevent-zero-length-STAG-registration.patch
+
+# CVE-2023-6238
+0001-nvme-fix-corruption-for-passthrough-meta-data.patch
+
+# CVE-2023-6622
+0001-netfilter-nf_tables-bail-out-on-mismatching-dynset-a.patch
+
+# CVE-2023-6560
+0001-io_uring-don-t-allow-discontig-pages-for-IORING_SETU.patch
+
+# CVE-2023-6817
+0001-netfilter-nft_set_pipapo-skip-inactive-elements-duri.patch
+
+# CVE-2023-6931
+0001-perf-Fix-perf_event_validate_size.patch
+
+# CVE-2023-6932
+0001-ipv4-igmp-fix-refcnt-uaf-issue-when-receiving-igmp-q.patch
+
+# CVE-2023-34324
+0001-xen-events-replace-evtchn_rwlock-with-RCU.patch
+
+# CVE-2024-0193
+0001-netfilter-nf_tables-skip-set-commit-for-deleted-dest.patch
+
+# CVE-2024-26714
+0001-interconnect-qcom-sc8180x-Mark-CO0-BCM-keepalive.patch
+
+# CVE-2024-26715
+0001-usb-dwc3-gadget-Fix-NULL-pointer-dereference-in-dwc3.patch
+
+# CVE-2024-26716
+0001-usb-core-Prevent-null-pointer-dereference-in-update_.patch
+
+# CVE-2024-26720
+0001-mm-writeback-fix-possible-divide-by-zero-in-wb_dirty.patch
+
+# CVE-2024-26723
+0001-lan966x-Fix-crash-when-adding-interface-under-a-lag.patch
+
+# CVE-2024-26734
+0001-devlink-fix-possible-use-after-free-and-memory-leaks.patch
+
+# CVE-2024-26735
+0001-ipv6-sr-fix-possible-use-after-free-and-null-ptr-der.patch
+
+# CVE-2023-52640
+0001-fs-ntfs3-Fix-oob-in-ntfs_listxattr.patch
+
+# CVE-2024-26731
+0001-bpf-sockmap-Fix-NULL-pointer-dereference-in-sk_psock.patch
+
+# CVE-2024-26736
+0001-afs-Increase-buffer-size-in-afs_update_volume_status.patch
+
+# CVE-2024-26738
+0001-powerpc-pseries-iommu-DLPAR-add-doesn-t-completely-i.patch
+
+# CVE-2024-26739
+# CVE-2024-26740
+0001-net-sched-act_mirred-Create-function-tcf_mirred_to_d.patch
+0002-net-sched-act_mirred-use-the-backlog-for-mirred-ingr.patch
+0003-net-sched-act_mirred-don-t-override-retval-if-we-alr.patch
+
+# CVE-2024-26747
+0001-usb-roles-fix-NULL-pointer-issue-when-put-module-s-r.patch
+
+# CVE-2024-26751
+0001-ARM-ep93xx-Add-terminator-to-gpiod_lookup_table.patch
+
+# CVE-2024-26753
+0001-crypto-virtio-akcipher-Fix-stack-overflow-on-memcpy.patch
+
+# CVE-2024-26763
+0001-dm-crypt-don-t-modify-the-data-when-using-authentica.patch
+
+# CVE-2024-26761
+0001-cxl-pci-Fix-disabling-memory-if-DVSEC-CXL-Range-does.patch
+
+# CVE-2024-26764
+0001-fs-aio-Restrict-kiocb_set_cancel_fn-to-I-O-submitted.patch
+
+# CVE-2024-26765
+0001-LoongArch-Disable-IRQ-before-init_fn-for-nonboot-CPU.patch
+
+# CVE-2024-26768
+0001-LoongArch-Change-acpi_core_pic-NR_CPUS-to-acpi_core_.patch
+
+# CVE-2024-26772 # CVE-2024-26773 （same CVE patch）
+0001-ext4-avoid-allocating-blocks-from-corrupted-group-in.patch
+
+# CVE-2024-26774
+0001-ext4-avoid-dividing-by-0-in-mb_update_avg_fragment_s.patch
+
+# CVE-2024-26777
+0001-fbdev-sis-Error-out-if-pixclock-equals-zero.patch
+
+# CVE-2024-26779
+0001-wifi-mac80211-fix-race-condition-on-enabling-fast-xm.patch
+
+# CVE-2023-52641
+0001-fs-ntfs3-Add-NULL-ptr-dereference-checking-at-the-en.patch
+
+# CVE-2024-26745
+0001-powerpc-pseries-iommu-IOMMU-table-is-not-initialized.patch
+
+# CVE-2024-26782
+0001-mptcp-fix-double-free-on-socket-dismantle.patch
+
+# CVE-2024-26783
+0001-mm-vmscan-fix-a-bug-calling-wakeup_kswapd-with-a-wro.patch
+
+# CVE-2024-26789
+0001-crypto-arm64-neonbs-fix-out-of-bounds-access-on-shor.patch
+
+# CVE-2024-26795
+0001-riscv-Sparse-Memory-vmemmap-out-of-bounds-fix.patch
+
+# CVE-2024-26809
+0001-netfilter-nft_set_pipapo-release-elements-in-clone-o.patch
+
+# CVE-2024-26798
+0001-fbcon-always-restore-the-old-font-data-in-fbcon_do_s.patch
+
+# CVE-2024-26801
+0001-Bluetooth-Avoid-potential-use-after-free-in-hci_erro.patch
+
+# CVE-2024-26802
+0001-stmmac-Clear-variable-when-destroying-workqueue.patch
+
+# CVE-2024-26803
+0001-net-veth-clear-GRO-when-clearing-XDP-even-when-down.patch
+
+# CVE-2024-26804
+0001-net-ip_tunnel-prevent-perpetual-headroom-growth.patch
+
+# CVE-2024-26805
+0001-netlink-Fix-kernel-infoleak-after-free-in-__skb_data.patch
+
+# CVE-2024-26808
+0001-netfilter-nft_chain_filter-handle-NETDEV_UNREGISTER-.patch
+
+# CVE-2024-26881
+0001-net-hns3-fix-kernel-crash-when-1588-is-received-on-H.patch
+
+# CVE-2024-26882
+0001-net-ip_tunnel-make-sure-to-pull-inner-header-in-ip_t.patch
+
+# CVE-2024-26883
+0001-bpf-Fix-stackmap-overflow-check-on-32-bit-arches.patch
+
+# CVE-2024-26885
+0001-bpf-Fix-DEVMAP_HASH-overflow-check-on-32-bit-arches.patch
+
+# CVE-2024-26901
+0001-do_sys_name_to_handle-use-kzalloc-to-fix-kernel-info.patch
+
+# CVE-2024-26903
+# CVE-2024-22099 (same patch)
+0001-Bluetooth-rfcomm-Fix-null-ptr-deref-in-rfcomm_check_.patch
+
+# CVE-2024-26907
+0001-RDMA-mlx5-Fix-fortify-source-warning-while-accessing.patch
+
+# CVE-2024-26884
+0001-bpf-Fix-hashtab-overflow-check-on-32-bit-arches.patch
+
+# CVE-2024-26898
+0001-aoe-fix-the-potential-use-after-free-problem-in-aoec.patch
+
+# CVE-2024-26910
+0001-netfilter-ipset-fix-performance-regression-in-swap-o.patch
+
+# CVE-2023-52645
+0001-pmdomain-mediatek-fix-race-conditions-with-genpd.patch
+
+# CVE-2024-26929
+0001-scsi-qla2xxx-Fix-double-free-of-fcport.patch
+
+# CVE-2024-26978
+0001-serial-max310x-fix-NULL-pointer-dereference-in-I2C-i.patch
+
+# CVE-2024-26979
+0001-drm-vmwgfx-Fix-possible-null-pointer-derefence-with-.patch
+
+# CVE-2024-26986
+0001-drm-amdkfd-Fix-memory-leak-in-create_process-failure.patch
+
+# CVE-2024-26987
+0001-mm-memory-failure-fix-deadlock-when-hugetlb_optimize.patch
+
+# CVE-2024-27012
+0001-netfilter-nf_tables-restore-set-elements-when-delete.patch
+
+# CVE-2024-27013
+0001-tun-limit-printing-rate-when-illegal-packet-received.patch
+
+# CVE-2024-27014
+0001-net-mlx5e-Prevent-deadlock-while-disabling-aRFS.patch
+
+# CVE-2024-27015
+0001-netfilter-flowtable-incorrect-pppoe-tuple.patch
+
+# CVE-2024-27017
+0001-netfilter-nft_set_pipapo-walk-over-current-view-on-n.patch
+
+# CVE-2024-27020
+0001-netfilter-nf_tables-Fix-potential-data-race-in-__nft.patch
+
+# CVE-2024-27022
+0001-fork-defer-linking-file-vma-until-vma-is-fully-initi.patch
+
+# CVE-2024-35972
+0001-bnxt_en-Fix-possible-memory-leak-in-bnxt_rdma_aux_de.patch
+
+# CVE-2024-35978
+0001-Bluetooth-Fix-memory-leak-in-hci_req_sync_complete.patch
+
+# CVE-2024-35982
+0001-batman-adv-Avoid-infinite-loop-trying-to-resize-loca.patch
+
+# CVE-2024-35990
+0001-dma-xilinx_dpdma-Fix-locking.patch
+
+# CVE-2024-35997
+0001-HID-i2c-hid-remove-I2C_HID_READ_PENDING-flag-to-prev.patch
+
+# CVE-2024-36008
+0001-ipv4-check-for-NULL-idev-in-ip_route_use_hint.patch
+
+# CVE-2023-52752
+0001-smb-client-fix-use-after-free-bug-in-cifs_debug_data.patch
+
+# CVE-2023-52753
+0001-drm-amd-display-Avoid-NULL-dereference-of-timing-gen.patch
+
+# CVE-2023-52769
+0001-wifi-ath12k-fix-htt-mlo-offset-event-locking.patch
+
+# CVE-2023-52772
+0001-af_unix-fix-use-after-free-in-unix_stream_read_actor.patch
+
+# CVE-2023-52773
+0001-drm-amd-display-fix-a-NULL-pointer-dereference-in-am.patch
+
+# CVE-2023-52783
+0001-net-wangxun-fix-kernel-panic-due-to-null-pointer.patch
+
+# CVE-2023-52802
+0001-iio-adc-stm32-adc-harden-against-NULL-pointer-deref-.patch
+
+# CVE-2023-52806
+0001-ALSA-hda-Fix-possible-null-ptr-deref-when-assigning-.patch
+
+# CVE-2023-52809
+0001-scsi-libfc-Fix-potential-NULL-pointer-dereference-in.patch
+
+# CVE-2023-52814
+0001-drm-amdgpu-Fix-potential-null-pointer-derefernce.patch
+
+# CVE-2023-52815
+0001-drm-amdgpu-vkms-fix-a-possible-null-pointer-derefere.patch
+
+# CVE-2023-52817
+0001-drm-amdgpu-Fix-a-null-pointer-access-when-the-smc_rr.patch
+
+# CVE-2023-52821
+0001-drm-panel-fix-a-possible-null-pointer-dereference.patch
+
+# CVE-2023-52827
+0001-wifi-ath12k-fix-possible-out-of-bound-read-in-ath12k.patch
+
+# CVE-2024-36023
+0001-Julia-Lawall-reported-this-null-pointer-dereference-.patch
+
+# CVE-2024-36902
+0001-ipv6-fib6_rules-avoid-possible-NULL-dereference-in-f.patch
+
+# CVE-2024-36938
+0001-bpf-skmsg-Fix-NULL-pointer-dereference-in-sk_psock_s.patch
+
+# CVE-2024-36891
+0001-maple_tree-fix-mas_empty_area_rev-null-pointer-deref.patch
+
+# CVE-2024-36897
+0001-drm-amd-display-Atom-Integrated-System-Info-v2_2-for.patch
+
+# CVE-2024-36901
+0001-ipv6-prevent-NULL-dereference-in-ip6_output.patch
+
+# CVE-2024-36926
+0001-powerpc-pseries-iommu-LPAR-panics-during-boot-up-wit.patch
+
+# CVE-2024-36930
+0001-spi-fix-null-pointer-dereference-within-spi_sync.patch
+
+# CVE-2024-36971
+0001-net-fix-__dst_negative_advice-race.patch
+
+# CVE-2024-36965
+0001-remoteproc-mediatek-Make-sure-IPI-buffer-fits-in-L2T.patch
+
+# CVE-2024-36967
+0001-KEYS-trusted-Fix-memory-leak-in-tpm2_key_encode.patch
+
+# CVE-2024-36969
+0001-drm-amd-display-Fix-division-by-zero-in-setup_dsc_co.patch
+
+# CVE-2024-41009
+0001-bpf-Fix-overrunning-reservations-in-ringbuf.patch
+
+# CVE-2023-52582
+0001-netfs-Only-call-folio_start_fscache-one-time-for-eac.patch
+
+# CVE-2024-26622
+0001-tomoyo-fix-UAF-write-bug-in-tomoyo_write_control.patch
+
+# CVE-2023-52587
+0001-IB-ipoib-Fix-mcast-list-locking.patch
+
+# CVE-2023-52588
+0001-f2fs-fix-to-tag-gcing-flag-on-page-during-block-migr.patch
+
+# CVE-2023-52593
+0001-wifi-wfx-fix-possible-NULL-pointer-dereference-in-wf.patch
+
+# CVE-2023-52594
+0001-wifi-ath9k-Fix-potential-array-index-out-of-bounds-r.patch
+
+# CVE-2023-52595
+0001-wifi-rt2x00-restart-beacon-queue-when-hardware-reset.patch
+
+# CVE-2023-52597
+0001-KVM-s390-fix-setting-of-fpc-register.patch
+
+# CVE-2023-52598
+0001-s390-ptrace-handle-setting-of-fpc-register-correctly.patch
+
+# CVE-2023-52606
+0001-powerpc-lib-Validate-size-for-vector-operations.patch
+
+# CVE-2023-52607
+0001-powerpc-mm-Fix-null-pointer-dereference-in-pgtable_c.patch
+
+# CVE-2024-26610
+0001-wifi-iwlwifi-fix-a-memory-corruption.patch
+
+# CVE-2023-52487
+0001-net-mlx5e-Fix-peer-flow-lists-handling.patch
+
+# CVE-2023-52489
+0001-mm-sparsemem-fix-race-in-accessing-memory_section-us.patch
+
+# CVE-2024-26608
+0001-ksmbd-fix-global-oob-in-ksmbd_nl_policy.patch
+
+# CVE-2023-52490
+0001-mm-migrate-record-the-mlocked-page-status-to-remove-.patch
+0002-mm-migrate-fix-getting-incorrect-page-mapping-during.patch
+
+# CVE-2023-52491
+0001-media-mtk-jpeg-Fix-use-after-free-bug-due-to-error-p.patch
+
+# CVE-2024-26612
+0001-netfs-fscache-Prevent-Oops-in-fscache_put_cache.patch
+
+# CVE-2023-52492
+0001-dmaengine-fix-NULL-pointer-in-channel-unregistration.patch
+
+# CVE-2024-26614
+0001-tcp-make-sure-init-the-accept_queue-s-spinlocks-once.patch
+
+# CVE-2024-26618
+0001-arm64-sme-Always-exit-sme_alloc-early-with-existing-.patch
+
+# CVE-2024-26620
+0001-s390-vfio-ap-always-filter-entire-AP-matrix.patch
+
+# CVE-2023-52608
+0001-firmware-arm_scmi-Check-mailbox-SMT-channel-for-cons.patch
+
+# CVE-2024-26629
+0001-nfsd-fix-RELEASE_LOCKOWNER.patch
+
+# CVE-2024-26630
+0001-mm-cachestat-fix-folio-read-after-free-in-cache-walk.patch
+
+# CVE-2023-52609
+0001-binder-fix-race-between-mmput-and-do_exit.patch
+
+# CVE-2023-52611
+0001-wifi-rtw88-sdio-Honor-the-host-max_req_size-in-the-R.patch
+
+# CVE-2023-52612
+0001-crypto-scomp-fix-req-dst-buffer-overflow.patch
+
+# CVE-2023-52615
+0001-hwrng-core-Fix-page-fault-dead-lock-on-mmap-ed-hwrng.patch
+
+# CVE-2023-52616
+0001-crypto-lib-mpi-Fix-unexpected-pointer-access-in-mpi_.patch
+
+# CVE-2024-26631
+0001-ipv6-mcast-fix-data-race-in-ipv6_mc_down-mld_ifc_wor.patch
+
+# CVE-2024-26632
+0001-block-Fix-iterating-over-an-empty-bio-with-bio_for_e.patch
+
+# CVE-2024-26633
+0001-ip6_tunnel-fix-NEXTHDR_FRAGMENT-handling-in-ip6_tnl_.patch
+
+# CVE-2024-26635
+0001-llc-Drop-support-for-ETH_P_TR_802_2.patch
+
+# CVE-2024-26636
+0001-llc-make-llc_ui_sendmsg-more-robust-against-bonding-.patch
+
+# CVE-2024-26638
+0001-nbd-always-initialize-struct-msghdr-completely.patch
+
+# CVE-2024-26641
+0001-ip6_tunnel-make-sure-to-pull-inner-header-in-__ip6_t.patch
+
+# CVE-2024-26645
+0001-tracing-Ensure-visibility-when-inserting-an-element-.patch
+
+# CVE-2023-52622
+0001-ext4-avoid-online-resizing-failures-due-to-oversized.patch
+
+# CVE-2023-52623
+0001-SUNRPC-Fix-a-suspicious-RCU-usage-warning.patch
+
+# CVE-2024-26647
+0001-drm-amd-display-Fix-late-derefrence-dsc-check-in-lin.patch
+
+# CVE-2024-26649
+0001-drm-amdgpu-Fix-the-null-pointer-when-load-rlc-firmwa.patch
+
+# CVE-2024-26650
+0001-platform-x86-p2sb-Allow-p2sb_bar-calls-during-PCI-de.patch
+
+# CVE-2024-26651
+0001-sr9800-Add-check-for-usbnet_get_endpoints.patch
+
+# CVE-2024-26652
+0001-net-pds_core-Fix-possible-double-free-in-error-handl.patch
+
+# CVE-2023-52628
+0001-netfilter-nftables-exthdr-fix-4-byte-stack-OOB-write.patch
+
+# CVE-2023-52629
+0001-sh-push-switch-Reorder-cleanup-operations-to-avoid-u.patch
+
+# CVE-2024-26654
+0001-ALSA-sh-aica-reorder-cleanup-operations-to-avoid-UAF.patch
+
+# CVE-2023-52632
+0001-drm-amdkfd-Fix-lock-dependency-warning-with-srcu.patch
+
+# CVE-2024-26656
+0001-drm-amdgpu-fix-use-after-free-bug.patch
+
+# CVE-2024-26660
+0001-drm-amd-display-Implement-bounds-check-for-stream-en.patch
+
+# CVE-2024-26663
+0001-tipc-Check-the-bearer-type-before-calling-tipc_udp_n.patch
+
+# CVE-2024-26664
+0001-hwmon-coretemp-Fix-out-of-bounds-memory-access.patch
+
+# CVE-2024-26665
+0001-tunnels-fix-out-of-bounds-access-when-building-IPv6-.patch
+
+# CVE-2024-26666
+0001-wifi-mac80211-fix-RCU-use-in-TDLS-fast-xmit.patch
+
+# CVE-2024-26667
+0001-drm-msm-dpu-check-for-valid-hw_pp-in-dpu_encoder_hel.patch
+
+# CVE-2024-26671
+0001-blk-mq-fix-IO-hang-from-sbitmap-wakeup-race.patch
+
+# CVE-2024-26673
+0001-netfilter-nft_ct-sanitize-layer-3-and-4-protocol-num.patch
+
+# CVE-2024-26679
+0001-inet-read-sk-sk_family-once-in-inet_recv_error.patch
+
+# CVE-2024-26674
+0001-x86-lib-Revert-to-_ASM_EXTABLE_UA-for-get-put-_user-.patch
+
+# CVE-2024-26675
+0001-ppp_async-limit-MRU-to-64K.patch
+
+# CVE-2024-26676
+0001-af_unix-Call-kfree_skb-for-dead-unix_-sk-oob_skb-in-.patch
+
+# CVE-2023-52633
+0001-um-time-travel-fix-time-corruption.patch
+
+# CVE-2023-52630
+0001-blk-iocost-Fix-an-UBSAN-shift-out-of-bounds-warning.patch
+
+# CVE-2023-52631
+0001-fs-ntfs3-Fix-an-NULL-dereference-bug.patch
+
+# CVE-2024-26719
+0001-nouveau-offload-fence-uevents-work-to-workqueue.patch
+
+# CVE-2023-52639
+0001-KVM-s390-vsie-fix-race-during-shadow-creation.patch
+
+# CVE-2024-26686
+0001-fs-proc-do_task_stat-use-__for_each_thread.patch
+0002-fs-proc-do_task_stat-move-thread_group_cputime_adjus.patch
+0003-fs-proc-do_task_stat-use-sig-stats_lock-to-gather-th.patch
+
+# CVE-2024-26688
+# CVE-2024-0841 (same patch)
+0001-fs-hugetlb-fix-NULL-pointer-dereference-in-hugetlbs_.patch
+
+# CVE-2024-26691
+0001-KVM-arm64-Fix-circular-locking-dependency.patch
+
+# CVE-2024-26692
+0001-smb-Fix-regression-in-writes-when-non-standard-maxim.patch
+
+# CVE-2024-26693
+0001-wifi-iwlwifi-mvm-fix-a-crash-when-we-run-out-of-stat.patch
+
+# CVE-2024-26694
+0001-wifi-iwlwifi-fix-double-free-bug.patch
+
+# CVE-2024-26703
+0001-tracing-timerlat-Move-hrtimer_init-to-timerlat_fd-op.patch
+
+# CVE-2024-26704
+0001-ext4-fix-double-free-of-blocks-due-to-wrong-extents-.patch
+
+# CVE-2024-26706
+0001-parisc-Fix-random-data-corruption-from-exception-han.patch
+
+# CVE-2024-26712
+0001-powerpc-kasan-Fix-addr-error-caused-by-page-alignmen.patch
+
+#CVE-2024-26713
+0001-powerpc-pseries-iommu-Fix-iommu-initialisation-durin.patch
+
+# CVE-2023-7042
+0001-wifi-ath10k-fix-NULL-pointer-dereference-in-ath10k_w.patch
+
+# CVE-2024-0565
+0001-smb-client-fix-OOB-in-receive_encrypted_standard.patch
+
+# CVE-2024-0641
+0001-tipc-fix-a-potential-deadlock-on-tx-lock.patch
+
+# CVE-2024-0607
+0001-netfilter-nf_tables-fix-pointer-math-issue-in-nft_by.patch 
+
+# CVE-2023-6531
+0001-io_uring-af_unix-disable-sending-io_uring-over-socke.patch
+
+# CVE-2023-46343
+0001-nfc-nci-fix-possible-NULL-pointer-dereference-in-sen.patch
+
+# CVE-2024-22705
+0001-ksmbd-fix-slab-out-of-bounds-in-smb_strndup_from_utf.patch
+
+# CVE-2024-23307
+0001-md-raid5-fix-atomicity-violation-in-raid5_cache_coun.patch
+
+# CVE-2024-1085
+0001-netfilter-nf_tables-check-if-catch-all-set-element-i.patch
+
+# CVE-2024-1086
+0001-netfilter-nf_tables-reject-QUEUE-DROP-verdict-parame.patch
+
+# CVE-2024-24860
+0001-Bluetooth-Fix-atomicity-violation-in-min-max-_key_si.patch
+
+# CVE-2024-24861
+0001-media-xc4000-Fix-atomicity-violation-in-xc4000_get_f.patch
+
+# CVE-2023-6356
+# CVE-2023-52454 (same patch)
+0001-nvmet-tcp-Fix-a-kernel-panic-when-host-sends-an-inva.patch
+
+# CVE-2023-6536
+0001-nvmet-tcp-fix-a-crash-in-nvmet_req_complete.patch
+
+# CVE-2024-1151
+0001-net-openvswitch-limit-the-number-of-recursions-from-.patch
+
+# CVE-2023-52436
+0001-f2fs-explicitly-null-terminate-the-xattr-list.patch
+
+# CVE-2023-52434
+0001-smb-client-fix-potential-OOBs-in-smb2_parse_contexts.patch
+
+# CVE-2023-52435
+0001-net-prevent-mss-overflow-in-skb_segment.patch
+
+# CVE-2023-52438
+0001-binder-fix-use-after-free-in-shinker-s-callback.patch
+
+# CVE-2023-52439
+0001-uio-Fix-use-after-free-in-uio_open.patch
+
+#CVE-2023-52440
+0001-ksmbd-fix-slub-overflow-in-ksmbd_decode_ntlmssp_auth.patch
+
+# CVE-2023-52443
+0001-apparmor-avoid-crash-when-parsed-profile-name-is-emp.patch
+
+# CVE-2023-52444
+0001-f2fs-fix-to-avoid-dirent-corruption.patch
+
+# CVE-2023-52445
+0001-media-pvrusb2-fix-use-after-free-on-context-disconne.patch
+
+# CVE-2023-52450
+0001-perf-x86-intel-uncore-Fix-NULL-pointer-dereference-i.patch
+
+# CVE-2023-52451
+0001-powerpc-pseries-memhp-Fix-access-beyond-end-of-drmem.patch
+
+# CVE-2024-26588
+0001-LoongArch-BPF-Prevent-out-of-bounds-memory-access.patch
+
+# CVE-2024-26589
+0001-bpf-Reject-variable-offset-alu-on-PTR_TO_FLOW_KEYS.patch
+
+# CVE-2024-26591
+0001-bpf-Fix-re-attachment-branch-in-bpf_tracing_prog_att.patch
+
+# CVE-2024-26592
+0001-ksmbd-fix-UAF-issue-in-ksmbd_tcp_new_connection.patch
+
+# CVE-2024-26593
+0001-i2c-i801-Fix-block-process-call-transactions.patch
+
+# CVE-2023-52453
+0001-hisi_acc_vfio_pci-Update-migration-data-pointer-corr.patch
+
+# CVE-2023-52463
+0001-efivarfs-force-RO-when-remounting-if-SetVariable-is-.patch
+
+# CVE-2023-52458
+0001-block-add-check-that-partition-length-needs-to-be-al.patch
+
+# CVE-2023-52462
+0001-bpf-fix-check-for-attempt-to-corrupt-spilled-pointer.patch
+
+# CVE-2023-52464
+0001-EDAC-thunderx-Fix-possible-out-of-bounds-string-acce.patch
+
+# CVE-2024-26598
+0001-KVM-arm64-vgic-its-Avoid-potential-UAF-in-LPI-transl.patch
+
+# CVE-2024-26599
+0001-pwm-Fix-out-of-bounds-access-in-of_pwm_single_xlate.patch
+
+# CVE-2023-52467
+0001-mfd-syscon-Fix-null-pointer-dereference-in-of_syscon.patch
+
+# CVE-2023-52468
+0001-class-fix-use-after-free-in-class_register.patch
+
+# CVE-2023-52472
+0001-crypto-rsa-add-a-check-for-allocation-failure.patch
+
+# CVE-2023-52469
+0001-drivers-amd-pm-fix-a-use-after-free-in-kv_parse_powe.patch
+
+# CVE-2023-52470
+0001-drm-radeon-check-the-alloc_workqueue-return-value-in.patch
+
+# CVE-2024-26601
+0001-ext4-regenerate-buddy-after-block-freeing-failed-if-.patch
+
+# CVE-2024-26602
+0001-sched-membarrier-reduce-the-ability-to-hammer-on-sys.patch
+
+# CVE-2024-26603
+0001-x86-fpu-Stop-relying-on-userspace-for-info-to-fault-.patch
+
+# CVE-2024-26606
+0001-binder-signal-epoll-threads-of-self-work.patch
+
+# CVE-2023-51779
+0001-Bluetooth-af_bluetooth-Fix-Use-After-Free-in-bt_sock.patch
+
+# CVE-2023-52479
+0001-ksmbd-fix-uaf-in-smb20_oplock_break_ack.patch
+
+# CVE-2023-52480
+0001-ksmbd-fix-race-condition-between-session-lookup-and-.patch
+
+# CVE-2023-52476
+0001-perf-x86-lbr-Filter-vsyscall-addresses.patch
+
+# CVE-2023-52477
+0001-usb-hub-Guard-against-accesses-to-uninitialized-BOS-.patch
+
+# CVE-2023-52482
+0001-x86-srso-Add-SRSO-mitigation-for-Hygon-processors.patch
+
+# CVE-2023-52524
+0001-net-nfc-llcp-Add-lock-when-modifying-device-list.patch
+
+# CVE-2022-48628
+0001-ceph-drop-messages-from-MDS-when-unmounting.patch
+
+# CVE-2023-52499
+0001-powerpc-47x-Fix-47x-syscall-return-crash.patch
+
+# CVE-2023-52502
+0001-net-nfc-fix-races-in-nfc_llcp_sock_get-and-nfc_llcp_.patch
+
+# CVE-2023-52516
+0001-dma-debug-don-t-call-__dma_entry_alloc_check_leak-un.patch
+
+# CVE-2023-52518
+0001-Bluetooth-hci_codec-Fix-leaking-content-of-local_cod.patch
+
+# CVE-2023-52519
+0001-HID-intel-ish-hid-ipc-Disable-and-reenable-ACPI-GPE-.patch
+
+# CVE-2023-52522
+0001-net-fix-possible-store-tearing-in-neigh_periodic_wor.patch
+
+# CVE-2023-52523
+0001-bpf-sockmap-Reject-sk_msg-egress-redirects-to-non-TC.patch
+
+# CVE-2023-52563
+0001-drm-meson-fix-memory-leak-on-hpd_notify-callback.patch
+
+# CVE-2023-52575
+0001-x86-srso-Fix-SBPB-enablement-for-spec_rstack_overflo.patch
+
+# CVE-2023-52576
+0001-x86-mm-kexec-ima-Use-memblock_free_late-from-ima_fre.patch
+
+# CVE-2023-52580
+0001-net-core-Fix-ETH_P_1588-flow-dissector.patch
+
+# CVE-2023-52581
+0001-netfilter-nf_tables-fix-memleak-when-more-than-255-e.patch
+
+# CVE-2023-52504
+0001-x86-alternatives-Disable-KASAN-in-apply_alternatives.patch
+
+# CVE-2023-52507
+0001-nfc-nci-assert-requested-protocol-is-valid.patch
+
+# CVE-2023-52506
+0001-LoongArch-Set-all-reserved-memblocks-on-Node-0-at-in.patch
+
+# CVE-2023-52508
+0001-nvme-fc-Prevent-null-pointer-dereference-in-nvme_fc_.patch
+
+# CVE-2023-52528
+0001-net-usb-smsc75xx-Fix-uninit-value-access-in-__smsc75.patch
+
+# CVE-2023-52530
+0001-wifi-mac80211-fix-potential-key-use-after-free.patch
+
+# CVE-2023-52531
+0001-wifi-iwlwifi-mvm-Fix-a-memory-corruption-issue.patch
+
+# CVE-2023-52560
+0001-mm-damon-vaddr-test-fix-memory-leak-in-damon_do_test.patch
+
+# CVE-2023-52561
+0001-arm64-dts-qcom-sdm845-db845c-Mark-cont-splash-memory.patch
+
+# CVE-2023-52562
+0001-mm-slab_common-fix-slab_caches-list-corruption-after.patch
+
+# CVE-2023-52565
+0001-media-uvcvideo-Fix-OOB-read.patch
+
+# CVE-2023-52568
+0001-x86-sgx-Resolves-SECS-reclaim-vs.-page-fault-for-EAU.patch
+
+# CVE-2023-52570
+0001-vfio-mdev-Fix-a-null-ptr-deref-bug-for-mdev_unregist.patch
+
+# CVE-2023-52572
+0001-cifs-Fix-UAF-in-cifs_demultiplex_thread.patch
+
+# CVE-2023-52578
+0001-net-bridge-use-DEV_STATS_INC.patch
+
+# CVE-2023-52446
+0001-bpf-Add-map-and-need_defer-parameters-to-.map_fd_put.patch
+0002-bpf-Defer-the-free-of-inner-map-when-necessary.patch
+0003-bpf-Fix-a-race-condition-between-btf_put-and-map_fre.patch
+
+# CVE-2023-52447
+#0001-bpf-Add-map-and-need_defer-parameters-to-.map_fd_put.patch
+#0002-bpf-Defer-the-free-of-inner-map-when-necessary.patch
+
+# CVE-2023-52452
+#0001-bpf-Add-map-and-need_defer-parameters-to-.map_fd_put.patch
+#0002-bpf-Defer-the-free-of-inner-map-when-necessary.patch
+0003-bpf-Fix-accesses-to-uninit-stack-slots.patch
+
+# CVE-2023-52481
+0001-arm64-Add-Cortex-A520-CPU-part-definition.patch
+0002-arm64-errata-Add-Cortex-A520-speculative-unprivilege.patch
+
+# CVE-2024-26625
+0001-llc-call-sock_orphan-at-release-time.patch
+
+# CVE-2023-52495
+0001-soc-qcom-pmic_glink_altmode-fix-port-sanity-check.patch
+
+# CVE-2023-52498
+0001-PM-sleep-Fix-possible-deadlocks-in-core-system-wide-.patch
+0002-async-Introduce-async_schedule_dev_nocall.patch
+0003-async-Split-async_schedule_node_domain.patch
+
+# CVE-2024-26668
+0001-onetfilter-nft_limit-reject-configurations-that-caus.patch
+
+# CVE-2024-26642
+0001-netfilter-nf_tables-disallow-anonymous-set-with-time.patch
+
+# CVE-2024-26643
+0001-netfilter-nf_tables-mark-set-as-dead-when-unbinding-.patch
+
+# CVE-2024-26733
+0001-arp-Prevent-overflow-in-arp_req_get.patch
+
+# CVE-2024-26900
+0001-md-fix-kmemleak-of-rdev-serial.patch
+
+# CVE-2024-27016
+0001-netfilter-flowtable-validate-pppoe-header.patch
+
+# CVE-2024-27019
+0001-netfilter-nf_tables-restrict-tunnel-object-to-NFPROT.patch
+0002-netfilter-nf_tables-Fix-potential-data-race-in-__nft.patch
+
+# CVE-2024-26934
+0001-USB-core-Fix-deadlock-in-usb_deauthorize_interface.patch
+
+# CVE-2024-35984
+0001-i2c-smbus-fix-NULL-function-pointer-dereference.patch
+
+# CVE-2024-35992
+0001-phy-marvell-a3700-comphy-Fix-out-of-bounds-read.patch
+
+# CVE-2024-40902
+0001-jfs-xattr-fix-buffer-overflow-for-invalid-xattr.patch
+
+# CVE-2024-39494
+0001-ima-Fix-use-after-free-on-a-dentry-s-dname.name.patch
+
+# CVE-2024-39495
+0001-greybus-Fix-use-after-free-bug-in-gb_interface_relea.patch

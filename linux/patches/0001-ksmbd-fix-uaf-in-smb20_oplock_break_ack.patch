@@ -1,0 +1,37 @@
+From 3ad6a433864293ca4e04e35f724478c838e0ff7f Mon Sep 17 00:00:00 2001
+From: luosili <rootlab@huawei.com>
+Date: Wed, 4 Oct 2023 18:29:36 +0900
+Subject: [PATCH] ksmbd: fix uaf in smb20_oplock_break_ack
+
+commit c69813471a1ec081a0b9bf0c6bd7e8afd818afce upstream.
+
+drop reference after use opinfo.
+
+Signed-off-by: luosili <rootlab@huawei.com>
+Signed-off-by: Namjae Jeon <linkinjeon@kernel.org>
+Signed-off-by: Steve French <stfrench@microsoft.com>
+Signed-off-by: Greg Kroah-Hartman <gregkh@linuxfoundation.org>
+---
+ fs/smb/server/smb2pdu.c | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/fs/smb/server/smb2pdu.c b/fs/smb/server/smb2pdu.c
+index 7cc1b0c47d0a..2408d2d801b2 100644
+--- a/fs/smb/server/smb2pdu.c
++++ b/fs/smb/server/smb2pdu.c
+@@ -8036,10 +8036,10 @@ static void smb20_oplock_break_ack(struct ksmbd_work *work)
+ 		goto err_out;
+ 	}
+ 
+-	opinfo_put(opinfo);
+-	ksmbd_fd_put(work, fp);
+ 	opinfo->op_state = OPLOCK_STATE_NONE;
+ 	wake_up_interruptible_all(&opinfo->oplock_q);
++	opinfo_put(opinfo);
++	ksmbd_fd_put(work, fp);
+ 
+ 	rsp->StructureSize = cpu_to_le16(24);
+ 	rsp->OplockLevel = rsp_oplevel;
+-- 
+2.34.1
+

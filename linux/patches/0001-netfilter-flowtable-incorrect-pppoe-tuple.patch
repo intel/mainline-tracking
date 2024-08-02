@@ -1,0 +1,32 @@
+From 9b1fe96efe8866c1b1b25e05249a9ca1454c8f4c Mon Sep 17 00:00:00 2001
+From: Pablo Neira Ayuso <pablo@netfilter.org>
+Date: Thu, 11 Apr 2024 00:09:00 +0200
+Subject: [PATCH] netfilter: flowtable: incorrect pppoe tuple
+
+pppoe traffic reaching ingress path does not match the flowtable entry
+because the pppoe header is expected to be at the network header offset.
+This bug causes a mismatch in the flow table lookup, so pppoe packets
+enter the classical forwarding path.
+
+Fixes: 72efd585f714 ("netfilter: flowtable: add pppoe support")
+Signed-off-by: Pablo Neira Ayuso <pablo@netfilter.org>
+---
+ net/netfilter/nf_flow_table_ip.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/net/netfilter/nf_flow_table_ip.c b/net/netfilter/nf_flow_table_ip.c
+index e45fade76409..44514d97a066 100644
+--- a/net/netfilter/nf_flow_table_ip.c
++++ b/net/netfilter/nf_flow_table_ip.c
+@@ -157,7 +157,7 @@ static void nf_flow_tuple_encap(struct sk_buff *skb,
+ 		tuple->encap[i].proto = skb->protocol;
+ 		break;
+ 	case htons(ETH_P_PPP_SES):
+-		phdr = (struct pppoe_hdr *)skb_mac_header(skb);
++		phdr = (struct pppoe_hdr *)skb_network_header(skb);
+ 		tuple->encap[i].id = ntohs(phdr->sid);
+ 		tuple->encap[i].proto = skb->protocol;
+ 		break;
+-- 
+2.25.1
+

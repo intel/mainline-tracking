@@ -1,0 +1,27 @@
+From da0a23d7adf45b3f7ce514db1fcaadc9c7032e90 Mon Sep 17 00:00:00 2001
+From: Mike Marshall <hubcap@omnibond.com>
+Date: Wed, 14 Feb 2024 15:57:53 -0500
+Subject: [PATCH] Julia Lawall reported this null pointer dereference, this
+ should fix it.
+
+Signed-off-by: Mike Marshall <hubcap@omnibond.com>
+---
+ fs/orangefs/super.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/fs/orangefs/super.c b/fs/orangefs/super.c
+index 5254256a224d..4ca8ed410c3c 100644
+--- a/fs/orangefs/super.c
++++ b/fs/orangefs/super.c
+@@ -527,7 +527,7 @@ struct dentry *orangefs_mount(struct file_system_type *fst,
+ 	sb->s_fs_info = kzalloc(sizeof(struct orangefs_sb_info_s), GFP_KERNEL);
+ 	if (!ORANGEFS_SB(sb)) {
+ 		d = ERR_PTR(-ENOMEM);
+-		goto free_sb_and_op;
++		goto free_op;
+ 	}
+ 
+ 	ret = orangefs_fill_sb(sb,
+-- 
+2.25.1
+

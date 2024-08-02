@@ -1,0 +1,50 @@
+From aadbb9fa43649a574a847efe0e8f2ca0861f4b63 Mon Sep 17 00:00:00 2001
+From: Johan Hovold <johan+linaro@kernel.org>
+Date: Thu, 9 Nov 2023 10:31:00 +0100
+Subject: [PATCH] soc: qcom: pmic_glink_altmode: fix port sanity check
+
+commit c4fb7d2eac9ff9bfc35a2e4d40c7169a332416e0 upstream.
+
+The PMIC GLINK altmode driver currently supports at most two ports.
+
+Fix the incomplete port sanity check on notifications to avoid
+accessing and corrupting memory beyond the port array if we ever get a
+notification for an unsupported port.
+
+Fixes: 080b4e24852b ("soc: qcom: pmic_glink: Introduce altmode support")
+Cc: stable@vger.kernel.org	# 6.3
+Signed-off-by: Johan Hovold <johan+linaro@kernel.org>
+Reviewed-by: Dmitry Baryshkov <dmitry.baryshkov@linaro.org>
+Reviewed-by: Konrad Dybcio <konrad.dybcio@linaro.org>
+Link: https://lore.kernel.org/r/20231109093100.19971-1-johan+linaro@kernel.org
+Signed-off-by: Bjorn Andersson <andersson@kernel.org>
+Signed-off-by: Greg Kroah-Hartman <gregkh@linuxfoundation.org>
+---
+ drivers/soc/qcom/pmic_glink_altmode.c | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/soc/qcom/pmic_glink_altmode.c b/drivers/soc/qcom/pmic_glink_altmode.c
+index df48fbea4b68..d45ae32a8362 100644
+--- a/drivers/soc/qcom/pmic_glink_altmode.c
++++ b/drivers/soc/qcom/pmic_glink_altmode.c
+@@ -241,7 +241,7 @@ static void pmic_glink_altmode_sc8180xp_notify(struct pmic_glink_altmode *altmod
+ 
+ 	svid = mux == 2 ? USB_TYPEC_DP_SID : 0;
+ 
+-	if (!altmode->ports[port].altmode) {
++	if (port >= ARRAY_SIZE(altmode->ports) || !altmode->ports[port].altmode) {
+ 		dev_dbg(altmode->dev, "notification on undefined port %d\n", port);
+ 		return;
+ 	}
+@@ -284,7 +284,7 @@ static void pmic_glink_altmode_sc8280xp_notify(struct pmic_glink_altmode *altmod
+ 	hpd_state = FIELD_GET(SC8280XP_HPD_STATE_MASK, notify->payload[8]);
+ 	hpd_irq = FIELD_GET(SC8280XP_HPD_IRQ_MASK, notify->payload[8]);
+ 
+-	if (!altmode->ports[port].altmode) {
++	if (port >= ARRAY_SIZE(altmode->ports) || !altmode->ports[port].altmode) {
+ 		dev_dbg(altmode->dev, "notification on undefined port %d\n", port);
+ 		return;
+ 	}
+-- 
+2.25.1
+

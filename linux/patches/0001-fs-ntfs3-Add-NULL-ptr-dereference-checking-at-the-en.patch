@@ -1,0 +1,43 @@
+From 6f44ac8deae5e29d2ab336fb5b80cafa22f07b09 Mon Sep 17 00:00:00 2001
+From: Konstantin Komarov <almaz.alexandrovich@paragon-software.com>
+Date: Tue, 28 Nov 2023 11:09:34 +0300
+Subject: [PATCH] fs/ntfs3: Add NULL ptr dereference checking at the end of
+ attr_allocate_frame()
+
+It is preferable to exit through the out: label because
+internal debugging functions are located there.
+
+Signed-off-by: Konstantin Komarov <almaz.alexandrovich@paragon-software.com>
+---
+ fs/ntfs3/attrib.c | 14 ++++++++------
+ 1 file changed, 8 insertions(+), 6 deletions(-)
+
+diff --git a/fs/ntfs3/attrib.c b/fs/ntfs3/attrib.c
+index a9d82bbb4729..690fa15472a1 100644
+--- a/fs/ntfs3/attrib.c
++++ b/fs/ntfs3/attrib.c
+@@ -1820,13 +1820,15 @@ int attr_allocate_frame(struct ntfs_inode *ni, CLST frame, size_t compr_size,
+ ok:
+ 	run_truncate_around(run, vcn);
+ out:
+-	if (new_valid > data_size)
+-		new_valid = data_size;
++	if (attr_b) {
++		if (new_valid > data_size)
++			new_valid = data_size;
+ 
+-	valid_size = le64_to_cpu(attr_b->nres.valid_size);
+-	if (new_valid != valid_size) {
+-		attr_b->nres.valid_size = cpu_to_le64(valid_size);
+-		mi_b->dirty = true;
++		valid_size = le64_to_cpu(attr_b->nres.valid_size);
++		if (new_valid != valid_size) {
++			attr_b->nres.valid_size = cpu_to_le64(valid_size);
++			mi_b->dirty = true;
++		}
+ 	}
+ 
+ 	return err;
+-- 
+2.25.1
+
