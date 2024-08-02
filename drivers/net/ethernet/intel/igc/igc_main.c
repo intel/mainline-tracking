@@ -6350,11 +6350,88 @@ static int igc_qbv_clear_schedule(struct igc_adapter *adapter)
 	return 0;
 }
 
-static int igc_tsn_clear_schedule(struct igc_adapter *adapter)
+static void igc_qbu_clear_data(struct igc_adapter *adapter)
+{
+	int i;
+
+	for (i = 0; i < adapter->num_tx_queues; i++) {
+		struct igc_ring *ring = adapter->tx_ring[i];
+
+		ring->preemptible = false;
+	}
+
+	adapter->frame_preemption_active = false;
+}
+
+static void igc_cbs_clear_data(struct igc_adapter *adapter)
+{
+	int i;
+
+	for (i = 0; i < adapter->num_tx_queues; i++) {
+		struct igc_ring *ring = adapter->tx_ring[i];
+
+		ring->cbs_enable = false;
+		ring->idleslope = 0;
+		ring->sendslope = 0;
+		ring->hicredit = 0;
+		ring->locredit = 0;
+	}
+}
+
+static void igc_etf_clear_data(struct igc_adapter *adapter)
+{
+	int i;
+
+	for (i = 0; i < adapter->num_tx_queues; i++) {
+		struct igc_ring *ring = adapter->tx_ring[i];
+
+		ring->launchtime_enable = false;
+	}
+}
+
+int igc_tsn_clear_schedule(struct igc_adapter *adapter)
 {
 	igc_qbv_clear_schedule(adapter);
+	igc_qbu_clear_data(adapter);
+	igc_cbs_clear_data(adapter);
+	igc_etf_clear_data(adapter);
 
 	return 0;
+}
+
+static void igc_taprio_stats(struct net_device *dev,
+			     struct tc_taprio_qopt_stats *stats)
+{
+	/* When Strict_End is enabled, the tx_overruns counter
+	 * will always be zero.
+	 */
+	stats->tx_overruns = 0;
+}
+
+static void igc_taprio_queue_stats(struct net_device *dev,
+				   struct tc_taprio_qopt_queue_stats *queue_stats)
+{
+	struct tc_taprio_qopt_stats *stats = &queue_stats->stats;
+
+	/* When Strict_End is enabled, the tx_overruns counter
+	 * will always be zero.
+	 */
+	stats->tx_overruns = 0;
+}
+
+/* Taprio could be self-triggered by igc when processing non-taprio commands,
+ * such as the TC_SETUP_QDISC_ETF command. This function specifically checks if
+ * the current running taprio  was externally triggered by TAPRIO_CMD_REPLACE.
+ */
+static bool is_externally_triggered_taprio_running(struct igc_adapter *adapter)
+{
+	struct igc_hw *hw = &adapter->hw;
+
+	if ((rd32(IGC_BASET_H) || rd32(IGC_BASET_L)) &&
+	    adapter->taprio_offload_enable)
+		return true;
+	else
+		return false;
 }
 
 static int igc_save_qbv_schedule(struct igc_adapter *adapter,
@@ -6368,12 +6445,6 @@ static int igc_save_qbv_schedule(struct igc_adapter *adapter,
 	size_t n;
 	int i;
 
-	if (qopt->cmd == TAPRIO_CMD_DESTROY)
-		return igc_tsn_clear_schedule(adapter);
-
-	if (qopt->cmd != TAPRIO_CMD_REPLACE)
-		return -EOPNOTSUPP;
-
 	if (qopt->base_time < 0)
 		return -ERANGE;
 
@@ -6383,11 +6454,15 @@ static int igc_save_qbv_schedule(struct igc_adapter *adapter,
 	if (!validate_schedule(adapter, qopt))
 		return -EINVAL;
 
+	igc_ptp_read(adapter, &now);
+
+	if (is_externally_triggered_taprio_running(adapter) &&
+	    is_base_time_past(qopt->base_time, &now))
+		adapter->qbv_config_change_errors++;
+
 	adapter->cycle_time = qopt->cycle_time;
 	adapter->base_time = qopt->base_time;
 	adapter->taprio_offload_enable = true;
-
-	igc_ptp_read(adapter, &now);
 
 	for (n = 0; n < qopt->num_entries; n++) {
 		struct tc_taprio_sched_entry *e = &qopt->entries[n];
@@ -6499,7 +6574,23 @@ static int igc_tsn_enable_qbv_scheduling(struct igc_adapter *adapter,
 	if (hw->mac.type != igc_i225)
 		return -EOPNOTSUPP;
 
-	err = igc_save_qbv_schedule(adapter, qopt);
+	switch (qopt->cmd) {
+	case TAPRIO_CMD_STATS:
+		igc_taprio_stats(adapter->netdev, &qopt->stats);
+		return 0;
+	case TAPRIO_CMD_QUEUE_STATS:
+		igc_taprio_queue_stats(adapter->netdev, &qopt->queue_stats);
+		return 0;
+	case TAPRIO_CMD_REPLACE:
+		err = igc_save_qbv_schedule(adapter, qopt);
+		break;
+	case TAPRIO_CMD_DESTROY:
+		err = igc_qbv_clear_schedule(adapter);
+		break;
+	default:
+		return -EOPNOTSUPP;
+	}
+
 	if (err)
 		return err;
 
