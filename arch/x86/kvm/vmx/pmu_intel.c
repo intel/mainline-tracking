@@ -38,10 +38,12 @@ static void reprogram_fixed_counters(struct kvm_pmu *pmu, u64 data)
 {
 	struct kvm_pmc *pmc;
 	u64 old_fixed_ctr_ctrl = pmu->fixed_ctr_ctrl;
-	int i;
+	int s = INTEL_PMC_IDX_FIXED;
 
 	pmu->fixed_ctr_ctrl = data;
-	for (i = 0; i < pmu->nr_arch_fixed_counters; i++) {
+	for_each_set_bit_from(s, pmu->all_valid_pmc_idx,
+			      INTEL_PMC_IDX_FIXED + INTEL_PMC_MAX_FIXED) {
+		int i = s - INTEL_PMC_IDX_FIXED;
 		u8 new_ctrl = fixed_ctrl_field(data, i);
 		u8 old_ctrl = fixed_ctrl_field(old_fixed_ctr_ctrl, i);
 
@@ -53,6 +55,13 @@ static void reprogram_fixed_counters(struct kvm_pmu *pmu, u64 data)
 		__set_bit(KVM_FIXED_PMC_BASE_IDX + i, pmu->pmc_in_use);
 		kvm_pmu_request_counter_reprogram(pmc);
 	}
+}
+
+static inline bool intel_is_valid_pmc(struct kvm_pmu *pmu,
+				      unsigned int idx, bool fixed)
+{
+	return fixed ? fixed_ctr_is_supported(pmu, idx)
+		     : idx < pmu->nr_arch_gp_counters;
 }
 
 static struct kvm_pmc *intel_rdpmc_ecx_to_pmc(struct kvm_vcpu *vcpu,
@@ -88,7 +97,7 @@ static struct kvm_pmc *intel_rdpmc_ecx_to_pmc(struct kvm_vcpu *vcpu,
 	switch (type) {
 	case INTEL_RDPMC_FIXED:
 		counters = pmu->fixed_counters;
-		num_counters = pmu->nr_arch_fixed_counters;
+		num_counters = KVM_MAX_NR_FIXED_COUNTERS;
 		bitmask = pmu->counter_bitmask[KVM_PMC_FIXED];
 		break;
 	case INTEL_RDPMC_GP:
@@ -101,7 +110,7 @@ static struct kvm_pmc *intel_rdpmc_ecx_to_pmc(struct kvm_vcpu *vcpu,
 	}
 
 	idx &= INTEL_RDPMC_INDEX_MASK;
-	if (idx >= num_counters)
+	if (!intel_is_valid_pmc(pmu, idx, type == INTEL_RDPMC_FIXED))
 		return NULL;
 
 	*mask &= bitmask;
@@ -156,6 +165,9 @@ static bool intel_is_valid_msr(struct kvm_vcpu *vcpu, u32 msr)
 	switch (msr) {
 	case MSR_CORE_PERF_FIXED_CTR_CTRL:
 		return kvm_pmu_has_perf_global_ctrl(pmu);
+	case MSR_CORE_PERF_GLOBAL_STATUS_SET:
+	case MSR_CORE_PERF_GLOBAL_INUSE:
+		return vcpu_to_pmu(vcpu)->version >= 4;
 	case MSR_IA32_PEBS_ENABLE:
 		ret = vcpu_get_perf_capabilities(vcpu) & PERF_CAP_PEBS_FORMAT;
 		break;
@@ -295,6 +307,62 @@ dummy:
 	return true;
 }
 
+static u64 intel_pmu_global_inuse_emulation(struct kvm_pmu *pmu)
+{
+	u64 data = 0;
+	int i;
+	int s = INTEL_PMC_IDX_FIXED;
+
+	for (i = 0; i < pmu->nr_arch_gp_counters; i++) {
+		struct kvm_pmc *pmc = &pmu->gp_counters[i];
+
+		/*
+		 * IA32_PERF_GLOBAL_INUSE.PERFEVTSELn_InUse[bit n]: This bit
+		 * reflects the logical state of (IA32_PERFEVTSELn[7:0]),
+		 * n < CPUID.0AH.EAX[15:8].
+		 */
+		if (pmc->eventsel & ARCH_PERFMON_EVENTSEL_EVENT)
+			data |= 1 << i;
+		/*
+		 * IA32_PERF_GLOBAL_INUSE.PMI_InUse[bit 63]: This bit is set if
+		 * IA32_PERFEVTSELn.INT[bit 20], n < CPUID.0AH.EAX[15:8] is set.
+		 */
+		if (pmc->eventsel & ARCH_PERFMON_EVENTSEL_INT)
+			data |= MSR_CORE_PERF_GLOBAL_INUSE_PMI;
+	}
+
+	for_each_set_bit_from(s, pmu->all_valid_pmc_idx,
+			      INTEL_PMC_IDX_FIXED + INTEL_PMC_MAX_FIXED) {
+		i = s - INTEL_PMC_IDX_FIXED;
+
+		/*
+		 * IA32_PERF_GLOBAL_INUSE.FCi_InUse[bit (i + 32)]: This bit
+		 * reflects the logical state of
+		 * IA32_FIXED_CTR_CTRL[i * 4 + 1, i * 4] != 0
+		 */
+		if (pmu->fixed_ctr_ctrl &
+		    intel_fixed_bits_by_idx(i, INTEL_FIXED_0_KERNEL | INTEL_FIXED_0_USER))
+			data |= 1ULL << s;
+		/*
+		 * IA32_PERF_GLOBAL_INUSE.PMI_InUse[bit 63]: This bit is set if
+		 * IA32_FIXED_CTR_CTRL.ENi_PMI, i = 0, 1, 2 is set.
+		 */
+		if (pmu->fixed_ctr_ctrl &
+		    intel_fixed_bits_by_idx(i, INTEL_FIXED_0_ENABLE_PMI))
+			data |= MSR_CORE_PERF_GLOBAL_INUSE_PMI;
+	}
+
+	/*
+	 * IA32_PERF_GLOBAL_INUSE.PMI_InUse[bit 63]: This bit is set if
+	 * any IA32_PEBS_ENABLES bit is set, which enables PEBS for a GP or
+	 * fixed counter.
+	 */
+	if (pmu->pebs_enable)
+		data |= MSR_CORE_PERF_GLOBAL_INUSE_PMI;
+
+	return data;
+}
+
 static int intel_pmu_get_msr(struct kvm_vcpu *vcpu, struct msr_data *msr_info)
 {
 	struct kvm_pmu *pmu = vcpu_to_pmu(vcpu);
@@ -304,6 +372,12 @@ static int intel_pmu_get_msr(struct kvm_vcpu *vcpu, struct msr_data *msr_info)
 	switch (msr) {
 	case MSR_CORE_PERF_FIXED_CTR_CTRL:
 		msr_info->data = pmu->fixed_ctr_ctrl;
+		break;
+	case MSR_CORE_PERF_GLOBAL_STATUS_SET:
+		msr_info->data = 0;
+		break;
+	case MSR_CORE_PERF_GLOBAL_INUSE:
+		msr_info->data = intel_pmu_global_inuse_emulation(pmu);
 		break;
 	case MSR_IA32_PEBS_ENABLE:
 		msr_info->data = pmu->pebs_enable;
@@ -354,6 +428,8 @@ static int intel_pmu_set_msr(struct kvm_vcpu *vcpu, struct msr_data *msr_info)
 		if (pmu->fixed_ctr_ctrl != data)
 			reprogram_fixed_counters(pmu, data);
 		break;
+	case MSR_CORE_PERF_GLOBAL_INUSE:
+		return 1;   /* RO MSR */
 	case MSR_IA32_PEBS_ENABLE:
 		if (data & pmu->pebs_enable_rsvd)
 			return 1;
@@ -375,6 +451,40 @@ static int intel_pmu_set_msr(struct kvm_vcpu *vcpu, struct msr_data *msr_info)
 			return 1;
 
 		pmu->pebs_data_cfg = data;
+		break;
+	case MSR_CORE_PERF_GLOBAL_OVF_CTRL:
+		/*
+		 * GLOBAL_OVF_CTRL, a.k.a. GLOBAL STATUS_RESET, clears bits in
+		 * GLOBAL_STATUS, and so the set of reserved bits is the same.
+		 */
+		if (data & pmu->global_status_rsvd)
+			return 1;
+		if (pmu->version >= 4 && !msr_info->host_initiated &&
+		    (data & MSR_CORE_PERF_GLOBAL_OVF_CTRL_LBR_FREEZE)) {
+			u64 debug_ctl = vmcs_read64(GUEST_IA32_DEBUGCTL);
+			struct lbr_desc *lbr_desc = vcpu_to_lbr_desc(vcpu);
+
+			if (!(debug_ctl & DEBUGCTLMSR_LBR) &&
+			    lbr_desc->freeze_on_pmi) {
+				debug_ctl |= DEBUGCTLMSR_LBR;
+				vmcs_write64(GUEST_IA32_DEBUGCTL, debug_ctl);
+				lbr_desc->freeze_on_pmi = false;
+			}
+		}
+
+		if (!msr_info->host_initiated)
+			pmu->global_status &= ~data;
+		break;
+	case MSR_CORE_PERF_GLOBAL_STATUS_SET:
+		/*
+		 * GLOBAL STATUS_SET, sets bits in GLOBAL_STATUS, so the
+		 * set of reserved bits are the same.
+		 */
+		if (data & pmu->global_status_rsvd)
+			return 1;
+
+		if (!msr_info->host_initiated)
+			pmu->global_status |= data;
 		break;
 	default:
 		if ((pmc = get_gp_pmc(pmu, msr, MSR_IA32_PERFCTR0)) ||
@@ -427,7 +537,8 @@ static int intel_pmu_set_msr(struct kvm_vcpu *vcpu, struct msr_data *msr_info)
  * Forcibly inlined to allow asserting on @index at build time, and there should
  * never be more than one user.
  */
-static __always_inline u64 intel_get_fixed_pmc_eventsel(unsigned int index)
+static __always_inline u64 intel_get_fixed_pmc_eventsel(struct kvm_pmu *pmu,
+							unsigned int index)
 {
 	const enum perf_hw_id fixed_pmc_perf_ids[] = {
 		[0] = PERF_COUNT_HW_INSTRUCTIONS,
@@ -444,16 +555,8 @@ static __always_inline u64 intel_get_fixed_pmc_eventsel(unsigned int index)
 	 * have a known encoding for the associated general purpose event.
 	 */
 	eventsel = perf_get_hw_event_config(fixed_pmc_perf_ids[index]);
-	WARN_ON_ONCE(!eventsel && index < kvm_pmu_cap.num_counters_fixed);
+	WARN_ON_ONCE(!eventsel && fixed_ctr_is_supported(pmu, index));
 	return eventsel;
-}
-
-static void intel_pmu_enable_fixed_counter_bits(struct kvm_pmu *pmu, u64 bits)
-{
-	int i;
-
-	for (i = 0; i < pmu->nr_arch_fixed_counters; i++)
-		pmu->fixed_ctr_ctrl_rsvd &= ~intel_fixed_bits_by_idx(i, bits);
 }
 
 static void intel_pmu_refresh(struct kvm_vcpu *vcpu)
@@ -465,6 +568,7 @@ static void intel_pmu_refresh(struct kvm_vcpu *vcpu)
 	union cpuid10_edx edx;
 	u64 perf_capabilities;
 	u64 counter_rsvd;
+	int i;
 
 	memset(&lbr_desc->records, 0, sizeof(lbr_desc->records));
 
@@ -497,23 +601,32 @@ static void intel_pmu_refresh(struct kvm_vcpu *vcpu)
 	pmu->available_event_types = ~entry->ebx &
 					((1ull << eax.split.mask_length) - 1);
 
-	if (pmu->version == 1) {
-		pmu->nr_arch_fixed_counters = 0;
-	} else {
-		pmu->nr_arch_fixed_counters = min_t(int, edx.split.num_counters_fixed,
-						    kvm_pmu_cap.num_counters_fixed);
+	counter_rsvd = ~(BIT_ULL(pmu->nr_arch_gp_counters) - 1);
+	bitmap_set(pmu->all_valid_pmc_idx, 0, pmu->nr_arch_gp_counters);
+
+	if (pmu->version > 1) {
+		for (i = 0; i < kvm_pmu_cap.num_counters_fixed; i++) {
+			/*
+			 * FxCtr[i]_is_supported :=
+			 *      CPUID.0xA.ECX[i] || EDX[4:0] > i
+			 */
+			if (!(entry->ecx & BIT_ULL(i) || edx.split.num_counters_fixed > i))
+				continue;
+
+			set_bit(INTEL_PMC_IDX_FIXED + i, pmu->all_valid_pmc_idx);
+			counter_rsvd &= ~BIT_ULL(INTEL_PMC_IDX_FIXED + i);
+			pmu->fixed_ctr_ctrl_rsvd &= ~intel_fixed_bits_by_idx(i,
+							INTEL_FIXED_0_KERNEL |
+							INTEL_FIXED_0_USER |
+							INTEL_FIXED_0_ENABLE_PMI);
+		}
+
 		edx.split.bit_width_fixed = min_t(int, edx.split.bit_width_fixed,
 						  kvm_pmu_cap.bit_width_fixed);
 		pmu->counter_bitmask[KVM_PMC_FIXED] =
 			((u64)1 << edx.split.bit_width_fixed) - 1;
 	}
 
-	intel_pmu_enable_fixed_counter_bits(pmu, INTEL_FIXED_0_KERNEL |
-						 INTEL_FIXED_0_USER |
-						 INTEL_FIXED_0_ENABLE_PMI);
-
-	counter_rsvd = ~(((1ull << pmu->nr_arch_gp_counters) - 1) |
-		(((1ull << pmu->nr_arch_fixed_counters) - 1) << KVM_FIXED_PMC_BASE_IDX));
 	pmu->global_ctrl_rsvd = counter_rsvd;
 
 	/*
@@ -527,6 +640,9 @@ static void intel_pmu_refresh(struct kvm_vcpu *vcpu)
 	if (vmx_pt_mode_is_host_guest())
 		pmu->global_status_rsvd &=
 				~MSR_CORE_PERF_GLOBAL_OVF_CTRL_TRACE_TOPA_PMI;
+	if (pmu->version >= 4)
+		pmu->global_status_rsvd &=
+				~MSR_CORE_PERF_GLOBAL_OVF_CTRL_LBR_FREEZE;
 
 	entry = kvm_find_cpuid_entry_index(vcpu, 7, 0);
 	if (entry &&
@@ -535,11 +651,6 @@ static void intel_pmu_refresh(struct kvm_vcpu *vcpu)
 		pmu->reserved_bits ^= HSW_IN_TX;
 		pmu->raw_event_mask |= (HSW_IN_TX|HSW_IN_TX_CHECKPOINTED);
 	}
-
-	bitmap_set(pmu->all_valid_pmc_idx,
-		0, pmu->nr_arch_gp_counters);
-	bitmap_set(pmu->all_valid_pmc_idx,
-		INTEL_PMC_MAX_GENERIC, pmu->nr_arch_fixed_counters);
 
 	perf_capabilities = vcpu_get_perf_capabilities(vcpu);
 	if (cpuid_model_is_consistent(vcpu) &&
@@ -553,10 +664,17 @@ static void intel_pmu_refresh(struct kvm_vcpu *vcpu)
 
 	if (perf_capabilities & PERF_CAP_PEBS_FORMAT) {
 		if (perf_capabilities & PERF_CAP_PEBS_BASELINE) {
+			int s = INTEL_PMC_IDX_FIXED;
+			int e = INTEL_PMC_IDX_FIXED + INTEL_PMC_MAX_FIXED;
+
 			pmu->pebs_enable_rsvd = counter_rsvd;
 			pmu->reserved_bits &= ~ICL_EVENTSEL_ADAPTIVE;
+			for_each_set_bit_from(s, pmu->all_valid_pmc_idx, e) {
+				i = s - INTEL_PMC_IDX_FIXED;
+				pmu->fixed_ctr_ctrl_rsvd &=
+					~intel_fixed_bits_by_idx(i, ICL_FIXED_0_ADAPTIVE);
+			}
 			pmu->pebs_data_cfg_rsvd = ~0xff00000full;
-			intel_pmu_enable_fixed_counter_bits(pmu, ICL_FIXED_0_ADAPTIVE);
 		} else {
 			pmu->pebs_enable_rsvd =
 				~((1ull << pmu->nr_arch_gp_counters) - 1);
@@ -582,12 +700,13 @@ static void intel_pmu_init(struct kvm_vcpu *vcpu)
 		pmu->fixed_counters[i].vcpu = vcpu;
 		pmu->fixed_counters[i].idx = i + KVM_FIXED_PMC_BASE_IDX;
 		pmu->fixed_counters[i].current_config = 0;
-		pmu->fixed_counters[i].eventsel = intel_get_fixed_pmc_eventsel(i);
+		pmu->fixed_counters[i].eventsel = intel_get_fixed_pmc_eventsel(pmu, i);
 	}
 
 	lbr_desc->records.nr = 0;
 	lbr_desc->event = NULL;
 	lbr_desc->msr_passthrough = false;
+	lbr_desc->freeze_on_pmi = false;
 }
 
 static void intel_pmu_reset(struct kvm_vcpu *vcpu)
@@ -610,7 +729,24 @@ static void intel_pmu_legacy_freezing_lbrs_on_pmi(struct kvm_vcpu *vcpu)
 	if (data & DEBUGCTLMSR_FREEZE_LBRS_ON_PMI) {
 		data &= ~DEBUGCTLMSR_LBR;
 		vmcs_write64(GUEST_IA32_DEBUGCTL, data);
+		vcpu_to_lbr_desc(vcpu)->freeze_on_pmi = true;
 	}
+}
+
+static void intel_pmu_streamlined_freezing_lbrs_on_pmi(struct kvm_vcpu *vcpu)
+{
+	u64 data = vmcs_read64(GUEST_IA32_DEBUGCTL);
+	struct kvm_pmu *pmu = vcpu_to_pmu(vcpu);
+
+	/*
+	 * Even if streamlined freezing LBR won't clear LBR_EN like legacy
+	 * freezing LBR, here legacy freezing LBR is called to freeze LBR HW
+	 * for streamlined freezing LBR when guest run. But guest VM will
+	 * see a fake guest DEBUGCTL MSR with LBR_EN bit set.
+	 */
+	intel_pmu_legacy_freezing_lbrs_on_pmi(vcpu);
+	if ((data & DEBUGCTLMSR_FREEZE_LBRS_ON_PMI) && (data & DEBUGCTLMSR_LBR))
+		pmu->global_status |= MSR_CORE_PERF_GLOBAL_OVF_CTRL_LBR_FREEZE;
 }
 
 static void intel_pmu_deliver_pmi(struct kvm_vcpu *vcpu)
@@ -622,6 +758,8 @@ static void intel_pmu_deliver_pmi(struct kvm_vcpu *vcpu)
 
 	if (version > 1 && version < 4)
 		intel_pmu_legacy_freezing_lbrs_on_pmi(vcpu);
+	else if (version >= 4)
+		intel_pmu_streamlined_freezing_lbrs_on_pmi(vcpu);
 }
 
 static void vmx_update_intercept_for_lbr_msrs(struct kvm_vcpu *vcpu, bool set)
@@ -701,7 +839,8 @@ warn:
 
 static void intel_pmu_cleanup(struct kvm_vcpu *vcpu)
 {
-	if (!(vmcs_read64(GUEST_IA32_DEBUGCTL) & DEBUGCTLMSR_LBR))
+	if (!(vmcs_read64(GUEST_IA32_DEBUGCTL) & DEBUGCTLMSR_LBR) &&
+	    !vcpu_to_lbr_desc(vcpu)->freeze_on_pmi)
 		intel_pmu_release_guest_lbr_event(vcpu);
 }
 

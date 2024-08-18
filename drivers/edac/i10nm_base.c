@@ -410,7 +410,9 @@ static int i10nm_get_imc_num(struct res_config *cfg)
 
 static bool i10nm_check_2lm(struct res_config *cfg)
 {
+	bool two_level = false;
 	struct skx_dev *d;
+	u64 limit;
 	u32 reg;
 	int i;
 
@@ -425,12 +427,16 @@ static bool i10nm_check_2lm(struct res_config *cfg)
 			I10NM_GET_SAD(d, cfg->sad_all_offset, i, reg);
 			if (I10NM_SAD_ENABLE(reg) && I10NM_SAD_NM_CACHEABLE(reg)) {
 				edac_dbg(2, "2-level memory configuration.\n");
-				return true;
+				two_level = true;
 			}
+
+			limit = GET_BITFIELD(reg, 6, 31) << 26;
+			edac_dbg(2, "dram rule cfg %02d (reg 0x%08x), enabled %llu, top limit 0x%016llx, cacheable %llu\n",
+				 i, reg, I10NM_SAD_ENABLE(reg), limit, I10NM_SAD_NM_CACHEABLE(reg));
 		}
 	}
 
-	return false;
+	return two_level;
 }
 
 /*
@@ -496,6 +502,10 @@ static bool i10nm_mc_decode_available(struct mce *mce)
 		if (bank < 13 || bank > 20)
 			return false;
 		break;
+	case GNR:
+		if (bank < 13 || bank > 24)
+			return false;
+		break;
 	default:
 		return false;
 	}
@@ -552,6 +562,16 @@ static bool i10nm_mc_decode(struct decoded_addr *res)
 		res->bank_group  |= GET_BITFIELD(m->misc, 41, 41) << 2;
 		res->rank         = GET_BITFIELD(m->misc, 57, 57);
 		res->dimm         = GET_BITFIELD(m->misc, 58, 58);
+		break;
+	case GNR:
+		res->imc          = m->bank - 13;
+		res->channel      = 0;
+		res->column       = GET_BITFIELD(m->misc, 9, 18) << 2;
+		res->row          = GET_BITFIELD(m->misc, 19, 36);
+		res->bank_group   = GET_BITFIELD(m->misc, 39, 41);
+		res->bank_address = GET_BITFIELD(m->misc, 37, 38);
+		res->rank         = GET_BITFIELD(m->misc, 55, 56);
+		res->dimm         = GET_BITFIELD(m->misc, 57, 57);
 		break;
 	default:
 		return false;
@@ -952,6 +972,7 @@ static const struct x86_cpu_id i10nm_cpuids[] = {
 	X86_MATCH_VFM_STEPPINGS(INTEL_GRANITERAPIDS_X,	X86_STEPPINGS(0x0, 0xf), &gnr_cfg),
 	X86_MATCH_VFM_STEPPINGS(INTEL_ATOM_CRESTMONT_X,	X86_STEPPINGS(0x0, 0xf), &gnr_cfg),
 	X86_MATCH_VFM_STEPPINGS(INTEL_ATOM_CRESTMONT,	X86_STEPPINGS(0x0, 0xf), &gnr_cfg),
+	X86_MATCH_VFM_STEPPINGS(INTEL_ATOM_DARKMONT_X,	X86_STEPPINGS(0x0, 0xf), &gnr_cfg),
 	{}
 };
 MODULE_DEVICE_TABLE(x86cpu, i10nm_cpuids);
@@ -1089,6 +1110,7 @@ static int __init i10nm_init(void)
 		return -ENODEV;
 
 	cfg = (struct res_config *)id->driver_data;
+	skx_set_res_cfg(cfg);
 	res_cfg = cfg;
 
 	rc = skx_get_hi_lo(0x09a2, off, &tolm, &tohm);
