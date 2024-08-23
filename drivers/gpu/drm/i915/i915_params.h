@@ -48,6 +48,7 @@ struct drm_printer;
 #define I915_PARAMS_FOR_EACH(param) \
 	param(int, modeset, -1, 0400) \
 	param(int, enable_guc, -1, 0400) \
+	param(bool, enable_rc6, true, 0400) \
 	param(int, guc_log_level, -1, 0400) \
 	param(char *, guc_firmware_path, NULL, 0400) \
 	param(char *, huc_firmware_path, NULL, 0400) \
@@ -60,7 +61,10 @@ struct drm_printer;
 	param(unsigned int, request_timeout_ms, CONFIG_DRM_I915_REQUEST_TIMEOUT, CONFIG_DRM_I915_REQUEST_TIMEOUT ? 0600 : 0) \
 	param(unsigned int, lmem_size, 0, 0400) \
 	param(unsigned int, lmem_bar_size, 0, 0400) \
+	param(unsigned int, max_vfs, 0, 0400) \
+	param(int, force_disable_ccs, 0, 0400) \
 	/* leave bools at the end to not create holes */ \
+	param(bool, enable_mtl_rcs_ccs_wa, true, 0x400) \
 	param(bool, enable_hangcheck, true, 0600) \
 	param(bool, error_capture, true, IS_ENABLED(CONFIG_DRM_I915_CAPTURE_ERROR) ? 0600 : 0) \
 	param(bool, enable_gvt, false, IS_ENABLED(CONFIG_DRM_I915_GVT) ? 0400 : 0) \
