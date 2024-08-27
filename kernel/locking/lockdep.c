@@ -6703,7 +6703,6 @@ void debug_show_all_locks(void)
 		if (!p->lockdep_depth)
 			continue;
 		lockdep_print_held_locks(p);
-		nbcon_cpu_emergency_flush();
 		touch_nmi_watchdog();
 		touch_all_softlockup_watchdogs();
 	}

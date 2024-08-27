@@ -355,7 +355,7 @@ struct console {
 	/**
 	 * @write_atomic:
 	 *
-	 * NBCON callback to write out text in any context.
+	 * NBCON callback to write out text in any context. (Optional)
 	 *
 	 * This callback is called with the console already acquired. However,
 	 * a higher priority context is allowed to take it over by default.
@@ -373,8 +373,8 @@ struct console {
 	 * The callback should allow the takeover whenever it is safe. It
 	 * increases the chance to see messages when the system is in trouble.
 	 * If the driver must reacquire ownership in order to finalize or
-	 * revert hardware changes, nbcon_reacquire() can be used. However,
-	 * on reacquire the buffer content is no longer available. A
+	 * revert hardware changes, nbcon_reacquire_nobuf() can be used.
+	 * However, on reacquire the buffer content is no longer available. A
 	 * reacquire cannot be used to resume printing.
 	 *
 	 * The callback can be called from any context (including NMI).
@@ -388,19 +388,29 @@ struct console {
 	 *
 	 * NBCON callback to write out text in task context.
 	 *
-	 * This callback is called after device_lock() and with the nbcon
-	 * console acquired. Any necessary driver synchronization should have
-	 * been performed by the device_lock() callback.
+	 * This callback must be called only in task context with both
+	 * device_lock() and the nbcon console acquired with
+	 * NBCON_PRIO_NORMAL.
 	 *
-	 * This callback is always called from task context but with migration
-	 * disabled.
+	 * The same rules for console ownership verification and unsafe
+	 * sections handling applies as with write_atomic().
 	 *
-	 * The same criteria for console ownership verification and unsafe
-	 * sections applies as with write_atomic(). The difference between
-	 * this callback and write_atomic() is that this callback is used
-	 * during normal operation and is always called from task context.
-	 * This allows drivers to operate in their own locking context for
-	 * synchronizing output to the hardware.
+	 * The console ownership handling is necessary for synchronization
+	 * against write_atomic() which is synchronized only via the context.
+	 *
+	 * The device_lock() provides the primary serialization for operations
+	 * on the device. It might be as relaxed (mutex)[*] or as tight
+	 * (disabled preemption and interrupts) as needed. It allows
+	 * the kthread to operate in the least restrictive mode[**].
+	 *
+	 * [*] Standalone nbcon_context_try_acquire() is not safe with
+	 *     the preemption enabled, see nbcon_owner_matches(). But it
+	 *     can be safe when always called in the preemptive context
+	 *     under the device_lock().
+	 *
+	 * [**] The device_lock() makes sure that nbcon_context_try_acquire()
+	 *      would never need to spin which is important especially with
+	 *      PREEMPT_RT.
 	 */
 	void (*write_thread)(struct console *con, struct nbcon_write_context *wctxt);
 
@@ -591,19 +601,17 @@ static inline bool console_is_registered(const struct console *con)
 #ifdef CONFIG_PRINTK
 extern void nbcon_cpu_emergency_enter(void);
 extern void nbcon_cpu_emergency_exit(void);
-extern void nbcon_cpu_emergency_flush(void);
 extern bool nbcon_can_proceed(struct nbcon_write_context *wctxt);
 extern bool nbcon_enter_unsafe(struct nbcon_write_context *wctxt);
 extern bool nbcon_exit_unsafe(struct nbcon_write_context *wctxt);
-extern void nbcon_reacquire(struct nbcon_write_context *wctxt);
+extern void nbcon_reacquire_nobuf(struct nbcon_write_context *wctxt);
 #else
 static inline void nbcon_cpu_emergency_enter(void) { }
 static inline void nbcon_cpu_emergency_exit(void) { }
-static inline void nbcon_cpu_emergency_flush(void) { }
 static inline bool nbcon_can_proceed(struct nbcon_write_context *wctxt) { return false; }
 static inline bool nbcon_enter_unsafe(struct nbcon_write_context *wctxt) { return false; }
 static inline bool nbcon_exit_unsafe(struct nbcon_write_context *wctxt) { return false; }
-static inline void nbcon_reacquire(struct nbcon_write_context *wctxt) { }
+static inline void nbcon_reacquire_nobuf(struct nbcon_write_context *wctxt) { }
 #endif
 
 extern int console_set_on_cmdline;

@@ -3492,23 +3492,23 @@ void serial8250_console_write_thread(struct uart_8250_port *up,
 		 */
 		for (i = 0; i < len; i++) {
 			if (!nbcon_enter_unsafe(wctxt)) {
-				nbcon_reacquire(wctxt);
+				nbcon_reacquire_nobuf(wctxt);
 				break;
 			}
 
 			uart_console_write(port, wctxt->outbuf + i, 1, serial8250_console_putchar);
 
 			if (!nbcon_exit_unsafe(wctxt)) {
-				nbcon_reacquire(wctxt);
+				nbcon_reacquire_nobuf(wctxt);
 				break;
 			}
 		}
 	} else {
-		nbcon_reacquire(wctxt);
+		nbcon_reacquire_nobuf(wctxt);
 	}
 
 	while (!nbcon_enter_unsafe(wctxt))
-		nbcon_reacquire(wctxt);
+		nbcon_reacquire_nobuf(wctxt);
 
 	/* Finally, wait for transmitter to become empty and restore IER. */
 	wait_for_xmitr(up, UART_LSR_BOTH_EMPTY);
