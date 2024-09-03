@@ -7,6 +7,7 @@
 
 #include <sound/soc-acpi.h>
 #include <sound/soc-acpi-intel-match.h>
+#include <sound/soc-acpi-intel-ssp-common.h>
 
 static const struct snd_soc_acpi_endpoint single_endpoint = {
 	.num = 0,
@@ -100,6 +101,11 @@ static const struct snd_soc_acpi_codecs arl_essx_83x6 = {
 	.codecs = { "ESSX8316", "ESSX8326", "ESSX8336"},
 };
 
+static const struct snd_soc_acpi_codecs arl_rt5682_hp = {
+	.num_codecs = 2,
+	.codecs = {RT5682_ACPI_HID, RT5682S_ACPI_HID},
+};
+
 static const struct snd_soc_acpi_codecs arl_lt6911_hdmi = {
 	.num_codecs = 1,
 	.codecs = {"INTC10B0"}
@@ -125,6 +131,13 @@ struct snd_soc_acpi_mach snd_soc_acpi_intel_arl_machines[] = {
 		.id = "INTC10B0",
 		.drv_name = "arl_lt6911_hdmi_ssp",
 		.sof_tplg_filename = "sof-arl-nocodec-hdmi-ssp02.tplg"
+	},
+	{
+		.comp_ids = &arl_rt5682_hp,
+		.drv_name = "arl_rt5682_c1_h02",
+		.machine_quirk = snd_soc_acpi_codec_list,
+		.quirk_data = &arl_lt6911_hdmi,
+		.sof_tplg_filename = "sof-arl-rt5682-ssp1-hdmi-ssp02.tplg",
 	},
 	{},
 };
