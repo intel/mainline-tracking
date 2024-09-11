@@ -87,7 +87,7 @@ static int mipi_i3c_hci_pci_probe(struct pci_dev *pci,
 		return -ENOMEM;
 
 	pdev->dev.parent = &pci->dev;
-	ACPI_COMPANION_SET(&pdev->dev, ACPI_COMPANION(&pci->dev));
+	device_set_node(&pdev->dev, dev_fwnode(&pci->dev));
 
 	ret = platform_device_add_resources(pdev, res, ARRAY_SIZE(res));
 	if (ret)
