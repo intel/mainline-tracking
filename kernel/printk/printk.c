@@ -2451,7 +2451,6 @@ static u64 syslog_seq;
 
 static bool pr_flush(int timeout_ms, bool reset_on_progress) { return true; }
 static bool __pr_flush(struct console *con, int timeout_ms, bool reset_on_progress) { return true; }
-static inline void legacy_kthread_wake(void) { }
 
 #endif /* CONFIG_PRINTK */
 
@@ -3162,10 +3161,11 @@ static bool console_flush_all(bool do_cond_resched, u64 *next_seq, bool *handove
 			bool progress;
 
 			/*
-			 * console_flush_all() is only for legacy consoles when
-			 * the nbcon consoles have their printer threads.
+			 * console_flush_all() is only responsible for nbcon
+			 * consoles when the nbcon consoles cannot print via
+			 * their atomic or threaded flushing.
 			 */
-			if ((flags & CON_NBCON) && ft.nbcon_offload)
+			if ((flags & CON_NBCON) && (ft.nbcon_atomic || ft.nbcon_offload))
 				continue;
 
 			if (!console_is_usable(con, flags, !do_cond_resched))
@@ -3507,7 +3507,7 @@ void console_start(struct console *console)
 	printk_get_console_flush_type(&ft);
 	if (is_nbcon && ft.nbcon_offload)
 		nbcon_kthread_wake(console);
-	else if (!is_nbcon && ft.legacy_offload)
+	else if (ft.legacy_offload)
 		defer_console_output();
 
 	__pr_flush(console, 1000, true);
@@ -3540,10 +3540,11 @@ static bool legacy_kthread_should_wakeup(void)
 		u64 printk_seq;
 
 		/*
-		 * The legacy printer thread is only for legacy consoles when
-		 * the nbcon consoles have their printer threads.
+		 * The legacy printer thread is only responsible for nbcon
+		 * consoles when the nbcon consoles cannot print via their
+		 * atomic or threaded flushing.
 		 */
-		if ((flags & CON_NBCON) && ft.nbcon_offload)
+		if ((flags & CON_NBCON) && (ft.nbcon_atomic || ft.nbcon_offload))
 			continue;
 
 		if (!console_is_usable(con, flags, false))
@@ -4343,6 +4344,8 @@ static bool __pr_flush(struct console *con, int timeout_ms, bool reset_on_progre
 
 	/* Flush the consoles so that records up to @seq are printed. */
 	printk_get_console_flush_type(&ft);
+	if (ft.nbcon_atomic)
+		nbcon_atomic_flush_pending();
 	if (ft.legacy_direct) {
 		console_lock();
 		console_unlock();
@@ -4446,19 +4449,14 @@ static bool pr_flush(int timeout_ms, bool reset_on_progress)
 
 static DEFINE_PER_CPU(int, printk_pending);
 
-static void legacy_kthread_wake(void)
-{
-	if (printk_legacy_kthread)
-		wake_up_interruptible(&legacy_wait);
-}
-
 static void wake_up_klogd_work_func(struct irq_work *irq_work)
 {
 	int pending = this_cpu_xchg(printk_pending, 0);
 
 	if (pending & PRINTK_PENDING_OUTPUT) {
 		if (force_legacy_kthread()) {
-			legacy_kthread_wake();
+			if (printk_legacy_kthread)
+				wake_up_interruptible(&legacy_wait);
 		} else {
 			if (console_trylock())
 				console_unlock();
@@ -4873,6 +4871,8 @@ void console_try_replay_all(void)
 	printk_get_console_flush_type(&ft);
 	if (console_trylock()) {
 		__console_rewind_all();
+		if (ft.nbcon_atomic)
+			nbcon_atomic_flush_pending();
 		if (ft.nbcon_offload)
 			nbcon_kthreads_wake();
 		if (ft.legacy_offload)

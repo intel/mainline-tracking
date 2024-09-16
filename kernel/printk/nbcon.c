@@ -1259,6 +1259,9 @@ void nbcon_kthreads_wake(void)
 
 	cookie = console_srcu_read_lock();
 	for_each_console_srcu(con) {
+		if (!(console_srcu_read_flags(con) & CON_NBCON))
+			continue;
+
 		/*
 		 * Only schedule irq_work if the printing thread is
 		 * actively waiting. If not waiting, the thread will
@@ -1292,8 +1295,14 @@ void nbcon_kthread_stop(struct console *con)
  * Return:	True if the kthread was started or already exists.
  *		Otherwise false and @con must not be registered.
  *
- * If @con was already registered, it must be unregistered before
- * the global state variable @printk_kthreads_running can be set.
+ * This function is called when it will be expected that nbcon consoles are
+ * flushed using the kthread. The messages printed with NBCON_PRIO_NORMAL
+ * will be no longer flushed by the legacy loop. This is why failure must
+ * be fatal for console registration.
+ *
+ * If @con was already registered and this function fails, @con must be
+ * unregistered before the global state variable @printk_kthreads_running
+ * can be set.
  */
 bool nbcon_kthread_create(struct console *con)
 {
@@ -1347,8 +1356,7 @@ static __ref unsigned int *nbcon_get_cpu_emergency_nesting(void)
 	if (!printk_percpu_data_ready())
 		return &early_nbcon_pcpu_emergency_nesting;
 
-	/* Open code this_cpu_ptr() without checking migration. */
-	return per_cpu_ptr(&nbcon_pcpu_emergency_nesting, raw_smp_processor_id());
+	return raw_cpu_ptr(&nbcon_pcpu_emergency_nesting);
 }
 
 /**
@@ -1696,6 +1704,7 @@ bool nbcon_alloc(struct console *con)
 		if (printk_kthreads_running) {
 			if (!nbcon_kthread_create(con)) {
 				kfree(con->pbufs);
+				con->pbufs = NULL;
 				return false;
 			}
 		}
