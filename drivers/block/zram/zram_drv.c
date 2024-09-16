@@ -57,14 +57,6 @@ static void zram_free_page(struct zram *zram, size_t index);
 static int zram_read_page(struct zram *zram, struct page *page, u32 index,
 			  struct bio *parent);
 
-static void zram_meta_init_table_locks(struct zram *zram, size_t num_pages)
-{
-	size_t index;
-
-	for (index = 0; index < num_pages; index++)
-		spin_lock_init(&zram->table[index].lock);
-}
-
 static int zram_slot_trylock(struct zram *zram, u32 index)
 {
 	return spin_trylock(&zram->table[index].lock);
@@ -1219,7 +1211,7 @@ static void zram_meta_free(struct zram *zram, u64 disksize)
 
 static bool zram_meta_alloc(struct zram *zram, u64 disksize)
 {
-	size_t num_pages;
+	size_t num_pages, index;
 
 	num_pages = disksize >> PAGE_SHIFT;
 	zram->table = vzalloc(array_size(num_pages, sizeof(*zram->table)));
@@ -1234,7 +1226,9 @@ static bool zram_meta_alloc(struct zram *zram, u64 disksize)
 
 	if (!huge_class_size)
 		huge_class_size = zs_huge_class_size(zram->mem_pool);
-	zram_meta_init_table_locks(zram, num_pages);
+
+	for (index = 0; index < num_pages; index++)
+		spin_lock_init(&zram->table[index].lock);
 	return true;
 }
 
