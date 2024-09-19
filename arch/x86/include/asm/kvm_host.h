@@ -547,7 +547,6 @@ struct kvm_pmc {
 struct kvm_pmu {
 	u8 version;
 	unsigned nr_arch_gp_counters;
-	unsigned nr_arch_fixed_counters;
 	unsigned available_event_types;
 	u64 fixed_ctr_ctrl;
 	u64 fixed_ctr_ctrl_rsvd;

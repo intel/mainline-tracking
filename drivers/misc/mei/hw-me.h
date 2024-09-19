@@ -23,6 +23,7 @@
  * @dma_size: device DMA buffers size
  * @fw_ver_supported: is fw version retrievable from FW
  * @hw_trc_supported: does the hw support trc register
+ * @hw_down_supported: can go down
  */
 struct mei_cfg {
 	const struct mei_fw_status fw_status;
@@ -31,6 +32,7 @@ struct mei_cfg {
 	size_t dma_size[DMA_DSCR_NUM];
 	u32 fw_ver_supported:1;
 	u32 hw_trc_supported:1;
+	u32 hw_down_supported:1;
 };
 
 
@@ -67,6 +69,11 @@ struct mei_me_hw {
 	struct task_struct *polling_thread;
 	wait_queue_head_t wait_active;
 	bool is_active;
+	/* forcewake wa */
+	void *gsc;
+	void (*forcewake_get)(void *gsc);
+	void (*forcewake_put)(void *gsc);
+
 };
 
 #define to_me_hw(dev) (struct mei_me_hw *)((dev)->hw)

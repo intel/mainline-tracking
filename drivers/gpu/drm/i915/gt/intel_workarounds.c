@@ -901,6 +901,9 @@ __intel_engine_init_ctx_wa(struct intel_engine_cs *engine,
 {
 	struct drm_i915_private *i915 = engine->i915;
 
+	if (IS_SRIOV_VF(i915))
+		return;
+
 	wa_init_start(wal, engine->gt, name, engine->name);
 
 	/* Applies to all engines */
@@ -1688,6 +1691,9 @@ void intel_gt_init_workarounds(struct intel_gt *gt)
 {
 	struct i915_wa_list *wal = &gt->wa_list;
 
+	if (IS_SRIOV_VF(gt->i915))
+		return;
+
 	wa_init_start(wal, gt, "GT", "global");
 	gt_init_workarounds(gt, wal);
 	wa_init_finish(wal);
@@ -1712,7 +1718,7 @@ wa_verify(struct intel_gt *gt, const struct i915_wa *wa, u32 cur,
 static void wa_list_apply(const struct i915_wa_list *wal)
 {
 	struct intel_gt *gt = wal->gt;
-	struct intel_uncore *uncore = gt->uncore;
+	struct intel_uncore *uncore;
 	enum forcewake_domains fw;
 	unsigned long flags;
 	struct i915_wa *wa;
@@ -1720,6 +1726,8 @@ static void wa_list_apply(const struct i915_wa_list *wal)
 
 	if (!wal->count)
 		return;
+
+	uncore = gt->uncore;
 
 	fw = wal_get_fw_for_rmw(uncore, wal);
 
@@ -1772,6 +1780,9 @@ static bool wa_list_verify(struct intel_gt *gt,
 	unsigned long flags;
 	unsigned int i;
 	bool ok = true;
+
+	if (!wal->count)
+		return 0;
 
 	fw = wal_get_fw_for_rmw(uncore, wal);
 
@@ -2084,6 +2095,9 @@ void intel_engine_init_whitelist(struct intel_engine_cs *engine)
 {
 	struct drm_i915_private *i915 = engine->i915;
 	struct i915_wa_list *w = &engine->whitelist;
+
+	if (IS_SRIOV_VF(engine->i915))
+		return;
 
 	wa_init_start(w, engine->gt, "whitelist", engine->name);
 
@@ -2882,6 +2896,9 @@ engine_init_workarounds(struct intel_engine_cs *engine, struct i915_wa_list *wal
 void intel_engine_init_workarounds(struct intel_engine_cs *engine)
 {
 	struct i915_wa_list *wal = &engine->wa_list;
+
+	if (IS_SRIOV_VF(engine->i915))
+		return;
 
 	wa_init_start(wal, engine->gt, "engine", engine->name);
 	engine_init_workarounds(engine, wal);

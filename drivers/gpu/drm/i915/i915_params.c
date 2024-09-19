@@ -70,6 +70,17 @@ i915_param_named(modeset, int, 0400,
 i915_param_named_unsafe(reset, uint, 0400,
 	"Attempt GPU resets (0=disabled, 1=full gpu reset, 2=engine reset [default])");
 
+i915_param_named(max_vfs, uint, 0400,
+	"Limit number of virtual functions to allocate. "
+	"(0 = no VFs [default]; N = allow up to N VFs)");
+
+i915_param_named(enable_mtl_rcs_ccs_wa, bool, 0400,
+       "Enable the RCS/CCS switchout hold workaround for MTL (only some workloads are affected by issue and w/a has a performance penalty) (default:false)");
+
+i915_param_named(force_disable_ccs, int, 0400,
+       "Force to disable CCS engine. "
+       "(0 = fallback to default [default]; 1 = disable CCS)");
+
 #if IS_ENABLED(CONFIG_DRM_I915_CAPTURE_ERROR)
 i915_param_named(error_capture, bool, 0400,
 	"Record the GPU state following a hang. "
@@ -97,6 +108,10 @@ i915_param_named_unsafe(enable_guc, int, 0400,
 	"Enable GuC load for GuC submission and/or HuC load. "
 	"Required functionality can be selected using bitmask values. "
 	"(-1=auto [default], 0=disable, 1=GuC submission, 2=HuC load)");
+
+i915_param_named_unsafe(enable_rc6, bool, 0400,
+       "Enable power-saving render C-state 6; "
+       "(default: true)");
 
 i915_param_named(guc_log_level, int, 0400,
 	"GuC firmware logging level. Requires GuC to be loaded. "
