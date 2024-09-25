@@ -9,11 +9,11 @@
 
 static const struct ptp_pin_desc ice_pin_desc_e810t[] = {
 	/* name    idx   func         chan */
-	{ "GNSS",  GNSS, PTP_PF_EXTTS, 0, { 0, } },
-	{ "SMA1",  SMA1, PTP_PF_NONE, 1, { 0, } },
-	{ "U.FL1", UFL1, PTP_PF_NONE, 1, { 0, } },
-	{ "SMA2",  SMA2, PTP_PF_NONE, 2, { 0, } },
-	{ "U.FL2", UFL2, PTP_PF_NONE, 2, { 0, } },
+	{ "GNSS",  GNSS, PTP_PF_EXTTS, 0, 0, { 0, } },
+	{ "SMA1",  SMA1, PTP_PF_NONE, 1, 0, { 0, } },
+	{ "U.FL1", UFL1, PTP_PF_NONE, 1, 0, { 0, } },
+	{ "SMA2",  SMA2, PTP_PF_NONE, 2, 0, { 0, } },
+	{ "U.FL2", UFL2, PTP_PF_NONE, 2, 0, { 0, } },
 };
 
 /**
@@ -2221,8 +2221,7 @@ ice_ptp_get_syncdevicetime(ktime_t *device,
 			hh_ts_lo = rd32(hw, GLHH_ART_TIME_L);
 			hh_ts_hi = rd32(hw, GLHH_ART_TIME_H);
 			hh_ts = ((u64)hh_ts_hi << 32) | hh_ts_lo;
-			system->cycles = hh_ts;
-			system->cs_id = CSID_X86_ART;
+			*system = convert_art_ns_to_tsc(hh_ts);
 			/* Read Device source clock time */
 			hh_ts_lo = rd32(hw, GLTSYN_HHTIME_L(tmr_idx));
 			hh_ts_hi = rd32(hw, GLTSYN_HHTIME_H(tmr_idx));

@@ -310,17 +310,14 @@ struct system_device_crosststamp {
  *		timekeeping code to verify comparability of two cycle values.
  *		The default ID, CSID_GENERIC, does not identify a specific
  *		clocksource.
- * @use_nsecs:	@cycles is in nanoseconds.
  */
 struct system_counterval_t {
 	u64			cycles;
 	enum clocksource_ids	cs_id;
-	bool			use_nsecs;
 };
 
-extern bool ktime_real_to_base_clock(ktime_t treal,
-				     enum clocksource_ids base_id, u64 *cycles);
-extern bool timekeeping_clocksource_has_base(enum clocksource_ids id);
+extern int ktime_convert_real_to_system_counter(ktime_t sys_realtime,
+					struct system_counterval_t *ret);
 
 /*
  * Get cross timestamp between system clock and device clock

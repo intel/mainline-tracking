@@ -361,6 +361,31 @@ static void tk_setup_internals(struct timekeeper *tk, struct clocksource *clock)
 }
 
 /* Timekeeper helper functions. */
+#ifdef CONFIG_ARCH_USES_GETTIMEOFFSET
+static u32 default_arch_gettimeoffset(void) { return 0; }
+u32 (*arch_gettimeoffset)(void) = default_arch_gettimeoffset;
+#else
+static inline u32 arch_gettimeoffset(void) { return 0; }
+#endif
+
+static inline u64 timekeeping_ns_delta_to_cycles(const struct tk_read_base *tkr,
+						u64 nsec)
+{
+	u64 cycles;
+
+	/* If arch requires, subtract get_arch_timeoffset() */
+	cycles = nsec - arch_gettimeoffset();
+
+	if (fls64(cycles) + tkr->shift > sizeof(cycles) * 8)
+		return (typeof(cycles))-1;
+
+	cycles <<= tkr->shift;
+	cycles -= tkr->xtime_nsec;
+	do_div(cycles, tkr->mult);
+
+	return cycles;
+}
+
 static noinline u64 delta_to_ns_safe(const struct tk_read_base *tkr, u64 delta)
 {
 	return mul_u64_u32_add_u64_shr(delta, tkr->mult, tkr->xtime_nsec, tkr->shift);
@@ -1195,108 +1220,6 @@ static bool timestamp_in_interval(u64 start, u64 end, u64 ts)
 	return false;
 }
 
-static bool convert_clock(u64 *val, u32 numerator, u32 denominator)
-{
-	u64 rem, res;
-
-	if (!numerator || !denominator)
-		return false;
-
-	res = div64_u64_rem(*val, denominator, &rem) * numerator;
-	*val = res + div_u64(rem * numerator, denominator);
-	return true;
-}
-
-static bool convert_base_to_cs(struct system_counterval_t *scv)
-{
-	struct clocksource *cs = tk_core.timekeeper.tkr_mono.clock;
-	struct clocksource_base *base;
-	u32 num, den;
-
-	/* The timestamp was taken from the time keeper clock source */
-	if (cs->id == scv->cs_id)
-		return true;
-
-	/*
-	 * Check whether cs_id matches the base clock. Prevent the compiler from
-	 * re-evaluating @base as the clocksource might change concurrently.
-	 */
-	base = READ_ONCE(cs->base);
-	if (!base || base->id != scv->cs_id)
-		return false;
-
-	num = scv->use_nsecs ? cs->freq_khz : base->numerator;
-	den = scv->use_nsecs ? USEC_PER_SEC : base->denominator;
-
-	if (!convert_clock(&scv->cycles, num, den))
-		return false;
-
-	scv->cycles += base->offset;
-	return true;
-}
-
-static bool convert_cs_to_base(u64 *cycles, enum clocksource_ids base_id)
-{
-	struct clocksource *cs = tk_core.timekeeper.tkr_mono.clock;
-	struct clocksource_base *base;
-
-	/*
-	 * Check whether base_id matches the base clock. Prevent the compiler from
-	 * re-evaluating @base as the clocksource might change concurrently.
-	 */
-	base = READ_ONCE(cs->base);
-	if (!base || base->id != base_id)
-		return false;
-
-	*cycles -= base->offset;
-	if (!convert_clock(cycles, base->denominator, base->numerator))
-		return false;
-	return true;
-}
-
-static bool convert_ns_to_cs(u64 *delta)
-{
-	struct tk_read_base *tkr = &tk_core.timekeeper.tkr_mono;
-
-	if (BITS_TO_BYTES(fls64(*delta) + tkr->shift) >= sizeof(*delta))
-		return false;
-
-	*delta = div_u64((*delta << tkr->shift) - tkr->xtime_nsec, tkr->mult);
-	return true;
-}
-
-/**
- * ktime_real_to_base_clock() - Convert CLOCK_REALTIME timestamp to a base clock timestamp
- * @treal:	CLOCK_REALTIME timestamp to convert
- * @base_id:	base clocksource id
- * @cycles:	pointer to store the converted base clock timestamp
- *
- * Converts a supplied, future realtime clock value to the corresponding base clock value.
- *
- * Return:  true if the conversion is successful, false otherwise.
- */
-bool ktime_real_to_base_clock(ktime_t treal, enum clocksource_ids base_id, u64 *cycles)
-{
-	struct timekeeper *tk = &tk_core.timekeeper;
-	unsigned int seq;
-	u64 delta;
-
-	do {
-		seq = read_seqcount_begin(&tk_core.seq);
-		if ((u64)treal < tk->tkr_mono.base_real)
-			return false;
-		delta = (u64)treal - tk->tkr_mono.base_real;
-		if (!convert_ns_to_cs(&delta))
-			return false;
-		*cycles = tk->tkr_mono.cycle_last + delta;
-		if (!convert_cs_to_base(cycles, base_id))
-			return false;
-	} while (read_seqcount_retry(&tk_core.seq, seq));
-
-	return true;
-}
-EXPORT_SYMBOL_GPL(ktime_real_to_base_clock);
-
 /**
  * get_device_system_crosststamp - Synchronously capture system/device timestamp
  * @get_time_fn:	Callback to get simultaneous device time and
@@ -1343,7 +1266,7 @@ int get_device_system_crosststamp(int (*get_time_fn)
 		 * installed timekeeper clocksource
 		 */
 		if (system_counterval.cs_id == CSID_GENERIC ||
-		    !convert_base_to_cs(&system_counterval))
+		    tk->tkr_mono.clock->id != system_counterval.cs_id)
 			return -ENODEV;
 		cycles = system_counterval.cycles;
 
@@ -1408,29 +1331,35 @@ int get_device_system_crosststamp(int (*get_time_fn)
 }
 EXPORT_SYMBOL_GPL(get_device_system_crosststamp);
 
-/**
- * timekeeping_clocksource_has_base - Check whether the current clocksource
- *				      is based on given a base clock
- * @id:		base clocksource ID
- *
- * Note:	The return value is a snapshot which can become invalid right
- *		after the function returns.
- *
- * Return:	true if the timekeeper clocksource has a base clock with @id,
- *		false otherwise
- */
-bool timekeeping_clocksource_has_base(enum clocksource_ids id)
+int ktime_convert_real_to_system_counter(ktime_t sys_realtime,
+					struct system_counterval_t *ret)
 {
-	/*
-	 * This is a snapshot, so no point in using the sequence
-	 * count. Just prevent the compiler from re-evaluating @base as the
-	 * clocksource might change concurrently.
-	 */
-	struct clocksource_base *base = READ_ONCE(tk_core.timekeeper.tkr_mono.clock->base);
+	struct timekeeper *tk = &tk_core.timekeeper;
+	u64 ns_delta;
+	ktime_t base_real;
+	unsigned int seq;
 
-	return base ? base->id == id : false;
+	do {
+		seq = read_seqcount_begin(&tk_core.seq);
+
+		base_real = ktime_add(tk->tkr_mono.base,
+					tk_core.timekeeper.offs_real);
+		if (ktime_compare(sys_realtime, base_real) < 0)
+			return -EINVAL;
+
+		ret->cs_id = tk->tkr_mono.clock->id;
+		ns_delta = ktime_to_ns(ktime_sub(sys_realtime, base_real));
+		ret->cycles = timekeeping_ns_delta_to_cycles(&tk->tkr_mono,
+								ns_delta);
+		if (ret->cycles == (typeof(ret->cycles))-1)
+			return -ERANGE;
+
+		ret->cycles += tk->tkr_mono.cycle_last;
+	} while (read_seqcount_retry(&tk_core.seq, seq));
+
+	return 0;
 }
-EXPORT_SYMBOL_GPL(timekeeping_clocksource_has_base);
+EXPORT_SYMBOL_GPL(ktime_convert_real_to_system_counter);
 
 /**
  * do_settimeofday64 - Sets the time of day.
