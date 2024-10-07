@@ -995,7 +995,7 @@ int mtl_core_init(struct pmc_dev *pmcdev)
 {
 	struct pmc *pmc = pmcdev->pmcs[PMC_IDX_SOC];
 	int ret;
-	unsigned int devid = PMC_DEVID_SOCM;
+	int func = 2;
 	bool ssram_init = true;
 
 	mtl_d3_fixup();
@@ -1008,7 +1008,7 @@ int mtl_core_init(struct pmc_dev *pmcdev)
 	 * If ssram init fails use legacy method to at least get the
 	 * primary PMC
 	 */
-	ret = pmc_core_ssram_init(pmcdev, devid);
+	ret = pmc_core_ssram_init(pmcdev, func);
 	if (ret) {
 		ssram_init = false;
 		dev_warn(&pmcdev->pdev->dev,
