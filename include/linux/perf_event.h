@@ -1928,6 +1928,8 @@ extern int perf_event_period(struct perf_event *event, u64 value);
 extern u64 perf_event_pause(struct perf_event *event, bool reset);
 extern int perf_get_mediated_pmu(void);
 extern void perf_put_mediated_pmu(void);
+extern void perf_guest_enter(void);
+extern void perf_guest_exit(void);
 
 #else /* !CONFIG_PERF_EVENTS: */
 
@@ -2016,6 +2018,8 @@ static inline int
 perf_exclude_event(struct perf_event *event, struct pt_regs *regs)	{ return 0; }
 static inline int perf_get_mediated_pmu(void)				{ return 0; }
 static inline void perf_put_mediated_pmu(void)				{ }
+static inline void perf_guest_enter(void)				{ }
+static inline void perf_guest_exit(void)				{ }
 
 #endif /* !CONFIG_PERF_EVENTS */
 
