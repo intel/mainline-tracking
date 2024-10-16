@@ -306,6 +306,8 @@ struct perf_event_pmu_context;
 #define PERF_PMU_CAP_AUX_PAUSE		0x0200
 #define PERF_PMU_CAP_AUX_PREFER_LARGE	0x0400
 #define PERF_PMU_CAP_MORE_EXT_REGS	0x0800
+/* Support to passthrough whole PMU resoure to guest */
+#define PERF_PMU_CAP_MEDIATED_VPMU	0x1000
 
 /**
  * pmu::scope
@@ -1917,6 +1919,8 @@ extern void perf_event_task_tick(void);
 extern int perf_event_account_interrupt(struct perf_event *event);
 extern int perf_event_period(struct perf_event *event, u64 value);
 extern u64 perf_event_pause(struct perf_event *event, bool reset);
+extern int perf_get_mediated_pmu(void);
+extern void perf_put_mediated_pmu(void);
 
 #else /* !CONFIG_PERF_EVENTS: */
 
@@ -2003,6 +2007,8 @@ static inline u64
 perf_event_pause(struct perf_event *event, bool reset)			{ return 0; }
 static inline int
 perf_exclude_event(struct perf_event *event, struct pt_regs *regs)	{ return 0; }
+static inline int perf_get_mediated_pmu(void)				{ return 0; }
+static inline void perf_put_mediated_pmu(void)				{ }
 
 #endif /* !CONFIG_PERF_EVENTS */
 
