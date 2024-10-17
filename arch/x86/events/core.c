@@ -2806,6 +2806,16 @@ static bool x86_pmu_filter(struct pmu *pmu, int cpu)
 	return ret;
 }
 
+static void x86_pmu_switch_guest_ctx(bool enter, void *data)
+{
+	u32 guest_lvtpc = *(u32 *)data;
+
+	if (enter)
+		apic_write(APIC_LVTPC, guest_lvtpc);
+	else
+		apic_write(APIC_LVTPC, APIC_DM_NMI);
+}
+
 static struct pmu pmu = {
 	.pmu_enable		= x86_pmu_enable,
 	.pmu_disable		= x86_pmu_disable,
@@ -2834,6 +2844,8 @@ static struct pmu pmu = {
 	.aux_output_match	= x86_pmu_aux_output_match,
 
 	.filter			= x86_pmu_filter,
+
+	.switch_guest_ctx	= x86_pmu_switch_guest_ctx,
 };
 
 void arch_perf_update_userpage(struct perf_event *event,
