@@ -465,6 +465,7 @@ static inline bool is_include_guest_event(struct perf_event *event)
 static LIST_HEAD(pmus);
 static DEFINE_MUTEX(pmus_lock);
 static struct srcu_struct pmus_srcu;
+static DEFINE_PER_CPU(struct mediated_pmus_list, mediated_pmus);
 static cpumask_var_t perf_online_mask;
 static cpumask_var_t perf_online_core_mask;
 static cpumask_var_t perf_online_die_mask;
@@ -6339,7 +6340,26 @@ void perf_put_mediated_pmu(void)
 }
 EXPORT_SYMBOL_GPL(perf_put_mediated_pmu);
 
-static inline void perf_host_exit(struct perf_cpu_context *cpuctx)
+static void perf_switch_guest_ctx(bool enter, u32 guest_lvtpc)
+{
+	struct mediated_pmus_list *pmus = this_cpu_ptr(&mediated_pmus);
+	struct perf_cpu_pmu_context *cpc;
+	struct pmu *pmu;
+
+	lockdep_assert_irqs_disabled();
+
+	rcu_read_lock();
+	list_for_each_entry_rcu(cpc, &pmus->list, mediated_entry) {
+		pmu = cpc->epc.pmu;
+
+		if (pmu->switch_guest_ctx)
+			pmu->switch_guest_ctx(enter, (void *)&guest_lvtpc);
+	}
+	rcu_read_unlock();
+}
+
+static inline void perf_host_exit(struct perf_cpu_context *cpuctx,
+				  u32 guest_lvtpc)
 {
 	perf_ctx_disable(&cpuctx->ctx, EVENT_GUEST);
 	ctx_sched_out(&cpuctx->ctx, NULL, EVENT_GUEST);
@@ -6348,6 +6368,7 @@ static inline void perf_host_exit(struct perf_cpu_context *cpuctx)
 		task_ctx_sched_out(cpuctx->task_ctx, NULL, EVENT_GUEST);
 	}
 
+	perf_switch_guest_ctx(true, guest_lvtpc);
 	__this_cpu_write(perf_in_guest, true);
 
 	perf_ctx_enable(&cpuctx->ctx, EVENT_GUEST);
@@ -6356,7 +6377,7 @@ static inline void perf_host_exit(struct perf_cpu_context *cpuctx)
 }
 
 /* When entering a guest, schedule out all exclude_guest events. */
-void perf_guest_enter(void)
+void perf_guest_enter(u32 guest_lvtpc)
 {
 	struct perf_cpu_context *cpuctx = this_cpu_ptr(&perf_cpu_context);
 
@@ -6367,7 +6388,7 @@ void perf_guest_enter(void)
 	if (WARN_ON_ONCE(__this_cpu_read(perf_in_guest)))
 		goto unlock;
 
-	perf_host_exit(cpuctx);
+	perf_host_exit(cpuctx, guest_lvtpc);
 
 unlock:
 	perf_ctx_unlock(cpuctx, cpuctx->task_ctx);
@@ -6380,6 +6401,7 @@ static inline void perf_host_enter(struct perf_cpu_context *cpuctx)
 	if (cpuctx->task_ctx)
 		perf_ctx_disable(cpuctx->task_ctx, EVENT_GUEST);
 
+	perf_switch_guest_ctx(false, 0);
 	__this_cpu_write(perf_in_guest, false);
 
 	perf_event_sched_in(cpuctx, cpuctx->task_ctx, NULL, EVENT_GUEST);
@@ -12634,6 +12656,15 @@ int perf_pmu_register(struct pmu *_pmu, const char *name, int type)
 		*per_cpu_ptr(pmu->cpu_pmu_context, cpu) = cpc;
 		__perf_init_event_pmu_context(&cpc->epc, pmu);
 		__perf_mux_hrtimer_init(cpc, cpu);
+
+		if (pmu->capabilities & PERF_PMU_CAP_MEDIATED_VPMU) {
+			struct mediated_pmus_list *pmus;
+
+			pmus = per_cpu_ptr(&mediated_pmus, cpu);
+			raw_spin_lock(&pmus->lock);
+			list_add_rcu(&cpc->mediated_entry, &pmus->list);
+			raw_spin_unlock(&pmus->lock);
+		}
 	}
 
 	if (!pmu->start_txn) {
@@ -12777,6 +12808,20 @@ int perf_pmu_unregister(struct pmu *pmu)
 			return -EINVAL;
 
 		list_del_rcu(&pmu->entry);
+	}
+
+	if (pmu->capabilities & PERF_PMU_CAP_MEDIATED_VPMU) {
+		struct mediated_pmus_list *pmus;
+		struct perf_cpu_pmu_context *cpc;
+		int cpu;
+
+		for_each_possible_cpu(cpu) {
+			cpc = *per_cpu_ptr(pmu->cpu_pmu_context, cpu);
+			pmus = per_cpu_ptr(&mediated_pmus, cpu);
+			raw_spin_lock(&pmus->lock);
+			list_del_rcu(&cpc->mediated_entry);
+			raw_spin_unlock(&pmus->lock);
+		}
 	}
 
 	/*
@@ -14905,6 +14950,9 @@ static void __init perf_event_init_all_cpus(void)
 		raw_spin_lock_init(&per_cpu(pmu_sb_events.lock, cpu));
 
 		INIT_LIST_HEAD(&per_cpu(sched_cb_list, cpu));
+
+		INIT_LIST_HEAD(&per_cpu(mediated_pmus.list, cpu));
+		raw_spin_lock_init(&per_cpu(mediated_pmus.lock, cpu));
 
 		cpuctx = per_cpu_ptr(&perf_cpu_context, cpu);
 		__perf_event_init_context(&cpuctx->ctx);
