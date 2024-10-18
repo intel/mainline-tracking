@@ -272,11 +272,11 @@ struct cpu_hw_events {
 	int			is_fake;
 
 	/*
-	 * Intel DebugStore bits
+	 * Intel DebugStore/PEBS bits
 	 */
 	struct debug_store	*ds;
-	void			*ds_pebs_vaddr;
 	void			*ds_bts_vaddr;
+	void			*pebs_vaddr;
 	u64			pebs_enabled;
 	int			n_pebs;
 	int			n_large_pebs;
@@ -1623,13 +1623,13 @@ extern void intel_cpuc_finish(struct cpu_hw_events *cpuc);
 
 int intel_pmu_init(void);
 
-void init_debug_store_on_cpu(int cpu);
+void init_pebs_buf_on_cpu(int cpu);
 
-void fini_debug_store_on_cpu(int cpu);
+void fini_pebs_buf_on_cpu(int cpu);
 
-void release_ds_buffers(void);
+void release_bts_pebs_buffers(void);
 
-void reserve_ds_buffers(void);
+void reserve_bts_pebs_buffers(void);
 
 void release_lbr_buffers(void);
 
@@ -1820,11 +1820,11 @@ static inline bool intel_pmu_has_pebs(void)
 
 #else /* CONFIG_CPU_SUP_INTEL */
 
-static inline void reserve_ds_buffers(void)
+static inline void reserve_bts_pebs_buffers(void)
 {
 }
 
-static inline void release_ds_buffers(void)
+static inline void release_bts_pebs_buffers(void)
 {
 }
 
