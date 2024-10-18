@@ -365,6 +365,11 @@ struct pmc_info {
 	const struct pmc_reg_map *map;
 };
 
+enum soc_type {
+	SOC_M,
+	SOC_S
+};
+
 /**
  * struct pmc - pmc private info structure
  * @base_addr:		contains pmc base address
@@ -588,7 +593,7 @@ extern void pmc_core_get_low_power_modes(struct pmc_dev *pmcdev);
 extern void pmc_core_punit_pmt_init(struct pmc_dev *pmcdev, u32 guid);
 extern void pmc_core_set_device_d3(unsigned int device);
 
-extern int pmc_core_ssram_init(struct pmc_dev *pmcdev, unsigned int devid);
+extern int pmc_core_ssram_init(struct pmc_dev *pmcdev, int func);
 
 int spt_core_init(struct pmc_dev *pmcdev);
 int cnp_core_init(struct pmc_dev *pmcdev);
@@ -600,7 +605,7 @@ int adl_core_init(struct pmc_dev *pmcdev);
 int mtl_core_init(struct pmc_dev *pmcdev);
 int arl_core_init(struct pmc_dev *pmcdev);
 int arl_h_core_init(struct pmc_dev *pmcdev);
-int arl_core_generic_init(struct pmc_dev *pmcdev, int soc_tp);
+int arl_core_generic_init(struct pmc_dev *pmcdev, int pch_tp);
 int lnl_core_init(struct pmc_dev *pmcdev);
 
 void cnl_suspend(struct pmc_dev *pmcdev);

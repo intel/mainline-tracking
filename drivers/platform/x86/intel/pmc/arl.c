@@ -16,11 +16,7 @@
 #define IOEP_LPM_REQ_GUID	0x5077612
 #define SOCS_LPM_REQ_GUID	0x8478657
 #define PCHS_LPM_REQ_GUID	0x9684572
-
-enum soc_type {
-	SOC_M,
-	SOC_S
-};
+#define SOCM_LPM_REQ_GUID	0x2625030
 
 static const u8 ARL_LPM_REG_INDEX[] = {0, 4, 5, 6, 8, 9, 10, 11, 12, 13, 14, 15, 16, 20};
 
@@ -655,7 +651,7 @@ const struct pmc_reg_map arl_pchs_reg_map = {
 	.etr3_offset = ETR3_OFFSET,
 };
 
-#define PMC_DEVID_SOCM 0x7e7f
+#define PMC_DEVID_SOCM 0x777f
 #define PMC_DEVID_SOCS 0xae7f
 #define PMC_DEVID_IOEP 0x7ecf
 #define PMC_DEVID_PCHS 0x7f27
@@ -675,11 +671,17 @@ static struct pmc_info arl_pmc_info_list[] = {
 		.devid	= PMC_DEVID_PCHS,
 		.map	= &arl_pchs_reg_map,
 	},
+	{
+		.guid	= SOCM_LPM_REQ_GUID,
+		.devid	= PMC_DEVID_SOCM,
+		.map	= &mtl_socm_reg_map,
+	},
 	{}
 };
 
 #define ARL_NPU_PCI_DEV			0xad1d
 #define ARL_GNA_PCI_DEV			0xae4c
+#define ARL_H_GNA_PCI_DEV		0x774c
 /*
  * Set power state of select devices that do not have drivers to D3
  * so that they do not block Package C entry.
@@ -690,6 +692,12 @@ static void arl_d3_fixup(void)
 	pmc_core_set_device_d3(ARL_GNA_PCI_DEV);
 }
 
+static void arl_h_d3_fixup(void)
+{
+	pmc_core_set_device_d3(ARL_NPU_PCI_DEV);
+	pmc_core_set_device_d3(ARL_H_GNA_PCI_DEV);
+}
+
 static int arl_resume(struct pmc_dev *pmcdev)
 {
 	arl_d3_fixup();
@@ -698,40 +706,54 @@ static int arl_resume(struct pmc_dev *pmcdev)
 	return pmc_core_resume_common(pmcdev);
 }
 
+static int arl_h_resume(struct pmc_dev *pmcdev)
+{
+	arl_h_d3_fixup();
+	pmc_core_send_ltr_ignore(pmcdev, 3, 0);
+
+	return pmc_core_resume_common(pmcdev);
+}
+
 int arl_h_core_init(struct pmc_dev *pmcdev)
 {
+	arl_h_d3_fixup();
+
 	return arl_core_generic_init(pmcdev, SOC_M);
 }
 
 int arl_core_init(struct pmc_dev *pmcdev)
 {
+	arl_d3_fixup();
+
 	return arl_core_generic_init(pmcdev, SOC_S);
 }
 
 int arl_core_generic_init(struct pmc_dev *pmcdev, int soc_tp)
 {
-	struct pmc *pmc = pmcdev->pmcs[PMC_IDX_SOC];
-	unsigned int devid;
 	int ret;
+	int func;
 	bool ssram_init = true;
+	struct pmc *pmc = pmcdev->pmcs[PMC_IDX_SOC];
 
-	arl_d3_fixup();
 	pmcdev->suspend = cnl_suspend;
-	pmcdev->resume = arl_resume;
-	pmcdev->regmap_list = arl_pmc_info_list;
 
-	if (soc_tp == SOC_M)
-		devid =  PMC_DEVID_SOCM;
-	else if (soc_tp == SOC_S)
-		devid =  PMC_DEVID_SOCS;
-	else
+	if (soc_tp == SOC_M) {
+		func = 2;
+		pmcdev->resume = arl_h_resume;
+	} else if (soc_tp == SOC_S) {
+		func = 0;
+		pmcdev->resume = arl_resume;
+	} else {
 		return -EINVAL;
+	}
+
+	pmcdev->regmap_list = arl_pmc_info_list;
 
 	/*
 	 * If ssram init fails use legacy method to at least get the
 	 * primary PMC
 	 */
-	ret = pmc_core_ssram_init(pmcdev, devid);
+	ret = pmc_core_ssram_init(pmcdev, func);
 	if (ret) {
 		ssram_init = false;
 		if (soc_tp == SOC_M)
@@ -747,11 +769,8 @@ int arl_core_generic_init(struct pmc_dev *pmcdev, int soc_tp)
 	pmc_core_get_low_power_modes(pmcdev);
 	pmc_core_punit_pmt_init(pmcdev, ARL_PMT_DMU_GUID);
 
-	if (ssram_init)	{
-		ret = pmc_core_ssram_get_lpm_reqs(pmcdev);
-		if (ret)
-			return ret;
-	}
+	if (ssram_init)
+		return pmc_core_ssram_get_lpm_reqs(pmcdev);
 
 	return 0;
 }
