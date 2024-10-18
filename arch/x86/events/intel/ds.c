@@ -545,26 +545,6 @@ struct pebs_record_skl {
 	u64 tsc;
 };
 
-void init_debug_store_on_cpu(int cpu)
-{
-	struct debug_store *ds = per_cpu(cpu_hw_events, cpu).ds;
-
-	if (!ds)
-		return;
-
-	wrmsr_on_cpu(cpu, MSR_IA32_DS_AREA,
-		     (u32)((u64)(unsigned long)ds),
-		     (u32)((u64)(unsigned long)ds >> 32));
-}
-
-void fini_debug_store_on_cpu(int cpu)
-{
-	if (!per_cpu(cpu_hw_events, cpu).ds)
-		return;
-
-	wrmsr_on_cpu(cpu, MSR_IA32_DS_AREA, 0, 0);
-}
-
 static DEFINE_PER_CPU(void *, insn_buffer);
 
 static void ds_update_cea(void *cea, void *addr, size_t size, pgprot_t prot)
@@ -624,12 +604,17 @@ static int alloc_pebs_buffer(int cpu)
 	int max, node = cpu_to_node(cpu);
 	void *buffer, *insn_buff, *cea;
 
-	if (!x86_pmu.ds_pebs)
+	if (!intel_pmu_has_pebs())
 		return 0;
 
-	buffer = dsalloc_pages(bsiz, GFP_KERNEL, cpu);
+	buffer = dsalloc_pages(bsiz, preemptible() ? GFP_KERNEL : GFP_ATOMIC, cpu);
 	if (unlikely(!buffer))
 		return -ENOMEM;
+
+	if (x86_pmu.arch_pebs) {
+		hwev->pebs_vaddr = buffer;
+		return 0;
+	}
 
 	/*
 	 * HSW+ already provides us the eventing ip; no need to allocate this
@@ -643,7 +628,7 @@ static int alloc_pebs_buffer(int cpu)
 		}
 		per_cpu(insn_buffer, cpu) = insn_buff;
 	}
-	hwev->ds_pebs_vaddr = buffer;
+	hwev->pebs_vaddr = buffer;
 	/* Update the cpu entry area mapping */
 	cea = &get_cpu_entry_area(cpu)->cpu_debug_buffers.pebs_buffer;
 	ds->pebs_buffer_base = (unsigned long) cea;
@@ -659,17 +644,20 @@ static void release_pebs_buffer(int cpu)
 	struct cpu_hw_events *hwev = per_cpu_ptr(&cpu_hw_events, cpu);
 	void *cea;
 
-	if (!x86_pmu.ds_pebs)
+	if (!intel_pmu_has_pebs())
 		return;
 
-	kfree(per_cpu(insn_buffer, cpu));
-	per_cpu(insn_buffer, cpu) = NULL;
+	if (x86_pmu.ds_pebs) {
+		kfree(per_cpu(insn_buffer, cpu));
+		per_cpu(insn_buffer, cpu) = NULL;
 
-	/* Clear the fixmap */
-	cea = &get_cpu_entry_area(cpu)->cpu_debug_buffers.pebs_buffer;
-	ds_clear_cea(cea, x86_pmu.pebs_buffer_size);
-	dsfree_pages(hwev->ds_pebs_vaddr, x86_pmu.pebs_buffer_size);
-	hwev->ds_pebs_vaddr = NULL;
+		/* Clear the fixmap */
+		cea = &get_cpu_entry_area(cpu)->cpu_debug_buffers.pebs_buffer;
+		ds_clear_cea(cea, x86_pmu.pebs_buffer_size);
+	}
+
+	dsfree_pages(hwev->pebs_vaddr, x86_pmu.pebs_buffer_size);
+	hwev->pebs_vaddr = NULL;
 }
 
 static int alloc_bts_buffer(int cpu)
@@ -730,11 +718,11 @@ static void release_ds_buffer(int cpu)
 	per_cpu(cpu_hw_events, cpu).ds = NULL;
 }
 
-void release_ds_buffers(void)
+void release_bts_pebs_buffers(void)
 {
 	int cpu;
 
-	if (!x86_pmu.bts && !x86_pmu.ds_pebs)
+	if (!x86_pmu.bts && !intel_pmu_has_pebs())
 		return;
 
 	for_each_possible_cpu(cpu)
@@ -746,7 +734,7 @@ void release_ds_buffers(void)
 		 * observe cpu_hw_events.ds and not program the DS_AREA when
 		 * they come up.
 		 */
-		fini_debug_store_on_cpu(cpu);
+		fini_pebs_buf_on_cpu(cpu);
 	}
 
 	for_each_possible_cpu(cpu) {
@@ -755,7 +743,7 @@ void release_ds_buffers(void)
 	}
 }
 
-void reserve_ds_buffers(void)
+void reserve_bts_pebs_buffers(void)
 {
 	int bts_err = 0, pebs_err = 0;
 	int cpu;
@@ -763,19 +751,20 @@ void reserve_ds_buffers(void)
 	x86_pmu.bts_active = 0;
 	x86_pmu.pebs_active = 0;
 
-	if (!x86_pmu.bts && !x86_pmu.ds_pebs)
+	if (!x86_pmu.bts && !intel_pmu_has_pebs())
 		return;
 
 	if (!x86_pmu.bts)
 		bts_err = 1;
 
-	if (!x86_pmu.ds_pebs)
+	if (!intel_pmu_has_pebs())
 		pebs_err = 1;
 
 	for_each_possible_cpu(cpu) {
 		if (alloc_ds_buffer(cpu)) {
 			bts_err = 1;
-			pebs_err = 1;
+			if (x86_pmu.ds_pebs)
+				pebs_err = 1;
 		}
 
 		if (!bts_err && alloc_bts_buffer(cpu))
@@ -805,7 +794,7 @@ void reserve_ds_buffers(void)
 		if (x86_pmu.bts && !bts_err)
 			x86_pmu.bts_active = 1;
 
-		if (x86_pmu.ds_pebs && !pebs_err)
+		if (intel_pmu_has_pebs() && !pebs_err)
 			x86_pmu.pebs_active = 1;
 
 		for_each_possible_cpu(cpu) {
@@ -813,9 +802,48 @@ void reserve_ds_buffers(void)
 			 * Ignores wrmsr_on_cpu() errors for offline CPUs they
 			 * will get this call through intel_pmu_cpu_starting().
 			 */
-			init_debug_store_on_cpu(cpu);
+			init_pebs_buf_on_cpu(cpu);
 		}
 	}
+}
+
+void init_pebs_buf_on_cpu(int cpu)
+{
+	struct cpu_hw_events *cpuc = per_cpu_ptr(&cpu_hw_events, cpu);
+
+	if (x86_pmu.arch_pebs) {
+		u64 arch_pebs_base;
+
+		if (!cpuc->pebs_vaddr)
+			return;
+
+		/*
+		 * 4KB-aligned pointer of the output buffer
+		 * (__alloc_pages_node() return page aligned address)
+		 * Buffer Size = 4KB * 2^SIZE
+		 * contiguous physical buffer (__alloc_pages_node() with order)
+		 */
+		arch_pebs_base = virt_to_phys(cpuc->pebs_vaddr) | PEBS_BUFFER_SHIFT;
+
+		wrmsr_on_cpu(cpu, MSR_IA32_PEBS_BASE,
+			    (u32)arch_pebs_base,
+			    (u32)(arch_pebs_base >> 32));
+	} else if (cpuc->ds) {
+		/* legacy PEBS */
+		wrmsr_on_cpu(cpu, MSR_IA32_DS_AREA,
+		     (u32)((u64)(unsigned long)cpuc->ds),
+		     (u32)((u64)(unsigned long)cpuc->ds >> 32));
+	}
+}
+
+void fini_pebs_buf_on_cpu(int cpu)
+{
+	struct cpu_hw_events *cpuc = per_cpu_ptr(&cpu_hw_events, cpu);
+
+	if (x86_pmu.arch_pebs)
+		wrmsr_on_cpu(cpu, MSR_IA32_PEBS_BASE, 0, 0);
+	else if (cpuc->ds)
+		wrmsr_on_cpu(cpu, MSR_IA32_DS_AREA, 0, 0);
 }
 
 /*
@@ -2866,8 +2894,8 @@ static void intel_pmu_drain_arch_pebs(struct pt_regs *iregs,
 		return;
 	}
 
-	base = cpuc->ds_pebs_vaddr;
-	top = (void *)((u64)cpuc->ds_pebs_vaddr +
+	base = cpuc->pebs_vaddr;
+	top = (void *)((u64)cpuc->pebs_vaddr +
 		       (index.split.wr << ARCH_PEBS_INDEX_WR_SHIFT));
 
 	mask = hybrid(cpuc->pmu, arch_pebs_cap).counters & cpuc->pebs_enabled;
