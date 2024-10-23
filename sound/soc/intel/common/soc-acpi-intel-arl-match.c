@@ -128,16 +128,16 @@ struct snd_soc_acpi_mach snd_soc_acpi_intel_arl_machines[] = {
 			SND_SOC_ACPI_TPLG_INTEL_DMIC_NUMBER,
 	},
 	{
-		.id = "INTC10B0",
-		.drv_name = "arl_lt6911_hdmi_ssp",
-		.sof_tplg_filename = "sof-arl-nocodec-hdmi-ssp02.tplg"
-	},
-	{
 		.comp_ids = &arl_rt5682_hp,
 		.drv_name = "arl_rt5682_c1_h02",
 		.machine_quirk = snd_soc_acpi_codec_list,
 		.quirk_data = &arl_lt6911_hdmi,
 		.sof_tplg_filename = "sof-arl-rt5682-ssp1-hdmi-ssp02.tplg",
+	},
+	{
+		.id = "INTC10B0",
+		.drv_name = "arl_lt6911_hdmi_ssp",
+		.sof_tplg_filename = "sof-arl-hdmi-ssp02.tplg"
 	},
 	{},
 };
