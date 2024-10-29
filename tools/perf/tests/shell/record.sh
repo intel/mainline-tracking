@@ -116,6 +116,60 @@ test_register_capture() {
   echo "Register capture test [Success]"
 }
 
+test_vec_register_capture() {
+  echo "Vector register capture test"
+  if ! perf record -o /dev/null --quiet -e instructions:p true 2> /dev/null
+  then
+    echo "Vector register capture test [Skipped missing event]"
+    return
+  fi
+  if ! perf record --intr-regs=\? 2>&1 | grep -q 'XMM0'
+  then
+    echo "Vector register capture test [Skipped missing XMM registers]"
+    return
+  fi
+  if ! perf record -o - --intr-regs=xmm0 -e instructions:p \
+    -c 100000 ${testprog} 2> /dev/null \
+    | perf script -F ip,sym,iregs -i - 2> /dev/null \
+    | grep -q "XMM0:"
+  then
+    echo "Vector register capture test [Failed missing XMM output]"
+    err=1
+    return
+  fi
+  echo "Vector registe (XMM) capture test [Success]"
+  if ! perf record --intr-regs=\? 2>&1 | grep -q 'YMMH0'
+  then
+    echo "Vector register capture test [Skipped missing YMM registers]"
+    return
+  fi
+  if ! perf record -o - --intr-regs=ymmh0 -e instructions:p \
+    -c 100000 ${testprog} 2> /dev/null \
+    | perf script -F ip,sym,iregs -i - 2> /dev/null \
+    | grep -q "YMMH0:"
+  then
+    echo "Vector register capture test [Failed missing YMMH output]"
+    err=1
+    return
+  fi
+  echo "Vector registe (YMM) capture test [Success]"
+  if ! perf record --intr-regs=\? 2>&1 | grep -q 'ZMMH0'
+  then
+    echo "Vector register capture test [Skipped missing ZMM registers]"
+    return
+  fi
+  if ! perf record -o - --intr-regs=zmmh0 -e instructions:p \
+    -c 100000 ${testprog} 2> /dev/null \
+    | perf script -F ip,sym,iregs -i - 2> /dev/null \
+    | grep -q "ZMMH0:"
+  then
+    echo "Vector register capture test [Failed missing ZMMH output]"
+    err=1
+    return
+  fi
+  echo "Vector registe (ZMM) capture test [Success]"
+}
+
 test_system_wide() {
   echo "Basic --system-wide mode test"
   if ! perf record -aB --synth=no -o "${perfdata}" ${testprog} 2> /dev/null
@@ -303,6 +357,7 @@ fi
 
 test_per_thread
 test_register_capture
+test_vec_register_capture
 test_system_wide
 test_workload
 test_branch_counter
