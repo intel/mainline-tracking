@@ -7,3 +7,5 @@ issei-objs += cdev.o
 issei-objs += dma.o
 issei-objs += fw_client.o
 issei-objs += host_client.o
+issei-objs += ham.o
+issei-objs += main.o
