@@ -5,3 +5,5 @@ ccflags-y += -DDEFAULT_SYMBOL_NAMESPACE='"INTEL_SSEI"'
 obj-$(CONFIG_INTEL_SSEI) += issei.o
 issei-objs += cdev.o
 issei-objs += dma.o
+issei-objs += fw_client.o
+issei-objs += host_client.o
