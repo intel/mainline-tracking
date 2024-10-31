@@ -150,4 +150,13 @@ struct issei_device {
 	char hw[] __aligned(sizeof(void *));
 };
 
+void issei_device_init(struct issei_device *idev, struct device *device,
+		       const struct issei_dma_length *dma_length,
+		       const struct issei_hw_ops *ops);
+
+int issei_start(struct issei_device *idev);
+void issei_stop(struct issei_device *idev);
+
+bool issei_is_busy(struct issei_device *idev);
+
 #endif /* _ISSEI_DEV_H_ */
