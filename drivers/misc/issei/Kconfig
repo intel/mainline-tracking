@@ -11,3 +11,17 @@ config INTEL_SSEI
 
 	  If selected, the /dev/isseiX device will be created.
 	  If in doubt, select N.
+
+if INTEL_SSEI
+
+config INTEL_SSEI_HW_HECI
+	tristate "Intel Silicon Security Engine Interface Hardware"
+	depends on PCI
+	help
+	  HECI interface of communication channel between
+	  the host and the Silicon Security Engine.
+
+	  Implementation of ISSEI communication channel over
+	  the HECI hardware PCI device.
+
+endif
