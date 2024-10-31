@@ -884,6 +884,7 @@ int xe_bo_evict_pinned(struct xe_bo *bo)
 	};
 	struct ttm_operation_ctx ctx = {
 		.interruptible = false,
+		.gfp_retry_mayfail = true,
 	};
 	struct ttm_resource *new_mem;
 	int ret;
@@ -945,6 +946,7 @@ int xe_bo_restore_pinned(struct xe_bo *bo)
 {
 	struct ttm_operation_ctx ctx = {
 		.interruptible = false,
+		.gfp_retry_mayfail = false,
 	};
 	struct ttm_resource *new_mem;
 	struct ttm_place *place = &bo->placements[0];
@@ -1114,7 +1116,8 @@ static void xe_ttm_bo_purge(struct ttm_buffer_object *ttm_bo, struct ttm_operati
 static void xe_ttm_bo_swap_notify(struct ttm_buffer_object *ttm_bo)
 {
 	struct ttm_operation_ctx ctx = {
-		.interruptible = false
+		.interruptible = false,
+		.gfp_retry_mayfail = false,
 	};
 
 	if (ttm_bo->ttm) {
@@ -1309,6 +1312,7 @@ struct xe_bo *___xe_bo_create_locked(struct xe_device *xe, struct xe_bo *bo,
 	struct ttm_operation_ctx ctx = {
 		.interruptible = true,
 		.no_wait_gpu = false,
+		.gfp_retry_mayfail = true,
 	};
 	struct ttm_placement *placement;
 	uint32_t alignment;
@@ -1908,6 +1912,7 @@ int xe_bo_validate(struct xe_bo *bo, struct xe_vm *vm, bool allow_res_evict)
 	struct ttm_operation_ctx ctx = {
 		.interruptible = true,
 		.no_wait_gpu = false,
+		.gfp_retry_mayfail = true,
 	};
 
 	if (vm) {
@@ -2251,6 +2256,7 @@ int xe_bo_migrate(struct xe_bo *bo, u32 mem_type)
 	struct ttm_operation_ctx ctx = {
 		.interruptible = true,
 		.no_wait_gpu = false,
+		.gfp_retry_mayfail = true,
 	};
 	struct ttm_placement placement;
 	struct ttm_place requested;
@@ -2301,6 +2307,7 @@ int xe_bo_evict(struct xe_bo *bo, bool force_alloc)
 		.interruptible = false,
 		.no_wait_gpu = false,
 		.force_alloc = force_alloc,
+		.gfp_retry_mayfail = true,
 	};
 	struct ttm_placement placement;
 	int ret;
