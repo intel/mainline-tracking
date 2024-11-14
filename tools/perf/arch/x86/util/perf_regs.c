@@ -54,6 +54,66 @@ static const struct sample_reg sample_reg_masks[] = {
 	SMPL_REG2(XMM13, PERF_REG_X86_XMM13),
 	SMPL_REG2(XMM14, PERF_REG_X86_XMM14),
 	SMPL_REG2(XMM15, PERF_REG_X86_XMM15),
+
+	SMPL_REG4_EXT(YMM0, PERF_REG_X86_YMM0),
+	SMPL_REG4_EXT(YMM1, PERF_REG_X86_YMM1),
+	SMPL_REG4_EXT(YMM2, PERF_REG_X86_YMM2),
+	SMPL_REG4_EXT(YMM3, PERF_REG_X86_YMM3),
+	SMPL_REG4_EXT(YMM4, PERF_REG_X86_YMM4),
+	SMPL_REG4_EXT(YMM5, PERF_REG_X86_YMM5),
+	SMPL_REG4_EXT(YMM6, PERF_REG_X86_YMM6),
+	SMPL_REG4_EXT(YMM7, PERF_REG_X86_YMM7),
+	SMPL_REG4_EXT(YMM8, PERF_REG_X86_YMM8),
+	SMPL_REG4_EXT(YMM9, PERF_REG_X86_YMM9),
+	SMPL_REG4_EXT(YMM10, PERF_REG_X86_YMM10),
+	SMPL_REG4_EXT(YMM11, PERF_REG_X86_YMM11),
+	SMPL_REG4_EXT(YMM12, PERF_REG_X86_YMM12),
+	SMPL_REG4_EXT(YMM13, PERF_REG_X86_YMM13),
+	SMPL_REG4_EXT(YMM14, PERF_REG_X86_YMM14),
+	SMPL_REG4_EXT(YMM15, PERF_REG_X86_YMM15),
+
+	SMPL_REG8_EXT(ZMM0, PERF_REG_X86_ZMM0),
+	SMPL_REG8_EXT(ZMM1, PERF_REG_X86_ZMM1),
+	SMPL_REG8_EXT(ZMM2, PERF_REG_X86_ZMM2),
+	SMPL_REG8_EXT(ZMM3, PERF_REG_X86_ZMM3),
+	SMPL_REG8_EXT(ZMM4, PERF_REG_X86_ZMM4),
+	SMPL_REG8_EXT(ZMM5, PERF_REG_X86_ZMM5),
+	SMPL_REG8_EXT(ZMM6, PERF_REG_X86_ZMM6),
+	SMPL_REG8_EXT(ZMM7, PERF_REG_X86_ZMM7),
+	SMPL_REG8_EXT(ZMM8, PERF_REG_X86_ZMM8),
+	SMPL_REG8_EXT(ZMM9, PERF_REG_X86_ZMM9),
+	SMPL_REG8_EXT(ZMM10, PERF_REG_X86_ZMM10),
+	SMPL_REG8_EXT(ZMM11, PERF_REG_X86_ZMM11),
+	SMPL_REG8_EXT(ZMM12, PERF_REG_X86_ZMM12),
+	SMPL_REG8_EXT(ZMM13, PERF_REG_X86_ZMM13),
+	SMPL_REG8_EXT(ZMM14, PERF_REG_X86_ZMM14),
+	SMPL_REG8_EXT(ZMM15, PERF_REG_X86_ZMM15),
+	SMPL_REG8_EXT(ZMM16, PERF_REG_X86_ZMM16),
+	SMPL_REG8_EXT(ZMM17, PERF_REG_X86_ZMM17),
+	SMPL_REG8_EXT(ZMM18, PERF_REG_X86_ZMM18),
+	SMPL_REG8_EXT(ZMM19, PERF_REG_X86_ZMM19),
+	SMPL_REG8_EXT(ZMM20, PERF_REG_X86_ZMM20),
+	SMPL_REG8_EXT(ZMM21, PERF_REG_X86_ZMM21),
+	SMPL_REG8_EXT(ZMM22, PERF_REG_X86_ZMM22),
+	SMPL_REG8_EXT(ZMM23, PERF_REG_X86_ZMM23),
+	SMPL_REG8_EXT(ZMM24, PERF_REG_X86_ZMM24),
+	SMPL_REG8_EXT(ZMM25, PERF_REG_X86_ZMM25),
+	SMPL_REG8_EXT(ZMM26, PERF_REG_X86_ZMM26),
+	SMPL_REG8_EXT(ZMM27, PERF_REG_X86_ZMM27),
+	SMPL_REG8_EXT(ZMM28, PERF_REG_X86_ZMM28),
+	SMPL_REG8_EXT(ZMM29, PERF_REG_X86_ZMM29),
+	SMPL_REG8_EXT(ZMM30, PERF_REG_X86_ZMM30),
+	SMPL_REG8_EXT(ZMM31, PERF_REG_X86_ZMM31),
+
+	SMPL_REG_EXT(OPMASK0, PERF_REG_X86_OPMASK0),
+	SMPL_REG_EXT(OPMASK1, PERF_REG_X86_OPMASK1),
+	SMPL_REG_EXT(OPMASK2, PERF_REG_X86_OPMASK2),
+	SMPL_REG_EXT(OPMASK3, PERF_REG_X86_OPMASK3),
+	SMPL_REG_EXT(OPMASK4, PERF_REG_X86_OPMASK4),
+	SMPL_REG_EXT(OPMASK5, PERF_REG_X86_OPMASK5),
+	SMPL_REG_EXT(OPMASK6, PERF_REG_X86_OPMASK6),
+	SMPL_REG_EXT(OPMASK7, PERF_REG_X86_OPMASK7),
+
 	SMPL_REG_END
 };
 
@@ -283,13 +343,59 @@ const struct sample_reg *arch__sample_reg_masks(void)
 	return sample_reg_masks;
 }
 
-void arch__intr_reg_mask(unsigned long *mask)
+static void check_ext2_regs_mask(struct perf_event_attr *attr, bool user,
+				 int idx, u64 fmask, unsigned long *mask)
+{
+	u64 reg_mask[PERF_SAMPLE_ARRAY_SIZE] = { 0 };
+	int fd;
+
+	if (user) {
+		attr->sample_regs_user = 0;
+		attr->sample_regs_user_ext[idx] = fmask;
+	} else {
+		attr->sample_regs_intr = 0;
+		attr->sample_regs_intr_ext[idx] = fmask;
+	}
+
+	/* reg_mask[] includes sample_regs_intr regs, so index need add 1. */
+	reg_mask[idx + 1] = fmask;
+
+	fd = sys_perf_event_open(attr, 0, -1, -1, 0);
+	if (fd != -1) {
+		close(fd);
+		bitmap_or(mask, mask, (unsigned long *)reg_mask,
+			  PERF_SAMPLE_REGS_NUM);
+	}
+}
+
+#define PERF_REG_EXTENDED_YMM_MASK	GENMASK_ULL(63, 0)
+#define PERF_REG_EXTENDED_ZMM_MASK	GENMASK_ULL(63, 0)
+#define PERF_REG_EXTENDED_OPMASK_MASK	GENMASK_ULL(7, 0)
+
+static void get_ext2_regs_mask(struct perf_event_attr *attr, bool user,
+			       unsigned long *mask)
+{
+	event_attr_init(attr);
+
+	/* Check YMM regs, bits 128 ~ 191. */
+	check_ext2_regs_mask(attr, user, 1, PERF_REG_EXTENDED_YMM_MASK, mask);
+	/* Check ZMM 0-7 regs, bits 192 ~ 255. */
+	check_ext2_regs_mask(attr, user, 2, PERF_REG_EXTENDED_ZMM_MASK, mask);
+	/* Check ZMM 8-15 regs, bits 256 ~ 319. */
+	check_ext2_regs_mask(attr, user, 3, PERF_REG_EXTENDED_ZMM_MASK, mask);
+	/* Check ZMM 16-23 regs, bits 320 ~ 383. */
+	check_ext2_regs_mask(attr, user, 4, PERF_REG_EXTENDED_ZMM_MASK, mask);
+	/* Check ZMM 16-23 regs, bits 384 ~ 447. */
+	check_ext2_regs_mask(attr, user, 5, PERF_REG_EXTENDED_ZMM_MASK, mask);
+	/* Check OPMASK regs, bits 448 ~ 455. */
+	check_ext2_regs_mask(attr, user, 6, PERF_REG_EXTENDED_OPMASK_MASK, mask);
+}
+
+static void arch__get_reg_mask(unsigned long *mask, bool user)
 {
 	struct perf_event_attr attr = {
 		.type			= PERF_TYPE_HARDWARE,
 		.config			= PERF_COUNT_HW_CPU_CYCLES,
-		.sample_type		= PERF_SAMPLE_REGS_INTR,
-		.sample_regs_intr	= PERF_REG_EXTENDED_MASK,
 		.precise_ip		= 1,
 		.disabled 		= 1,
 		.exclude_kernel		= 1,
@@ -297,6 +403,14 @@ void arch__intr_reg_mask(unsigned long *mask)
 	int fd;
 
 	*(u64 *)mask = PERF_REGS_MASK;
+
+	if (user) {
+		attr.sample_type = PERF_SAMPLE_REGS_USER;
+		attr.sample_regs_user = PERF_REG_EXTENDED_MASK;
+	} else {
+		attr.sample_type = PERF_SAMPLE_REGS_INTR;
+		attr.sample_regs_intr = PERF_REG_EXTENDED_MASK;
+	}
 
 	/*
 	 * In an unnamed union, init it here to build on older gcc versions
@@ -325,9 +439,16 @@ void arch__intr_reg_mask(unsigned long *mask)
 		close(fd);
 		*(u64 *)mask = PERF_REG_EXTENDED_MASK | PERF_REGS_MASK;
 	}
+
+	get_ext2_regs_mask(&attr, user, mask);
+}
+
+void arch__intr_reg_mask(unsigned long *mask)
+{
+	arch__get_reg_mask(mask, false);
 }
 
 void arch__user_reg_mask(unsigned long *mask)
 {
-	*(uint64_t *)mask = PERF_REGS_MASK;
+	arch__get_reg_mask(mask, true);
 }
