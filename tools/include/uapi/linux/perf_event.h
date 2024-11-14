@@ -382,6 +382,13 @@ enum perf_event_read_format {
 #define PERF_ATTR_SIZE_VER6			120	/* Add: aux_sample_size */
 #define PERF_ATTR_SIZE_VER7			128	/* Add: sig_data */
 #define PERF_ATTR_SIZE_VER8			136	/* Add: config3 */
+#define PERF_ATTR_SIZE_VER9			168	/* add: sample_regs_intr_ext[PERF_EXT_REGS_ARRAY_SIZE] */
+
+#define PERF_EXT_REGS_ARRAY_SIZE	7
+#define PERF_NUM_EXT_REGS		(PERF_EXT_REGS_ARRAY_SIZE * 64)
+
+#define PERF_SAMPLE_ARRAY_SIZE		(PERF_EXT_REGS_ARRAY_SIZE + 1)
+#define PERF_SAMPLE_REGS_NUM		((PERF_SAMPLE_ARRAY_SIZE) * 64)
 
 /*
  * 'struct perf_event_attr' contains various attributes that define
@@ -543,6 +550,13 @@ struct perf_event_attr {
 	__u64	sig_data;
 
 	__u64	config3; /* extension of config2 */
+
+	/*
+	 * Extension sets of regs to dump for each sample.
+	 * See asm/perf_regs.h for details.
+	 */
+	__u64	sample_regs_intr_ext[PERF_EXT_REGS_ARRAY_SIZE];
+	__u64   sample_regs_user_ext[PERF_EXT_REGS_ARRAY_SIZE];
 };
 
 /*

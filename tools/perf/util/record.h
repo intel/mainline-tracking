@@ -58,8 +58,8 @@ struct record_opts {
 	unsigned int  auxtrace_mmap_pages;
 	unsigned int  user_freq;
 	u64	      branch_stack;
-	u64	      sample_intr_regs;
-	u64	      sample_user_regs;
+	u64	      sample_intr_regs[PERF_SAMPLE_ARRAY_SIZE];
+	u64	      sample_user_regs[PERF_SAMPLE_ARRAY_SIZE];
 	u64	      default_interval;
 	u64	      user_interval;
 	size_t	      auxtrace_snapshot_size;
