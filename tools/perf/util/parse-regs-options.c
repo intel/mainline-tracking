@@ -12,11 +12,13 @@
 static int
 __parse_regs(const struct option *opt, const char *str, int unset, bool intr)
 {
+	unsigned int size = PERF_SAMPLE_REGS_NUM;
 	uint64_t *mode = (uint64_t *)opt->value;
 	const struct sample_reg *r = NULL;
 	char *s, *os = NULL, *p;
 	int ret = -1;
-	uint64_t mask = 0;
+	DECLARE_BITMAP(mask, size);
+	DECLARE_BITMAP(mask_tmp, size);
 
 	if (unset)
 		return 0;
@@ -24,13 +26,14 @@ __parse_regs(const struct option *opt, const char *str, int unset, bool intr)
 	/*
 	 * cannot set it twice
 	 */
-	if (*mode)
+	if (bitmap_weight((unsigned long *)mode, size))
 		return -1;
 
+	bitmap_zero(mask, size);
 	if (intr)
-		arch__intr_reg_mask((unsigned long *)&mask);
+		arch__intr_reg_mask(mask);
 	else
-		arch__user_reg_mask((unsigned long *)&mask);
+		arch__user_reg_mask(mask);
 
 	/* str may be NULL in case no arg is passed to -I */
 	if (str) {
@@ -47,7 +50,8 @@ __parse_regs(const struct option *opt, const char *str, int unset, bool intr)
 			if (!strcmp(s, "?")) {
 				fprintf(stderr, "available registers: ");
 				for (r = arch__sample_reg_masks(); r->name; r++) {
-					if (r->mask & mask)
+					bitmap_and(mask_tmp, mask, r->mask_ext, size);
+					if (bitmap_weight(mask_tmp, size))
 						fprintf(stderr, "%s ", r->name);
 				}
 				fputc('\n', stderr);
@@ -55,7 +59,8 @@ __parse_regs(const struct option *opt, const char *str, int unset, bool intr)
 				goto error;
 			}
 			for (r = arch__sample_reg_masks(); r->name; r++) {
-				if ((r->mask & mask) && !strcasecmp(s, r->name))
+				bitmap_and(mask_tmp, mask, r->mask_ext, size);
+				if (bitmap_weight(mask_tmp, size) && !strcasecmp(s, r->name))
 					break;
 			}
 			if (!r || !r->name) {
@@ -64,7 +69,7 @@ __parse_regs(const struct option *opt, const char *str, int unset, bool intr)
 				goto error;
 			}
 
-			*mode |= r->mask;
+			bitmap_or((unsigned long *)mode, (unsigned long *)mode, r->mask_ext, size);
 
 			if (!p)
 				break;
@@ -75,8 +80,8 @@ __parse_regs(const struct option *opt, const char *str, int unset, bool intr)
 	ret = 0;
 
 	/* default to all possible regs */
-	if (*mode == 0)
-		*mode = mask;
+	if (!bitmap_weight((unsigned long *)mode, size))
+		bitmap_or((unsigned long *)mode, (unsigned long *)mode, mask, size);
 error:
 	free(os);
 	return ret;
