@@ -78,6 +78,94 @@ const char *__perf_reg_name_x86(int id)
 	XMM(14)
 	XMM(15)
 #undef XMM
+
+#define YMMH(x)					\
+	case PERF_REG_X86_YMMH ## x:		\
+	case PERF_REG_X86_YMMH ## x + 1:	\
+		return "YMMH" #x;
+	YMMH(0)
+	YMMH(1)
+	YMMH(2)
+	YMMH(3)
+	YMMH(4)
+	YMMH(5)
+	YMMH(6)
+	YMMH(7)
+	YMMH(8)
+	YMMH(9)
+	YMMH(10)
+	YMMH(11)
+	YMMH(12)
+	YMMH(13)
+	YMMH(14)
+	YMMH(15)
+#undef YMMH
+
+#define ZMMH(x)					\
+	case PERF_REG_X86_ZMMH ## x:		\
+	case PERF_REG_X86_ZMMH ## x + 1:	\
+	case PERF_REG_X86_ZMMH ## x + 2:	\
+	case PERF_REG_X86_ZMMH ## x + 3:	\
+		return "ZMMLH" #x;
+	ZMMH(0)
+	ZMMH(1)
+	ZMMH(2)
+	ZMMH(3)
+	ZMMH(4)
+	ZMMH(5)
+	ZMMH(6)
+	ZMMH(7)
+	ZMMH(8)
+	ZMMH(9)
+	ZMMH(10)
+	ZMMH(11)
+	ZMMH(12)
+	ZMMH(13)
+	ZMMH(14)
+	ZMMH(15)
+#undef ZMMH
+
+#define ZMM(x)				\
+	case PERF_REG_X86_ZMM ## x:		\
+	case PERF_REG_X86_ZMM ## x + 1:	\
+	case PERF_REG_X86_ZMM ## x + 2:	\
+	case PERF_REG_X86_ZMM ## x + 3:	\
+	case PERF_REG_X86_ZMM ## x + 4:	\
+	case PERF_REG_X86_ZMM ## x + 5:	\
+	case PERF_REG_X86_ZMM ## x + 6:	\
+	case PERF_REG_X86_ZMM ## x + 7:	\
+		return "ZMM" #x;
+	ZMM(16)
+	ZMM(17)
+	ZMM(18)
+	ZMM(19)
+	ZMM(20)
+	ZMM(21)
+	ZMM(22)
+	ZMM(23)
+	ZMM(24)
+	ZMM(25)
+	ZMM(26)
+	ZMM(27)
+	ZMM(28)
+	ZMM(29)
+	ZMM(30)
+	ZMM(31)
+#undef ZMM
+
+#define OPMASK(x)				\
+	case PERF_REG_X86_OPMASK ## x:		\
+		return "opmask" #x;
+
+	OPMASK(0)
+	OPMASK(1)
+	OPMASK(2)
+	OPMASK(3)
+	OPMASK(4)
+	OPMASK(5)
+	OPMASK(6)
+	OPMASK(7)
+#undef OPMASK
 	default:
 		return NULL;
 	}
