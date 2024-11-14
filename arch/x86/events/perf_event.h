@@ -304,6 +304,8 @@ struct cpu_hw_events {
 	/* Intel ACR configuration */
 	u64			acr_cfg_b[X86_PMC_IDX_MAX];
 	u64			acr_cfg_c[X86_PMC_IDX_MAX];
+	/* Cached CFG_C values */
+	u64			cfg_c_val[X86_PMC_IDX_MAX];
 
 	/*
 	 * Intel LBR bits
@@ -1216,6 +1218,14 @@ static inline unsigned int x86_pmu_fixed_ctr_addr(int index)
 				   x86_pmu.addr_offset(index, false) : index);
 }
 
+static inline unsigned int x86_pmu_cfg_c_addr(int index, bool gp)
+{
+	u32 base = gp ? MSR_IA32_PMC_V6_GP0_CFG_C : MSR_IA32_PMC_V6_FX0_CFG_C;
+
+	return base + (x86_pmu.addr_offset ? x86_pmu.addr_offset(index, false) :
+					     index * MSR_IA32_PMC_V6_STEP);
+}
+
 static inline int x86_pmu_rdpmc_index(int index)
 {
 	return x86_pmu.rdpmc_index ? x86_pmu.rdpmc_index(index) : index;
@@ -1778,6 +1788,8 @@ void intel_pmu_pebs_data_source_arl_h(void);
 void intel_pmu_pebs_data_source_cmt(void);
 
 void intel_pmu_pebs_data_source_lnl(void);
+
+u64 intel_get_arch_pebs_data_config(struct perf_event *event);
 
 int intel_pmu_setup_lbr_filter(struct perf_event *event);
 
