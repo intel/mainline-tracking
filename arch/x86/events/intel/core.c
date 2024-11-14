@@ -3831,6 +3831,7 @@ intel_get_event_constraints(struct cpu_hw_events *cpuc, int idx,
 			    struct perf_event *event)
 {
 	struct event_constraint *c1, *c2;
+	struct pmu *pmu = event->pmu;
 
 	c1 = cpuc->event_constraint[idx];
 
@@ -3854,6 +3855,25 @@ intel_get_event_constraints(struct cpu_hw_events *cpuc, int idx,
 		c2 = dyn_constraint(cpuc, c2, idx);
 		c2->idxmsk64 &= event->hw.dyn_constraint;
 		c2->weight = hweight64(c2->idxmsk64);
+	}
+
+	if (x86_pmu.arch_pebs && event->attr.precise_ip) {
+		u64 pebs_cntrs_mask;
+		u64 cntrs_mask;
+
+		if (event->attr.precise_ip >= 3)
+			pebs_cntrs_mask = hybrid(pmu, arch_pebs_cap).pdists;
+		else
+			pebs_cntrs_mask = hybrid(pmu, arch_pebs_cap).counters;
+
+		cntrs_mask = hybrid(pmu, fixed_cntr_mask64) << INTEL_PMC_IDX_FIXED |
+			     hybrid(pmu, cntr_mask64);
+
+		if (pebs_cntrs_mask != cntrs_mask) {
+			c2 = dyn_constraint(cpuc, c2, idx);
+			c2->idxmsk64 &= pebs_cntrs_mask;
+			c2->weight = hweight64(c2->idxmsk64);
+		}
 	}
 
 	return c2;
