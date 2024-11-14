@@ -724,19 +724,30 @@ out:
 }
 
 static int perf_sample__fprintf_regs(struct regs_dump *regs, uint64_t mask, const char *arch,
-				     FILE *fp)
+				     unsigned long *mask_ext, FILE *fp)
 {
+	unsigned int mask_size = sizeof(mask) * 8;
 	unsigned i = 0, r;
 	int printed = 0;
+	u64 val;
 
 	if (!regs || !regs->regs)
 		return 0;
 
 	printed += fprintf(fp, " ABI:%" PRIu64 " ", regs->abi);
 
-	for_each_set_bit(r, (unsigned long *) &mask, sizeof(mask) * 8) {
-		u64 val = regs->regs[i++];
+	for_each_set_bit(r, (unsigned long *)&mask, mask_size) {
+		val = regs->regs[i++];
 		printed += fprintf(fp, "%5s:0x%"PRIx64" ", perf_reg_name(r, arch), val);
+	}
+
+	if (!mask_ext)
+		return printed;
+
+	for_each_set_bit(r, mask_ext, PERF_NUM_EXT_REGS) {
+		val = regs->regs[i++];
+		printed += fprintf(fp, "%5s:0x%"PRIx64" ",
+				   perf_reg_name(r + mask_size, arch), val);
 	}
 
 	return printed;
@@ -799,7 +810,8 @@ static int perf_sample__fprintf_iregs(struct perf_sample *sample,
 		return 0;
 
 	return perf_sample__fprintf_regs(perf_sample__intr_regs(sample),
-					 attr->sample_regs_intr, arch, fp);
+					 attr->sample_regs_intr, arch,
+					 (unsigned long *)attr->sample_regs_intr_ext, fp);
 }
 
 static int perf_sample__fprintf_uregs(struct perf_sample *sample,
@@ -809,7 +821,8 @@ static int perf_sample__fprintf_uregs(struct perf_sample *sample,
 		return 0;
 
 	return perf_sample__fprintf_regs(perf_sample__user_regs(sample),
-					 attr->sample_regs_user, arch, fp);
+					 attr->sample_regs_user, arch,
+					 (unsigned long *)attr->sample_regs_user_ext, fp);
 }
 
 static int perf_sample__fprintf_start(struct perf_script *script,
