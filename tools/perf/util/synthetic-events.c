@@ -1538,7 +1538,9 @@ size_t perf_event__sample_event_size(const struct perf_sample *sample, u64 type,
 	if (type & PERF_SAMPLE_REGS_INTR) {
 		if (sample->intr_regs.abi) {
 			result += sizeof(u64);
-			sz = hweight64(sample->intr_regs.mask) * sizeof(u64);
+			sz = bitmap_weight(sample->intr_regs.mask_ext,
+					   PERF_NUM_INTR_REGS * 64) *
+			     sizeof(u64);
 			result += sz;
 		} else {
 			result += sizeof(u64);
@@ -1745,7 +1747,8 @@ int perf_event__synthesize_sample(union perf_event *event, u64 type, u64 read_fo
 	if (type & PERF_SAMPLE_REGS_INTR) {
 		if (sample->intr_regs.abi) {
 			*array++ = sample->intr_regs.abi;
-			sz = hweight64(sample->intr_regs.mask) * sizeof(u64);
+			sz = bitmap_weight(sample->intr_regs.mask_ext,
+					   PERF_NUM_INTR_REGS * 64) * sizeof(u64);
 			memcpy(array, sample->intr_regs.regs, sz);
 			array = (void *)array + sz;
 		} else {

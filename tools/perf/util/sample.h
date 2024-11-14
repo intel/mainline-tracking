@@ -4,13 +4,17 @@
 
 #include <linux/perf_event.h>
 #include <linux/types.h>
+#include <linux/bitmap.h>
 
 /* number of register is bound by the number of bits in regs_dump::mask (64) */
 #define PERF_SAMPLE_REGS_CACHE_SIZE (8 * sizeof(u64))
 
 struct regs_dump {
 	u64 abi;
-	u64 mask;
+	union {
+		u64 mask;
+		DECLARE_BITMAP(mask_ext, PERF_NUM_INTR_REGS * 64);
+	};
 	u64 *regs;
 
 	/* Cached values/mask filled by first register access. */

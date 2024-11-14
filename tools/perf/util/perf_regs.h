@@ -4,18 +4,32 @@
 
 #include <linux/types.h>
 #include <linux/compiler.h>
+#include <linux/bitmap.h>
+#include <linux/perf_event.h>
+#include "util/record.h"
 
 struct regs_dump;
 
 struct sample_reg {
 	const char *name;
-	uint64_t mask;
+	union {
+		uint64_t mask;
+		DECLARE_BITMAP(mask_ext, PERF_NUM_INTR_REGS * 64);
+	};
 };
 
 #define SMPL_REG_MASK(b) (1ULL << (b))
 #define SMPL_REG(n, b) { .name = #n, .mask = SMPL_REG_MASK(b) }
 #define SMPL_REG2_MASK(b) (3ULL << (b))
 #define SMPL_REG2(n, b) { .name = #n, .mask = SMPL_REG2_MASK(b) }
+#define SMPL_REG_EXT(n, b)	\
+	{ .name = #n, .mask_ext[b / __BITS_PER_LONG] = 0x1ULL << (b % __BITS_PER_LONG) }
+#define SMPL_REG2_EXT(n, b)	\
+	{ .name = #n, .mask_ext[b / __BITS_PER_LONG] = 0x3ULL << (b % __BITS_PER_LONG) }
+#define SMPL_REG4_EXT(n, b)	\
+	{ .name = #n, .mask_ext[b / __BITS_PER_LONG] = 0xfULL << (b % __BITS_PER_LONG) }
+#define SMPL_REG8_EXT(n, b)	\
+	{ .name = #n, .mask_ext[b / __BITS_PER_LONG] = 0xffULL << (b % __BITS_PER_LONG) }
 #define SMPL_REG_END { .name = NULL }
 
 enum {
@@ -24,7 +38,7 @@ enum {
 };
 
 int arch_sdt_arg_parse_op(char *old_op, char **new_op);
-uint64_t arch__intr_reg_mask(void);
+void arch__intr_reg_mask(unsigned long *mask);
 uint64_t arch__user_reg_mask(void);
 const struct sample_reg *arch__sample_reg_masks(void);
 
