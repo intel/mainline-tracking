@@ -379,6 +379,13 @@ enum perf_event_read_format {
 #define PERF_ATTR_SIZE_VER6	120	/* add: aux_sample_size */
 #define PERF_ATTR_SIZE_VER7	128	/* add: sig_data */
 #define PERF_ATTR_SIZE_VER8	136	/* add: config3 */
+#define PERF_ATTR_SIZE_VER9	168	/* add: sample_regs_intr_ext[PERF_EXT_REGS_ARRAY_SIZE] */
+
+#define PERF_EXT_REGS_ARRAY_SIZE	4
+#define PERF_NUM_EXT_REGS		(PERF_EXT_REGS_ARRAY_SIZE * 64)
+
+#define PERF_NUM_INTR_REGS		(PERF_EXT_REGS_ARRAY_SIZE + 1)
+#define PERF_NUM_INTR_REGS_SIZE		((PERF_NUM_INTR_REGS) * 64)
 
 /*
  * Hardware event_id to monitor via a performance monitoring event:
@@ -531,6 +538,12 @@ struct perf_event_attr {
 	__u64	sig_data;
 
 	__u64	config3; /* extension of config2 */
+
+	/*
+	 * Extension sets of regs to dump for each sample.
+	 * See asm/perf_regs.h for details.
+	 */
+	__u64	sample_regs_intr_ext[PERF_EXT_REGS_ARRAY_SIZE];
 };
 
 /*

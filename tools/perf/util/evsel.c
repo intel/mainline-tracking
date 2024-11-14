@@ -1371,9 +1371,11 @@ void evsel__config(struct evsel *evsel, struct record_opts *opts,
 	if (callchain && callchain->enabled && !evsel->no_aux_samples)
 		evsel__config_callchain(evsel, opts, callchain);
 
-	if (opts->sample_intr_regs && !evsel->no_aux_samples &&
-	    !evsel__is_dummy_event(evsel)) {
-		attr->sample_regs_intr = opts->sample_intr_regs;
+	if (bitmap_weight(opts->sample_intr_regs, PERF_NUM_INTR_REGS_SIZE) &&
+			!evsel->no_aux_samples && !evsel__is_dummy_event(evsel)) {
+		attr->sample_regs_intr = opts->sample_intr_regs[0];
+		memcpy(attr->sample_regs_intr_ext, &opts->sample_intr_regs[1],
+				PERF_NUM_EXT_REGS / 8);
 		evsel__set_sample_bit(evsel, REGS_INTR);
 	}
 
@@ -3226,10 +3228,16 @@ int evsel__parse_sample(struct evsel *evsel, union perf_event *event,
 
 		if (data->intr_regs.abi != PERF_SAMPLE_REGS_ABI_NONE) {
 			u64 mask = evsel->core.attr.sample_regs_intr;
+			unsigned long *mask_ext =
+				(unsigned long *)evsel->core.attr.sample_regs_intr_ext;
+			u64 *intr_regs_mask;
 
 			sz = hweight64(mask) * sizeof(u64);
+			sz += bitmap_weight(mask_ext, PERF_NUM_EXT_REGS) * sizeof(u64);
 			OVERFLOW_CHECK(array, sz, max_size);
 			data->intr_regs.mask = mask;
+			intr_regs_mask = (u64 *)&data->intr_regs.mask_ext;
+			memcpy(&intr_regs_mask[1], mask_ext, PERF_NUM_EXT_REGS);
 			data->intr_regs.regs = (u64 *)array;
 			array = (void *)array + sz;
 		}
