@@ -915,12 +915,13 @@ static void branch_stack__printf(struct perf_sample *sample,
 	}
 }
 
-static void regs_dump__printf(u64 mask, u64 *regs, const char *arch)
+static void regs_dump__printf(struct regs_dump *regs, const char *arch)
 {
+	unsigned int size = PERF_SAMPLE_REGS_NUM;
 	unsigned rid, i = 0;
 
-	for_each_set_bit(rid, (unsigned long *) &mask, sizeof(mask) * 8) {
-		u64 val = regs[i++];
+	for_each_set_bit(rid, regs->mask_ext, size) {
+		u64 val = regs->regs[i++];
 
 		printf(".... %-5s 0x%016" PRIx64 "\n",
 		       perf_reg_name(rid, arch), val);
@@ -941,16 +942,20 @@ static inline const char *regs_dump_abi(struct regs_dump *d)
 	return regs_abi[d->abi];
 }
 
-static void regs__printf(const char *type, struct regs_dump *regs, const char *arch)
+static void regs__printf(bool intr, struct regs_dump *regs, const char *arch)
 {
-	u64 mask = regs->mask;
+	u64 *mask = (u64 *)&regs->mask_ext;
 
-	printf("... %s regs: mask 0x%" PRIx64 " ABI %s\n",
-	       type,
-	       mask,
-	       regs_dump_abi(regs));
+	if (intr)
+		printf("... intr regs: mask 0x");
+	else
+		printf("... user regs: mask 0x");
 
-	regs_dump__printf(mask, regs->regs, arch);
+	for (int i = 0; i < PERF_SAMPLE_ARRAY_SIZE; i++)
+		printf("%" PRIx64 "", mask[i]);
+	printf(" ABI %s\n", regs_dump_abi(regs));
+
+	regs_dump__printf(regs, arch);
 }
 
 static void regs_user__printf(struct perf_sample *sample, const char *arch)
@@ -963,7 +968,7 @@ static void regs_user__printf(struct perf_sample *sample, const char *arch)
 	user_regs = perf_sample__user_regs(sample);
 
 	if (user_regs->regs)
-		regs__printf("user", user_regs, arch);
+		regs__printf(false, user_regs, arch);
 }
 
 static void regs_intr__printf(struct perf_sample *sample, const char *arch)
@@ -976,7 +981,7 @@ static void regs_intr__printf(struct perf_sample *sample, const char *arch)
 	intr_regs = perf_sample__intr_regs(sample);
 
 	if (intr_regs->regs)
-		regs__printf("intr", intr_regs, arch);
+		regs__printf(true, intr_regs, arch);
 }
 
 static void stack_user__printf(struct stack_dump *dump)
