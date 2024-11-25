@@ -7408,6 +7408,21 @@ perf_output_sample_regs(struct perf_output_handle *handle,
 	}
 }
 
+static void
+perf_output_sample_regs_ext(struct perf_output_handle *handle,
+			    struct pt_regs *regs,
+			    unsigned long *mask,
+			    unsigned int size)
+{
+	int bit;
+	u64 val;
+
+	for_each_set_bit(bit, mask, size) {
+		val = perf_reg_value(regs, bit + PERF_REG_EXTENDED_OFFSET);
+		perf_output_put(handle, val);
+	}
+}
+
 static void perf_sample_regs_user(struct perf_regs *regs_user,
 				  struct pt_regs *regs)
 {
@@ -7840,6 +7855,26 @@ static void perf_output_read(struct perf_output_handle *handle,
 		perf_output_read_one(handle, event, enabled, running);
 }
 
+inline bool has_more_extended_intr_regs(struct perf_event *event)
+{
+	return !!bitmap_weight(
+			(unsigned long *)event->attr.sample_regs_intr_ext,
+			PERF_NUM_EXT_REGS);
+}
+
+inline bool has_more_extended_user_regs(struct perf_event *event)
+{
+	return !!bitmap_weight(
+			(unsigned long *)event->attr.sample_regs_user_ext,
+			PERF_NUM_EXT_REGS);
+}
+
+inline bool has_more_extended_regs(struct perf_event *event)
+{
+	return has_more_extended_intr_regs(event) ||
+	       has_more_extended_user_regs(event);
+}
+
 void perf_output_sample(struct perf_output_handle *handle,
 			struct perf_event_header *header,
 			struct perf_sample_data *data,
@@ -7965,6 +8000,12 @@ void perf_output_sample(struct perf_output_handle *handle,
 			perf_output_sample_regs(handle,
 						data->regs_user.regs,
 						mask);
+			if (has_more_extended_user_regs(event)) {
+				perf_output_sample_regs_ext(
+					handle, data->regs_user.regs,
+					(unsigned long *)event->attr.sample_regs_user_ext,
+					PERF_NUM_EXT_REGS);
+			}
 		}
 	}
 
@@ -7997,6 +8038,12 @@ void perf_output_sample(struct perf_output_handle *handle,
 			perf_output_sample_regs(handle,
 						data->regs_intr.regs,
 						mask);
+			if (has_more_extended_intr_regs(event)) {
+				perf_output_sample_regs_ext(
+					handle, data->regs_intr.regs,
+					(unsigned long *)event->attr.sample_regs_intr_ext,
+					PERF_NUM_EXT_REGS);
+			}
 		}
 	}
 
@@ -8251,6 +8298,12 @@ void perf_prepare_sample(struct perf_sample_data *data,
 		if (data->regs_user.regs) {
 			u64 mask = event->attr.sample_regs_user;
 			size += hweight64(mask) * sizeof(u64);
+
+			if (has_more_extended_user_regs(event)) {
+				size += bitmap_weight(
+					(unsigned long *)event->attr.sample_regs_user_ext,
+					 PERF_NUM_EXT_REGS) * sizeof(u64);
+			}
 		}
 
 		data->dyn_size += size;
@@ -8314,6 +8367,12 @@ void perf_prepare_sample(struct perf_sample_data *data,
 			u64 mask = event->attr.sample_regs_intr;
 
 			size += hweight64(mask) * sizeof(u64);
+
+			if (has_more_extended_intr_regs(event)) {
+				size += bitmap_weight(
+					(unsigned long *)event->attr.sample_regs_intr_ext,
+					 PERF_NUM_EXT_REGS) * sizeof(u64);
+			}
 		}
 
 		data->dyn_size += size;
@@ -12572,6 +12631,12 @@ static int perf_try_init_event(struct pmu *pmu, struct perf_event *event)
 		goto err_destroy;
 	}
 
+	if (!(pmu->capabilities & PERF_PMU_CAP_MORE_EXT_REGS) &&
+	    has_more_extended_regs(event)) {
+		ret = -EOPNOTSUPP;
+		goto err_destroy;
+	}
+
 	if (pmu->capabilities & PERF_PMU_CAP_NO_EXCLUDE &&
 	    event_has_any_exclude_flag(event)) {
 		ret = -EINVAL;
@@ -13104,9 +13169,19 @@ static int perf_copy_attr(struct perf_event_attr __user *uattr,
 	}
 
 	if (attr->sample_type & PERF_SAMPLE_REGS_USER) {
-		ret = perf_reg_validate(attr->sample_regs_user);
-		if (ret)
-			return ret;
+		if (attr->sample_regs_user != 0) {
+			ret = perf_reg_validate(attr->sample_regs_user);
+			if (ret)
+				return ret;
+		}
+		if (!!bitmap_weight((unsigned long *)attr->sample_regs_user_ext,
+				    PERF_NUM_EXT_REGS)) {
+			ret = perf_reg_ext_validate(
+				(unsigned long *)attr->sample_regs_user_ext,
+				PERF_NUM_EXT_REGS);
+			if (ret)
+				return ret;
+		}
 	}
 
 	if (attr->sample_type & PERF_SAMPLE_STACK_USER) {
@@ -13127,8 +13202,21 @@ static int perf_copy_attr(struct perf_event_attr __user *uattr,
 	if (!attr->sample_max_stack)
 		attr->sample_max_stack = sysctl_perf_event_max_stack;
 
-	if (attr->sample_type & PERF_SAMPLE_REGS_INTR)
-		ret = perf_reg_validate(attr->sample_regs_intr);
+	if (attr->sample_type & PERF_SAMPLE_REGS_INTR) {
+		if (attr->sample_regs_intr != 0) {
+			ret = perf_reg_validate(attr->sample_regs_intr);
+			if (ret)
+				return ret;
+		}
+		if (!!bitmap_weight((unsigned long *)attr->sample_regs_intr_ext,
+				    PERF_NUM_EXT_REGS)) {
+			ret = perf_reg_ext_validate(
+				(unsigned long *)attr->sample_regs_intr_ext,
+				PERF_NUM_EXT_REGS);
+			if (ret)
+				return ret;
+		}
+	}
 
 #ifndef CONFIG_CGROUP_PERF
 	if (attr->sample_type & PERF_SAMPLE_CGROUP)

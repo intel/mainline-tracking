@@ -42,6 +42,11 @@ int perf_reg_validate(u64 mask)
 	return 0;
 }
 
+int perf_reg_ext_validate(unsigned long *mask, unsigned int size)
+{
+	return -EINVAL;
+}
+
 u64 perf_reg_abi(struct task_struct *task)
 {
 	if (test_tsk_thread_flag(task, TIF_31BIT))
