@@ -576,6 +576,39 @@ int x86_pmu_max_precise(struct pmu *pmu)
 	return precise;
 }
 
+static bool has_vec_regs(struct perf_event *event, int start, int end)
+{
+	/* -1 to subtract PERF_REG_EXTENDED_OFFSET */
+	int idx = start / 64 - 1;
+	int s = start % 64;
+	int e = end % 64;
+
+	return event->attr.sample_regs_intr_ext[idx] & GENMASK_ULL(e, s);
+}
+
+static inline bool has_ymmh_regs(struct perf_event *event)
+{
+	return has_vec_regs(event, PERF_REG_X86_YMMH0, PERF_REG_X86_YMMH15 + 1);
+}
+
+static inline bool has_zmmh_regs(struct perf_event *event)
+{
+	return has_vec_regs(event, PERF_REG_X86_ZMMH0, PERF_REG_X86_ZMMH7 + 3) ||
+	       has_vec_regs(event, PERF_REG_X86_ZMMH8, PERF_REG_X86_ZMMH15 + 3);
+}
+
+static inline bool has_h16zmm_regs(struct perf_event *event)
+{
+	return has_vec_regs(event, PERF_REG_X86_ZMM16, PERF_REG_X86_ZMM19 + 7) ||
+	       has_vec_regs(event, PERF_REG_X86_ZMM20, PERF_REG_X86_ZMM27 + 7) ||
+	       has_vec_regs(event, PERF_REG_X86_ZMM28, PERF_REG_X86_ZMM31 + 7);
+}
+
+static inline bool has_opmask_regs(struct perf_event *event)
+{
+	return has_vec_regs(event, PERF_REG_X86_OPMASK0, PERF_REG_X86_OPMASK7);
+}
+
 int x86_pmu_hw_config(struct perf_event *event)
 {
 	if (event->attr.precise_ip) {
@@ -665,6 +698,32 @@ int x86_pmu_hw_config(struct perf_event *event)
 	 */
 	if (unlikely(event->attr.sample_regs_intr & PERF_REG_EXTENDED_MASK)) {
 		if (!(event->pmu->capabilities & PERF_PMU_CAP_EXTENDED_REGS))
+			return -EINVAL;
+
+		if (!event->attr.precise_ip)
+			return -EINVAL;
+	}
+
+	/*
+	 * Architectural PEBS supports to capture more vector registers besides
+	 * XMM registers, like YMM, OPMASK and ZMM registers.
+	 */
+	if (unlikely(has_more_extended_regs(event))) {
+		u64 caps = hybrid(event->pmu, arch_pebs_cap).caps;
+
+		if (!(event->pmu->capabilities & PERF_PMU_CAP_MORE_EXT_REGS))
+			return -EINVAL;
+
+		if (has_opmask_regs(event) && !(caps & ARCH_PEBS_VECR_OPMASK))
+			return -EINVAL;
+
+		if (has_ymmh_regs(event) && !(caps & ARCH_PEBS_VECR_YMM))
+			return -EINVAL;
+
+		if (has_zmmh_regs(event) && !(caps & ARCH_PEBS_VECR_ZMMH))
+			return -EINVAL;
+
+		if (has_h16zmm_regs(event) && !(caps & ARCH_PEBS_VECR_H16ZMM))
 			return -EINVAL;
 
 		if (!event->attr.precise_ip)
