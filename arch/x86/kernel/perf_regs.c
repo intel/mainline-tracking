@@ -59,12 +59,41 @@ static unsigned int pt_regs_offset[PERF_REG_X86_MAX] = {
 #endif
 };
 
-u64 perf_reg_value(struct pt_regs *regs, int idx)
+static u64 perf_reg_ext_value(struct pt_regs *regs, int idx)
 {
 	struct x86_perf_regs *perf_regs;
 
+	perf_regs = container_of(regs, struct x86_perf_regs, regs);
+
+	switch (idx) {
+	case PERF_REG_X86_YMMH0 ... PERF_REG_X86_YMMH_MAX - 1:
+		idx -= PERF_REG_X86_YMMH0;
+		return !perf_regs->ymmh_regs ? 0 : perf_regs->ymmh_regs[idx];
+	case PERF_REG_X86_ZMMH0 ... PERF_REG_X86_ZMMH_MAX - 1:
+		idx -= PERF_REG_X86_ZMMH0;
+		return !perf_regs->zmmh_regs ? 0 : perf_regs->zmmh_regs[idx / 4][idx % 4];
+	case PERF_REG_X86_ZMM16 ... PERF_REG_X86_ZMM_MAX - 1:
+		idx -= PERF_REG_X86_ZMM16;
+		return !perf_regs->h16zmm_regs ? 0 : perf_regs->h16zmm_regs[idx / 8][idx % 8];
+	case PERF_REG_X86_OPMASK0 ... PERF_REG_X86_OPMASK7:
+		idx -= PERF_REG_X86_OPMASK0;
+		return !perf_regs->opmask_regs ? 0 : perf_regs->opmask_regs[idx];
+	default:
+		WARN_ON_ONCE(1);
+		break;
+	}
+
+	return 0;
+}
+
+u64 perf_reg_value(struct pt_regs *regs, int idx)
+{
+	struct x86_perf_regs *perf_regs = container_of(regs, struct x86_perf_regs, regs);
+
+	if (idx >= PERF_REG_EXTENDED_OFFSET)
+		return perf_reg_ext_value(regs, idx);
+
 	if (idx >= PERF_REG_X86_XMM0 && idx < PERF_REG_X86_XMM_MAX) {
-		perf_regs = container_of(regs, struct x86_perf_regs, regs);
 		if (!perf_regs->xmm_regs)
 			return 0;
 		return perf_regs->xmm_regs[idx - PERF_REG_X86_XMM0];
@@ -100,6 +129,11 @@ int perf_reg_validate(u64 mask)
 	return 0;
 }
 
+int perf_reg_ext_validate(unsigned long *mask, unsigned int size)
+{
+	return -EINVAL;
+}
+
 u64 perf_reg_abi(struct task_struct *task)
 {
 	return PERF_SAMPLE_REGS_ABI_32;
@@ -120,6 +154,18 @@ void perf_get_regs_user(struct perf_regs *regs_user,
 int perf_reg_validate(u64 mask)
 {
 	if (!mask || (mask & (REG_NOSUPPORT | PERF_REG_X86_RESERVED)))
+		return -EINVAL;
+
+	return 0;
+}
+
+int perf_reg_ext_validate(unsigned long *mask, unsigned int size)
+{
+	if (!mask || !size || size > PERF_NUM_EXT_REGS)
+		return -EINVAL;
+
+	if (find_last_bit(mask, size) >
+	    (PERF_REG_X86_VEC_MAX - PERF_REG_EXTENDED_OFFSET))
 		return -EINVAL;
 
 	return 0;
