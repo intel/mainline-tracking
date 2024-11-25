@@ -710,6 +710,10 @@ struct x86_perf_regs {
 	struct pt_regs	regs;
 	u64		ssp;
 	u64		*xmm_regs;
+	u64		*opmask_regs;
+	u64		*ymmh_regs;
+	u64		*zmmh_regs;
+	u64		*h16zmm_regs;
 };
 
 extern unsigned long perf_arch_instruction_pointer(struct pt_regs *regs);

@@ -9,6 +9,8 @@ struct perf_regs {
 	struct pt_regs	*regs;
 };
 
+#define PERF_REG_EXTENDED_OFFSET	64
+
 #ifdef CONFIG_HAVE_PERF_REGS
 #include <asm/perf_regs.h>
 
@@ -21,6 +23,8 @@ int perf_reg_validate(u64 mask);
 u64 perf_reg_abi(struct task_struct *task);
 void perf_get_regs_user(struct perf_regs *regs_user,
 			struct pt_regs *regs);
+int perf_reg_ext_validate(unsigned long *mask, unsigned int size);
+
 #else
 
 #define PERF_REG_EXTENDED_MASK	0
@@ -33,6 +37,12 @@ static inline u64 perf_reg_value(struct pt_regs *regs, int idx)
 static inline int perf_reg_validate(u64 mask)
 {
 	return mask ? -ENOSYS : 0;
+}
+
+static inline int perf_reg_ext_validate(unsigned long *mask,
+					unsigned int size)
+{
+	return -EINVAL;
 }
 
 static inline u64 perf_reg_abi(struct task_struct *task)
