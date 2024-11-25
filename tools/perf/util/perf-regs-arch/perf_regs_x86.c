@@ -54,6 +54,8 @@ const char *__perf_reg_name_x86(int id)
 		return "R14";
 	case PERF_REG_X86_R15:
 		return "R15";
+	case PERF_REG_X86_SSP:
+		return "SSP";
 
 #define XMM(x) \
 	case PERF_REG_X86_XMM ## x:	\
