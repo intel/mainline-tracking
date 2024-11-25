@@ -1426,6 +1426,34 @@ void intel_pmu_pebs_late_setup(struct cpu_hw_events *cpuc)
 				PERF_SAMPLE_TRANSACTION |		     \
 				PERF_SAMPLE_DATA_PAGE_SIZE)
 
+static u64 pebs_get_ext_reg_data_cfg(unsigned long *ext_reg)
+{
+	u64 pebs_data_cfg = 0;
+	int bit;
+
+	for_each_set_bit(bit, ext_reg, PERF_NUM_EXT_REGS) {
+		switch (bit + PERF_REG_EXTENDED_OFFSET) {
+		case PERF_REG_X86_OPMASK0 ... PERF_REG_X86_OPMASK7:
+			pebs_data_cfg |= PEBS_DATACFG_OPMASKS;
+			break;
+		case PERF_REG_X86_YMM0 ... PERF_REG_X86_YMM_MAX - 1:
+			pebs_data_cfg |= PEBS_DATACFG_YMMHS | PEBS_DATACFG_XMMS;
+			break;
+		case PERF_REG_X86_ZMM0 ... PERF_REG_X86_ZMM16 - 1:
+			pebs_data_cfg |= PEBS_DATACFG_ZMMHS | PEBS_DATACFG_YMMHS |
+					 PEBS_DATACFG_XMMS;
+			break;
+		case PERF_REG_X86_ZMM16 ... PERF_REG_X86_ZMM_MAX - 1:
+			pebs_data_cfg |= PEBS_DATACFG_H16ZMMS;
+			break;
+		default:
+			break;
+		}
+	}
+
+	return pebs_data_cfg;
+}
+
 static u64 pebs_update_adaptive_cfg(struct perf_event *event)
 {
 	struct perf_event_attr *attr = &event->attr;
@@ -1460,9 +1488,21 @@ static u64 pebs_update_adaptive_cfg(struct perf_event *event)
 	if (gprs || (attr->precise_ip < 2) || tsx_weight)
 		pebs_data_cfg |= PEBS_DATACFG_GP;
 
-	if ((sample_type & PERF_SAMPLE_REGS_INTR) &&
-	    (attr->sample_regs_intr & PERF_REG_EXTENDED_MASK))
-		pebs_data_cfg |= PEBS_DATACFG_XMMS;
+	if (sample_type & PERF_SAMPLE_REGS_INTR) {
+		if (attr->sample_regs_intr & PERF_REG_EXTENDED_MASK)
+			pebs_data_cfg |= PEBS_DATACFG_XMMS;
+
+		pebs_data_cfg |= pebs_get_ext_reg_data_cfg(
+			(unsigned long *)event->attr.sample_regs_intr_ext);
+	}
+
+	if (sample_type & PERF_SAMPLE_REGS_USER) {
+		if (attr->sample_regs_user & PERF_REG_EXTENDED_MASK)
+			pebs_data_cfg |= PEBS_DATACFG_XMMS;
+
+		pebs_data_cfg |= pebs_get_ext_reg_data_cfg(
+			(unsigned long *)event->attr.sample_regs_user_ext);
+	}
 
 	if (sample_type & PERF_SAMPLE_BRANCH_STACK) {
 		/*
@@ -2243,6 +2283,10 @@ static void setup_pebs_adaptive_sample_data(struct perf_event *event,
 
 	perf_regs = container_of(regs, struct x86_perf_regs, regs);
 	perf_regs->xmm_regs = NULL;
+	perf_regs->ymmh_regs = NULL;
+	perf_regs->opmask_regs = NULL;
+	perf_regs->zmmh_regs = NULL;
+	perf_regs->h16zmm_regs = NULL;
 	perf_regs->ssp = 0;
 
 	format_group = basic->format_group;
@@ -2360,6 +2404,10 @@ static void setup_arch_pebs_sample_data(struct perf_event *event,
 
 	perf_regs = container_of(regs, struct x86_perf_regs, regs);
 	perf_regs->xmm_regs = NULL;
+	perf_regs->ymmh_regs = NULL;
+	perf_regs->opmask_regs = NULL;
+	perf_regs->zmmh_regs = NULL;
+	perf_regs->h16zmm_regs = NULL;
 	perf_regs->ssp = 0;
 
 	__setup_perf_sample_data(event, iregs, data);
@@ -2410,14 +2458,45 @@ again:
 					   meminfo->tsx_tuning, ax);
 	}
 
-	if (header->xmm) {
+	if (header->xmm || header->ymmh || header->opmask ||
+	    header->zmmh || header->h16zmm) {
 		struct arch_pebs_xmm *xmm;
+		struct arch_pebs_ymmh *ymmh;
+		struct arch_pebs_zmmh *zmmh;
+		struct arch_pebs_h16zmm *h16zmm;
+		struct arch_pebs_opmask *opmask;
 
 		next_record += sizeof(struct arch_pebs_xer_header);
 
-		xmm = next_record;
-		perf_regs->xmm_regs = xmm->xmm;
-		next_record = xmm + 1;
+		if (header->xmm) {
+			xmm = next_record;
+			perf_regs->xmm_regs = xmm->xmm;
+			next_record = xmm + 1;
+		}
+
+		if (header->ymmh) {
+			ymmh = next_record;
+			perf_regs->ymmh_regs = ymmh->ymmh;
+			next_record = ymmh + 1;
+		}
+
+		if (header->opmask) {
+			opmask = next_record;
+			perf_regs->opmask_regs = opmask->opmask;
+			next_record = opmask + 1;
+		}
+
+		if (header->zmmh) {
+			zmmh = next_record;
+			perf_regs->zmmh_regs = zmmh->zmmh;
+			next_record = zmmh + 1;
+		}
+
+		if (header->h16zmm) {
+			h16zmm = next_record;
+			perf_regs->h16zmm_regs = h16zmm->h16zmm;
+			next_record = h16zmm + 1;
+		}
 	}
 
 	if (header->lbr) {

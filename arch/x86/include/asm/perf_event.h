@@ -146,6 +146,10 @@
 #define PEBS_DATACFG_LBRS	BIT_ULL(3)
 #define PEBS_DATACFG_CNTR	BIT_ULL(4)
 #define PEBS_DATACFG_METRICS	BIT_ULL(5)
+#define PEBS_DATACFG_YMMHS	BIT_ULL(6)
+#define PEBS_DATACFG_OPMASKS	BIT_ULL(7)
+#define PEBS_DATACFG_ZMMHS	BIT_ULL(8)
+#define PEBS_DATACFG_H16ZMMS	BIT_ULL(9)
 #define PEBS_DATACFG_LBR_SHIFT	24
 #define PEBS_DATACFG_CNTR_SHIFT	32
 #define PEBS_DATACFG_CNTR_MASK	GENMASK_ULL(15, 0)
@@ -591,6 +595,22 @@ struct arch_pebs_xer_header {
 
 struct arch_pebs_xmm {
 	u64 xmm[16*2];		/* two entries for each register */
+};
+
+struct arch_pebs_ymmh {
+	u64 ymmh[16*2];		/* two entries for each register */
+};
+
+struct arch_pebs_opmask {
+	u64 opmask[8];
+};
+
+struct arch_pebs_zmmh {
+	u64 zmmh[16*4];		/* four entries for each register */
+};
+
+struct arch_pebs_h16zmm {
+	u64 h16zmm[16*8];	/* eight entries for each register */
 };
 
 #define ARCH_PEBS_LBR_NAN		0x0
