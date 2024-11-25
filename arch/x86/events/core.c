@@ -581,6 +581,73 @@ int x86_pmu_max_precise(struct pmu *pmu)
 	return precise;
 }
 
+static bool has_vec_regs(struct perf_event *event, bool user,
+			 int start, int end)
+{
+	int idx = (start - PERF_REG_EXTENDED_OFFSET) / 64;
+	int s = start % 64;
+	int e = end % 64;
+	u64 regs_mask;
+
+	if (user)
+		regs_mask = event->attr.sample_regs_user_ext[idx];
+	else
+		regs_mask = event->attr.sample_regs_intr_ext[idx];
+
+	return regs_mask & GENMASK_ULL(e, s);
+}
+
+static inline bool has_ymm_regs(struct perf_event *event, bool user)
+{
+	return has_vec_regs(event, user, PERF_REG_X86_YMM0, PERF_REG_X86_YMM_MAX - 1);
+}
+
+static inline bool has_zmm_regs(struct perf_event *event, bool user)
+{
+	return has_vec_regs(event, user, PERF_REG_X86_ZMM0, PERF_REG_X86_ZMM8 - 1) ||
+	       has_vec_regs(event, user, PERF_REG_X86_ZMM8, PERF_REG_X86_ZMM16 - 1);
+}
+
+static inline bool has_h16zmm_regs(struct perf_event *event, bool user)
+{
+	return has_vec_regs(event, user, PERF_REG_X86_ZMM16, PERF_REG_X86_ZMM24 - 1) ||
+	       has_vec_regs(event, user, PERF_REG_X86_ZMM24, PERF_REG_X86_ZMM_MAX - 1);
+}
+
+static inline bool has_opmask_regs(struct perf_event *event, bool user)
+{
+	return has_vec_regs(event, user, PERF_REG_X86_OPMASK0, PERF_REG_X86_OPMASK7);
+}
+
+static bool ext_vec_regs_supported(struct perf_event *event, bool user)
+{
+	u64 caps = hybrid(event->pmu, arch_pebs_cap).caps;
+
+	if (!(event->pmu->capabilities & PERF_PMU_CAP_MORE_EXT_REGS))
+		return false;
+
+	if (has_opmask_regs(event, user) && !(caps & ARCH_PEBS_VECR_OPMASK))
+		return false;
+
+	if (has_ymm_regs(event, user) && !(caps & ARCH_PEBS_VECR_YMMH))
+		return false;
+
+	if (has_zmm_regs(event, user) && !(caps & ARCH_PEBS_VECR_ZMMH))
+		return false;
+
+	if (has_h16zmm_regs(event, user) && !(caps & ARCH_PEBS_VECR_H16ZMM))
+		return false;
+
+	if (!event->attr.precise_ip)
+		return false;
+
+	/* Only user space sampling is allowed for extended vector registers. */
+	if (user && !event->attr.exclude_kernel)
+		return false;
+
+	return true;
+}
+
 int x86_pmu_hw_config(struct perf_event *event)
 {
 	if (event->attr.precise_ip) {
@@ -666,9 +733,12 @@ int x86_pmu_hw_config(struct perf_event *event)
 			return -EINVAL;
 	}
 
-	/* sample_regs_user never support XMM registers */
-	if (unlikely(event->attr.sample_regs_user & PERF_REG_EXTENDED_MASK))
-		return -EINVAL;
+	if (unlikely(event->attr.sample_regs_user & PERF_REG_EXTENDED_MASK)) {
+		/* Only user space sampling is allowed for XMM registers. */
+		if (!event->attr.exclude_kernel)
+			return -EINVAL;
+	}
+
 	/*
 	 * Besides the general purpose registers, XMM registers may
 	 * be collected in PEBS on some platforms, e.g. Icelake
@@ -678,6 +748,20 @@ int x86_pmu_hw_config(struct perf_event *event)
 			return -EINVAL;
 
 		if (!event->attr.precise_ip)
+			return -EINVAL;
+	}
+
+	/*
+	 * Architectural PEBS supports to capture more vector registers besides
+	 * XMM registers, like YMM, OPMASK and ZMM registers.
+	 */
+	if (unlikely(has_more_extended_user_regs(event))) {
+		if (!ext_vec_regs_supported(event, true))
+			return -EINVAL;
+	}
+
+	if (unlikely(has_more_extended_intr_regs(event))) {
+		if (!ext_vec_regs_supported(event, false))
 			return -EINVAL;
 	}
 
