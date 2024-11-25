@@ -34,6 +34,11 @@ int perf_reg_validate(u64 mask)
 	return 0;
 }
 
+int perf_reg_ext_validate(unsigned long *mask, unsigned int size)
+{
+	return -EINVAL;
+}
+
 u64 perf_reg_value(struct pt_regs *regs, int idx)
 {
 	if (WARN_ON_ONCE((u32)idx >= PERF_REG_LOONGARCH_MAX))
