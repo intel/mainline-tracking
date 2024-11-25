@@ -3014,6 +3014,18 @@ static void intel_pmu_enable_event_ext(struct perf_event *event)
 			if (pebs_data_cfg & PEBS_DATACFG_XMMS)
 				ext |= ARCH_PEBS_VECR_XMM & cap.caps;
 
+			if (pebs_data_cfg & PEBS_DATACFG_YMMS)
+				ext |= ARCH_PEBS_VECR_YMM & cap.caps;
+
+			if (pebs_data_cfg & PEBS_DATACFG_OPMASKS)
+				ext |= ARCH_PEBS_VECR_OPMASK & cap.caps;
+
+			if (pebs_data_cfg & PEBS_DATACFG_ZMMHS)
+				ext |= ARCH_PEBS_VECR_ZMMH & cap.caps;
+
+			if (pebs_data_cfg & PEBS_DATACFG_H16ZMMS)
+				ext |= ARCH_PEBS_VECR_H16ZMM & cap.caps;
+
 			if (pebs_data_cfg & PEBS_DATACFG_LBRS)
 				ext |= ARCH_PEBS_LBR & cap.caps;
 
@@ -5419,6 +5431,9 @@ static inline void __intel_update_pmu_caps(struct pmu *pmu)
 
 	if (hybrid(pmu, arch_pebs_cap).caps & ARCH_PEBS_VECR_XMM)
 		dest_pmu->capabilities |= PERF_PMU_CAP_EXTENDED_REGS;
+
+	if (hybrid(pmu, arch_pebs_cap).caps & ARCH_PEBS_VECR_EXT)
+		dest_pmu->capabilities |= PERF_PMU_CAP_MORE_EXT_REGS;
 
 	if (hybrid(pmu, arch_pebs_cap).caps & ARCH_PEBS_CNTR_MASK)
 		x86_pmu.late_setup = intel_pmu_late_setup;
