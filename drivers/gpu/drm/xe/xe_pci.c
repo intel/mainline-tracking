@@ -339,6 +339,7 @@ static const struct xe_device_desc bmg_desc = {
 	PLATFORM(BATTLEMAGE),
 	.dma_mask_size = 46,
 	.has_display = true,
+	.has_sriov = true,
 	.has_fan_control = true,
 	.has_heci_cscfi = 1,
 };
