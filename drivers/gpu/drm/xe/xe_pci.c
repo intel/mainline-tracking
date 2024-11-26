@@ -343,6 +343,7 @@ static const struct xe_device_desc bmg_desc = {
 	DGFX_FEATURES,
 	PLATFORM(BATTLEMAGE),
 	.has_display = true,
+	.has_sriov = true,
 	.has_heci_cscfi = 1,
 };
 
