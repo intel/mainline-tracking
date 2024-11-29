@@ -709,8 +709,7 @@ static int xe_oa_configure_oar_context(struct xe_oa_stream *stream, bool enable)
 		{
 			RING_CONTEXT_CONTROL(stream->hwe->mmio_base),
 			regs_offset + CTX_CONTEXT_CONTROL,
-			_MASKED_FIELD(CTX_CTRL_OAC_CONTEXT_ENABLE,
-				      enable ? CTX_CTRL_OAC_CONTEXT_ENABLE : 0)
+			_MASKED_BIT_ENABLE(CTX_CTRL_OAC_CONTEXT_ENABLE),
 		},
 	};
 	struct xe_oa_reg reg_lri = { OAR_OACONTROL, oacontrol };
@@ -742,10 +741,8 @@ static int xe_oa_configure_oac_context(struct xe_oa_stream *stream, bool enable)
 		{
 			RING_CONTEXT_CONTROL(stream->hwe->mmio_base),
 			regs_offset + CTX_CONTEXT_CONTROL,
-			_MASKED_FIELD(CTX_CTRL_OAC_CONTEXT_ENABLE,
-				      enable ? CTX_CTRL_OAC_CONTEXT_ENABLE : 0) |
-			_MASKED_FIELD(CTX_CTRL_RUN_ALONE,
-				      enable ? CTX_CTRL_RUN_ALONE : 0),
+			_MASKED_BIT_ENABLE(CTX_CTRL_OAC_CONTEXT_ENABLE) |
+			_MASKED_FIELD(CTX_CTRL_RUN_ALONE, enable ? CTX_CTRL_RUN_ALONE : 0),
 		},
 	};
 	struct xe_oa_reg reg_lri = { OAC_OACONTROL, oacontrol };
@@ -1209,9 +1206,11 @@ static int xe_oa_release(struct inode *inode, struct file *file)
 	struct xe_oa_stream *stream = file->private_data;
 	struct xe_gt *gt = stream->gt;
 
+	xe_pm_runtime_get(gt_to_xe(gt));
 	mutex_lock(&gt->oa.gt_lock);
 	xe_oa_destroy_locked(stream);
 	mutex_unlock(&gt->oa.gt_lock);
+	xe_pm_runtime_put(gt_to_xe(gt));
 
 	/* Release the reference the OA stream kept on the driver */
 	drm_dev_put(&gt_to_xe(gt)->drm);

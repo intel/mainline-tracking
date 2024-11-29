@@ -656,6 +656,8 @@ BPF_CALL_4(bpf_sk_redirect_map, struct sk_buff *, skb,
 	sk = __sock_map_lookup_elem(map, key);
 	if (unlikely(!sk || !sock_map_redirect_allowed(sk)))
 		return SK_DROP;
+	if ((flags & BPF_F_INGRESS) && sk_is_vsock(sk))
+		return SK_DROP;
 
 	skb_bpf_set_redir(skb, sk, flags & BPF_F_INGRESS);
 	return SK_PASS;
@@ -683,6 +685,8 @@ BPF_CALL_4(bpf_msg_redirect_map, struct sk_msg *, msg,
 	if (unlikely(!sk || !sock_map_redirect_allowed(sk)))
 		return SK_DROP;
 	if (!(flags & BPF_F_INGRESS) && !sk_is_tcp(sk))
+		return SK_DROP;
+	if (sk_is_vsock(sk))
 		return SK_DROP;
 
 	msg->flags = flags;
@@ -1183,6 +1187,7 @@ static void sock_hash_free(struct bpf_map *map)
 			sock_put(elem->sk);
 			sock_hash_free_elem(htab, elem);
 		}
+		cond_resched();
 	}
 
 	/* wait for psock readers accessing its map link */
@@ -1257,6 +1262,8 @@ BPF_CALL_4(bpf_sk_redirect_hash, struct sk_buff *, skb,
 	sk = __sock_hash_lookup_elem(map, key);
 	if (unlikely(!sk || !sock_map_redirect_allowed(sk)))
 		return SK_DROP;
+	if ((flags & BPF_F_INGRESS) && sk_is_vsock(sk))
+		return SK_DROP;
 
 	skb_bpf_set_redir(skb, sk, flags & BPF_F_INGRESS);
 	return SK_PASS;
@@ -1284,6 +1291,8 @@ BPF_CALL_4(bpf_msg_redirect_hash, struct sk_msg *, msg,
 	if (unlikely(!sk || !sock_map_redirect_allowed(sk)))
 		return SK_DROP;
 	if (!(flags & BPF_F_INGRESS) && !sk_is_tcp(sk))
+		return SK_DROP;
+	if (sk_is_vsock(sk))
 		return SK_DROP;
 
 	msg->flags = flags;
@@ -1760,6 +1769,10 @@ static int sock_map_link_update_prog(struct bpf_link *link,
 	if (link->prog->type != prog->type ||
 	    link->prog->expected_attach_type != prog->expected_attach_type) {
 		ret = -EINVAL;
+		goto out;
+	}
+	if (!sockmap_link->map) {
+		ret = -ENOLINK;
 		goto out;
 	}
 

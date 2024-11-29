@@ -300,12 +300,6 @@ struct xe_device {
 		u8 has_atomic_enable_pte_bit:1;
 		/** @info.has_device_atomics_on_smem: Supports device atomics on SMEM */
 		u8 has_device_atomics_on_smem:1;
-
-#if IS_ENABLED(CONFIG_DRM_XE_DISPLAY)
-		struct {
-			u32 rawclk_freq;
-		} i915_runtime;
-#endif
 	} info;
 
 	/** @irq: device interrupt state */
@@ -394,6 +388,9 @@ struct xe_device {
 
 	/** @unordered_wq: used to serialize unordered work, mostly display */
 	struct workqueue_struct *unordered_wq;
+
+	/** @destroy_wq: used to serialize user destroy work, like queue */
+	struct workqueue_struct *destroy_wq;
 
 	/** @tiles: device tiles */
 	struct xe_tile tiles[XE_MAX_TILES_PER_DEVICE];
@@ -558,15 +555,23 @@ struct xe_file {
 	struct {
 		/** @vm.xe: xarray to store VMs */
 		struct xarray xa;
-		/** @vm.lock: protects file VM state */
+		/**
+		 * @vm.lock: Protects VM lookup + reference and removal a from
+		 * file xarray. Not an intended to be an outer lock which does
+		 * thing while being held.
+		 */
 		struct mutex lock;
 	} vm;
 
 	/** @exec_queue: Submission exec queue state for file */
 	struct {
-		/** @exec_queue.xe: xarray to store engines */
+		/** @exec_queue.xa: xarray to store exece queues */
 		struct xarray xa;
-		/** @exec_queue.lock: protects file engine state */
+		/**
+		 * @exec_queue.lock: Protects exec queue lookup + reference and
+		 * removal a frommfile xarray. Not an intended to be an outer
+		 * lock which does thing while being held.
+		 */
 		struct mutex lock;
 	} exec_queue;
 
