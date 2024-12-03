@@ -187,6 +187,14 @@ bool __read_mostly enable_pmu = true;
 EXPORT_SYMBOL_GPL(enable_pmu);
 module_param(enable_pmu, bool, 0444);
 
+/*
+ * Enable/disable mediated passthrough PMU virtualization.
+ * Don't expose it to userspace as a module paramerter until
+ * all mediated vPMU code is in place.
+ */
+bool __read_mostly enable_mediated_pmu;
+EXPORT_SYMBOL_GPL(enable_mediated_pmu);
+
 bool __read_mostly eager_page_split = true;
 module_param(eager_page_split, bool, 0644);
 
@@ -6805,9 +6813,28 @@ disable_exits_unlock:
 			break;
 
 		mutex_lock(&kvm->lock);
-		if (!kvm->created_vcpus) {
-			kvm->arch.enable_pmu = !(cap->args[0] & KVM_PMU_CAP_DISABLE);
-			r = 0;
+		/*
+		 * To keep PMU configuration "simple", setting vPMU support is
+		 * disallowed if vCPUs are created, or if mediated PMU support
+		 * was already enabled for the VM.
+		 */
+		if (!kvm->created_vcpus &&
+		    (!enable_mediated_pmu || !kvm->arch.enable_pmu)) {
+			bool pmu_enable = !(cap->args[0] & KVM_PMU_CAP_DISABLE);
+
+			if (enable_mediated_pmu && pmu_enable) {
+				char *err_msg = "Fail to enable mediated vPMU, " \
+					"please disable system wide perf events or nmi_watchdog " \
+					"(echo 0 > /proc/sys/kernel/nmi_watchdog).\n";
+
+				r = perf_get_mediated_pmu();
+				if (r)
+					kvm_err("%s", err_msg);
+			} else
+				r = 0;
+
+			if (!r)
+				kvm->arch.enable_pmu = pmu_enable;
 		}
 		mutex_unlock(&kvm->lock);
 		break;
@@ -12923,7 +12950,14 @@ int kvm_arch_init_vm(struct kvm *kvm, unsigned long type)
 	kvm->arch.default_tsc_khz = max_tsc_khz ? : tsc_khz;
 	kvm->arch.apic_bus_cycle_ns = APIC_BUS_CYCLE_NS_DEFAULT;
 	kvm->arch.guest_can_read_msr_platform_info = true;
-	kvm->arch.enable_pmu = enable_pmu;
+
+	/*
+	 * PMU virtualization is opt-in when mediated PMU support is enabled.
+	 * KVM_CAP_PMU_CAPABILITY ioctl must be called explicitly to enable
+	 * mediated vPMU. For legacy perf-based vPMU, its behavior isn't changed,
+	 * KVM_CAP_PMU_CAPABILITY ioctl is optional.
+	 */
+	kvm->arch.enable_pmu = enable_pmu && !enable_mediated_pmu;
 
 #if IS_ENABLED(CONFIG_HYPERV)
 	spin_lock_init(&kvm->arch.hv_root_tdp_lock);
@@ -13063,6 +13097,8 @@ void kvm_arch_destroy_vm(struct kvm *kvm)
 		__x86_set_memory_region(kvm, TSS_PRIVATE_MEMSLOT, 0, 0);
 		mutex_unlock(&kvm->slots_lock);
 	}
+	if (kvm->arch.enable_pmu && enable_mediated_pmu)
+		perf_put_mediated_pmu();
 	kvm_destroy_vcpus(kvm);
 	kvm_free_msr_filter(srcu_dereference_check(kvm->arch.msr_filter, &kvm->srcu, 1));
 	kvm_pic_destroy(kvm);

@@ -775,7 +775,8 @@ void kvm_pmu_refresh(struct kvm_vcpu *vcpu)
 	pmu->pebs_data_cfg_rsvd = ~0ull;
 	bitmap_zero(pmu->all_valid_pmc_idx, X86_PMC_IDX_MAX);
 
-	if (!vcpu->kvm->arch.enable_pmu)
+	if (!vcpu->kvm->arch.enable_pmu ||
+	    (!lapic_in_kernel(vcpu) && enable_mediated_pmu))
 		return;
 
 	kvm_pmu_call(refresh)(vcpu);
