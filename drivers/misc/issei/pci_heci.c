@@ -128,6 +128,7 @@ static const struct pci_device_id heci_pci_tbl[] = {
 	{PCI_VDEVICE(INTEL, 0xE45D)}, /* Panter Lake P */
 	{PCI_VDEVICE(INTEL, 0xD470)}, /* Nova Lake S */
 	{PCI_VDEVICE(INTEL, 0x4D5D)}, /* Wildcat Lake */
+	{PCI_VDEVICE(INTEL, 0xD358)}, /* Nova Lake H */
 	{}
 };
 MODULE_DEVICE_TABLE(pci, heci_pci_tbl);
