@@ -790,4 +790,9 @@ struct kvm_pmu_ops intel_pmu_ops __initdata = {
 	.EVENTSEL_EVENT = ARCH_PERFMON_EVENTSEL_EVENT,
 	.MAX_NR_GP_COUNTERS = KVM_MAX_NR_INTEL_GP_COUNTERS,
 	.MIN_NR_GP_COUNTERS = 1,
+	/*
+	 * Intel mediated vPMU support depends on
+	 * MSR_CORE_PERF_GLOBAL_STATUS_SET which is supported from 4+.
+	 */
+	.MIN_MEDIATED_PMU_VERSION = 4,
 };
