@@ -313,6 +313,8 @@ static int parse_discovery_table(struct pci_dev *dev, int die,
 		return -EINVAL;
 	}
 	iounmap(io_addr);
+	pr_info("Die %d Global Discovery State: 0x%llx 0x%llx 0x%llx\n",
+		die, global.table1, global.ctl, global.table3);
 
 	size = (1 + global.max_units) * global.stride * 8;
 	io_addr = ioremap(addr, size);
@@ -323,6 +325,9 @@ static int parse_discovery_table(struct pci_dev *dev, int die,
 	for (i = 0; i < global.max_units; i++) {
 		memcpy_fromio(&unit, io_addr + (i + 1) * (global.stride * 8),
 			      sizeof(struct uncore_unit_discovery));
+
+		pr_info("unit[%d]: 0x%llx 0x%llx 0x%llx\n",
+			i, unit.table1, unit.ctl, unit.table3);
 
 		if (uncore_discovery_invalid_unit(unit))
 			continue;
