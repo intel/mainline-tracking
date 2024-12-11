@@ -40,4 +40,9 @@ struct lbr_desc {
 
 extern struct x86_pmu_lbr vmx_lbr_caps;
 
+static inline bool vcpu_has_perf_metrics(struct kvm_vcpu *vcpu)
+{
+	return !!(vcpu_get_perf_capabilities(vcpu) & PERF_CAP_PERF_METRICS);
+}
+
 #endif /* __KVM_X86_VMX_PMU_INTEL_H */

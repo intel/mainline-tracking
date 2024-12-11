@@ -4338,6 +4338,9 @@ static void vmx_recalc_pmu_msr_intercepts(struct kvm_vcpu *vcpu)
 				  MSR_TYPE_RW, intercept);
 	vmx_set_intercept_for_msr(vcpu, MSR_CORE_PERF_GLOBAL_OVF_CTRL,
 				  MSR_TYPE_RW, intercept);
+
+	vmx_set_intercept_for_msr(vcpu, MSR_PERF_METRICS, MSR_TYPE_RW,
+				  !vcpu_has_perf_metrics(vcpu));
 }
 
 static void vmx_recalc_msr_intercepts(struct kvm_vcpu *vcpu)
@@ -8182,6 +8185,9 @@ static __init u64 vmx_get_perf_capabilities(void)
 		 */
 		perf_cap &= ~PERF_CAP_PEBS_BASELINE;
 	}
+
+	if (enable_mediated_pmu)
+		perf_cap |= host_perf_cap & PERF_CAP_PERF_METRICS;
 
 	return perf_cap;
 }
