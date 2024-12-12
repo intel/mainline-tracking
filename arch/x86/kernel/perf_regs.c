@@ -54,6 +54,8 @@ static unsigned int pt_regs_offset[PERF_REG_X86_MAX] = {
 	PT_REGS_OFFSET(PERF_REG_X86_R13, r13),
 	PT_REGS_OFFSET(PERF_REG_X86_R14, r14),
 	PT_REGS_OFFSET(PERF_REG_X86_R15, r15),
+	/* The pt_regs struct does not store Shadow stack pointer. */
+	(unsigned int) -1,
 #endif
 };
 
@@ -66,6 +68,11 @@ u64 perf_reg_value(struct pt_regs *regs, int idx)
 		if (!perf_regs->xmm_regs)
 			return 0;
 		return perf_regs->xmm_regs[idx - PERF_REG_X86_XMM0];
+	}
+
+	if (idx == PERF_REG_X86_SSP) {
+		perf_regs = container_of(regs, struct x86_perf_regs, regs);
+		return perf_regs->ssp;
 	}
 
 	if (WARN_ON_ONCE(idx >= ARRAY_SIZE(pt_regs_offset)))

@@ -651,6 +651,21 @@ int x86_pmu_hw_config(struct perf_event *event)
 			return -EINVAL;
 	}
 
+	if (unlikely(event->attr.sample_regs_user & BIT_ULL(PERF_REG_X86_SSP))) {
+		/* Only arch-PEBS supports to capture SSP register. */
+		if (!x86_pmu.arch_pebs || !event->attr.precise_ip)
+			return -EINVAL;
+		/* Only user space is allowed to capture. */
+		if (!event->attr.exclude_kernel)
+			return -EINVAL;
+	}
+
+	if (unlikely(event->attr.sample_regs_intr & BIT_ULL(PERF_REG_X86_SSP))) {
+		/* Only arch-PEBS supports to capture SSP register. */
+		if (!x86_pmu.arch_pebs || !event->attr.precise_ip)
+			return -EINVAL;
+	}
+
 	/* sample_regs_user never support XMM registers */
 	if (unlikely(event->attr.sample_regs_user & PERF_REG_EXTENDED_MASK))
 		return -EINVAL;
