@@ -1,0 +1,5 @@
+#CVE-2024-53141
+0001-netfilter-ipset-add-missing-range-check-in-bitmap_ip.patch
+
+#CVE-2024-53142
+0001-initramfs-avoid-filename-buffer-overrun.patch
