@@ -326,6 +326,8 @@ static void dw_i2c_plat_remove(struct platform_device *pdev)
 
 	pm_runtime_get_sync(device);
 
+	i2c_dw_smbus_unregister(dev);
+
 	i2c_del_adapter(&dev->adapter);
 
 	i2c_dw_disable(dev);
@@ -365,7 +367,7 @@ static const struct acpi_device_id dw_i2c_acpi_match[] = {
 	{ "INT33C3", 0 },
 	{ "INT3432", 0 },
 	{ "INT3433", 0 },
-	{ "INTC10EF", 0 },
+	{ "INTC10EF", IS_SMBUS },
 	{}
 };
 MODULE_DEVICE_TABLE(acpi, dw_i2c_acpi_match);
