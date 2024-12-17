@@ -564,6 +564,7 @@ config I2C_DAVINCI
 config I2C_DESIGNWARE_CORE
 	tristate "Synopsys DesignWare I2C adapter"
 	select REGMAP
+	select I2C_SMBUS
 	help
 	  This option enables support for the Synopsys DesignWare I2C adapter.
 	  This driver includes support for the I2C host on the Synopsys
