@@ -747,6 +747,9 @@ static irqreturn_t i2c_dw_isr(int this_irq, void *dev_id)
 	struct dw_i2c_dev *dev = dev_id;
 	unsigned int stat, enabled;
 
+	if (i2c_dw_smbus_isr(dev))
+		return IRQ_HANDLED;
+
 	regmap_read(dev->map, DW_IC_ENABLE, &enabled);
 	regmap_read(dev->map, DW_IC_RAW_INTR_STAT, &stat);
 	if (!enabled || !(stat & ~DW_IC_INTR_ACTIVITY))
@@ -1089,6 +1092,8 @@ int i2c_dw_probe_master(struct dw_i2c_dev *dev)
 	ret = i2c_add_numbered_adapter(adap);
 	if (ret)
 		dev_err(dev->dev, "failure adding adapter: %d\n", ret);
+	else if (dev->flags & IS_SMBUS)
+		ret = i2c_dw_smbus_host_register(dev);
 	pm_runtime_put_noidle(dev->dev);
 
 	return ret;

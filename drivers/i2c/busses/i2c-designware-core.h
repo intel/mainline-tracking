@@ -78,9 +78,14 @@
 #define DW_IC_TX_ABRT_SOURCE			0x80
 #define DW_IC_ENABLE_STATUS			0x9c
 #define DW_IC_CLR_RESTART_DET			0xa8
+#define DW_IC_SMBUS_INTR_STAT			0xc8
+#define DW_IC_SMBUS_INTR_MASK			0xcc
+#define DW_IC_SMBUS_RAW_INTR_STAT		0xd0
+#define DW_IC_CLR_SMBUS_INTR			0xd4
 #define DW_IC_COMP_PARAM_1			0xf4
 #define DW_IC_COMP_VERSION			0xf8
 #define DW_IC_SDA_HOLD_MIN_VERS			0x3131312A /* "111*" == v1.11* */
+#define DW_IC_SMBUS_MIN_VER			0x3230302a /* "200*" == v2.00* */
 #define DW_IC_COMP_TYPE				0xfc
 #define DW_IC_COMP_TYPE_VALUE			0x44570140 /* "DW" + 0x0140 */
 
@@ -117,6 +122,8 @@
 #define DW_IC_STATUS_MASTER_ACTIVITY		BIT(5)
 #define DW_IC_STATUS_SLAVE_ACTIVITY		BIT(6)
 #define DW_IC_STATUS_MASTER_HOLD_TX_FIFO_EMPTY	BIT(7)
+
+#define DW_IC_SMBUS_INTR_ALERT			BIT(10)
 
 #define DW_IC_SDA_HOLD_RX_SHIFT			16
 #define DW_IC_SDA_HOLD_RX_MASK			GENMASK(23, 16)
@@ -262,6 +269,7 @@ struct dw_i2c_dev {
 	struct clk		*pclk;
 	struct reset_control	*rst;
 	struct i2c_client	*slave;
+	struct i2c_client	*smbus_alert;
 	u32			(*get_clk_rate_khz) (struct dw_i2c_dev *dev);
 	int			cmd_err;
 	struct i2c_msg		*msgs;
@@ -311,6 +319,7 @@ struct dw_i2c_dev {
 #define ACCESS_NO_IRQ_SUSPEND			BIT(1)
 #define ARBITRATION_SEMAPHORE			BIT(2)
 #define ACCESS_POLLING				BIT(3)
+#define IS_SMBUS				BIT(4)
 
 #define MODEL_MSCC_OCELOT			BIT(8)
 #define MODEL_BAIKAL_BT1			BIT(9)
@@ -413,3 +422,19 @@ int i2c_dw_amdpsp_probe_lock_support(struct dw_i2c_dev *dev);
 #endif
 
 int i2c_dw_fw_parse_and_configure(struct dw_i2c_dev *dev);
+
+irqreturn_t i2c_dw_smbus_isr(struct dw_i2c_dev *dev);
+int i2c_dw_smbus_host_register(struct dw_i2c_dev *dev);
+
+/**
+ * i2c_dw_smbus_unregister - Helper to remove SMBus resources
+ * @dev: handle to the controller
+ *
+ * This function removes the SMBus alert device if it exists.
+ */
+static inline void i2c_dw_smbus_unregister(struct dw_i2c_dev *dev)
+{
+	regmap_set_bits(dev->map, DW_IC_SMBUS_INTR_MASK, DW_IC_SMBUS_INTR_ALERT);
+	i2c_unregister_device(dev->smbus_alert);
+	dev->smbus_alert = NULL;
+}
