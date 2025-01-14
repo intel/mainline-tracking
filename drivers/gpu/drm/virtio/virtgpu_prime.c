@@ -189,6 +189,7 @@ static void virtgpu_dma_buf_free_obj(struct drm_gem_object *obj)
 	struct virtio_gpu_object *bo = gem_to_virtio_gpu_obj(obj);
 	struct virtio_gpu_device *vgdev = obj->dev->dev_private;
 	struct dma_buf_attachment *attach = obj->import_attach;
+	struct dma_buf *dmabuf;
 	struct dma_resv *resv = attach->dmabuf->resv;
 
 	if (attach) {
@@ -202,8 +203,9 @@ static void virtgpu_dma_buf_free_obj(struct drm_gem_object *obj)
 
 		dma_resv_unlock(resv);
 
+		dmabuf = attach->dmabuf;
 		dma_buf_detach(attach->dmabuf, attach);
-		dma_buf_put(attach->dmabuf);
+		dma_buf_put(dmabuf);
 	}
 
 	if (bo->created) {
