@@ -244,6 +244,7 @@ static int icl_get_qgv_points(struct drm_i915_private *dev_priv,
 			qi->deinterleave = 4;
 			break;
 		case INTEL_DRAM_GDDR:
+		case INTEL_DRAM_GDDR_ECC:
 			qi->channel_width = 32;
 			break;
 		default:
@@ -630,9 +631,11 @@ static int xe2_hpd_get_bw_info(struct drm_i915_private *i915,
 	for (i = 0; i < qi.num_points; i++) {
 		const struct intel_qgv_point *point = &qi.points[i];
 		int bw = num_channels * (qi.channel_width / 8) * point->dclk;
+		u8 derating = i915->dram_info.type == INTEL_DRAM_GDDR_ECC ?
+				45 : sa->derating;
 
 		i915->display.bw.max[0].deratedbw[i] =
-			min(maxdebw, (100 - sa->derating) * bw / 100);
+			min(maxdebw, (100 - derating) * bw / 100);
 		i915->display.bw.max[0].peakbw[i] = bw;
 
 		drm_dbg_kms(&i915->drm, "QGV %d: deratedbw=%u peakbw: %u\n",
