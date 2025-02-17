@@ -11,14 +11,14 @@ int __weak arch_sdt_arg_parse_op(char *old_op __maybe_unused,
 	return SDT_ARG_SKIP;
 }
 
-uint64_t __weak arch__intr_reg_mask(void)
+void __weak arch__intr_reg_mask(unsigned long *mask)
 {
-	return 0;
+	*(uint64_t *)mask = 0;
 }
 
-uint64_t __weak arch__user_reg_mask(void)
+void __weak arch__user_reg_mask(unsigned long *mask)
 {
-	return 0;
+	*(uint64_t *)mask = 0;
 }
 
 static const struct sample_reg sample_reg_masks[] = {
