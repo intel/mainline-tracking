@@ -283,7 +283,7 @@ const struct sample_reg *arch__sample_reg_masks(void)
 	return sample_reg_masks;
 }
 
-uint64_t arch__intr_reg_mask(void)
+void arch__intr_reg_mask(unsigned long *mask)
 {
 	struct perf_event_attr attr = {
 		.type			= PERF_TYPE_HARDWARE,
@@ -295,6 +295,9 @@ uint64_t arch__intr_reg_mask(void)
 		.exclude_kernel		= 1,
 	};
 	int fd;
+
+	*(u64 *)mask = PERF_REGS_MASK;
+
 	/*
 	 * In an unnamed union, init it here to build on older gcc versions
 	 */
@@ -320,13 +323,11 @@ uint64_t arch__intr_reg_mask(void)
 	fd = sys_perf_event_open(&attr, 0, -1, -1, 0);
 	if (fd != -1) {
 		close(fd);
-		return (PERF_REG_EXTENDED_MASK | PERF_REGS_MASK);
+		*(u64 *)mask = PERF_REG_EXTENDED_MASK | PERF_REGS_MASK;
 	}
-
-	return PERF_REGS_MASK;
 }
 
-uint64_t arch__user_reg_mask(void)
+void arch__user_reg_mask(unsigned long *mask)
 {
-	return PERF_REGS_MASK;
+	*(uint64_t *)mask = PERF_REGS_MASK;
 }

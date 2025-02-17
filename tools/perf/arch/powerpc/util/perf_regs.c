@@ -187,7 +187,7 @@ int arch_sdt_arg_parse_op(char *old_op, char **new_op)
 	return SDT_ARG_VALID;
 }
 
-uint64_t arch__intr_reg_mask(void)
+void arch__intr_reg_mask(unsigned long *mask)
 {
 	struct perf_event_attr attr = {
 		.type                   = PERF_TYPE_HARDWARE,
@@ -199,7 +199,7 @@ uint64_t arch__intr_reg_mask(void)
 	};
 	int fd;
 	u32 version;
-	u64 extended_mask = 0, mask = PERF_REGS_MASK;
+	u64 extended_mask = 0;
 
 	/*
 	 * Get the PVR value to set the extended
@@ -210,8 +210,10 @@ uint64_t arch__intr_reg_mask(void)
 		extended_mask = PERF_REG_PMU_MASK_300;
 	else if ((version == PVR_POWER10) || (version == PVR_POWER11))
 		extended_mask = PERF_REG_PMU_MASK_31;
-	else
-		return mask;
+	else {
+		*(u64 *)mask = PERF_REGS_MASK;
+		return;
+	}
 
 	attr.sample_regs_intr = extended_mask;
 	attr.sample_period = 1;
@@ -224,14 +226,13 @@ uint64_t arch__intr_reg_mask(void)
 	fd = sys_perf_event_open(&attr, 0, -1, -1, 0);
 	if (fd != -1) {
 		close(fd);
-		mask |= extended_mask;
+		*(u64 *)mask = PERF_REGS_MASK | extended_mask;
 	}
-	return mask;
 }
 
-uint64_t arch__user_reg_mask(void)
+void arch__user_reg_mask(unsigned long *mask)
 {
-	return PERF_REGS_MASK;
+	*(uint64_t *)mask = PERF_REGS_MASK;
 }
 
 const struct sample_reg *arch__sample_reg_masks(void)

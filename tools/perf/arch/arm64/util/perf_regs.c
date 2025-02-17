@@ -140,12 +140,12 @@ int arch_sdt_arg_parse_op(char *old_op, char **new_op)
 	return SDT_ARG_VALID;
 }
 
-uint64_t arch__intr_reg_mask(void)
+void arch__intr_reg_mask(unsigned long *mask)
 {
-	return PERF_REGS_MASK;
+	*(uint64_t *)mask = PERF_REGS_MASK;
 }
 
-uint64_t arch__user_reg_mask(void)
+void arch__user_reg_mask(unsigned long *mask)
 {
 	struct perf_event_attr attr = {
 		.type                   = PERF_TYPE_HARDWARE,
@@ -170,10 +170,11 @@ uint64_t arch__user_reg_mask(void)
 		fd = sys_perf_event_open(&attr, 0, -1, -1, 0);
 		if (fd != -1) {
 			close(fd);
-			return attr.sample_regs_user;
+			*(uint64_t *)mask = attr.sample_regs_user;
+			return;
 		}
 	}
-	return PERF_REGS_MASK;
+	*(uint64_t *)mask = PERF_REGS_MASK;
 }
 
 const struct sample_reg *arch__sample_reg_masks(void)

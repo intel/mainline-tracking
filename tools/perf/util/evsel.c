@@ -1041,17 +1041,19 @@ static void __evsel__config_callchain(struct evsel *evsel, struct record_opts *o
 	if (param->record_mode == CALLCHAIN_DWARF) {
 		if (!function) {
 			const char *arch = perf_env__arch(evsel__env(evsel));
+			uint64_t mask = 0;
 
+			arch__user_reg_mask((unsigned long *)&mask);
 			evsel__set_sample_bit(evsel, REGS_USER);
 			evsel__set_sample_bit(evsel, STACK_USER);
 			if (opts->sample_user_regs &&
-			    DWARF_MINIMAL_REGS(arch) != arch__user_reg_mask()) {
+			    DWARF_MINIMAL_REGS(arch) != mask) {
 				attr->sample_regs_user |= DWARF_MINIMAL_REGS(arch);
 				pr_warning("WARNING: The use of --call-graph=dwarf may require all the user registers, "
 					   "specifying a subset with --user-regs may render DWARF unwinding unreliable, "
 					   "so the minimal registers set (IP, SP) is explicitly forced.\n");
 			} else {
-				attr->sample_regs_user |= arch__user_reg_mask();
+				attr->sample_regs_user |= mask;
 			}
 			attr->sample_stack_user = param->dump_size;
 			attr->exclude_callchain_user = 1;
