@@ -16,7 +16,7 @@ __parse_regs(const struct option *opt, const char *str, int unset, bool intr)
 	const struct sample_reg *r = NULL;
 	char *s, *os = NULL, *p;
 	int ret = -1;
-	uint64_t mask;
+	uint64_t mask = 0;
 
 	if (unset)
 		return 0;
@@ -28,9 +28,9 @@ __parse_regs(const struct option *opt, const char *str, int unset, bool intr)
 		return -1;
 
 	if (intr)
-		mask = arch__intr_reg_mask();
+		arch__intr_reg_mask((unsigned long *)&mask);
 	else
-		mask = arch__user_reg_mask();
+		arch__user_reg_mask((unsigned long *)&mask);
 
 	/* str may be NULL in case no arg is passed to -I */
 	if (str) {
