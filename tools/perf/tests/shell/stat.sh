@@ -5,6 +5,16 @@
 set -e
 
 err=0
+is_hybrid=false
+
+check_hybrid_platform() {
+  pmus=$(ls /sys/bus/event_source/devices/*/cpus 2>/dev/null | wc -l)
+  if [ "$pmus" -gt 1 ]
+  then
+    is_hybrid=true
+  fi
+}
+
 test_default_stat() {
   echo "Basic stat command test"
   if ! perf stat true 2>&1 | grep -E -q "Performance counter stats for 'true':"
@@ -62,6 +72,11 @@ test_topdown_groups() {
   # Topdown events must be grouped with the slots event first. Test that
   # parse-events reorders this.
   echo "Topdown event group test"
+  cputype=""
+  if $is_hybrid
+  then
+    cputype="--cputype core"
+  fi
   if ! perf stat -e '{slots,topdown-retiring}' true > /dev/null 2>&1
   then
     echo "Topdown event group test [Skipped event parsing failed]"
@@ -85,13 +100,13 @@ test_topdown_groups() {
     err=1
     return
   fi
-  if perf stat -e '{instructions,slots},topdown-retiring' true 2>&1 | grep -E -q "<not supported>"
+  if perf stat $cputype -e '{instructions,slots},topdown-retiring' true 2>&1 | grep -E -q "<not supported>"
   then
     echo "Topdown event group test [Failed topdown metrics event not move into slots group]"
     err=1
     return
   fi
-  if perf stat -e '{instructions,slots},{topdown-retiring}' true 2>&1 | grep -E -q "<not supported>"
+  if perf stat $cputype -e '{instructions,slots},{topdown-retiring}' true 2>&1 | grep -E -q "<not supported>"
   then
     echo "Topdown event group test [Failed topdown metrics group not merge into slots group]"
     err=1
@@ -200,6 +215,7 @@ test_hybrid() {
   echo "hybrid test [Success]"
 }
 
+check_hybrid_platform
 test_default_stat
 test_stat_record_report
 test_stat_record_script
