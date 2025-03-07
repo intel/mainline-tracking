@@ -295,7 +295,7 @@ static int skl_int3472_handle_gpio_resources(struct acpi_resource *ares,
 		if (ret) {
 			err_msg = "Failed to map GPIO pin to sensor\n";
 			dev_warn(int3472->dev,
-				 "Failed to map GPIO pin to sensor, type %02x, func %s, gpio_flags %u\n",
+				 "Failed to map GPIO pin to sensor, type %02x, func %s, gpio_flags %lu\n",
 				 type, func, gpio_flags);
 		}
 
