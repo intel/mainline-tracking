@@ -6,6 +6,8 @@
 #ifndef _MEI_HW_MEI_REGS_H_
 #define _MEI_HW_MEI_REGS_H_
 
+#include <linux/bitfield.h>
+
 /*
  * MEI device IDs
  */
@@ -137,6 +139,8 @@
 #  define PCI_CFG_HFS_3_FW_SKU_MSK   0x00000070
 #  define PCI_CFG_HFS_3_FW_SKU_IGN   0x00000000
 #  define PCI_CFG_HFS_3_FW_SKU_SPS   0x00000060
+#  define PCI_CFG_HFS_3_EXT_SKU_MSK  GENMASK(3, 0) /* IOE detection bits */
+#  define PCI_CFG_HFS_3_EXT_SKU_IOE  0x00000001
 #define PCI_CFG_HFS_4         0x64
 #define PCI_CFG_HFS_5         0x68
 #  define GSC_CFG_HFS_5_BOOT_TYPE_MSK      0x00000003
