@@ -467,6 +467,15 @@ struct mei_dev_timeouts {
 	unsigned long mkhi_recv; /* receive timeout, in jiffies */
 };
 
+enum mei_dev_kind {
+	MEI_DEV_KIND_MEI,
+	MEI_DEV_KIND_ITOUCH,
+	MEI_DEV_KIND_GSC,
+	MEI_DEV_KIND_GSCFI,
+	MEI_DEV_KIND_IOE,
+	MEI_DEV_KIND_IVSC,
+	MEI_DEV_KIND_MAX,
+};
 /**
  * struct mei_device -  MEI private device struct
  *
@@ -642,7 +651,7 @@ struct mei_device {
 	struct list_head device_list;
 	struct mutex cl_bus_lock;
 
-	const char *kind;
+	enum mei_dev_kind kind;
 
 #if IS_ENABLED(CONFIG_DEBUG_FS)
 	struct dentry *dbgfs_dir;
@@ -906,8 +915,7 @@ static inline ssize_t mei_fw_status_str(struct mei_device *dev,
  */
 static inline bool kind_is_gsc(struct mei_device *dev)
 {
-	/* check kind for NULL because it may be not set, like at the fist call to hw_start */
-	return dev->kind && (strcmp(dev->kind, "gsc") == 0);
+	return dev->kind == MEI_DEV_KIND_GSC;
 }
 
 /**
@@ -919,7 +927,6 @@ static inline bool kind_is_gsc(struct mei_device *dev)
  */
 static inline bool kind_is_gscfi(struct mei_device *dev)
 {
-	/* check kind for NULL because it may be not set, like at the fist call to hw_start */
-	return dev->kind && (strcmp(dev->kind, "gscfi") == 0);
+	return dev->kind == MEI_DEV_KIND_GSCFI;
 }
 #endif
