@@ -56,6 +56,7 @@
  */
 #ifndef __ASSEMBLER__
 struct task_struct;
+struct pt_regs;
 #include <asm/cpufeature.h>
 #include <linux/atomic.h>
 
@@ -66,11 +67,15 @@ struct thread_info {
 #ifdef CONFIG_SMP
 	u32			cpu;		/* current CPU */
 #endif
+	struct pt_regs		*user_pt_regs;
 };
 
-#define INIT_THREAD_INFO(tsk)			\
-{						\
-	.flags		= 0,			\
+extern unsigned long __top_init_kernel_stack[];
+
+#define INIT_THREAD_INFO(tsk)						\
+{									\
+	.flags		= 0,						\
+	.user_pt_regs	= (struct pt_regs *)__top_init_kernel_stack,	\
 }
 
 #else /* !__ASSEMBLER__ */
