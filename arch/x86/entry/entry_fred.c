@@ -228,6 +228,16 @@ __visible noinstr void fred_entry_from_user(struct pt_regs *regs)
 	/* Invalidate orig_ax so that syscall_get_nr() works correctly */
 	regs->orig_ax = -1;
 
+	/*
+	 * A FRED event frame could contain different amount of information
+	 * for different event types, or perhaps even for different instances
+	 * of the same event type. Thus the size of an event frame pushed by
+	 * a FRED CPU is not fixed and the address of the pt_regs structure
+	 * that is used to save a user level context of current task is not
+	 * at a fixed offset from top of current task stack.
+	 */
+	current->thread_info.user_pt_regs = regs;
+
 	switch (regs->fred_ss.type) {
 	case EVENT_TYPE_EXTINT:
 		return fred_extint(regs);
