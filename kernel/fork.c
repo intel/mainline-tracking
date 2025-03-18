@@ -855,6 +855,10 @@ int __weak arch_dup_task_struct(struct task_struct *dst,
 	return 0;
 }
 
+void __weak arch_init_user_pt_regs(struct task_struct *tsk)
+{
+}
+
 void set_task_stack_end_magic(struct task_struct *tsk)
 {
 	unsigned long *stackend;
@@ -881,6 +885,8 @@ static struct task_struct *dup_task_struct(struct task_struct *orig, int node)
 	err = alloc_thread_stack_node(tsk, node);
 	if (err)
 		goto free_tsk;
+
+	arch_init_user_pt_regs(tsk);
 
 #ifdef CONFIG_THREAD_INFO_IN_TASK
 	refcount_set(&tsk->stack_refcount, 1);
