@@ -452,7 +452,7 @@ static int ipu7_isys_fw_pin_cfg(struct ipu7_isys_video *av,
 	output_pin->link.dest = IPU_INSYS_OUTPUT_LINK_DEST_MEM;
 	output_pin->link.use_sw_managed = 1;
 	/* TODO: set the snoop bit for metadata capture */
-	output_pin->link.is_snoop = 0;
+	output_pin->link.is_snoop = 1;
 
 	/* output pin crop */
 	output_pin->crop.line_top = 0;
