@@ -1234,3 +1234,114 @@ cleanup:
 	kfree(filter);
 	return r;
 }
+
+static __always_inline u32 fixed_counter_msr(u32 idx)
+{
+	return kvm_pmu_ops.FIXED_COUNTER_BASE + idx * kvm_pmu_ops.MSR_STRIDE;
+}
+
+static __always_inline u32 gp_counter_msr(u32 idx)
+{
+	return kvm_pmu_ops.GP_COUNTER_BASE + idx * kvm_pmu_ops.MSR_STRIDE;
+}
+
+static __always_inline u32 gp_eventsel_msr(u32 idx)
+{
+	return kvm_pmu_ops.GP_EVENTSEL_BASE + idx * kvm_pmu_ops.MSR_STRIDE;
+}
+
+static void kvm_pmu_load_guest_pmcs(struct kvm_vcpu *vcpu)
+{
+	struct kvm_pmu *pmu = vcpu_to_pmu(vcpu);
+	struct kvm_pmc *pmc;
+	u32 i;
+
+	/*
+	 * No need to zero out unexposed GP/fixed counters/selectors since RDPMC
+	 * is intercepted if hardware has counters that aren't visible to the
+	 * guest (KVM will inject #GP as appropriate).
+	 */
+	for (i = 0; i < pmu->nr_arch_gp_counters; i++) {
+		pmc = &pmu->gp_counters[i];
+
+		wrmsrl(gp_counter_msr(i), pmc->counter);
+		wrmsrl(gp_eventsel_msr(i), pmc->eventsel_hw);
+	}
+	for (i = 0; i < pmu->nr_arch_fixed_counters; i++) {
+		pmc = &pmu->fixed_counters[i];
+
+		wrmsrl(fixed_counter_msr(i), pmc->counter);
+	}
+}
+
+void kvm_mediated_pmu_load(struct kvm_vcpu *vcpu)
+{
+	if (!kvm_vcpu_has_mediated_pmu(vcpu) ||
+	    KVM_BUG_ON(!lapic_in_kernel(vcpu), vcpu->kvm))
+		return;
+
+	lockdep_assert_irqs_disabled();
+
+	perf_load_guest_context(kvm_lapic_get_reg(vcpu->arch.apic, APIC_LVTPC));
+
+	/*
+	 * Disable all counters before loading event selectors and PMCs so that
+	 * KVM doesn't enable or load guest counters while host events are
+	 * active.  VMX will enable/disabled counters at VM-Enter/VM-Exit by
+	 * atomically loading PERF_GLOBAL_CONTROL.  SVM effectively performs
+	 * the switch by configuring all events to be GUEST_ONLY.
+	 */
+	wrmsrl(kvm_pmu_ops.PERF_GLOBAL_CTRL, 0);
+
+	kvm_pmu_load_guest_pmcs(vcpu);
+
+	kvm_pmu_call(mediated_load)(vcpu);
+}
+
+static void kvm_pmu_put_guest_pmcs(struct kvm_vcpu *vcpu)
+{
+	struct kvm_pmu *pmu = vcpu_to_pmu(vcpu);
+	struct kvm_pmc *pmc;
+	u32 i;
+
+	/*
+	 * Clear selectors and counters to ensure hardware doesn't count using
+	 * guest controls when the host (perf) restores its state.
+	 */
+	for (i = 0; i < pmu->nr_arch_gp_counters; i++) {
+		pmc = &pmu->gp_counters[i];
+
+		pmc->counter = rdpmc(i);
+		if (pmc->counter)
+			wrmsrl(gp_counter_msr(i), 0);
+		if (pmc->eventsel_hw)
+			wrmsrl(gp_eventsel_msr(i), 0);
+	}
+
+	for (i = 0; i < pmu->nr_arch_fixed_counters; i++) {
+		pmc = &pmu->fixed_counters[i];
+
+		pmc->counter = rdpmc(INTEL_PMC_FIXED_RDPMC_BASE | i);
+		if (pmc->counter)
+			wrmsrl(fixed_counter_msr(i), 0);
+	}
+}
+
+void kvm_mediated_pmu_put(struct kvm_vcpu *vcpu)
+{
+	if (!kvm_vcpu_has_mediated_pmu(vcpu) ||
+	    KVM_BUG_ON(!lapic_in_kernel(vcpu), vcpu->kvm))
+		return;
+
+	lockdep_assert_irqs_disabled();
+
+	/*
+	 * Defer handling of PERF_GLOBAL_CTRL to vendor code.  On Intel, it's
+	 * atomically cleared on VM-Exit, i.e. doesn't need to be clear here.
+	 */
+	kvm_pmu_call(mediated_put)(vcpu);
+
+	kvm_pmu_put_guest_pmcs(vcpu);
+
+	perf_put_guest_context();
+}
