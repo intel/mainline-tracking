@@ -10909,6 +10909,8 @@ static int vcpu_enter_guest(struct kvm_vcpu *vcpu)
 		run_flags |= KVM_RUN_LOAD_DEBUGCTL;
 	vcpu->arch.host_debugctl = debug_ctl;
 
+	kvm_mediated_pmu_load(vcpu);
+
 	guest_timing_enter_irqoff();
 
 	for (;;) {
@@ -10938,6 +10940,8 @@ static int vcpu_enter_guest(struct kvm_vcpu *vcpu)
 		/* Note, VM-Exits that go down the "slow" path are accounted below. */
 		++vcpu->stat.exits;
 	}
+
+	kvm_mediated_pmu_put(vcpu);
 
 	/*
 	 * Do this here before restoring debug registers on the host.  And
