@@ -2,6 +2,7 @@
 
 source "drivers/media/pci/intel/ipu3/Kconfig"
 source "drivers/media/pci/intel/ipu6/Kconfig"
+source "drivers/media/pci/intel/ipu7/Kconfig"
 source "drivers/media/pci/intel/ivsc/Kconfig"
 
 config IPU_BRIDGE
