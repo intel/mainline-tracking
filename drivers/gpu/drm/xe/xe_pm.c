@@ -21,6 +21,7 @@
 #include "xe_gt.h"
 #include "xe_guc.h"
 #include "xe_irq.h"
+#include "xe_mcu_i2c.h"
 #include "xe_pcode.h"
 #include "xe_pxp.h"
 #include "xe_trace.h"
@@ -147,6 +148,8 @@ int xe_pm_suspend(struct xe_device *xe)
 
 	xe_display_pm_suspend_late(xe);
 
+	xe_i2c_pm_suspend(xe);
+
 	drm_dbg(&xe->drm, "Device suspended\n");
 	return 0;
 
@@ -191,6 +194,8 @@ int xe_pm_resume(struct xe_device *xe)
 	err = xe_bo_restore_kernel(xe);
 	if (err)
 		goto err;
+
+	xe_i2c_pm_resume(xe, xe->d3cold.allowed);
 
 	xe_irq_resume(xe);
 
@@ -442,6 +447,8 @@ int xe_pm_runtime_suspend(struct xe_device *xe)
 
 	xe_display_pm_runtime_suspend_late(xe);
 
+	xe_i2c_pm_suspend(xe);
+
 	xe_rpm_lockmap_release(xe);
 	xe_pm_write_callback_task(xe, NULL);
 	return 0;
@@ -488,6 +495,8 @@ int xe_pm_runtime_resume(struct xe_device *xe)
 		if (err)
 			goto out;
 	}
+
+	xe_i2c_pm_resume(xe, xe->d3cold.allowed);
 
 	xe_irq_resume(xe);
 

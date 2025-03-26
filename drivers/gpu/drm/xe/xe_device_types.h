@@ -16,6 +16,7 @@
 #include "xe_devcoredump_types.h"
 #include "xe_heci_gsc.h"
 #include "xe_lmtt_types.h"
+#include "xe_mcu_i2c.h"
 #include "xe_memirq_types.h"
 #include "xe_oa_types.h"
 #include "xe_platform_types.h"
@@ -553,6 +554,9 @@ struct xe_device {
 
 	/** @pmu: performance monitoring unit */
 	struct xe_pmu pmu;
+
+	/** @i2c: I2C host controller */
+	struct xe_i2c *i2c;
 
 #ifdef TEST_VM_OPS_ERROR
 	/**
