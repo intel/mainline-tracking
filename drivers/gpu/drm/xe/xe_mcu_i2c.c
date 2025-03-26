@@ -167,6 +167,42 @@ static const struct regmap_config i2c_regmap_config = {
 	.fast_io = true,
 };
 
+void xe_i2c_pm_suspend(struct xe_device *xe)
+{
+	struct xe_mmio *mmio = xe_root_tile_mmio(xe);
+	struct xe_reg pmcsr = XE_REG(I2C_CONFIG_SPACE_OFFSET + 0x84);
+
+	if (!xe->i2c || xe->i2c->ep.cookie != XE_I2C_EP_COOKIE_DEVICE)
+		return;
+
+	xe_mmio_rmw32(mmio, pmcsr, PCI_PM_CTRL_STATE_MASK, PCI_D3hot);
+	drm_dbg(&xe->drm, "pmcsr: 0x%08x\n", xe_mmio_read32(mmio, pmcsr));
+}
+
+void xe_i2c_pm_resume(struct xe_device *xe, bool d3cold)
+{
+	struct xe_mmio *mmio = xe_root_tile_mmio(xe);
+	struct xe_reg pmcsr = XE_REG(I2C_CONFIG_SPACE_OFFSET + 0x84);
+
+	if (!xe->i2c || xe->i2c->ep.cookie != XE_I2C_EP_COOKIE_DEVICE)
+		return;
+
+	if (d3cold) {
+		xe_mmio_rmw32(mmio, XE_REG(I2C_CONFIG_SPACE_OFFSET + PCI_COMMAND), 0, PCI_COMMAND_MEMORY);
+
+		drm_dbg(&xe->drm, "vid: 0x%04x\n", xe_mmio_read16(mmio, XE_REG(I2C_CONFIG_SPACE_OFFSET + PCI_VENDOR_ID)));
+		drm_dbg(&xe->drm, "did: 0x%04x\n", xe_mmio_read16(mmio, XE_REG(I2C_CONFIG_SPACE_OFFSET + PCI_DEVICE_ID)));
+		drm_dbg(&xe->drm, "com: 0x%04x\n", xe_mmio_read16(mmio, XE_REG(I2C_CONFIG_SPACE_OFFSET + PCI_COMMAND)));
+		drm_dbg(&xe->drm, "stat: 0x%04x\n", xe_mmio_read16(mmio, XE_REG(I2C_CONFIG_SPACE_OFFSET + PCI_STATUS)));
+		drm_dbg(&xe->drm, "cookie: 0x%08x\n", xe_mmio_read32(mmio, CLIENT_DISC_COOKIE));
+		drm_dbg(&xe->drm, "addr: 0x%08x\n", xe_mmio_read32(mmio, CLIENT_DISC_ADDRESS));
+	}
+
+	xe_mmio_rmw32(mmio, pmcsr, PCI_PM_CTRL_STATE_MASK, PCI_D0);
+	drm_dbg(&xe->drm, "pmcsr: 0x%08x\n", xe_mmio_read32(mmio, pmcsr));
+	drm_dbg(&xe->drm, "dw: 0x%08x\n", xe_mmio_read32(mmio, XE_REG(I2C_MEM_SPACE_OFFSET + 0xfc)));
+}
+
 static void xe_i2c_remove(void *data)
 {
 	struct xe_i2c *i2c = data;
@@ -201,6 +237,10 @@ int xe_i2c_probe(struct xe_device *xe)
 	i2c->mmio = xe_root_tile_mmio(xe);
 	i2c->drm_dev = xe->drm.dev;
 	i2c->ep = ep;
+	xe->i2c = i2c;
+
+	/* PCI PM isn't aware of this device, bring it up and match it with SGUnit state */
+	xe_i2c_pm_resume(xe, true);
 
 	regmap = devm_regmap_init(i2c->drm_dev, NULL, i2c, &i2c_regmap_config);
 	if (IS_ERR(regmap))
