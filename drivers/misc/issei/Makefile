@@ -9,6 +9,7 @@ issei-objs += fw_client.o
 issei-objs += host_client.o
 issei-objs += ham.o
 issei-objs += main.o
+issei-objs += issei_device.o
 
 obj-$(CONFIG_INTEL_SSEI_HW_HECI) += issei-heci.o
 issei-heci-objs := pci_heci.o

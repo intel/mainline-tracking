@@ -13176,6 +13176,7 @@ S:	Supported
 F:	Documentation/ABI/testing/sysfs-class-issei
 F:	Documentation/driver-api/issei/issei.rst
 F:	drivers/misc/issei/
+F:	include/linux/issei_device.h
 F:	include/uapi/linux/issei.h
 
 INTEL SGX
