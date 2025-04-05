@@ -127,11 +127,27 @@ static void nmi_check_duration(struct nmiaction *action, u64 duration)
 			    action->handler, duration, decimal_msecs);
 }
 
+static bool match_nmi_source(unsigned long source_bitmap, struct nmiaction *action)
+{
+	unsigned long match_vector;
+	/*
+	 * There is no guarantee that a valid NMI-source vector is
+	 * always delivered. When the NMI source information was not
+	 * programmed or it could not be determined, bit 0 of the
+	 * NMI-source bitmap is set by the hardware. Always return true
+	 * in this situation.
+	 */
+	match_vector = BIT(NMI_SOURCE_VEC_UNKNOWN) | BIT(action->source_vector);
+
+	return (source_bitmap & match_vector);
+}
+
 static int nmi_handle(unsigned int type, struct pt_regs *regs)
 {
 	struct nmi_desc *desc = nmi_to_desc(type);
+	unsigned long source_bitmap = 0;
+	struct nmiaction *action;
 	nmi_handler_t ehandler;
-	struct nmiaction *a;
 	int handled=0;
 
 	/*
@@ -149,22 +165,51 @@ static int nmi_handle(unsigned int type, struct pt_regs *regs)
 	rcu_read_lock();
 
 	/*
+	 * Activate NMI source-based filtering specifically for Local
+	 * NMIs.
+	 *
+	 * Some legacy or third-party platform sources might send an NMI
+	 * message with a hardcoded vector of 2, which would set bit 2
+	 * in the source bitmap. When this reserved bit is set, the
+	 * local NMI handlers would be skipped since none of them use
+	 * this source vector.
+	 *
+	 * Platform NMIs (such as SERR and IOCHK) have only one handler
+	 * registered per type, so there is no need to disambiguate
+	 * between multiple handlers. Do not use the source bitmap for
+	 * handling those.
+	 *
+	 * Also for Unknown NMIs, avoid using the source bitmap to
+	 * ensure all potential handlers have a chance to claim
+	 * responsibility for the NMI.
+	 */
+	if (cpu_feature_enabled(X86_FEATURE_NMI_SOURCE) && type == NMI_LOCAL)
+		source_bitmap = fred_event_data(regs);
+
+	/*
 	 * NMIs are edge-triggered, which means if you have enough
 	 * of them concurrently, you can lose some because only one
 	 * can be latched at any given time.  Walk the whole list
 	 * to handle those situations.
+	 *
+	 * However, NMI source reporting does not have this
+	 * limitation. When NMI source information is available,
+	 * only run the handlers that match the reported vectors.
 	 */
-	list_for_each_entry_rcu(a, &desc->head, list) {
+	list_for_each_entry_rcu(action, &desc->head, list) {
 		int thishandled;
 		u64 delta;
 
+		if (source_bitmap && !match_nmi_source(source_bitmap, action))
+			continue;
+
 		delta = sched_clock();
-		thishandled = a->handler(type, regs);
+		thishandled = action->handler(type, regs);
 		handled += thishandled;
 		delta = sched_clock() - delta;
-		trace_nmi_handler(a->handler, (int)delta, thishandled);
+		trace_nmi_handler(action->handler, (int)delta, thishandled);
 
-		nmi_check_duration(a, delta);
+		nmi_check_duration(action, delta);
 	}
 
 	rcu_read_unlock();
