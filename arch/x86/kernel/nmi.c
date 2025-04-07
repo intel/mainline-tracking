@@ -207,7 +207,7 @@ static int nmi_handle(unsigned int type, struct pt_regs *regs)
 		thishandled = action->handler(type, regs);
 		handled += thishandled;
 		delta = sched_clock() - delta;
-		trace_nmi_handler(action->handler, (int)delta, thishandled);
+		trace_nmi_handler(action->handler, (int)delta, thishandled, source_bitmap);
 
 		nmi_check_duration(action, delta);
 	}
