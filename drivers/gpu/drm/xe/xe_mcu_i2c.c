@@ -129,11 +129,19 @@ static void xe_i2c_unregister_adapter(struct xe_i2c *i2c)
 	platform_device_unregister(i2c->pdev);
 }
 
+#define IC_ENABLE                      0x6c
+#define IC_ENABLE_STATUS               0x9c
+
 static int xe_i2c_read(void *context, unsigned int reg, unsigned int *val)
 {
 	struct xe_i2c *i2c = context;
 
-	*val = xe_mmio_read32(i2c->mmio, XE_REG(reg + I2C_MEM_SPACE_OFFSET));
+	if (reg == IC_ENABLE)
+		*val = i2c->ic_enable;
+	else if (reg == IC_ENABLE_STATUS)
+		*val = i2c->ic_enable & 1; /* NOTE: Checking only the enable bit */
+	else
+		*val = xe_mmio_read32(i2c->mmio, XE_REG(reg + I2C_MEM_SPACE_OFFSET));
 
 	return 0;
 }
@@ -142,7 +150,10 @@ static int xe_i2c_write(void *context, unsigned int reg, unsigned int val)
 {
 	struct xe_i2c *i2c = context;
 
-	xe_mmio_write32(i2c->mmio, XE_REG(reg + I2C_MEM_SPACE_OFFSET), val);
+	if (reg == IC_ENABLE)
+		i2c->ic_enable = val;
+	else
+		xe_mmio_write32(i2c->mmio, XE_REG(reg + I2C_MEM_SPACE_OFFSET), val);
 
 	return 0;
 }
