@@ -379,6 +379,9 @@ unknown_nmi_error(unsigned char reason, struct pt_regs *regs)
 	pr_emerg_ratelimited("Uhhuh. NMI received for unknown reason %02x on CPU %d.\n",
 			     reason, smp_processor_id());
 
+	if (cpu_feature_enabled(X86_FEATURE_NMI_SOURCE))
+		pr_emerg_ratelimited("NMI-source bitmap is 0x%lx\n", fred_event_data(regs));
+
 	if (unknown_nmi_panic || panic_on_unrecovered_nmi)
 		nmi_panic(regs, "NMI: Not continuing");
 
