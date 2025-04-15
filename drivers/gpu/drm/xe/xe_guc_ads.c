@@ -493,34 +493,21 @@ static void fill_engine_enable_masks(struct xe_gt *gt,
 static void guc_prep_golden_lrc_null(struct xe_guc_ads *ads)
 {
 	struct xe_device *xe = ads_to_xe(ads);
-	struct xe_gt *gt = ads_to_gt(ads);
 	struct iosys_map info_map = IOSYS_MAP_INIT_OFFSET(ads_to_map(ads),
 			offsetof(struct __guc_ads_blob, system_info));
-	size_t alloc_size, real_size;
-	u32 addr_ggtt, offset;
-	int class;
+	u8 guc_class;
 
-	offset = guc_ads_golden_lrc_offset(ads);
-	addr_ggtt = xe_bo_ggtt_addr(ads->bo) + offset;
-
-	for (class = 0; class < XE_ENGINE_CLASS_MAX; ++class) {
-		u8 guc_class;
-
-		guc_class = xe_engine_class_to_guc_class(class);
-
+	for (guc_class = 0; guc_class <= GUC_MAX_ENGINE_CLASSES; ++guc_class) {
 		if (!info_map_read(xe, &info_map,
 				   engine_enabled_masks[guc_class]))
 			continue;
 
-		real_size = xe_gt_lrc_size(gt, class);
-		alloc_size = PAGE_ALIGN(real_size);
-
 		ads_blob_write(ads, ads.eng_state_size[guc_class],
-			       real_size - xe_lrc_skip_size(xe));
+			       guc_ads_golden_lrc_size(ads) -
+			       xe_lrc_skip_size(xe));
 		ads_blob_write(ads, ads.golden_context_lrca[guc_class],
-			       addr_ggtt);
-
-		addr_ggtt += alloc_size;
+			       xe_bo_ggtt_addr(ads->bo) +
+			       guc_ads_golden_lrc_offset(ads));
 	}
 }
 
