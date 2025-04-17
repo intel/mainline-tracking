@@ -1,0 +1,13 @@
+# SPDX-License-Identifier: GPL-2.0
+# Copyright (C) 2023-2026 Intel Corporation
+config INTEL_SSEI
+	tristate "Intel Silicon Security Engine Interface"
+	help
+	  The ISSEI (Intel Silicon Security Engine Interface)
+	  subsystem provides a communication channel between the host and the
+	  Silicon Security Engine.
+	  Enable this driver to get SPDM and other features on Intel client CPUs
+	  released in 2024 (Lunar Lake) or later.
+
+	  If selected, the /dev/isseiX device will be created.
+	  If in doubt, select N.
