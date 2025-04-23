@@ -41,6 +41,7 @@
 #include "xe_hw_engine_group.h"
 #include "xe_hwmon.h"
 #include "xe_irq.h"
+#include "xe_mcu_i2c.h"
 #include "xe_memirq.h"
 #include "xe_mmio.h"
 #include "xe_module.h"
@@ -918,6 +919,8 @@ int xe_device_probe(struct xe_device *xe)
 		xe_gt_sanitize_freq(gt);
 
 	xe_vsec_init(xe);
+
+	xe_i2c_probe(xe);
 
 	return devm_add_action_or_reset(xe->drm.dev, xe_device_sanitize, xe);
 
