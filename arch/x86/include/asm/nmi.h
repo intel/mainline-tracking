@@ -48,12 +48,24 @@ enum {
 
 typedef int (*nmi_handler_t)(unsigned int, struct pt_regs *);
 
+/**
+ * enum nmi_source_vectors - NMI-source vectors are used to identify the
+ * origin of an NMI and to route the NMI directly to the appropriate
+ * handler.
+ *
+ * @NMIS_NO_SOURCE:        Reserved for undefined or unidentified sources.
+ */
+enum nmi_source_vectors {
+	NMIS_NO_SOURCE		= 0,
+};
+
 struct nmiaction {
 	struct list_head	list;
 	nmi_handler_t		handler;
 	u64			max_duration;
 	unsigned long		flags;
 	const char		*name;
+	enum nmi_source_vectors	source_vector;
 };
 
 /**
@@ -62,6 +74,7 @@ struct nmiaction {
  * @fn:   The NMI handler
  * @fg:   Flags associated with the NMI handler
  * @n:    Name of the NMI handler
+ * @src:  NMI-source vector for the NMI handler
  * @init: Optional __init* attributes for struct nmiaction
  *
  * Adds the provided handler to the list of handlers for the specified
@@ -75,13 +88,14 @@ struct nmiaction {
  *
  * Return: 0 on success, or an error code on failure.
  */
-#define register_nmi_handler(t, fn, fg, n, init...)	\
+#define register_nmi_handler(t, fn, fg, n, src, init...)\
 ({							\
 	static struct nmiaction init fn##_na = {	\
 		.list = LIST_HEAD_INIT(fn##_na.list),	\
 		.handler = (fn),			\
 		.name = (n),				\
 		.flags = (fg),				\
+		.source_vector = (src),			\
 	};						\
 	__register_nmi_handler((t), &fn##_na);		\
 })
