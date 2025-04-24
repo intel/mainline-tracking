@@ -550,7 +550,7 @@ static void __init ms_hyperv_init_platform(void)
 	}
 
 	register_nmi_handler(NMI_UNKNOWN, hv_nmi_unknown, NMI_FLAG_FIRST,
-			     "hv_nmi_unknown");
+			     "hv_nmi_unknown", NMIS_NO_SOURCE);
 #endif
 
 #ifdef CONFIG_X86_IO_APIC
