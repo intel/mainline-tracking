@@ -1258,11 +1258,22 @@ static void tbnet_get_stats64(struct net_device *dev,
 	stats->rx_missed_errors = net->stats.rx_missed_errors;
 }
 
+static int tbnet_change_mtu(struct net_device *dev, int new_mtu)
+{
+	/* MTU < 68 is an error and causes problems on some kernels */
+	if (new_mtu < 68 || new_mtu > (TBNET_MAX_MTU - ETH_HLEN))
+		return -EINVAL;
+
+	dev->mtu = new_mtu;
+	return 0;
+}
+
 static const struct net_device_ops tbnet_netdev_ops = {
 	.ndo_open = tbnet_open,
 	.ndo_stop = tbnet_stop,
 	.ndo_start_xmit = tbnet_start_xmit,
 	.ndo_get_stats64 = tbnet_get_stats64,
+	.ndo_change_mtu	= tbnet_change_mtu,
 };
 
 static void tbnet_generate_mac(struct net_device *dev)
