@@ -597,7 +597,7 @@ void hv_root_crash_init(void)
 	}
 
 	rc = register_nmi_handler(NMI_LOCAL, hv_crash_nmi_local, NMI_FLAG_FIRST,
-				  "hv_crash_nmi");
+				  "hv_crash_nmi", NMIS_NO_SOURCE);
 	if (rc) {
 		pr_err("Hyper-V: failed to register crash nmi handler\n");
 		return;
