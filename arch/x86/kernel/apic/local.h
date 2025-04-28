@@ -24,22 +24,24 @@ extern u32 x2apic_max_apicid;
 
 /* IPI */
 
+u16 __prepare_ICR_DM_vector(u16 vector);
+
 DECLARE_STATIC_KEY_FALSE(apic_use_ipi_shorthand);
+
+/* NMI-source vectors have the delivery mode encoded within them */
+static inline bool is_nmi_vector(u16 vector)
+{
+	if ((vector & APIC_DM_MASK) == APIC_DM_NMI)
+		return true;
+	if ((vector & APIC_VECTOR_MASK) == NMI_VECTOR)
+		return true;
+	return false;
+}
 
 static inline unsigned int __prepare_ICR(unsigned int shortcut, int vector,
 					 unsigned int dest)
 {
-	unsigned int icr = shortcut | dest;
-
-	switch (vector) {
-	default:
-		icr |= APIC_DM_FIXED | vector;
-		break;
-	case NMI_VECTOR:
-		icr |= APIC_DM_NMI;
-		break;
-	}
-	return icr;
+	return shortcut | dest | __prepare_ICR_DM_vector(vector);
 }
 
 void default_init_apic_ldr(void);
