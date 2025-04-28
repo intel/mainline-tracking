@@ -14,6 +14,7 @@
 #include <asm/msr.h>
 #include <asm/hardirq.h>
 #include <asm/io.h>
+#include <asm/nmi.h>
 #include <asm/posted_intr.h>
 
 #define ARCH_APICTIMER_STOPS_ON_C3	1
@@ -22,6 +23,13 @@
 #define APIC_EXTNMI_BSP		0 /* Default */
 #define APIC_EXTNMI_ALL		1
 #define APIC_EXTNMI_NONE	2
+
+/* Trigger NMIs with source information */
+#define TEST_NMI		(APIC_DM_NMI | NMIS_VECTOR_TEST)
+#define SMP_STOP_NMI		(APIC_DM_NMI | NMIS_VECTOR_SMP_STOP)
+#define BT_NMI			(APIC_DM_NMI | NMIS_VECTOR_BT)
+#define KGDB_NMI		(APIC_DM_NMI | NMIS_VECTOR_KGDB)
+#define MCE_NMI			(APIC_DM_NMI | NMIS_VECTOR_MCE)
 
 /*
  * Debugging macros
