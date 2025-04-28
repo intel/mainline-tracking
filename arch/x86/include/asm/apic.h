@@ -480,6 +480,36 @@ static __always_inline void apic_update_vector(unsigned int cpu, unsigned int ve
 		apic->update_vector(cpu, vector, set);
 }
 
+/*
+ * Prepare the delivery mode and vector for the ICR.
+ *
+ * NMI-source vectors have the NMI delivery mode encoded within them to
+ * differentiate them from the IDT vectors. IDT vector 0x2 (NMI_VECTOR)
+ * is treated as an NMI request but without any NMI-source information.
+ */
+static inline u16 __prepare_ICR_DM_vector(u16 dm_vector)
+{
+	u16 vector = dm_vector & APIC_VECTOR_MASK;
+	u16 dm = dm_vector & APIC_DM_MASK;
+
+	if (dm == APIC_DM_NMI) {
+		/*
+		 * Pre-FRED, the actual vector is ignored for NMIs, but
+		 * zero it if NMI-source reporting is not supported to
+		 * avoid breakage on misbehaving hardware or hypervisors.
+		 */
+		if (!cpu_feature_enabled(X86_FEATURE_NMI_SOURCE))
+			vector = 0;
+
+		return dm | vector;
+	}
+
+	if (vector == NMI_VECTOR)
+		return APIC_DM_NMI;
+
+	return APIC_DM_FIXED | vector;
+}
+
 #else /* CONFIG_X86_LOCAL_APIC */
 
 static inline u32 apic_read(u32 reg) { return 0; }
