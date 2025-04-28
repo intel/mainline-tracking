@@ -174,7 +174,7 @@ static void savic_icr_write(u32 icr_low, u32 icr_high)
 
 	dsh = icr_low & APIC_DEST_ALLBUT;
 	vector = icr_low & APIC_VECTOR_MASK;
-	nmi = ((icr_low & APIC_DM_FIXED_MASK) == APIC_DM_NMI);
+	nmi = ((icr_low & APIC_DM_MASK) == APIC_DM_NMI);
 
 	switch (dsh) {
 	case APIC_DEST_SELF:
