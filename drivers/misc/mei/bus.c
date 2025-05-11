@@ -1452,17 +1452,14 @@ static void mei_cl_bus_dev_stop(struct mei_cl_device *cldev)
  */
 static void mei_cl_bus_dev_destroy(struct mei_cl_device *cldev)
 {
-
 	WARN_ON(!mutex_is_locked(&cldev->bus->cl_bus_lock));
 
-	if (!cldev->is_added)
-		return;
-
-	device_del(&cldev->dev);
+	if (cldev->is_added) {
+		device_del(&cldev->dev);
+		cldev->is_added = 0;
+	}
 
 	list_del_init(&cldev->bus_list);
-
-	cldev->is_added = 0;
 	put_device(&cldev->dev);
 }
 
