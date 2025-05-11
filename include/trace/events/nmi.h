@@ -10,29 +10,32 @@
 
 TRACE_EVENT(nmi_handler,
 
-	TP_PROTO(void *handler, s64 delta_ns, int handled),
+	TP_PROTO(void *handler, s64 delta_ns, int handled, unsigned long source_bitmap),
 
-	TP_ARGS(handler, delta_ns, handled),
+	TP_ARGS(handler, delta_ns, handled, source_bitmap),
 
 	TP_STRUCT__entry(
 		__field(	void *,		handler	)
 		__field(	s64,		delta_ns)
 		__field(	int,		handled	)
+		__field(unsigned long,	source_bitmap)
 	),
 
 	TP_fast_assign(
 		__entry->handler = handler;
 		__entry->delta_ns = delta_ns;
 		__entry->handled = handled;
+		__entry->source_bitmap = source_bitmap;
 	),
 
-	TP_printk("%ps() delta_ns: %lld handled: %d",
+	TP_printk("%ps() delta_ns: %lld handled: %d source_bitmap: 0x%lx",
 		__entry->handler,
 		__entry->delta_ns,
-		__entry->handled)
+		__entry->handled,
+		__entry->source_bitmap)
 );
 
 #endif /* _TRACE_NMI_H */
 
-/* This part ust be outside protection */
+/* This part must be outside protection */
 #include <trace/define_trace.h>
