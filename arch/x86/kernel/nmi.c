@@ -192,7 +192,8 @@ static int nmi_handle(unsigned int type, struct pt_regs *regs)
 		thishandled = a->handler(type, regs);
 		handled += thishandled;
 		delta = sched_clock() - delta;
-		trace_nmi_handler(a->handler, (int)delta, thishandled);
+		trace_nmi_handler(a->handler, (int)delta, thishandled,
+				  cpu_feature_enabled(X86_FEATURE_NMI_SOURCE) ? fred_event_data(regs) : 0);
 
 		nmi_check_duration(a, delta);
 	}
