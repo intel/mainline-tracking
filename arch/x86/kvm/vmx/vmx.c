@@ -7303,7 +7303,7 @@ static void handle_external_interrupt_irqoff(struct kvm_vcpu *vcpu,
 	 */
 	kvm_before_interrupt(vcpu, KVM_HANDLING_IRQ);
 	if (IS_ENABLED(CONFIG_X86_FRED))
-		fred_entry_from_kvm(EVENT_TYPE_EXTINT, vector);
+		fred_irq_from_kvm(vector);
 	else
 		vmx_do_interrupt_irqoff(gate_offset((gate_desc *)host_idt_base + vector));
 	kvm_after_interrupt(vcpu);
@@ -7592,7 +7592,7 @@ noinstr void vmx_handle_nmi(struct kvm_vcpu *vcpu)
 
 	kvm_before_interrupt(vcpu, KVM_HANDLING_NMI);
 	if (cpu_feature_enabled(X86_FEATURE_FRED))
-		fred_entry_from_kvm(EVENT_TYPE_NMI, NMI_VECTOR);
+		fred_nmi_from_kvm();
 	else
 		vmx_do_nmi_irqoff();
 	kvm_after_interrupt(vcpu);
