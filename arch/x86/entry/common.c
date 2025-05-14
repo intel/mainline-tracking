@@ -24,7 +24,7 @@ noinstr void x86_entry_from_kvm(unsigned int event_type, unsigned int vector)
 		 * tables are kept in sync between FRED and IDT, and the FRED
 		 * dispatch works well with CFI.
 		 */
-		fred_entry_from_kvm(event_type, vector);
+		fred_irq_from_kvm(vector);
 #else
 		idt_entry_from_kvm(vector);
 #endif
@@ -47,7 +47,7 @@ noinstr void x86_entry_from_kvm(unsigned int event_type, unsigned int vector)
 
 #ifdef CONFIG_X86_64
 	if (cpu_feature_enabled(X86_FEATURE_FRED))
-		return fred_entry_from_kvm(event_type, vector);
+		return fred_nmi_from_kvm();
 #endif
 
 	/*
