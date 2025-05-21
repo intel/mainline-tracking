@@ -563,7 +563,7 @@ static int lt6911gxd_probe(struct i2c_client *client)
 
 	v4l2_i2c_subdev_init(&lt6911gxd->sd, client, &lt6911gxd_subdev_ops);
 
-	lt6911gxd->reset_gpio = devm_gpiod_get(dev, "reset", GPIOD_IN);
+	lt6911gxd->reset_gpio = devm_gpiod_get(dev, "reset", GPIOD_OUT_LOW);
 	if (IS_ERR(lt6911gxd->reset_gpio))
 		return dev_err_probe(dev, PTR_ERR(lt6911gxd->reset_gpio),
 				     "failed to get reset gpio\n");
