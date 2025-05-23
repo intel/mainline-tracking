@@ -2252,6 +2252,30 @@ static int create_dynamic_oa_sysfs_entry(struct xe_oa *oa,
 }
 
 /**
+ * xe_oa_store_oa_regs - Store the OA registers
+ * @regs: base register
+ * @xe: xe device structure
+ */
+void xe_oa_store_oa_regs(const struct xe_oa_reg *regs, struct xe_device *xe)
+{
+	if (regs[0].addr.addr >= XE_OAM0_BASE && regs[0].addr.addr < XE_OAM1_BASE) {
+		//OAM0
+		//Need to save the regs content, so able to retrieve
+		//back in function xe_oa_stream_init
+		xe->tiles[0].media_gt->oa.oa_unit->regs =
+					xe->tiles[0].media_gt->oa.oa_unit->regs_oam0;
+	} else if (regs[0].addr.addr >= XE_OAM1_BASE && regs[0].addr.addr < XE_OAM1_LAST) {
+		//OAM1
+		xe->tiles[0].media_gt->oa.oa_unit->regs =
+					xe->tiles[0].media_gt->oa.oa_unit->regs_oam1;
+	} else {
+		xe->tiles[0].media_gt->oa.oa_unit->regs =
+					xe->tiles[0].media_gt->oa.oa_unit->regs_oa;
+	}
+
+}
+
+/**
  * xe_oa_add_config_ioctl - Adds one OA config
  * @dev: @drm_device
  * @data: pointer to struct @drm_xe_oa_config
@@ -2316,6 +2340,9 @@ int xe_oa_add_config_ioctl(struct drm_device *dev, u64 data, struct drm_file *fi
 		goto reg_err;
 	}
 	oa_config->regs = regs;
+
+	/* function call to store the regs.addr*/
+	xe_oa_store_oa_regs(oa_config->regs, xe);
 
 	err = mutex_lock_interruptible(&oa->metrics_lock);
 	if (err)
@@ -2514,7 +2541,7 @@ static struct xe_oa_regs __oag_regs(void)
 
 static void __xe_oa_init_oa_units(struct xe_gt *gt)
 {
-	const u32 mtl_oa_base[] = { 0x13000 };
+	const u32 oa_oam_base[] = { 0x13000, 0x14000, 0x14800 };
 	int i, num_units = gt->oa.num_oa_units;
 
 	for (i = 0; i < num_units; i++) {
@@ -2524,8 +2551,11 @@ static void __xe_oa_init_oa_units(struct xe_gt *gt)
 			u->regs = __oag_regs();
 			u->type = DRM_XE_OA_UNIT_TYPE_OAG;
 		} else if (GRAPHICS_VERx100(gt_to_xe(gt)) >= 1270) {
-			u->regs = __oam_regs(mtl_oa_base[i]);
+			u->regs = __oam_regs(oa_oam_base[i * 3]);
 			u->type = DRM_XE_OA_UNIT_TYPE_OAM;
+			u->regs_oa = __oam_regs(oa_oam_base[i * 3]);
+			u->regs_oam0 = __oam_regs(oa_oam_base[(i * 3) + 1]);
+			u->regs_oam1 = __oam_regs(oa_oam_base[(i * 3) + 2]);
 		}
 
 		xe_mmio_write32(&gt->mmio, u->regs.oa_ctrl, 0);

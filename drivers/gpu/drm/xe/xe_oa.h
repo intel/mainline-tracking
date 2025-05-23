@@ -13,6 +13,7 @@ struct drm_file;
 struct xe_device;
 struct xe_gt;
 struct xe_hw_engine;
+struct xe_oa_reg;
 
 int xe_oa_init(struct xe_device *xe);
 int xe_oa_register(struct xe_device *xe);
@@ -21,5 +22,6 @@ int xe_oa_add_config_ioctl(struct drm_device *dev, u64 data, struct drm_file *fi
 int xe_oa_remove_config_ioctl(struct drm_device *dev, u64 data, struct drm_file *file);
 u32 xe_oa_timestamp_frequency(struct xe_gt *gt);
 u16 xe_oa_unit_id(struct xe_hw_engine *hwe);
+void xe_oa_store_oa_regs(const struct xe_oa_reg *regs, struct xe_device *xe);
 
 #endif

@@ -16,6 +16,9 @@
 #include "xe_hw_engine_types.h"
 
 #define DEFAULT_XE_OA_BUFFER_SIZE SZ_16M
+#define XE_OAM0_BASE  ((u32)0x394000)
+#define XE_OAM1_BASE  ((u32)0x394800)
+#define XE_OAM1_LAST  ((u32)0x395000)
 
 enum xe_oa_report_header {
 	HDR_32_BIT = 0,
@@ -100,6 +103,15 @@ struct xe_oa_unit {
 
 	/** @regs: OA registers for programming the OA unit */
 	struct xe_oa_regs regs;
+
+	/** @regs: Storage of OA registers for programming the OA unit */
+	struct xe_oa_regs regs_oa;
+
+	/** @regs: Storage of OA registers for programming the OAM0 unit */
+	struct xe_oa_regs regs_oam0;
+
+	/** @regs: Storage of OA registers for programming the OAM1 unit */
+	struct xe_oa_regs regs_oam1;
 
 	/** @num_engines: number of engines attached to this OA unit */
 	u32 num_engines;
