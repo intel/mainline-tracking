@@ -51,6 +51,7 @@ static inline void xe_sched_tdr_queue_imm(struct xe_gpu_scheduler *sched)
 
 static inline void xe_sched_resubmit_jobs(struct xe_gpu_scheduler *sched)
 {
+	xe_sched_stop(sched);
 	drm_sched_resubmit_jobs(&sched->base);
 }
 
