@@ -51,7 +51,9 @@ static int mei_open(struct inode *inode, struct file *file)
 
 	int err;
 
-	dev = container_of(inode->i_cdev, struct mei_device, cdev);
+	dev = idr_find(&mei_idr, iminor(inode));
+	if (!dev)
+		return -ENODEV;
 
 	mutex_lock(&dev->device_lock);
 
@@ -1118,7 +1120,10 @@ void mei_set_devstate(struct mei_device *dev, enum mei_dev_state state)
 
 	dev->dev_state = state;
 
-	clsdev = class_find_device_by_devt(&mei_class, dev->cdev.dev);
+	if (!dev->cdev)
+		return;
+
+	clsdev = class_find_device_by_devt(&mei_class, dev->cdev->dev);
 	if (clsdev) {
 		sysfs_notify(&clsdev->kobj, NULL, "dev_state");
 		put_device(clsdev);
@@ -1231,16 +1236,21 @@ int mei_register(struct mei_device *dev, struct device *parent)
 
 	/* Fill in the data structures */
 	devno = MKDEV(MAJOR(mei_devt), dev->minor);
-	cdev_init(&dev->cdev, &mei_fops);
-	dev->cdev.owner = parent->driver->owner;
-	cdev_set_parent(&dev->cdev, &parent->kobj);
+	dev->cdev = cdev_alloc();
+	if (!dev->cdev) {
+		ret = -ENOMEM;
+		goto err;
+	}
+	dev->cdev->ops = &mei_fops;
+	dev->cdev->owner = parent->driver->owner;
+	cdev_set_parent(dev->cdev, &parent->kobj);
 
 	/* Add the device */
-	ret = cdev_add(&dev->cdev, devno, 1);
+	ret = cdev_add(dev->cdev, devno, 1);
 	if (ret) {
 		dev_err(parent, "unable to add device %d:%d\n",
 			MAJOR(mei_devt), dev->minor);
-		goto err_dev_add;
+		goto err_del_cdev;
 	}
 
 	clsdev = device_create_with_groups(&mei_class, parent, devno,
@@ -1251,16 +1261,16 @@ int mei_register(struct mei_device *dev, struct device *parent)
 		dev_err(parent, "unable to create device %d:%d\n",
 			MAJOR(mei_devt), dev->minor);
 		ret = PTR_ERR(clsdev);
-		goto err_dev_create;
+		goto err_del_cdev;
 	}
 
 	mei_dbgfs_register(dev, dev_name(clsdev));
 
 	return 0;
 
-err_dev_create:
-	cdev_del(&dev->cdev);
-err_dev_add:
+err_del_cdev:
+	cdev_del(dev->cdev);
+err:
 	mei_minor_free(dev);
 	return ret;
 }
@@ -1270,8 +1280,8 @@ void mei_deregister(struct mei_device *dev)
 {
 	int devno;
 
-	devno = dev->cdev.dev;
-	cdev_del(&dev->cdev);
+	devno = dev->cdev->dev;
+	cdev_del(dev->cdev);
 
 	mei_dbgfs_deregister(dev);
 

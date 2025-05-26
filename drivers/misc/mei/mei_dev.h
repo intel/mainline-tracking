@@ -480,7 +480,7 @@ enum mei_dev_kind {
  * struct mei_device -  MEI private device struct
  *
  * @dev         : device on a bus
- * @cdev        : character device
+ * @cdev        : character device pointer
  * @minor       : minor number allocated for device
  *
  * @write_list  : write pending list
@@ -566,7 +566,7 @@ enum mei_dev_kind {
  */
 struct mei_device {
 	struct device *dev;
-	struct cdev cdev;
+	struct cdev *cdev;
 	int minor;
 
 	struct list_head write_list;
