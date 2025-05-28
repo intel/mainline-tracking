@@ -708,8 +708,8 @@ static int lt6911gxd_probe(struct i2c_client *client)
 		goto err_media_entity_cleanup;
 	}
 
-	lt6911gxd_status_update(lt6911gxd);
 #ifdef POLLING_MODE
+	lt6911gxd_status_update(lt6911gxd);
 	lt6911gxd->poll_task = kthread_create(lt6911gxd_detect_thread,
 			lt6911gxd, "lt6911gxd polling thread");
 		if (lt6911gxd->poll_task == NULL) {
