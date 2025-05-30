@@ -695,7 +695,7 @@ static void set_sample_datasrc_in_dict(PyObject *dict,
 				      struct perf_sample *sample)
 {
 	struct mem_info *mi = mem_info__new();
-	char decode[100];
+	char decode[150];
 
 	if (!mi)
 		Py_FatalError("couldn't create mem-info");
@@ -704,7 +704,7 @@ static void set_sample_datasrc_in_dict(PyObject *dict,
 			PyLong_FromUnsignedLongLong(sample->data_src));
 
 	mem_info__data_src(mi)->val = sample->data_src;
-	perf_script__meminfo_scnprintf(decode, 100, mi);
+	perf_script__meminfo_scnprintf(decode, 150, mi);
 	mem_info__put(mi);
 
 	pydict_set_item_string_decref(dict, "datasrc_decode",
