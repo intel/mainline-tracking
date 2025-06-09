@@ -93,7 +93,7 @@ SYM_FUNC_START(asm_fred_entry_from_kvm)
 	 * +--------+-----------------+
 	 */
 	push $0				/* Reserved, must be 0 */
-	push $0				/* Event data, 0 for IRQ/NMI */
+	push %rsi			/* Event data for NMI */
 	push %rdi			/* fred_ss handed in by the caller */
 	push %rbp
 	pushf
