@@ -7464,12 +7464,18 @@ static fastpath_t vmx_exit_handlers_fastpath(struct kvm_vcpu *vcpu,
 
 noinstr void vmx_handle_nmi(struct kvm_vcpu *vcpu)
 {
+	unsigned int vector = NMI_VECTOR;
+
 	if ((u16)vmx_get_exit_reason(vcpu).basic != EXIT_REASON_EXCEPTION_NMI ||
 	    !is_nmi(vmx_get_intr_info(vcpu)))
 		return;
 
+	/* TODO: Check if this is the best way to pass the vector mask. Verify */
+	if (cpu_feature_enabled(X86_FEATURE_FRED))
+		vector = vmx_get_exit_qual(vcpu) & 0xFFFF;
+
 	kvm_before_interrupt(vcpu, KVM_HANDLING_NMI);
-	x86_entry_from_kvm(EVENT_TYPE_NMI, NMI_VECTOR);
+	x86_entry_from_kvm(EVENT_TYPE_NMI, vector);
 	kvm_after_interrupt(vcpu);
 }
 

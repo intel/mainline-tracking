@@ -47,7 +47,7 @@ noinstr void x86_entry_from_kvm(unsigned int event_type, unsigned int vector)
 
 #ifdef CONFIG_X86_64
 	if (cpu_feature_enabled(X86_FEATURE_FRED))
-		return fred_nmi_from_kvm();
+		return fred_nmi_from_kvm(vector);
 #endif
 
 	/*
