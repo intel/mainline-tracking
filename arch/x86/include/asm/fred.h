@@ -66,14 +66,14 @@ static __always_inline unsigned long fred_event_data(struct pt_regs *regs)
 
 void asm_fred_entrypoint_user(void);
 void asm_fred_entrypoint_kernel(void);
-void asm_fred_entry_from_kvm(struct fred_ss);
+void asm_fred_entry_from_kvm(struct fred_ss ss, unsigned long edata);
 
 __visible void fred_entry_from_user(struct pt_regs *regs);
 __visible void fred_entry_from_kernel(struct pt_regs *regs);
 __visible void __fred_entry_from_kvm(struct pt_regs *regs);
 
 /* Must be called from noinstr code, thus __always_inline */
-static __always_inline void fred_nmi_from_kvm(void)
+static __always_inline void fred_nmi_from_kvm(unsigned long edata)
 {
 	struct fred_ss ss = {
 		.ss	= __KERNEL_DS,
@@ -83,7 +83,7 @@ static __always_inline void fred_nmi_from_kvm(void)
 		.lm	= 1,
 	};
 
-	asm_fred_entry_from_kvm(ss);
+	asm_fred_entry_from_kvm(ss, edata);
 }
 
 static inline void fred_irq_from_kvm(unsigned int vector)
@@ -95,7 +95,8 @@ static inline void fred_irq_from_kvm(unsigned int vector)
 		.lm	= 1,
 	};
 
-	asm_fred_entry_from_kvm(ss);
+	/* Event data is always zero for IRQ */
+	asm_fred_entry_from_kvm(ss, 0);
 }
 
 void cpu_init_fred_exceptions(void);
@@ -123,7 +124,7 @@ static __always_inline unsigned long fred_event_data(struct pt_regs *regs) { ret
 static inline void cpu_init_fred_exceptions(void) { }
 static inline void cpu_init_fred_rsps(void) { }
 static inline void fred_complete_exception_setup(void) { }
-static __always_inline void fred_nmi_from_kvm(void) { }
+static __always_inline void fred_nmi_from_kvm(unsigned long edata) { }
 static inline void fred_irq_from_kvm(unsigned int vector) { }
 static inline void fred_sync_rsp0(unsigned long rsp0) { }
 static inline void fred_update_rsp0(void) { }
