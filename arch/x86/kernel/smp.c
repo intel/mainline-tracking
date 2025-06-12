@@ -143,7 +143,7 @@ DEFINE_IDTENTRY_SYSVEC(sysvec_reboot)
 static int register_stop_handler(void)
 {
 	return register_nmi_handler(NMI_LOCAL, smp_stop_nmi_callback, NMI_FLAG_FIRST,
-				    "smp_stop", NMIS_NO_SOURCE);
+				    "smp_stop", NMIS_VECTOR_SMP_STOP);
 }
 
 static void native_stop_other_cpus(int wait)
