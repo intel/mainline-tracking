@@ -182,6 +182,13 @@ int __register_nmi_handler(unsigned int type, struct nmiaction *action)
 	if (WARN_ON_ONCE(!action->handler || !list_empty(&action->list)))
 		return -EINVAL;
 
+	/* NMI-source reporting should only be used for NMI_LOCAL */
+	WARN_ON_ONCE((type != NMI_LOCAL) && (action->source_vector != NMIS_NO_SOURCE));
+
+	/* Check for valid vector values. See comment above NMIS_VECTORS_MAX */
+	BUILD_BUG_ON(NMIS_VECTOR_COUNT > NMIS_VECTORS_MAX);
+	WARN_ON_ONCE(action->source_vector >= NMIS_VECTOR_COUNT);
+
 	raw_spin_lock_irqsave(&desc->lock, flags);
 
 	/*
