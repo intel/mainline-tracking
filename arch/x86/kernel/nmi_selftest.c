@@ -64,7 +64,7 @@ static void __init test_nmi_ipi(struct cpumask *mask)
 	unsigned long timeout;
 
 	if (register_nmi_handler(NMI_LOCAL, test_nmi_ipi_callback, NMI_FLAG_FIRST,
-				 "nmi_selftest", NMIS_NO_SOURCE, __initdata)) {
+				 "nmi_selftest", NMIS_VECTOR_TEST, __initdata)) {
 		nmi_fail = FAILURE;
 		return;
 	}
