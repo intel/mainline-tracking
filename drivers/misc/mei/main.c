@@ -54,11 +54,12 @@ static int mei_open(struct inode *inode, struct file *file)
 	dev = idr_find(&mei_idr, iminor(inode));
 	if (!dev)
 		return -ENODEV;
+	get_device(&dev->dev);
 
 	mutex_lock(&dev->device_lock);
 
 	if (dev->dev_state != MEI_DEV_ENABLED) {
-		dev_dbg(dev->dev, "dev_state != MEI_ENABLED  dev_state = %s\n",
+		dev_dbg(&dev->dev, "dev_state != MEI_ENABLED  dev_state = %s\n",
 		    mei_dev_state_str(dev->dev_state));
 		err = -ENODEV;
 		goto err_unlock;
@@ -79,6 +80,7 @@ static int mei_open(struct inode *inode, struct file *file)
 
 err_unlock:
 	mutex_unlock(&dev->device_lock);
+	put_device(&dev->dev);
 	return err;
 }
 
@@ -154,6 +156,7 @@ out:
 	file->private_data = NULL;
 
 	mutex_unlock(&dev->device_lock);
+	put_device(&dev->dev);
 	return rets;
 }
 
@@ -479,7 +482,7 @@ static int mei_vt_support_check(struct mei_device *dev, const uuid_le *uuid)
 
 	me_cl = mei_me_cl_by_uuid(dev, uuid);
 	if (!me_cl) {
-		dev_dbg(dev->dev, "Cannot connect to FW Client UUID = %pUl\n",
+		dev_dbg(&dev->dev, "Cannot connect to FW Client UUID = %pUl\n",
 			uuid);
 		return -ENOTTY;
 	}
@@ -1204,7 +1207,7 @@ static int mei_minor_get(struct mei_device *dev)
 	if (ret >= 0)
 		dev->minor = ret;
 	else if (ret == -ENOSPC)
-		dev_err(dev->dev, "too many mei devices\n");
+		dev_err(&dev->dev, "too many mei devices\n");
 
 	mutex_unlock(&mei_minor_lock);
 	return ret;

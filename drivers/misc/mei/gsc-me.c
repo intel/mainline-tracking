@@ -69,7 +69,7 @@ static int mei_gsc_probe(struct auxiliary_device *aux_dev,
 	hw->mem_addr = devm_ioremap_resource(device, &adev->bar);
 	if (IS_ERR(hw->mem_addr)) {
 		ret = PTR_ERR(hw->mem_addr);
-		goto err;
+		goto deinit;
 	}
 
 	hw->irq = adev->irq;
@@ -93,7 +93,7 @@ static int mei_gsc_probe(struct auxiliary_device *aux_dev,
 		if (IS_ERR(hw->polling_thread)) {
 			ret = PTR_ERR(hw->polling_thread);
 			dev_err(device, "unable to create kernel thread: %d\n", ret);
-			goto err;
+			goto deinit;
 		}
 	} else {
 		ret = devm_request_threaded_irq(device, hw->irq,
@@ -102,7 +102,7 @@ static int mei_gsc_probe(struct auxiliary_device *aux_dev,
 						IRQF_ONESHOT, KBUILD_MODNAME, dev);
 		if (ret) {
 			dev_err(device, "irq register failed %d\n", ret);
-			goto err;
+			goto deinit;
 		}
 	}
 
@@ -131,7 +131,8 @@ register_err:
 	mei_stop(dev);
 	if (!mei_me_hw_use_polling(hw))
 		devm_free_irq(device, hw->irq, dev);
-
+deinit:
+	mei_device_deinit(dev);
 err:
 	dev_err(device, "probe failed: %d\n", ret);
 	dev_set_drvdata(device, NULL);
@@ -159,6 +160,8 @@ static void mei_gsc_remove(struct auxiliary_device *aux_dev)
 	mei_disable_interrupts(dev);
 	if (!mei_me_hw_use_polling(hw))
 		devm_free_irq(&aux_dev->dev, hw->irq, dev);
+
+	mei_device_deinit(dev);
 }
 
 static int __maybe_unused mei_gsc_pm_suspend(struct device *device)
@@ -252,7 +255,7 @@ static int __maybe_unused mei_gsc_pm_runtime_resume(struct device *device)
 
 	irq_ret = mei_me_irq_thread_handler(1, dev);
 	if (irq_ret != IRQ_HANDLED)
-		dev_err(dev->dev, "thread handler fail %d\n", irq_ret);
+		dev_err(&dev->dev, "thread handler fail %d\n", irq_ret);
 
 	return 0;
 }
