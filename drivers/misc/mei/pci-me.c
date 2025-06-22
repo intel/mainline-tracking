@@ -143,7 +143,7 @@ static inline void mei_me_unset_pm_domain(struct mei_device *dev) {}
 
 static int mei_me_read_fws(const struct mei_device *dev, int where, u32 *val)
 {
-	struct pci_dev *pdev = to_pci_dev(dev->dev);
+	struct pci_dev *pdev = to_pci_dev(dev->parent);
 
 	return pci_read_config_dword(pdev, where, val);
 }
@@ -235,7 +235,7 @@ static int mei_me_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 	if (err) {
 		dev_err(&pdev->dev, "request_threaded_irq failure. irq = %d\n",
 		       pdev->irq);
-		goto end;
+		goto deinit;
 	}
 
 	if (mei_start(dev)) {
@@ -286,6 +286,8 @@ release_irq:
 	mei_cancel_work(dev);
 	mei_disable_interrupts(dev);
 	free_irq(pdev->irq, dev);
+deinit:
+	mei_device_deinit(dev);
 end:
 	dev_err(&pdev->dev, "initialization failed.\n");
 	return err;
@@ -338,6 +340,8 @@ static void mei_me_remove(struct pci_dev *pdev)
 	free_irq(pdev->irq, dev);
 
 	mei_deregister(dev);
+
+	mei_device_deinit(dev);
 }
 
 #ifdef CONFIG_PM_SLEEP
@@ -475,7 +479,7 @@ static int mei_me_pm_runtime_resume(struct device *device)
  */
 static inline void mei_me_set_pm_domain(struct mei_device *dev)
 {
-	struct pci_dev *pdev  = to_pci_dev(dev->dev);
+	struct pci_dev *pdev  = to_pci_dev(dev->parent);
 
 	if (pdev->dev.bus && pdev->dev.bus->pm) {
 		dev->pg_domain.ops = *pdev->dev.bus->pm;
@@ -496,7 +500,7 @@ static inline void mei_me_set_pm_domain(struct mei_device *dev)
 static inline void mei_me_unset_pm_domain(struct mei_device *dev)
 {
 	/* stop using pm callbacks if any */
-	dev_pm_domain_set(dev->dev, NULL);
+	dev_pm_domain_set(dev->parent, NULL);
 }
 
 static const struct dev_pm_ops mei_me_pm_ops = {

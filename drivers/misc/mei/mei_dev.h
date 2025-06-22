@@ -479,7 +479,8 @@ enum mei_dev_kind {
 /**
  * struct mei_device -  MEI private device struct
  *
- * @dev         : device on a bus
+ * @parent      : device on a bus
+ * @dev         : device object
  * @cdev        : character device pointer
  * @minor       : minor number allocated for device
  *
@@ -565,7 +566,8 @@ enum mei_dev_kind {
  * @hw          : hw specific data
  */
 struct mei_device {
-	struct device *dev;
+	struct device *parent;
+	struct device dev;
 	struct cdev *cdev;
 	int minor;
 
@@ -711,10 +713,11 @@ static inline u32 mei_slots2data(int slots)
 /*
  * mei init function prototypes
  */
-void mei_device_init(struct mei_device *dev,
-		     struct device *device,
+struct mei_device *mei_device_init(struct device *device,
+				   size_t hw_size,
 		     bool slow_fw,
 		     const struct mei_hw_ops *hw_ops);
+void mei_device_deinit(struct mei_device *dev);
 int mei_reset(struct mei_device *dev);
 int mei_start(struct mei_device *dev);
 int mei_restart(struct mei_device *dev);
