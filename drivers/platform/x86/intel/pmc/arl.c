@@ -722,6 +722,7 @@ static int arl_h_core_init(struct pmc_dev *pmcdev, struct pmc_dev_info *pmc_dev_
 
 struct pmc_dev_info arl_pmc_dev = {
 	.pci_func = 0,
+	.telem_info = SUB_REQ_LPM,
 	.dmu_guid = ARL_PMT_DMU_GUID,
 	.regmap_list = arl_pmc_info_list,
 	.map = &arl_socs_reg_map,
@@ -732,6 +733,7 @@ struct pmc_dev_info arl_pmc_dev = {
 
 struct pmc_dev_info arl_h_pmc_dev = {
 	.pci_func = 2,
+	.telem_info = SUB_REQ_LPM,
 	.dmu_guid = ARL_PMT_DMU_GUID,
 	.regmap_list = arl_pmc_info_list,
 	.map = &mtl_socm_reg_map,

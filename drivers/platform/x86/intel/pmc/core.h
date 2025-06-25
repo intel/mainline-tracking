@@ -29,6 +29,10 @@ struct telem_endpoint;
 #define LPM_REG_COUNT		28
 #define LPM_MODE_OFFSET		1
 
+/* Telemetry Endpoint Info bits */
+#define SUB_REQ_LPM		0x01	/* Substate requirement for low power mode requirements */
+#define SUB_REQ_BLK		0x02	/* Substate requirement for S0ix blockers */
+
 /* Sunrise Point Power Management Controller PCI Device ID */
 #define SPT_PMC_PCI_DEVICE_ID			0x9d21
 #define SPT_PMC_BASE_ADDR_OFFSET		0x48
@@ -344,6 +348,8 @@ struct pmc_bit_map {
  * @pm_read_disable_bit: Bit index to read PMC_READ_DISABLE
  * @slps0_dbg_offset:	PWRMBASE offset to SLP_S0_DEBUG_REG*
  * @s0ix_blocker_offset PWRMBASE offset to S0ix blocker counter
+ * @num_s0ix_blocker:	Number of S0ix blockers
+ * @blocker_req_offset:	Telemetry offset to S0ix blocker low power mode substate requirement table
  *
  * Each PCH has unique set of register offsets and bit indexes. This structure
  * captures them to have a common implementation.
@@ -369,6 +375,8 @@ struct pmc_reg_map {
 	const u32 ltr_ignore_max;
 	const u32 pm_vric1_offset;
 	const u32 s0ix_blocker_offset;
+	const u32 num_s0ix_blocker;
+	const u32 blocker_req_offset;
 	/* Low Power Mode registers */
 	const int lpm_num_maps;
 	const int lpm_num_modes;
@@ -404,6 +412,7 @@ struct pmc_info {
  * @map:		pointer to pmc_reg_map struct that contains platform
  *			specific attributes
  * @lpm_req_regs:	List of substate requirements
+ * @blk_sub_req_reqs:	List of registers showing substate requirements for S0ix blockers
  * @ltr_ign:		Holds LTR ignore data while suspended
  *
  * pmc contains info about one power management controller device.
@@ -413,6 +422,7 @@ struct pmc {
 	void __iomem *regbase;
 	const struct pmc_reg_map *map;
 	u32 *lpm_req_regs;
+	u32 *blk_sub_req_regs;
 	u32 ltr_ign;
 };
 
@@ -468,6 +478,7 @@ enum pmc_index {
 /**
  * struct pmc_dev_info - Structure to keep PMC device info
  * @pci_func:		Function number of the primary PMC
+ * @telem_info:		Bitmask to indicate which telemetry info is available
  * @dmu_guid:		Die Management Unit GUID
  * @regmap_list:	Pointer to a list of pmc_info structure that could be
  *			available for the platform. When set, this field implies
@@ -480,6 +491,7 @@ enum pmc_index {
  */
 struct pmc_dev_info {
 	u8 pci_func;
+	u8 telem_info;
 	u32 dmu_guid;
 	struct pmc_info *regmap_list;
 	const struct pmc_reg_map *map;

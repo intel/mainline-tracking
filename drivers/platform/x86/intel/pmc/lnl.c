@@ -572,6 +572,7 @@ static int lnl_core_init(struct pmc_dev *pmcdev, struct pmc_dev_info *pmc_dev_in
 
 struct pmc_dev_info lnl_pmc_dev = {
 	.pci_func = 2,
+	.telem_info = SUB_REQ_LPM,
 	.regmap_list = lnl_pmc_info_list,
 	.map = &lnl_socm_reg_map,
 	.suspend = cnl_suspend,

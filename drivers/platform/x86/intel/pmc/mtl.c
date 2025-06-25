@@ -994,6 +994,7 @@ static int mtl_core_init(struct pmc_dev *pmcdev, struct pmc_dev_info *pmc_dev_in
 
 struct pmc_dev_info mtl_pmc_dev = {
 	.pci_func = 2,
+	.telem_info = SUB_REQ_LPM,
 	.dmu_guid = MTL_PMT_DMU_GUID,
 	.regmap_list = mtl_pmc_info_list,
 	.map = &mtl_socm_reg_map,
