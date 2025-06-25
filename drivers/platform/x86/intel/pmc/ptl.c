@@ -10,6 +10,17 @@
 
 #include "core.h"
 
+/* PMC SSRAM PMT Telemetry GUIDS */
+#define PCDP_LPM_REQ_GUID 0x47179370
+
+/*
+ * Die Mapping to Product.
+ * Product PCDDie
+ * PTL-H   PCD-H
+ * PTL-P   PCD-P
+ * PTL-U   PCD-P
+ */
+
 static const struct pmc_bit_map ptl_pcdp_pfear_map[] = {
 	{"PMC_0",               BIT(0)},
 	{"FUSE_OSSE",           BIT(1)},
@@ -515,6 +526,22 @@ static const struct pmc_reg_map ptl_pcdp_reg_map = {
 	.lpm_live_status_offset = MTL_LPM_LIVE_STATUS_OFFSET,
 	.s0ix_blocker_maps = ptl_pcdp_blk_maps,
 	.s0ix_blocker_offset = LNL_S0IX_BLOCKER_OFFSET,
+	.num_s0ix_blocker = PTL_NUM_S0IX_BLOCKER,
+	.blocker_req_offset = PTL_BLK_REQ_OFFSET,
+};
+
+static struct pmc_info ptl_pmc_info_list[] = {
+	{
+		.guid	= PCDP_LPM_REQ_GUID,
+		.devid	= PMC_DEVID_PTL_PCDH,
+		.map	= &ptl_pcdp_reg_map,
+	},
+	{
+		.guid   = PCDP_LPM_REQ_GUID,
+		.devid  = PMC_DEVID_PTL_PCDP,
+		.map    = &ptl_pcdp_reg_map,
+	},
+	{}
 };
 
 #define PTL_NPU_PCI_DEV                0xb03e
@@ -543,6 +570,9 @@ static int ptl_core_init(struct pmc_dev *pmcdev, struct pmc_dev_info *pmc_dev_in
 }
 
 struct pmc_dev_info ptl_pmc_dev = {
+	.pci_func = 2,
+	.telem_info = SUB_REQ_BLK,
+	.regmap_list = ptl_pmc_info_list,
 	.map = &ptl_pcdp_reg_map,
 	.suspend = cnl_suspend,
 	.resume = ptl_resume,
