@@ -19,8 +19,6 @@
 #include "xe_gt_sriov_pf_service_types.h"
 #include "xe_guc_ct.h"
 #include "xe_guc_hxg_helpers.h"
-#include "xe_device.h"
-#include "xe_force_wake.h"
 
 #define HUC_KERNEL_LOAD_INFO_ADJUSTED	XE_REG(0xc1dc + MEDIA_GT_GSI_OFFSET)
 #define GT_VEBOX_VDBOX_DISABLE_ADJUSTED XE_REG(0x9140 + MEDIA_GT_GSI_OFFSET)
@@ -266,19 +264,9 @@ static void pf_prepare_runtime_info(struct xe_gt *gt)
 	const struct xe_reg *regs;
 	unsigned int size;
 	u32 *values;
-	unsigned int fw_ref;
-	struct xe_device *xe = gt_to_xe(gt);
-	struct xe_gt *media_gt = xe_device_get_root_tile(xe)->media_gt;
 
 	if (!gt->sriov.pf.service.runtime.size)
 		return;
-
-	/* Windows vF using Root GuC to access the Media Early Register info
-	 * Forcewake to populate the media early register from media tile to root tile.
-	 */
-	fw_ref = xe_force_wake_get(gt_to_fw(media_gt), XE_FORCEWAKE_ALL);
-	if (!xe_force_wake_ref_has_domain(fw_ref, XE_FORCEWAKE_ALL))
-		xe_gt_sriov_err(gt, "Failed to forcewake media engines\n");
 
 	size = gt->sriov.pf.service.runtime.size;
 	regs = gt->sriov.pf.service.runtime.regs;
@@ -291,8 +279,6 @@ static void pf_prepare_runtime_info(struct xe_gt *gt)
 
 		xe_gt_sriov_pf_service_print_runtime(gt, &p);
 	}
-
-	xe_force_wake_put(gt_to_fw(media_gt), XE_FORCEWAKE_ALL);
 }
 
 /**
