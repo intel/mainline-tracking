@@ -20,9 +20,6 @@
 #include "xe_guc_ct.h"
 #include "xe_guc_hxg_helpers.h"
 
-#define HUC_KERNEL_LOAD_INFO_ADJUSTED	XE_REG(0xc1dc + MEDIA_GT_GSI_OFFSET)
-#define GT_VEBOX_VDBOX_DISABLE_ADJUSTED XE_REG(0x9140 + MEDIA_GT_GSI_OFFSET)
-
 static void pf_init_versions(struct xe_gt *gt)
 {
 	BUILD_BUG_ON(!GUC_RELAY_VERSION_BASE_MAJOR && !GUC_RELAY_VERSION_BASE_MINOR);
@@ -167,9 +164,6 @@ static const struct xe_reg ver_2000_runtime_regs[] = {
 	XE2_GT_GEOMETRY_DSS_1,		/* _MMIO(0x9150) */
 	XE2_GT_GEOMETRY_DSS_2,		/* _MMIO(0x9154) */
 	HUC_KERNEL_LOAD_INFO,		/* _MMIO(0xc1dc) */
-	GU_CNTL_PROTECTED,			/* _MMIO(0x10100C) */
-	GT_VEBOX_VDBOX_DISABLE_ADJUSTED,/* _MMIO(0x389140) */
-	HUC_KERNEL_LOAD_INFO_ADJUSTED,	/* _MMIO(0x38c1dc) */
 };
 
 static const struct xe_reg ver_3000_runtime_regs[] = {
@@ -187,9 +181,6 @@ static const struct xe_reg ver_3000_runtime_regs[] = {
 	XE2_GT_GEOMETRY_DSS_1,		/* _MMIO(0x9150) */
 	XE2_GT_GEOMETRY_DSS_2,		/* _MMIO(0x9154) */
 	HUC_KERNEL_LOAD_INFO,		/* _MMIO(0xc1dc) */
-	GU_CNTL_PROTECTED,			/* _MMIO(0x10100C) */
-	GT_VEBOX_VDBOX_DISABLE_ADJUSTED,/* _MMIO(0x389140) */
-	HUC_KERNEL_LOAD_INFO_ADJUSTED,	/* _MMIO(0x38c1dc) */
 };
 
 static const struct xe_reg *pick_runtime_regs(struct xe_device *xe, unsigned int *count)
