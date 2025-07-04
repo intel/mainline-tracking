@@ -411,6 +411,16 @@ struct kvm_xcrs {
 	__u64 padding[16];
 };
 
+#define KVM_X86_REG_MSR			(1 << 2)
+#define KVM_X86_REG_SYNTHETIC		(1 << 3)
+
+struct kvm_x86_reg_id {
+	__u32 index;
+	__u8 type;
+	__u8 rsvd;
+	__u16 rsvd16;
+};
+
 #define KVM_SYNC_X86_REGS      (1UL << 0)
 #define KVM_SYNC_X86_SREGS     (1UL << 1)
 #define KVM_SYNC_X86_EVENTS    (1UL << 2)
