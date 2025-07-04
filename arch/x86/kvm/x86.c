@@ -5953,7 +5953,15 @@ static int kvm_vcpu_ioctl_enable_cap(struct kvm_vcpu *vcpu,
 
 static int kvm_translate_synthetic_msr(struct kvm_x86_reg_id *reg)
 {
-	return -EINVAL;
+	switch (reg->index) {
+	case KVM_SYNTHETIC_GUEST_SSP:
+		reg->type = KVM_X86_REG_MSR;
+		reg->index = MSR_KVM_INTERNAL_GUEST_SSP;
+		break;
+	default:
+		return -EINVAL;
+	}
+	return 0;
 }
 
 long kvm_arch_vcpu_ioctl(struct file *filp,
