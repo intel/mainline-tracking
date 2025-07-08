@@ -98,7 +98,7 @@ static __always_inline void fred_sync_rsp0(unsigned long rsp0)
 
 static __always_inline void fred_update_rsp0(void)
 {
-	unsigned long rsp0 = (unsigned long) task_stack_page(current) + THREAD_SIZE;
+	unsigned long rsp0 = (unsigned long)task_empty_stack_pointer(current);
 
 	if (cpu_feature_enabled(X86_FEATURE_FRED) && (__this_cpu_read(fred_rsp0) != rsp0)) {
 		wrmsrns(MSR_IA32_FRED_RSP0, rsp0);
