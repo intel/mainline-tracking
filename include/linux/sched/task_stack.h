@@ -23,6 +23,11 @@ static __always_inline void *task_stack_page(const struct task_struct *task)
 	return task->stack;
 }
 
+static __always_inline void *task_empty_stack_pointer(const struct task_struct *task)
+{
+	return (void *)((unsigned long)task_stack_page(task) + THREAD_SIZE);
+}
+
 #define setup_thread_stack(new,old)	do { } while(0)
 
 static __always_inline unsigned long *end_of_stack(const struct task_struct *task)

@@ -6646,7 +6646,7 @@ void dump_vmcs(struct kvm_vcpu *vcpu)
 		       "RSP2=0x%016llx, RSP3=0x%016llx\n",
 		       vmcs_read64(HOST_IA32_FRED_CONFIG),
 		       vmcs_read64(HOST_IA32_FRED_STKLVLS),
-		       (unsigned long)task_stack_page(current) + THREAD_SIZE,
+		       (unsigned long)task_empty_stack_pointer(current),
 		       vmcs_read64(HOST_IA32_FRED_RSP1),
 		       vmcs_read64(HOST_IA32_FRED_RSP2),
 		       vmcs_read64(HOST_IA32_FRED_RSP3));
