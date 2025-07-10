@@ -708,7 +708,7 @@ static int register_err_handler(void)
 	if (has_notification_by(IEH_NMI)) {
 		init_irq_work(&ieh_irq_work, ieh_irq_work_cb);
 		rc = register_nmi_handler(NMI_SERR, ieh_nmi_handler,
-					  0, IEH_NMI_NAME);
+					  0, IEH_NMI_NAME, 0);
 		if (rc) {
 			ieh_printk(KERN_ERR, "Can't register NMI handler\n");
 			return rc;
