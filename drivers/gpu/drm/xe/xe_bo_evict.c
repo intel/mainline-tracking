@@ -9,6 +9,8 @@
 #include "xe_device.h"
 #include "xe_ggtt.h"
 #include "xe_tile.h"
+#include "xe_force_wake.h"
+#include "xe_mmio.h"
 
 typedef int (*xe_pinned_fn)(struct xe_bo *bo);
 
@@ -226,9 +228,19 @@ static int xe_bo_restore_and_map_ggtt(struct xe_bo *bo)
  */
 int xe_bo_restore_early(struct xe_device *xe)
 {
-	return xe_bo_apply_to_pinned(xe, &xe->pinned.early.evicted,
+	int ret;
+	unsigned int fw_ref;
+
+	/* forcewake the root gt before the VRAM access */
+	fw_ref = xe_force_wake_get(gt_to_fw(xe_root_mmio_gt(xe)), XE_FW_GT);
+
+	ret = xe_bo_apply_to_pinned(xe, &xe->pinned.early.evicted,
 				     &xe->pinned.early.kernel_bo_present,
 				     xe_bo_restore_and_map_ggtt);
+
+	xe_force_wake_put(gt_to_fw(xe_root_mmio_gt(xe)), fw_ref);
+
+	return ret;
 }
 
 /**
