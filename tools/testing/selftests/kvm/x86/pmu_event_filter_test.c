@@ -60,6 +60,8 @@ struct {
 	uint64_t instructions_retired;
 } pmc_results;
 
+static uint8_t inst_overcount_flags;
+
 /*
  * If we encounter a #GP during the guest PMU sanity check, then the guest
  * PMU is not functional. Inform the hypervisor via GUEST_SYNC(0).
@@ -214,8 +216,10 @@ static void remove_event(struct __kvm_pmu_event_filter *f, uint64_t event)
 do {											\
 	uint64_t br = pmc_results.branches_retired;					\
 	uint64_t ir = pmc_results.instructions_retired;					\
+	bool br_matched = inst_overcount_flags & BR_RETIRED_OVERCOUNT ?			\
+			  br >= NUM_BRANCHES : br == NUM_BRANCHES;			\
 											\
-	if (br && br != NUM_BRANCHES)							\
+	if (br && !br_matched)								\
 		pr_info("%s: Branch instructions retired = %lu (expected %u)\n",	\
 			__func__, br, NUM_BRANCHES);					\
 	TEST_ASSERT(br, "%s: Branch instructions retired = %lu (expected > 0)",		\
@@ -849,6 +853,9 @@ int main(int argc, char *argv[])
 
 	if (use_amd_pmu())
 		test_amd_deny_list(vcpu);
+
+	if (use_intel_pmu())
+		inst_overcount_flags = detect_inst_overcount_flags();
 
 	test_without_filter(vcpu);
 	test_member_deny_list(vcpu);
