@@ -104,4 +104,13 @@ enum amd_pmu_zen_events {
 extern const uint64_t intel_pmu_arch_events[];
 extern const uint64_t amd_pmu_zen_events[];
 
+/*
+ * Flags for "Instruction Retired" and "Branch Instruction Retired"
+ * overcount flaws.
+ */
+#define INST_RETIRED_OVERCOUNT BIT(0)
+#define BR_RETIRED_OVERCOUNT   BIT(1)
+
+extern uint32_t detect_inst_overcount_flags(void);
+
 #endif /* SELFTEST_KVM_PMU_H */
