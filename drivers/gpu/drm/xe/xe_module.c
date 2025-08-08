@@ -24,6 +24,9 @@ struct xe_modparam xe_modparam = {
 	.force_probe = CONFIG_DRM_XE_FORCE_PROBE,
 	.wedged_mode = 1,
 	.svm_notifier_size = 512,
+#ifdef CONFIG_PCI_IOV
+	.max_vfs = IS_ENABLED(CONFIG_DRM_XE_DEBUG) ? ~0 : 0,
+#endif
 	/* the rest are 0 by default */
 };
 
