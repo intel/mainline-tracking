@@ -2718,6 +2718,8 @@ static void update_saved_topdown_regs(struct perf_event *event, u64 slots,
 		if (!is_topdown_idx(idx))
 			continue;
 		other = cpuc->events[idx];
+		if (!other)
+			continue;
 		other->hw.saved_slots = slots;
 		other->hw.saved_metric = metrics;
 	}
@@ -2761,6 +2763,8 @@ static u64 intel_update_topdown_event(struct perf_event *event, int metric_end, 
 		if (!is_topdown_idx(idx))
 			continue;
 		other = cpuc->events[idx];
+		if (!other)
+			continue;
 		__icl_update_topdown_event(other, slots, metrics,
 					   event ? event->hw.saved_slots : 0,
 					   event ? event->hw.saved_metric : 0);
@@ -3138,7 +3142,7 @@ static void x86_pmu_handle_guest_pebs(struct pt_regs *regs,
 
 	for_each_set_bit(bit, (unsigned long *)&guest_pebs_idxs, X86_PMC_IDX_MAX) {
 		event = cpuc->events[bit];
-		if (!event->attr.precise_ip)
+		if (!event || !event->attr.precise_ip)
 			continue;
 
 		perf_sample_data_init(data, 0, event->hw.last_period);
