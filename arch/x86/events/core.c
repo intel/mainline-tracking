@@ -1711,6 +1711,9 @@ int x86_pmu_handle_irq(struct pt_regs *regs)
 			continue;
 
 		event = cpuc->events[idx];
+		if (!event)
+			continue;
+
 		last_period = event->hw.last_period;
 
 		val = static_call(x86_pmu_update)(event);
