@@ -2488,6 +2488,7 @@ static void intel_pmu_pebs_event_update_no_drain(struct cpu_hw_events *cpuc, u64
 
 static void intel_pmu_drain_pebs_nhm(struct pt_regs *iregs, struct perf_sample_data *data)
 {
+	struct perf_event *events[INTEL_PMC_IDX_FIXED + MAX_FIXED_PEBS_EVENTS] = {NULL};
 	struct cpu_hw_events *cpuc = this_cpu_ptr(&cpu_hw_events);
 	struct debug_store *ds = cpuc->ds;
 	struct perf_event *event;
@@ -2527,9 +2528,11 @@ static void intel_pmu_drain_pebs_nhm(struct pt_regs *iregs, struct perf_sample_d
 
 		/* PEBS v3 has more accurate status bits */
 		if (x86_pmu.intel_cap.pebs_format >= 3) {
-			for_each_set_bit(bit, (unsigned long *)&pebs_status, size)
+			for_each_set_bit(bit, (unsigned long *)&pebs_status, size) {
 				counts[bit]++;
-
+				if (counts[bit] && !events[bit])
+					events[bit] = cpuc->events[bit];
+			}
 			continue;
 		}
 
@@ -2567,19 +2570,31 @@ static void intel_pmu_drain_pebs_nhm(struct pt_regs *iregs, struct perf_sample_d
 		 * If collision happened, the record will be dropped.
 		 */
 		if (pebs_status != (1ULL << bit)) {
-			for_each_set_bit(i, (unsigned long *)&pebs_status, size)
+			for_each_set_bit(i, (unsigned long *)&pebs_status, size) {
 				error[i]++;
+				if (error[i] && !events[i])
+					events[i] = cpuc->events[i];
+			}
 			continue;
 		}
 
 		counts[bit]++;
+		/*
+		 * perf_event_overflow() called by below __intel_pmu_pebs_events()
+		 * could trigger interrupt throttle and clear all event pointers of
+		 * the group in cpuc->events[] to NULL. So snapshot the event[] before
+		 * it could be cleared. This avoids the possible NULL event pointer
+		 * access and PEBS record loss.
+		 */
+		if (counts[bit] && !events[bit])
+			events[bit] = cpuc->events[bit];
 	}
 
 	for_each_set_bit(bit, (unsigned long *)&mask, size) {
 		if ((counts[bit] == 0) && (error[bit] == 0))
 			continue;
 
-		event = cpuc->events[bit];
+		event = events[bit];
 		if (WARN_ON_ONCE(!event))
 			continue;
 
@@ -2604,6 +2619,7 @@ static void intel_pmu_drain_pebs_nhm(struct pt_regs *iregs, struct perf_sample_d
 
 static void intel_pmu_drain_pebs_icl(struct pt_regs *iregs, struct perf_sample_data *data)
 {
+	struct perf_event *events[INTEL_PMC_IDX_FIXED + MAX_FIXED_PEBS_EVENTS] = {NULL};
 	short counts[INTEL_PMC_IDX_FIXED + MAX_FIXED_PEBS_EVENTS] = {};
 	void *last[INTEL_PMC_IDX_FIXED + MAX_FIXED_PEBS_EVENTS];
 	struct cpu_hw_events *cpuc = this_cpu_ptr(&cpu_hw_events);
@@ -2656,6 +2672,16 @@ static void intel_pmu_drain_pebs_icl(struct pt_regs *iregs, struct perf_sample_d
 						       setup_pebs_adaptive_sample_data);
 			}
 			last[bit] = at;
+
+			/*
+			 * perf_event_overflow() called by below __intel_pmu_pebs_last_event()
+			 * could trigger interrupt throttle and clear all event pointers of
+			 * the group in cpuc->events[] to NULL. So snapshot the event[] before
+			 * it could be cleared. This avoids the possible NULL event pointer
+			 * access and PEBS record loss.
+			 */
+			if (counts[bit] && !events[bit])
+				events[bit] = cpuc->events[bit];
 		}
 	}
 
@@ -2663,7 +2689,7 @@ static void intel_pmu_drain_pebs_icl(struct pt_regs *iregs, struct perf_sample_d
 		if (!counts[bit])
 			continue;
 
-		event = cpuc->events[bit];
+		event = events[bit];
 
 		__intel_pmu_pebs_last_event(event, iregs, regs, data, last[bit],
 					    counts[bit], setup_pebs_adaptive_sample_data);
