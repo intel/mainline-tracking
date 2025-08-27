@@ -56,7 +56,7 @@ struct v4l2_subdev_stream_config {
  * 'v4l2_subdev_enable_streams_api' to 1 below.
  */
 
-static bool v4l2_subdev_enable_streams_api;
+static bool v4l2_subdev_enable_streams_api = true;
 #endif
 
 /*
