@@ -836,17 +836,20 @@ int i2c_atr_add_adapter(struct i2c_atr *atr, struct i2c_atr_adap_desc *desc)
 		u32 reg;
 
 		atr_node = device_get_named_child_node(dev, "i2c-atr");
+		if (atr_node) {
+			fwnode_for_each_child_node(atr_node, child) {
+				ret = fwnode_property_read_u32(child, "reg", &reg);
+				if (ret)
+					continue;
+				if (chan_id == reg)
+					break;
+			}
 
-		fwnode_for_each_child_node(atr_node, child) {
-			ret = fwnode_property_read_u32(child, "reg", &reg);
-			if (ret)
-				continue;
-			if (chan_id == reg)
-				break;
+			device_set_node(&chan->adap.dev, child);
+			fwnode_handle_put(atr_node);
+		} else if (dev_fwnode(dev)) {
+			device_set_node(&chan->adap.dev, fwnode_handle_get(dev_fwnode(dev)));
 		}
-
-		device_set_node(&chan->adap.dev, child);
-		fwnode_handle_put(atr_node);
 	}
 
 	if (desc->num_aliases > 0) {
