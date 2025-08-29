@@ -70,9 +70,9 @@ struct estack_pages {
 
 #define EPAGERANGE(st)							\
 	[PFN_DOWN(CEA_ESTACK_OFFS(st)) ...				\
-	 PFN_DOWN(CEA_ESTACK_OFFS(st) + CEA_ESTACK_SIZE(st) - 1)] = {	\
+	 PFN_DOWN(CEA_ESTACK_OFFS(st) + EXCEPTION_STKSZ - 1)] = {	\
 		.offs	= CEA_ESTACK_OFFS(st),				\
-		.size	= CEA_ESTACK_SIZE(st),				\
+		.size	= EXCEPTION_STKSZ,				\
 		.type	= STACK_TYPE_EXCEPTION + st, }
 
 /*

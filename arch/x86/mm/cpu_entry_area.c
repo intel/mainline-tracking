@@ -18,6 +18,25 @@ static DEFINE_PER_CPU_PAGE_ALIGNED(struct entry_stack_page, entry_stack_storage)
 static DEFINE_PER_CPU_PAGE_ALIGNED(struct exception_stacks, exception_stacks);
 DEFINE_PER_CPU(struct cea_exception_stacks*, cea_exception_stacks);
 
+/*
+ * Typically invoked by entry code, so must be noinstr.
+ */
+noinstr unsigned long __this_cpu_ist_bottom_va(enum exception_stack_ordering stack)
+{
+	struct cea_exception_stacks *s;
+
+	BUILD_BUG_ON(ESTACK_DF != 0);
+
+	s = __this_cpu_read(cea_exception_stacks);
+
+	return (unsigned long)&s->event_stacks[stack].stack;
+}
+
+noinstr unsigned long __this_cpu_ist_top_va(enum exception_stack_ordering stack)
+{
+	return __this_cpu_ist_bottom_va(stack) + EXCEPTION_STKSZ;
+}
+
 static DEFINE_PER_CPU_READ_MOSTLY(unsigned long, _cea_offset);
 
 static __always_inline unsigned int cea_offset(unsigned int cpu)
@@ -132,7 +151,7 @@ static void __init percpu_setup_debug_store(unsigned int cpu)
 
 #define cea_map_stack(name) do {					\
 	npages = sizeof(estacks->name## _stack) / PAGE_SIZE;		\
-	cea_map_percpu_pages(cea->estacks.name## _stack,		\
+	cea_map_percpu_pages(cea->estacks.event_stacks[name].stack,	\
 			estacks->name## _stack, npages, PAGE_KERNEL);	\
 	} while (0)
 

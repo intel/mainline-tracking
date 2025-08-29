@@ -16,6 +16,19 @@
 #define VC_EXCEPTION_STKSZ	0
 #endif
 
+/*
+ * The exception stack ordering in [cea_]exception_stacks
+ */
+enum exception_stack_ordering {
+	ESTACK_DF,
+	ESTACK_NMI,
+	ESTACK_DB,
+	ESTACK_MCE,
+	ESTACK_VC,
+	ESTACK_VC2,
+	N_EXCEPTION_STACKS
+};
+
 /* Macro to enforce the same ordering and stack sizes */
 #define ESTACKS_MEMBERS(guardsize, optional_stack_size)		\
 	char	ESTACK_DF_stack_guard[guardsize];		\
@@ -39,36 +52,21 @@ struct exception_stacks {
 
 /* The effective cpu entry area mapping with guard pages. */
 struct cea_exception_stacks {
-	ESTACKS_MEMBERS(PAGE_SIZE, EXCEPTION_STKSZ)
+	struct {
+		char stack_guard[PAGE_SIZE];
+		char stack[EXCEPTION_STKSZ];
+	} event_stacks[N_EXCEPTION_STACKS];
+	char IST_top_guard[PAGE_SIZE];
 };
-
-/*
- * The exception stack ordering in [cea_]exception_stacks
- */
-enum exception_stack_ordering {
-	ESTACK_DF,
-	ESTACK_NMI,
-	ESTACK_DB,
-	ESTACK_MCE,
-	ESTACK_VC,
-	ESTACK_VC2,
-	N_EXCEPTION_STACKS
-};
-
-#define CEA_ESTACK_SIZE(st)					\
-	sizeof(((struct cea_exception_stacks *)0)->st## _stack)
-
-#define CEA_ESTACK_BOT(ceastp, st)				\
-	((unsigned long)&(ceastp)->st## _stack)
-
-#define CEA_ESTACK_TOP(ceastp, st)				\
-	(CEA_ESTACK_BOT(ceastp, st) + CEA_ESTACK_SIZE(st))
 
 #define CEA_ESTACK_OFFS(st)					\
-	offsetof(struct cea_exception_stacks, st## _stack)
+	offsetof(struct cea_exception_stacks, event_stacks[st].stack)
 
 #define CEA_ESTACK_PAGES					\
 	(sizeof(struct cea_exception_stacks) / PAGE_SIZE)
+
+extern unsigned long __this_cpu_ist_top_va(enum exception_stack_ordering stack);
+extern unsigned long __this_cpu_ist_bottom_va(enum exception_stack_ordering stack);
 
 #endif
 
@@ -143,11 +141,5 @@ static __always_inline struct entry_stack *cpu_entry_stack(int cpu)
 {
 	return &get_cpu_entry_area(cpu)->entry_stack_page.stack;
 }
-
-#define __this_cpu_ist_top_va(name)					\
-	CEA_ESTACK_TOP(__this_cpu_read(cea_exception_stacks), name)
-
-#define __this_cpu_ist_bottom_va(name)					\
-	CEA_ESTACK_BOT(__this_cpu_read(cea_exception_stacks), name)
 
 #endif
