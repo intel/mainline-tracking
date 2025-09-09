@@ -9,6 +9,32 @@ struct perf_regs {
 	struct pt_regs	*regs;
 };
 
+int perf_simd_reg_validate(u16 vec_qwords, u64 vec_mask,
+			   u16 pred_qwords, u32 pred_mask);
+u64 perf_simd_reg_value(struct pt_regs *regs, int idx,
+			u16 qwords_idx, bool pred);
+/*
+ * Check and update the configuration of the requested SIMD registers
+ *
+ * regs: Used to locate the SIMD registers
+ * ignore: A mask to ignore the check of some configuration
+ * mask: The requested vector mask
+ * nr_vectors: Number of the vector registers
+ * vec_qwords: The QWORD of the vector registers
+ * pred_mask: The requested predicate mask
+ * nr_pred: Number of the predicate registers
+ * pred_qwords: The QWORD of the predicate registers
+ *
+ * It's possible (e.g., ARM) that the number and width of the dumped
+ * SIMD registers are a little different from the request.
+ * The function is to calculate the real number and width before dumping
+ * the data.
+ */
+void perf_simd_reg_check(struct pt_regs *regs, u64 ignore,
+			 u64 mask, u16 *nr_vectors, u16 *vec_qwords,
+			 u16 pred_mask, u16 *nr_pred, u16 *pred_qwords);
+
+
 #ifdef CONFIG_HAVE_PERF_REGS
 #include <asm/perf_regs.h>
 
