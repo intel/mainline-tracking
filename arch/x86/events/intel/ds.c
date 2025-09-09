@@ -1474,8 +1474,7 @@ static u64 pebs_update_adaptive_cfg(struct perf_event *event)
 	if (gprs || (attr->precise_ip < 2) || tsx_weight)
 		pebs_data_cfg |= PEBS_DATACFG_GP;
 
-	if ((sample_type & PERF_SAMPLE_REGS_INTR) &&
-	    (attr->sample_regs_intr & PERF_REG_EXTENDED_MASK))
+	if (event_has_extended_regs(event))
 		pebs_data_cfg |= PEBS_DATACFG_XMMS;
 
 	if (sample_type & PERF_SAMPLE_BRANCH_STACK) {
@@ -2191,10 +2190,8 @@ static inline void __setup_pebs_gpr_group(struct perf_event *event,
 		regs->flags &= ~PERF_EFLAGS_EXACT;
 	}
 
-	if (sample_type & (PERF_SAMPLE_REGS_INTR | PERF_SAMPLE_REGS_USER)) {
+	if (sample_type & (PERF_SAMPLE_REGS_INTR | PERF_SAMPLE_REGS_USER))
 		adaptive_pebs_save_regs(regs, gprs);
-		x86_pmu_setup_regs_data(event, data, regs);
-	}
 }
 
 static inline void __setup_pebs_meminfo_group(struct perf_event *event,
@@ -2252,6 +2249,7 @@ static void setup_pebs_adaptive_sample_data(struct perf_event *event,
 	struct pebs_meminfo *meminfo = NULL;
 	struct pebs_gprs *gprs = NULL;
 	struct x86_perf_regs *perf_regs;
+	u64 ignore_mask = 0;
 	u64 format_group;
 	u16 retire;
 
@@ -2259,7 +2257,7 @@ static void setup_pebs_adaptive_sample_data(struct perf_event *event,
 		return;
 
 	perf_regs = container_of(regs, struct x86_perf_regs, regs);
-	perf_regs->xmm_regs = NULL;
+	x86_pmu_clear_perf_regs(regs);
 
 	format_group = basic->format_group;
 
@@ -2306,6 +2304,7 @@ static void setup_pebs_adaptive_sample_data(struct perf_event *event,
 	if (format_group & PEBS_DATACFG_XMMS) {
 		struct pebs_xmm *xmm = next_record;
 
+		ignore_mask |= XFEATURE_MASK_SSE;
 		next_record = xmm + 1;
 		perf_regs->xmm_regs = xmm->xmm;
 	}
@@ -2344,6 +2343,8 @@ static void setup_pebs_adaptive_sample_data(struct perf_event *event,
 		next_record += nr * sizeof(u64);
 	}
 
+	x86_pmu_setup_regs_data(event, data, regs, ignore_mask);
+
 	WARN_ONCE(next_record != __pebs + basic->format_size,
 			"PEBS record size %u, expected %llu, config %llx\n",
 			basic->format_size,
@@ -2369,6 +2370,7 @@ static void setup_arch_pebs_sample_data(struct perf_event *event,
 	struct arch_pebs_aux *meminfo = NULL;
 	struct arch_pebs_gprs *gprs = NULL;
 	struct x86_perf_regs *perf_regs;
+	u64 ignore_mask = 0;
 	void *next_record;
 	void *at = __pebs;
 
@@ -2376,7 +2378,7 @@ static void setup_arch_pebs_sample_data(struct perf_event *event,
 		return;
 
 	perf_regs = container_of(regs, struct x86_perf_regs, regs);
-	perf_regs->xmm_regs = NULL;
+	x86_pmu_clear_perf_regs(regs);
 
 	__setup_perf_sample_data(event, iregs, data);
 
@@ -2431,6 +2433,7 @@ again:
 
 		next_record += sizeof(struct arch_pebs_xer_header);
 
+		ignore_mask |= XFEATURE_MASK_SSE;
 		xmm = next_record;
 		perf_regs->xmm_regs = xmm->xmm;
 		next_record = xmm + 1;
@@ -2478,6 +2481,8 @@ again:
 		at = at + header->size;
 		goto again;
 	}
+
+	x86_pmu_setup_regs_data(event, data, regs, ignore_mask);
 }
 
 static inline void *
@@ -3138,6 +3143,7 @@ static void __init intel_ds_pebs_init(void)
 				x86_pmu.flags |= PMU_FL_PEBS_ALL;
 				x86_pmu.pebs_capable = ~0ULL;
 				pebs_qual = "-baseline";
+				x86_pmu.ext_regs_mask |= XFEATURE_MASK_SSE;
 				x86_get_pmu(smp_processor_id())->capabilities |= PERF_PMU_CAP_EXTENDED_REGS;
 			} else {
 				/* Only basic record supported */
