@@ -1473,8 +1473,7 @@ static u64 pebs_update_adaptive_cfg(struct perf_event *event)
 	if (gprs || (attr->precise_ip < 2) || tsx_weight)
 		pebs_data_cfg |= PEBS_DATACFG_GP;
 
-	if ((sample_type & PERF_SAMPLE_REGS_INTR) &&
-	    (attr->sample_regs_intr & PERF_REG_EXTENDED_MASK))
+	if (event_has_extended_regs(event))
 		pebs_data_cfg |= PEBS_DATACFG_XMMS;
 
 	if (sample_type & PERF_SAMPLE_BRANCH_STACK) {
@@ -2183,7 +2182,8 @@ static inline void __setup_pebs_gpr_group(struct perf_event *event,
 					  struct perf_sample_data *data,
 					  struct pt_regs *regs,
 					  struct pebs_gprs *gprs,
-					  u64 sample_type)
+					  u64 sample_type,
+					  u64 ignore_mask)
 {
 	if (event->attr.precise_ip < 2) {
 		set_linear_ip(regs, gprs->ip);
@@ -2192,7 +2192,7 @@ static inline void __setup_pebs_gpr_group(struct perf_event *event,
 
 	if (sample_type & (PERF_SAMPLE_REGS_INTR | PERF_SAMPLE_REGS_USER)) {
 		adaptive_pebs_save_regs(regs, gprs);
-		x86_pmu_setup_regs_data(event, data, regs);
+		x86_pmu_setup_regs_data(event, data, regs, ignore_mask);
 	}
 }
 
@@ -2283,10 +2283,15 @@ static void setup_pebs_adaptive_sample_data(struct perf_event *event,
 	}
 
 	if (format_group & PEBS_DATACFG_GP) {
+		u64 ignore_mask = 0;
+
+		if (format_group & PEBS_DATACFG_XMMS)
+			ignore_mask |= XFEATURE_MASK_SSE;
+
 		gprs = next_record;
 		next_record = gprs + 1;
-
-		__setup_pebs_gpr_group(event, data, regs, gprs, sample_type);
+		__setup_pebs_gpr_group(event, data, regs, gprs,
+				       sample_type, ignore_mask);
 	}
 
 	if (format_group & PEBS_DATACFG_MEMINFO) {
@@ -2406,11 +2411,16 @@ again:
 	}
 
 	if (header->gpr) {
+		u64 ignore_mask = 0;
+
+		if (header->xmm)
+			ignore_mask |= XFEATURE_MASK_SSE;
+
 		gprs = next_record;
 		next_record = gprs + 1;
-
 		__setup_pebs_gpr_group(event, data, regs,
-				      (struct pebs_gprs *)gprs, sample_type);
+				      (struct pebs_gprs *)gprs, sample_type,
+				      ignore_mask);
 	}
 
 	if (header->aux) {
@@ -3160,6 +3170,7 @@ static void __init intel_ds_pebs_init(void)
 				x86_pmu.flags |= PMU_FL_PEBS_ALL;
 				x86_pmu.pebs_capable = ~0ULL;
 				pebs_qual = "-baseline";
+				x86_pmu.ext_regs_mask |= XFEATURE_MASK_SSE;
 				x86_get_pmu(smp_processor_id())->capabilities |= PERF_PMU_CAP_EXTENDED_REGS;
 			} else {
 				/* Only basic record supported */
