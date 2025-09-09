@@ -5,6 +5,49 @@
 
 const char *__perf_reg_name_x86(int id)
 {
+	if (id > PERF_REG_X86_R15 && arch__intr_simd_reg_mask()) {
+		switch (id) {
+		case PERF_REG_X86_R16:
+			return "R16";
+		case PERF_REG_X86_R17:
+			return "R17";
+		case PERF_REG_X86_R18:
+			return "R18";
+		case PERF_REG_X86_R19:
+			return "R19";
+		case PERF_REG_X86_R20:
+			return "R20";
+		case PERF_REG_X86_R21:
+			return "R21";
+		case PERF_REG_X86_R22:
+			return "R22";
+		case PERF_REG_X86_R23:
+			return "R23";
+		case PERF_REG_X86_R24:
+			return "R24";
+		case PERF_REG_X86_R25:
+			return "R25";
+		case PERF_REG_X86_R26:
+			return "R26";
+		case PERF_REG_X86_R27:
+			return "R27";
+		case PERF_REG_X86_R28:
+			return "R28";
+		case PERF_REG_X86_R29:
+			return "R29";
+		case PERF_REG_X86_R30:
+			return "R30";
+		case PERF_REG_X86_R31:
+			return "R31";
+		case PERF_REG_X86_SSP:
+			return "SSP";
+		default:
+			return NULL;
+		}
+
+		return NULL;
+	}
+
 	switch (id) {
 	case PERF_REG_X86_AX:
 		return "AX";
