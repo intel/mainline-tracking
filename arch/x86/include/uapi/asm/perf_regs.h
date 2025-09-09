@@ -28,9 +28,9 @@ enum perf_event_x86_regs {
 	PERF_REG_X86_R14,
 	PERF_REG_X86_R15,
 	/*
-	 * The EGPRs and XMM have overlaps. Only one can be used
+	 * The EGPRs/SSP and XMM have overlaps. Only one can be used
 	 * at a time. For the ABI type PERF_SAMPLE_REGS_ABI_SIMD,
-	 * utilize EGPRs. For the other ABI type, XMM is used.
+	 * utilize EGPRs/SSP. For the other ABI type, XMM is used.
 	 *
 	 * Extended GPRs (EGPRs)
 	 */
@@ -53,6 +53,9 @@ enum perf_event_x86_regs {
 	/* These are the limits for the GPRs. */
 	PERF_REG_X86_32_MAX = PERF_REG_X86_GS + 1,
 	PERF_REG_X86_64_MAX = PERF_REG_X86_R31 + 1,
+
+	PERF_REG_X86_SSP,
+	PERF_REG_MISC_MAX = PERF_REG_X86_SSP + 1,
 
 	/* These all need two bits set because they are 128bit */
 	PERF_REG_X86_XMM0  = 32,
