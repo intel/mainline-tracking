@@ -73,6 +73,16 @@ void perf_simd_reg_check(struct pt_regs *regs, u64 ignore,
 	    !perf_regs->ymmh_regs)
 		*vec_qwords = PERF_X86_XMM_QWORDS;
 
+	if (!(ignore & XFEATURE_MASK_ZMM_Hi256) &&
+	    *vec_qwords >= PERF_X86_ZMM_QWORDS &&
+	    !perf_regs->zmmh_regs)
+		*vec_qwords = PERF_X86_YMM_QWORDS;
+
+	if (!(ignore & XFEATURE_MASK_Hi16_ZMM) &&
+	    *nr_vectors > PERF_X86_H16ZMM_BASE &&
+	    !perf_regs->h16zmm_regs)
+		*nr_vectors = PERF_X86_H16ZMM_BASE;
+
 	*nr_pred = 0;
 }
 
@@ -108,6 +118,12 @@ u64 perf_simd_reg_value(struct pt_regs *regs, int idx,
 			 qwords_idx >= PERF_X86_SIMD_QWORDS_MAX))
 		return 0;
 
+	if (idx >= PERF_X86_H16ZMM_BASE) {
+		if (!perf_regs->h16zmm_regs)
+			return 0;
+		return perf_regs->h16zmm_regs[idx * PERF_X86_ZMM_QWORDS + qwords_idx];
+	}
+
 	if (qwords_idx < PERF_X86_XMM_QWORDS) {
 		if (!perf_regs->xmm_regs)
 			return 0;
@@ -116,6 +132,10 @@ u64 perf_simd_reg_value(struct pt_regs *regs, int idx,
 		if (!perf_regs->ymmh_regs)
 			return 0;
 		return perf_regs->ymmh_regs[idx * PERF_X86_YMMH_QWORDS + qwords_idx - PERF_X86_XMM_QWORDS];
+	} else if (qwords_idx < PERF_X86_ZMM_QWORDS) {
+		if (!perf_regs->zmmh_regs)
+			return 0;
+		return perf_regs->zmmh_regs[idx * PERF_X86_ZMMH_QWORDS + qwords_idx - PERF_X86_YMM_QWORDS];
 	}
 
 	return 0;
@@ -133,7 +153,8 @@ int perf_simd_reg_validate(u16 vec_qwords, u64 vec_mask,
 			return -EINVAL;
 	} else {
 		if (vec_qwords != PERF_X86_XMM_QWORDS &&
-		    vec_qwords != PERF_X86_YMM_QWORDS)
+		    vec_qwords != PERF_X86_YMM_QWORDS &&
+		    vec_qwords != PERF_X86_ZMM_QWORDS)
 			return -EINVAL;
 		if (vec_mask & ~PERF_X86_SIMD_VEC_MASK)
 			return -EINVAL;
