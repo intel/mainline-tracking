@@ -83,7 +83,9 @@ void perf_simd_reg_check(struct pt_regs *regs, u64 ignore,
 	    !perf_regs->h16zmm_regs)
 		*nr_vectors = PERF_X86_H16ZMM_BASE;
 
-	*nr_pred = 0;
+	if (!(ignore & XFEATURE_MASK_OPMASK) &&
+	    *nr_pred && !perf_regs->opmask_regs)
+		*nr_pred = 0;
 }
 
 u64 perf_reg_value(struct pt_regs *regs, int idx)
@@ -111,8 +113,14 @@ u64 perf_simd_reg_value(struct pt_regs *regs, int idx,
 {
 	struct x86_perf_regs *perf_regs = container_of(regs, struct x86_perf_regs, regs);
 
-	if (pred)
-		return 0;
+	if (pred) {
+		if (WARN_ON_ONCE(idx >= PERF_X86_SIMD_PRED_REGS_MAX ||
+				 qwords_idx >= PERF_X86_OPMASK_QWORDS))
+			return 0;
+		if (!perf_regs->opmask_regs)
+			return 0;
+		return perf_regs->opmask_regs[idx];
+	}
 
 	if (WARN_ON_ONCE(idx >= PERF_X86_SIMD_VEC_REGS_MAX ||
 			 qwords_idx >= PERF_X86_SIMD_QWORDS_MAX))
@@ -159,7 +167,10 @@ int perf_simd_reg_validate(u16 vec_qwords, u64 vec_mask,
 		if (vec_mask & ~PERF_X86_SIMD_VEC_MASK)
 			return -EINVAL;
 	}
-	if (pred_mask)
+
+	if (pred_qwords != PERF_X86_OPMASK_QWORDS)
+		return -EINVAL;
+	if (pred_mask & ~PERF_X86_SIMD_PRED_MASK)
 		return -EINVAL;
 
 	return 0;
