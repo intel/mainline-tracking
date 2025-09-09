@@ -2445,6 +2445,7 @@ static inline void __setup_pebs_basic_group(struct perf_event *event,
 }
 
 static inline void __setup_pebs_gpr_group(struct perf_event *event,
+					  struct perf_sample_data *data,
 					  struct pt_regs *regs,
 					  struct pebs_gprs *gprs,
 					  u64 sample_type)
@@ -2454,8 +2455,10 @@ static inline void __setup_pebs_gpr_group(struct perf_event *event,
 		regs->flags &= ~PERF_EFLAGS_EXACT;
 	}
 
-	if (sample_type & (PERF_SAMPLE_REGS_INTR | PERF_SAMPLE_REGS_USER))
+	if (sample_type & (PERF_SAMPLE_REGS_INTR | PERF_SAMPLE_REGS_USER)) {
 		adaptive_pebs_save_regs(regs, gprs);
+		x86_pmu_setup_regs_data(event, data, regs);
+	}
 }
 
 static inline void __setup_pebs_meminfo_group(struct perf_event *event,
@@ -2548,7 +2551,7 @@ static void setup_pebs_adaptive_sample_data(struct perf_event *event,
 		gprs = next_record;
 		next_record = gprs + 1;
 
-		__setup_pebs_gpr_group(event, regs, gprs, sample_type);
+		__setup_pebs_gpr_group(event, data, regs, gprs, sample_type);
 	}
 
 	if (format_group & PEBS_DATACFG_MEMINFO) {
@@ -2672,7 +2675,7 @@ again:
 		gprs = next_record;
 		next_record = gprs + 1;
 
-		__setup_pebs_gpr_group(event, regs,
+		__setup_pebs_gpr_group(event, data, regs,
 				       (struct pebs_gprs *)gprs,
 				       sample_type);
 	}
