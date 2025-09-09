@@ -11,6 +11,11 @@ int __weak arch_sdt_arg_parse_op(char *old_op __maybe_unused,
 	return SDT_ARG_SKIP;
 }
 
+bool __weak arch_has_simd_regs(u64 mask __maybe_unused)
+{
+	return false;
+}
+
 uint64_t __weak arch__intr_reg_mask(void)
 {
 	return 0;
@@ -21,11 +26,65 @@ uint64_t __weak arch__user_reg_mask(void)
 	return 0;
 }
 
+uint64_t __weak arch__intr_simd_reg_mask(void)
+{
+	return 0;
+}
+
+uint64_t __weak arch__user_simd_reg_mask(void)
+{
+	return 0;
+}
+
+uint64_t __weak arch__intr_pred_reg_mask(void)
+{
+	return 0;
+}
+
+uint64_t __weak arch__user_pred_reg_mask(void)
+{
+	return 0;
+}
+
+uint64_t __weak arch__intr_simd_reg_bitmap_qwords(int reg  __maybe_unused, u16 *qwords)
+{
+	*qwords = 0;
+	return 0;
+}
+
+uint64_t __weak arch__user_simd_reg_bitmap_qwords(int reg __maybe_unused, u16 *qwords)
+{
+	*qwords = 0;
+	return 0;
+}
+
+uint64_t __weak arch__intr_pred_reg_bitmap_qwords(int reg  __maybe_unused, u16 *qwords)
+{
+	*qwords = 0;
+	return 0;
+}
+
+uint64_t __weak arch__user_pred_reg_bitmap_qwords(int reg __maybe_unused, u16 *qwords)
+{
+	*qwords = 0;
+	return 0;
+}
+
 static const struct sample_reg sample_reg_masks[] = {
 	SMPL_REG_END
 };
 
 const struct sample_reg * __weak arch__sample_reg_masks(void)
+{
+	return sample_reg_masks;
+}
+
+const struct sample_reg * __weak arch__sample_simd_reg_masks(void)
+{
+	return sample_reg_masks;
+}
+
+const struct sample_reg * __weak arch__sample_pred_reg_masks(void)
 {
 	return sample_reg_masks;
 }
