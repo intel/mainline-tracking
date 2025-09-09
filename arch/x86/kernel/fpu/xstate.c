@@ -1474,6 +1474,36 @@ void xrstors(struct xregs_state *xstate, u64 mask)
 	WARN_ON_ONCE(err);
 }
 
+/**
+ * xsaves_nmi - Save selected components to a kernel xstate buffer in NMI
+ * @xstate:	Pointer to the buffer
+ * @mask:	Feature mask to select the components to save
+ *
+ * The @xstate buffer must be 64 byte aligned.
+ *
+ * Caution: The interface is different from the other interfaces of FPU.
+ * The other mechanisms that deal with xstate try to get something coherent.
+ * But this interface is *in*coherent. There's no telling what was in the
+ * registers when a NMI hits. It writes whatever was in the registers when
+ * the NMI hit.
+ * The only user for the interface is perf_event. There is already a
+ * hardware feature (See Intel PEBS XMMs group), which can handle XSAVE
+ * "snapshots" from random code running. This just provides another XSAVE
+ * data source at a random time.
+ * This function can only be invoked in an NMI. It returns the *ACTUAL*
+ * register contents when the NMI hit.
+ */
+void xsaves_nmi(struct xregs_state *xstate, u64 mask)
+{
+	int err;
+
+	if (!in_nmi())
+		return;
+
+	XSTATE_OP(XSAVES, xstate, (u32)mask, (u32)(mask >> 32), err);
+	WARN_ON_ONCE(err);
+}
+
 #if IS_ENABLED(CONFIG_KVM)
 void fpstate_clear_xstate_component(struct fpstate *fpstate, unsigned int xfeature)
 {
