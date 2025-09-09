@@ -434,6 +434,8 @@ static void x86_pmu_get_ext_regs(struct x86_perf_regs *perf_regs, u64 mask)
 		perf_regs->opmask = get_xsave_addr(xsave, XFEATURE_OPMASK);
 	if (valid_mask & XFEATURE_MASK_APX)
 		perf_regs->egpr = get_xsave_addr(xsave, XFEATURE_APX);
+	if (valid_mask & XFEATURE_MASK_CET_USER)
+		perf_regs->cet = get_xsave_addr(xsave, XFEATURE_CET_USER);
 }
 
 static void release_ext_regs_buffers(void)
@@ -721,7 +723,7 @@ int x86_pmu_hw_config(struct perf_event *event)
 
 	if (event->attr.sample_type & (PERF_SAMPLE_REGS_INTR | PERF_SAMPLE_REGS_USER)) {
 		if (event_has_simd_regs(event)) {
-			u64 reserved = ~GENMASK_ULL(PERF_REG_X86_64_MAX - 1, 0);
+			u64 reserved = ~GENMASK_ULL(PERF_REG_MISC_MAX - 1, 0);
 
 			if (!(event->pmu->capabilities & PERF_PMU_CAP_SIMD_REGS))
 				return -EINVAL;
@@ -735,6 +737,10 @@ int x86_pmu_hw_config(struct perf_event *event)
 			if (event_needs_egprs(event) &&
 			    !(x86_pmu.ext_regs_mask & XFEATURE_MASK_APX))
 				return -EINVAL;
+			if (event_needs_ssp(event) &&
+			    !(x86_pmu.ext_regs_mask & XFEATURE_MASK_CET_USER))
+				return -EINVAL;
+
 			/* Not require any vector registers but set width */
 			if (event->attr.sample_simd_vec_reg_qwords &&
 			    !event->attr.sample_simd_vec_reg_intr &&
@@ -1931,6 +1937,9 @@ static void x86_pmu_setup_extended_regs_data(struct perf_event *event,
 	perf_regs->egpr_regs = NULL;
 	if (event_needs_egprs(event))
 		mask |= XFEATURE_MASK_APX;
+	perf_regs->cet_regs = NULL;
+	if (event_needs_ssp(event))
+		mask |= XFEATURE_MASK_CET_USER;
 
 	mask &= ~ignore_mask;
 	if (mask)
