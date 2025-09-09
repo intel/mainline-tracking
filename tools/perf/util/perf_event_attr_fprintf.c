@@ -360,6 +360,12 @@ int perf_event_attr__fprintf(FILE *fp, struct perf_event_attr *attr,
 	PRINT_ATTRf(aux_start_paused, p_unsigned);
 	PRINT_ATTRf(aux_pause, p_unsigned);
 	PRINT_ATTRf(aux_resume, p_unsigned);
+	PRINT_ATTRf(sample_simd_pred_reg_qwords, p_unsigned);
+	PRINT_ATTRf(sample_simd_pred_reg_intr, p_hex);
+	PRINT_ATTRf(sample_simd_pred_reg_user, p_hex);
+	PRINT_ATTRf(sample_simd_vec_reg_qwords, p_unsigned);
+	PRINT_ATTRf(sample_simd_vec_reg_intr, p_hex);
+	PRINT_ATTRf(sample_simd_vec_reg_user, p_hex);
 
 	return ret;
 }

@@ -27,6 +27,16 @@ int arch_sdt_arg_parse_op(char *old_op, char **new_op);
 uint64_t arch__intr_reg_mask(void);
 uint64_t arch__user_reg_mask(void);
 const struct sample_reg *arch__sample_reg_masks(void);
+const struct sample_reg *arch__sample_simd_reg_masks(void);
+const struct sample_reg *arch__sample_pred_reg_masks(void);
+uint64_t arch__intr_simd_reg_mask(void);
+uint64_t arch__user_simd_reg_mask(void);
+uint64_t arch__intr_pred_reg_mask(void);
+uint64_t arch__user_pred_reg_mask(void);
+uint64_t arch__intr_simd_reg_bitmap_qwords(int reg, u16 *qwords);
+uint64_t arch__user_simd_reg_bitmap_qwords(int reg, u16 *qwords);
+uint64_t arch__intr_pred_reg_bitmap_qwords(int reg, u16 *qwords);
+uint64_t arch__user_pred_reg_bitmap_qwords(int reg, u16 *qwords);
 
 const char *perf_reg_name(int id, const char *arch);
 int perf_reg_value(u64 *valp, struct regs_dump *regs, int id);
