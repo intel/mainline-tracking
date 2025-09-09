@@ -720,6 +720,22 @@ int x86_pmu_hw_config(struct perf_event *event)
 				return -EINVAL;
 			if (!event->attr.precise_ip)
 				return -EINVAL;
+			if (event->attr.sample_simd_regs_enabled)
+				return -EINVAL;
+		}
+
+		if (event_has_simd_regs(event)) {
+			if (!(event->pmu->capabilities & PERF_PMU_CAP_SIMD_REGS))
+				return -EINVAL;
+			/* Not require any vector registers but set width */
+			if (event->attr.sample_simd_vec_reg_qwords &&
+			    !event->attr.sample_simd_vec_reg_intr &&
+			    !event->attr.sample_simd_vec_reg_user)
+				return -EINVAL;
+			/* The vector registers set is not supported */
+			if (event_needs_xmm(event) &&
+			    !(x86_pmu.ext_regs_mask & XFEATURE_MASK_SSE))
+				return -EINVAL;
 		}
 	}
 
@@ -1761,6 +1777,7 @@ x86_pmu_perf_get_regs_user(struct perf_sample_data *data,
 	struct x86_perf_regs *x86_regs_user = this_cpu_ptr(&x86_user_regs);
 	struct perf_regs regs_user;
 
+	x86_regs_user->abi = PERF_SAMPLE_REGS_ABI_NONE;
 	perf_get_regs_user(&regs_user, regs);
 	data->regs_user.abi = regs_user.abi;
 	if (regs_user.regs) {
@@ -1773,7 +1790,24 @@ x86_pmu_perf_get_regs_user(struct perf_sample_data *data,
 
 static bool x86_pmu_user_req_pt_regs_only(struct perf_event *event)
 {
+	if (event->attr.sample_simd_regs_enabled)
+		return false;
 	return !(event->attr.sample_regs_user & PERF_REG_EXTENDED_MASK);
+}
+
+static inline void
+x86_pmu_update_ext_regs_size(struct perf_event_attr *attr,
+			     struct perf_sample_data *data,
+			     struct pt_regs *regs,
+			     u64 mask, u16 pred_mask)
+{
+	u16 pred_qwords = attr->sample_simd_pred_reg_qwords;
+	u16 vec_qwords = attr->sample_simd_vec_reg_qwords;
+	u64 pred_bitmap = pred_mask;
+	u64 bitmap = mask;
+
+	data->dyn_size += (hweight64(bitmap) * vec_qwords +
+			   hweight64(pred_bitmap) * pred_qwords) * sizeof(u64);
 }
 
 inline void x86_pmu_clear_perf_regs(struct pt_regs *regs)
@@ -1796,6 +1830,7 @@ static void x86_pmu_setup_basic_regs_data(struct perf_event *event,
 
 	if (sample_type & PERF_SAMPLE_REGS_USER) {
 		perf_regs = container_of(regs, struct x86_perf_regs, regs);
+		perf_regs->abi = PERF_SAMPLE_REGS_ABI_NONE;
 
 		if (user_mode(regs)) {
 			data->regs_user.abi = perf_reg_abi(current);
@@ -1818,17 +1853,24 @@ static void x86_pmu_setup_basic_regs_data(struct perf_event *event,
 		data->dyn_size += sizeof(u64);
 		if (data->regs_user.regs)
 			data->dyn_size += hweight64(attr->sample_regs_user) * sizeof(u64);
+		perf_regs->abi |= data->regs_user.abi;
+		if (attr->sample_simd_regs_enabled)
+			perf_regs->abi |= PERF_SAMPLE_REGS_ABI_SIMD;
 		data->sample_flags |= PERF_SAMPLE_REGS_USER;
 	}
 
 	if (sample_type & PERF_SAMPLE_REGS_INTR) {
 		perf_regs = container_of(regs, struct x86_perf_regs, regs);
+		perf_regs->abi = PERF_SAMPLE_REGS_ABI_NONE;
 
 		data->regs_intr.regs = regs;
 		data->regs_intr.abi = perf_reg_abi(current);
 		data->dyn_size += sizeof(u64);
 		if (data->regs_intr.regs)
 			data->dyn_size += hweight64(attr->sample_regs_intr) * sizeof(u64);
+		perf_regs->abi |= data->regs_intr.abi;
+		if (attr->sample_simd_regs_enabled)
+			perf_regs->abi |= PERF_SAMPLE_REGS_ABI_SIMD;
 		data->sample_flags |= PERF_SAMPLE_REGS_INTR;
 	}
 }
@@ -1840,12 +1882,45 @@ static void x86_pmu_sample_ext_regs(struct perf_event *event,
 	struct x86_perf_regs *perf_regs = container_of(regs, struct x86_perf_regs, regs);
 	u64 mask = 0;
 
-	if (event_has_extended_regs(event))
+	if (event_needs_xmm(event))
 		mask |= XFEATURE_MASK_SSE;
 
 	mask &= ~ignore_mask;
 	if (mask)
 		x86_pmu_get_ext_regs(perf_regs, mask);
+}
+
+static void x86_pmu_setup_extended_regs_data(struct perf_event *event,
+					     struct perf_sample_data *data,
+					     struct pt_regs *regs)
+{
+	struct perf_event_attr *attr = &event->attr;
+	u64 sample_type = attr->sample_type;
+
+	if (!attr->sample_simd_regs_enabled)
+		return;
+
+	if (!(attr->sample_type & (PERF_SAMPLE_REGS_INTR | PERF_SAMPLE_REGS_USER)))
+		return;
+
+	/* Update the data[] size */
+	if (sample_type & PERF_SAMPLE_REGS_USER && data->regs_user.abi) {
+		/* num and qwords of vector and pred registers */
+		data->dyn_size += sizeof(u64);
+		data->regs_user.abi |= PERF_SAMPLE_REGS_ABI_SIMD;
+		x86_pmu_update_ext_regs_size(attr, data, data->regs_user.regs,
+					     attr->sample_simd_vec_reg_user,
+					     attr->sample_simd_pred_reg_user);
+	}
+
+	if (sample_type & PERF_SAMPLE_REGS_INTR && data->regs_intr.abi) {
+		/* num and qwords of vector and pred registers */
+		data->dyn_size += sizeof(u64);
+		data->regs_intr.abi |= PERF_SAMPLE_REGS_ABI_SIMD;
+		x86_pmu_update_ext_regs_size(attr, data, data->regs_intr.regs,
+					     attr->sample_simd_vec_reg_intr,
+					     attr->sample_simd_pred_reg_intr);
+	}
 }
 
 void x86_pmu_setup_regs_data(struct perf_event *event,
@@ -1859,6 +1934,7 @@ void x86_pmu_setup_regs_data(struct perf_event *event,
 	 * which is unnessary to sample again.
 	 */
 	x86_pmu_sample_ext_regs(event, regs, ignore_mask);
+	x86_pmu_setup_extended_regs_data(event, data, regs);
 }
 
 int x86_pmu_handle_irq(struct pt_regs *regs)
