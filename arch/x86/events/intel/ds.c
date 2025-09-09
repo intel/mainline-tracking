@@ -2410,12 +2410,15 @@ again:
 	}
 
 	if (header->gpr) {
+		ignore_mask = XFEATURE_MASK_CET_USER;
+
 		gprs = next_record;
 		next_record = gprs + 1;
 
 		__setup_pebs_gpr_group(event, data, regs,
 				       (struct pebs_gprs *)gprs,
 				       sample_type);
+		perf_regs->cet_regs = &gprs->r15;
 	}
 
 	if (header->aux) {
