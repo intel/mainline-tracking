@@ -825,6 +825,8 @@ int i2c_atr_add_adapter(struct i2c_atr *atr, struct i2c_atr_adap_desc *desc)
 	chan->adap.timeout = parent->timeout;
 	chan->adap.quirks = parent->quirks;
 	chan->adap.lock_ops = &i2c_atr_lock_ops;
+	chan->adap.is_atr = true;
+	chan->adap.chan_id = chan_id;
 
 	if (bus_handle) {
 		device_set_node(&chan->adap.dev, fwnode_handle_get(bus_handle));

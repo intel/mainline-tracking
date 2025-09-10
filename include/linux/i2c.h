@@ -765,6 +765,10 @@ struct i2c_adapter {
 
 	/* 7bit address space */
 	DECLARE_BITMAP(addrs_in_instantiation, 1 << 7);
+
+	bool is_atr;
+	bool is_mux;
+	int chan_id;
 };
 #define to_i2c_adapter(d) container_of(d, struct i2c_adapter, dev)
 
