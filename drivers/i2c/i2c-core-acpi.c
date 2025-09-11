@@ -285,11 +285,40 @@ static void i2c_acpi_register_device(struct i2c_adapter *adapter,
 	if (acpi_quirk_skip_i2c_client_enumeration(adev))
 		return;
 
+	/* Check if Device is on ATR or MUX adapter */
+	if (adapter->is_atr || adapter->is_mux) {
+		u32 channel;
+
+		if (fwnode_property_present(&adev->fwnode, "channel")) {
+			if (fwnode_property_read_u32(&adev->fwnode, "channel", &channel)) {
+				dev_err(&adev->dev, "failed to read channel property\n");
+				return;
+			}
+
+			if (adapter->chan_id != channel) {
+				dev_err(&adev->dev, "device is not on current adapter %d\n",
+					adapter->chan_id);
+				goto err;
+			} else {
+				acpi_dev_clear_dependencies(ACPI_COMPANION(adapter->dev.parent));
+			}
+
+			if (adev->dep_unmet) {
+				dev_err(&adev->dev, "device has unmet dependencies\n");
+				return;
+			}
+		} else {
+			dev_err(&adev->dev, "channel property not present\n");
+			return;
+		}
+	}
+
 	adev->power.flags.ignore_parent = true;
 	acpi_device_set_enumerated(adev);
 
 	if (IS_ERR(i2c_new_client_device(adapter, info)))
 		adev->power.flags.ignore_parent = false;
+err:
 }
 
 static acpi_status i2c_acpi_add_device(acpi_handle handle, u32 level,
@@ -323,7 +352,8 @@ void i2c_acpi_register_devices(struct i2c_adapter *adap)
 	acpi_status status;
 
 	if (!has_acpi_companion(&adap->dev))
-		return;
+		if (!adap->dev.fwnode)
+			return;
 
 	status = acpi_walk_namespace(ACPI_TYPE_DEVICE, ACPI_ROOT_OBJECT,
 				     I2C_ACPI_MAX_SCAN_DEPTH,
