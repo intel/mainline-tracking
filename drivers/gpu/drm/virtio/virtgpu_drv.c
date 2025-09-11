@@ -181,6 +181,13 @@ static int virtgpu_freeze(struct virtio_device *vdev)
 	flush_work(&vgdev->ctrlq.dequeue_work);
 	flush_work(&vgdev->cursorq.dequeue_work);
 	flush_work(&vgdev->config_changed_work);
+
+	wait_event(vgdev->ctrlq.ack_queue,
+		   vgdev->ctrlq.vq->num_free == vgdev->ctrlq.vq->num_max);
+
+	wait_event(vgdev->cursorq.ack_queue,
+		   vgdev->cursorq.vq->num_free == vgdev->cursorq.vq->num_max);
+
 	vdev->config->del_vqs(vdev);
 
 	return 0;
