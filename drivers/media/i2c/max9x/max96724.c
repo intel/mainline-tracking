@@ -30,6 +30,7 @@
 #include <linux/slab.h>
 
 #include "max96724.h"
+#include "regmap-retry.h"
 
 // Params
 int max96724_serial_link_timeout_ms = MAX96724_DEFAULT_SERIAL_LINK_TIMEOUT_MS;
@@ -337,7 +338,7 @@ static int max96724_set_all_reset(struct max9x_common *common, bool enable)
 
 	dev_dbg(dev, "Reset %s", (enable ? "enable" : "disable"));
 
-	return regmap_update_bits(map, MAX96724_RESET_ALL,
+	return regmap_update_bits_retry(map, MAX96724_RESET_ALL,
 		MAX96724_RESET_ALL_FIELD,
 		MAX9X_FIELD_PREP(MAX96724_RESET_ALL_FIELD, enable ? 1U : 0U));
 }
@@ -354,8 +355,8 @@ static int max96724_soft_reset(struct max9x_common *common)
 		return ret;
 
 	/* Wait for hardware available after soft reset */
-	/* TODO: Optimize sleep time 45 ms */
-	msleep(45);
+	/* TODO: Optimize sleep time 20 ms */
+	msleep(20);
 
 	ret = max96724_set_all_reset(common, 0);
 	if (ret)
@@ -454,7 +455,7 @@ static int max96724_set_serial_link_rate(struct max9x_common *common, unsigned i
 	struct device *dev = common->dev;
 	struct regmap *map = common->map;
 	struct max9x_serdes_serial_config *config = &common->serial_link[link_id].config;
-	unsigned int tx_rate, rx_rate;
+	int tx_rate, rx_rate;
 
 	tx_rate = max9x_serdes_mhz_to_rate(max96724_tx_rates, ARRAY_SIZE(max96724_tx_rates), config->tx_freq_mhz);
 	if (tx_rate < 0)
@@ -570,7 +571,7 @@ static int max96724_set_csi_link_enabled(struct max9x_common *common,
 {
 	struct device *dev = common->dev;
 	struct max9x_serdes_csi_link *csi_link;
-	int ret;
+	int ret = 0;
 
 	if (csi_id > common->num_csi_links)
 		return -EINVAL;
@@ -585,32 +586,37 @@ static int max96724_set_csi_link_enabled(struct max9x_common *common,
 		     "Tried to enable CSI port with no lanes???"))
 		return -EINVAL;
 
+	mutex_lock(&csi_link->csi_mutex);
+
+	dev_dbg(dev, "CSI link %d: %s (%d users)", csi_id,
+		(enable ? "enable" : "disable"), csi_link->usecount);
+
+	if (enable && csi_link->usecount == 0) {
+		// Enable && first user
+
+		ret = max96724_set_phy_enabled(common, csi_id, true);
+		if (ret)
+			goto err_unlock;
+
+	} else if (!enable && csi_link->usecount == 1) {
+		// Disable && no more users
+
+		ret = max96724_set_phy_enabled(common, csi_id, false);
+		if (ret)
+			goto err_unlock;
+
+	}
+
 	// Keep track of number of enabled maps using this CSI link
 	if (enable)
 		csi_link->usecount++;
 	else if (csi_link->usecount > 0)
 		csi_link->usecount--;
 
-	dev_dbg(dev, "CSI link %d: %s (%d users)", csi_id,
-		(enable ? "enable" : "disable"), csi_link->usecount);
+err_unlock:
+	mutex_unlock(&csi_link->csi_mutex);
 
-	if (enable && csi_link->usecount == 1) {
-		// Enable && first user
-
-		ret = max96724_set_phy_enabled(common, csi_id, true);
-		if (ret)
-			return ret;
-
-	} else if (!enable && csi_link->usecount == 0) {
-		// Disable && no more users
-
-		ret = max96724_set_phy_enabled(common, csi_id, false);
-		if (ret)
-			return ret;
-
-	}
-
-	return 0;
+	return ret;
 }
 
 static int max96724_csi_double_pixel(struct max9x_common *common,
@@ -719,11 +725,14 @@ static int max96724_set_serial_link_routing(struct max9x_common *common,
 			if (ret)
 				return ret;
 
-			ret = max96724_set_csi_link_enabled(common,
+			if (!config->map[map_id].is_csi_enabled) {
+				ret = max96724_set_csi_link_enabled(common,
 							    config->map[map_id].dst_csi,
 							    true);
-			if (ret)
-				return ret;
+				if (ret)
+					return ret;
+				config->map[map_id].is_csi_enabled = true;
+			}
 
 			ret = max96724_csi_double_pixel(common,
 							config->map[map_id].dst_csi,
@@ -766,16 +775,18 @@ static int max96724_disable_serial_link(struct max9x_common *common,
 			return ret;
 
 		for (map_id = 0; map_id < config->num_maps; map_id++) {
+			if (!config->map[map_id].is_csi_enabled)
+				continue;
 			ret = max96724_set_csi_link_enabled(common, config->map[map_id].dst_csi, false);
 			if (ret)
 				return ret;
+			config->map[map_id].is_csi_enabled = false;
 		}
 	}
 
-	/* TODO: if disabling serial link, serializer can't perform i2c communication. */
-	// ret = max96724_set_serial_link_state(common, link_id, false);
-	// if (ret)
-	// 	return ret;
+	ret = max96724_set_serial_link_state(common, link_id, false);
+	if (ret)
+		return ret;
 
 	return 0;
 }

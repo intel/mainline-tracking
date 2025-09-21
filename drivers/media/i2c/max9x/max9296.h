@@ -49,7 +49,7 @@ enum max9296_link_mode {
 #define MAX9296_NUM_CSI_LINKS 4  /* Total Number of PHYs */
 /* 2 CSI controllers, 2 PHYs per controller, and 2 lanes per PHY */
 
-#define MAX9296_DEFAULT_SERIAL_LINK_TIMEOUT_MS 250
+#define MAX9296_DEFAULT_SERIAL_LINK_TIMEOUT_MS 350
 
 #define MAX9296_DPLL_FREQ_MHZ_MULTIPLE 100
 

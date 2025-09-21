@@ -17,6 +17,11 @@
 #include <media/mipi-csi2.h>
 #define to_isx031(_sd)			container_of(_sd, struct isx031, sd)
 
+#define ISX031_OTP_TYPE_NAME_L		0x7E8A
+#define ISX031_OTP_TYPE_NAME_H		0x7E8B
+#define ISX031_OTP_TYPE_NAME_H_FIELD	0x0F
+#define ISX031_OTP_MODULE_ID_L		0x031
+
 #define ISX031_REG_MODE_SET_F		0x8A01
 #define ISX031_MODE_STANDBY		0x00
 #define ISX031_MODE_STREAMING		0x80
@@ -32,6 +37,9 @@
 #define ISX031_MODE_4LANES_60FPS	0x01
 #define ISX031_MODE_4LANES_30FPS	0x17
 #define ISX031_MODE_2LANES_30FPS	0x18
+
+/* To serialize asynchronous callbacks */
+static DEFINE_MUTEX(isx031_mutex);
 
 struct isx031_reg {
 	enum {
@@ -52,13 +60,17 @@ struct isx031_link_freq_config {
 	const struct isx031_reg_list reg_list;
 };
 
-struct isx031_driver_mode {
+struct isx031_drive_mode {
 	int lanes;
 	int fps;
 	int mode;
 };
 
-static const struct isx031_driver_mode isx031_driver_modes[] = {
+struct isx031_info {
+	bool is_direct;
+};
+
+static const struct isx031_drive_mode isx031_drive_modes[] = {
 	{ 4, 60, ISX031_MODE_4LANES_60FPS },
 	{ 4, 30, ISX031_MODE_4LANES_30FPS },
 	{ 2, 30, ISX031_MODE_2LANES_30FPS },
@@ -94,9 +106,6 @@ struct isx031 {
 	const struct isx031_mode *pre_mode;
 	u8 lanes;
 
-	/* To serialize asynchronus callbacks */
-	struct mutex mutex;
-
 	/* i2c client */
 	struct i2c_client *client;
 
@@ -105,6 +114,15 @@ struct isx031 {
 
 	/* Streaming on/off */
 	bool streaming;
+
+	struct v4l2_ctrl_handler ctrls;
+
+	/* MIPI direct connection */
+	bool is_direct;
+};
+
+static const s64 isx031_link_frequencies[] = {
+	300000000ULL
 };
 
 static const struct isx031_reg isx031_init_reg[] = {
@@ -116,7 +134,7 @@ static const struct isx031_reg isx031_init_reg[] = {
 static const struct isx031_reg isx031_framesync_reg[] = {
 	/* External sync */
 	{ISX031_REG_LEN_08BIT, 0xBF14, 0x01}, /* SG_MODE_APL */
-	{ISX031_REG_LEN_08BIT, 0x8AFF, 0x0c}, /*  Hi-Z (input setting or output disabled) */
+	{ISX031_REG_LEN_08BIT, 0x8AFF, 0x0c}, /* Hi-Z (input setting or output disabled) */
 	{ISX031_REG_LEN_08BIT, 0x0153, 0x00},
 	{ISX031_REG_LEN_08BIT, 0x8AF0, 0x01}, /* external pulse-based sync */
 	{ISX031_REG_LEN_08BIT, 0x0144, 0x00},
@@ -242,24 +260,8 @@ static const struct isx031_mode supported_modes[] = {
 	},
 };
 
-static int isx031_reset(struct gpio_desc *reset_gpio)
+static int isx031_read_reg(struct i2c_client *client, u16 reg, u16 len, u32 *val)
 {
-	if (!IS_ERR_OR_NULL(reset_gpio)) {
-		gpiod_set_value_cansleep(reset_gpio, 0);
-		usleep_range(500, 1000);
-		gpiod_set_value_cansleep(reset_gpio, 1);
-		/*Needs to sleep for quite a while before register writes*/
-		usleep_range(200 * 1000, 200 * 1000 + 500);
-
-		return 0;
-	}
-
-	return -EINVAL;
-}
-
-static int isx031_read_reg(struct isx031 *isx031, u16 reg, u16 len, u32 *val)
-{
-	struct i2c_client *client = isx031->client;
 	struct i2c_msg msgs[2];
 	u8 addr_buf[2];
 	u8 data_buf[4] = {0};
@@ -306,8 +308,24 @@ static int isx031_write_reg(struct isx031 *isx031, u16 reg, u16 len, u32 val)
 	return 0;
 }
 
+static int isx031_write_reg_retry(struct isx031 *isx031, u16 reg, u16 len, u32 val)
+{
+	int ret;
+	int retry = 100;
+
+	while (retry--) {
+		ret = isx031_write_reg(isx031, reg, len, val);
+		if (!ret)
+			break;
+		msleep(20);
+	}
+
+	return ret;
+}
+
 static int isx031_write_reg_list(struct isx031 *isx031,
-				 const struct isx031_reg_list *r_list)
+				 const struct isx031_reg_list *r_list,
+				 bool isRetry)
 {
 	struct i2c_client *client = v4l2_get_subdevdata(&isx031->sd);
 	unsigned int i;
@@ -318,9 +336,14 @@ static int isx031_write_reg_list(struct isx031 *isx031,
 			msleep(r_list->regs[i].val);
 			continue;
 		}
-		ret = isx031_write_reg(isx031, r_list->regs[i].address,
-				       ISX031_REG_LEN_08BIT,
-				       r_list->regs[i].val);
+		ret = isRetry ?
+			      isx031_write_reg_retry(isx031,
+						     r_list->regs[i].address,
+						     ISX031_REG_LEN_08BIT,
+						     r_list->regs[i].val) :
+			      isx031_write_reg(isx031, r_list->regs[i].address,
+					       ISX031_REG_LEN_08BIT,
+					       r_list->regs[i].val);
 		if (ret) {
 			dev_err_ratelimited(&client->dev,
 				"failed to write reg 0x%4.4x. error = %d",
@@ -332,28 +355,29 @@ static int isx031_write_reg_list(struct isx031 *isx031,
 	return 0;
 }
 
-static int isx031_find_driver_mode(int lanes, int fps)
+static int isx031_find_drive_mode(int lanes, int fps)
 {
 	int i;
 
-	for (i = 0; i < ARRAY_SIZE(isx031_driver_modes); i++) {
-		if (isx031_driver_modes[i].lanes == lanes && isx031_driver_modes[i].fps == fps)
-			return isx031_driver_modes[i].mode;
+	for (i = 0; i < ARRAY_SIZE(isx031_drive_modes); i++) {
+		if (isx031_drive_modes[i].lanes == lanes && isx031_drive_modes[i].fps == fps)
+			return isx031_drive_modes[i].mode;
 	}
 
 	return -EINVAL;
 }
 
-static int isx031_set_driver_mode(struct isx031 *isx031)
+static int isx031_set_drive_mode(struct isx031 *isx031)
 {
 	int ret;
 	int mode;
 
-	mode = isx031_find_driver_mode(isx031->lanes, isx031->cur_mode->fps);
+	mode = isx031_find_drive_mode(isx031->lanes, isx031->cur_mode->fps);
 	if (mode < 0)
 		return mode;
 
-	ret = isx031_write_reg(isx031, ISX031_REG_MODE_SELECT, 1, mode);
+	ret = isx031_write_reg(isx031, ISX031_REG_MODE_SELECT, 1, (u32)mode);
+
 	return ret;
 }
 
@@ -372,7 +396,7 @@ static int isx031_mode_transit(struct isx031 *isx031, int state)
 
 	retry = 50;
 	while (retry--) {
-		ret = isx031_read_reg(isx031, ISX031_REG_SENSOR_STATE,
+		ret = isx031_read_reg(client, ISX031_REG_SENSOR_STATE,
 			      ISX031_REG_LEN_08BIT, &val);
 		if (ret == 0)
 			break;
@@ -380,10 +404,13 @@ static int isx031_mode_transit(struct isx031 *isx031, int state)
 	}
 	cur_mode = val;
 
-	//TODO: only set if isx031->lanes != 0, means get lanes from pdata
-	ret = isx031_set_driver_mode(isx031);
+	/* Note: Ideally, drive mode should only be set if isx031->lanes != 0,
+	 * which would mean the number of lanes is obtained from platform data.
+	 * Currently, drive mode is always set.
+	 */
+	ret = isx031_set_drive_mode(isx031);
 	if (ret) {
-		dev_err(&client->dev, "failed to set driver mode");
+		dev_err(&client->dev, "failed to set drive mode");
 		return ret;
 	}
 
@@ -394,17 +421,17 @@ static int isx031_mode_transit(struct isx031 *isx031, int state)
 		return ret;
 	}
 	ret = isx031_write_reg(isx031, ISX031_REG_MODE_SET_F, 1,
-			mode);
+			       (u32)mode);
 	if (ret) {
 		dev_err(&client->dev, "failed to transit mode from 0x%x to 0x%x",
 			cur_mode, mode);
 		return ret;
 	}
 
-	/*streaming transit to standby need 1 frame+5ms*/
+	/* streaming transit to standby need 1 frame+5ms */
 	retry = 50;
 	while (retry--) {
-		ret = isx031_read_reg(isx031, ISX031_REG_SENSOR_STATE,
+		ret = isx031_read_reg(client, ISX031_REG_SENSOR_STATE,
 				ISX031_REG_LEN_08BIT, &val);
 		if (ret == 0 && val == state)
 			break;
@@ -414,7 +441,7 @@ static int isx031_mode_transit(struct isx031 *isx031, int state)
 	return 0;
 }
 
-static int isx031_identify_module(struct isx031 *isx031)
+static int isx031_initialize_module(struct isx031 *isx031)
 {
 	struct i2c_client *client = isx031->client;
 	int ret;
@@ -422,7 +449,7 @@ static int isx031_identify_module(struct isx031 *isx031)
 	u32 val;
 
 	while (retry--) {
-		ret = isx031_read_reg(isx031, ISX031_REG_SENSOR_STATE,
+		ret = isx031_read_reg(client, ISX031_REG_SENSOR_STATE,
 			      ISX031_REG_LEN_08BIT, &val);
 		if (ret == 0)
 			break;
@@ -434,17 +461,17 @@ static int isx031_identify_module(struct isx031 *isx031)
 
 	dev_dbg(&client->dev, "sensor in mode 0x%x", val);
 
-	/* if sensor alreay in ISX031_STATE_STARTUP, can access i2c write directly*/
+	/* if sensor already in ISX031_STATE_STARTUP, can access i2c write directly */
 	if (val == ISX031_STATE_STREAMING) {
 		if (isx031_mode_transit(isx031, ISX031_STATE_STARTUP))
 			return ret;
 	}
 
-	ret = isx031_write_reg_list(isx031, &isx031_init_reg_list);
+	ret = isx031_write_reg_list(isx031, &isx031_init_reg_list, true);
 	if (ret)
 		return ret;
 	if (isx031->platform_data != NULL && !isx031->platform_data->irq_pin_flags) {
-		ret = isx031_write_reg_list(isx031, &isx031_framesync_reg_list);
+		ret = isx031_write_reg_list(isx031, &isx031_framesync_reg_list, false);
 		if (ret) {
 			dev_err(&client->dev, "failed in set framesync.");
 			return ret;
@@ -452,6 +479,49 @@ static int isx031_identify_module(struct isx031 *isx031)
 	}
 
 	return 0;
+}
+
+static int isx031_identify_module(struct i2c_client *client)
+{
+	u32 NAME_L = 0;
+	u32 NAME_H = 0;
+	int ret = 0;
+	int i = 0;
+	int retry = 50;
+
+	for (i = 0; i < retry; i++) {
+		ret = isx031_read_reg(client, ISX031_OTP_TYPE_NAME_L,
+				      ISX031_REG_LEN_08BIT, &NAME_L);
+		if (!ret)
+			break;
+	}
+
+	if (i == retry) {
+		dev_err(&client->dev, "isx031 read NAME_L failed");
+		return ret;
+	}
+
+	for (i = 0; i < retry; i++) {
+		ret = isx031_read_reg(client, ISX031_OTP_TYPE_NAME_H,
+				      ISX031_REG_LEN_08BIT, &NAME_H);
+		if (!ret)
+			break;
+	}
+
+	if (i == retry) {
+		dev_err(&client->dev, "isx031 read NAME_H failed");
+		return ret;
+	}
+
+	if (((NAME_H & ISX031_OTP_TYPE_NAME_H_FIELD) << 8 | NAME_L) !=
+	    ISX031_OTP_MODULE_ID_L) {
+		dev_err(&client->dev, "isx031 module id mismatch: 0x%4.4x\n",
+			((NAME_H & ISX031_OTP_TYPE_NAME_H_FIELD) << 8 |
+			 NAME_L));
+		return -ENODEV;
+	}
+
+	return ret;
 }
 
 static void isx031_update_pad_format(const struct isx031_mode *mode,
@@ -463,6 +533,45 @@ static void isx031_update_pad_format(const struct isx031_mode *mode,
 	fmt->field = V4L2_FIELD_NONE;
 }
 
+static int isx031_get_mipi_lane(struct isx031 *isx031, struct device *dev)
+{
+	struct fwnode_handle *endpoint;
+	struct v4l2_fwnode_endpoint bus_cfg = {
+		.bus_type = V4L2_MBUS_CSI2_DPHY,
+	};
+
+	int ret;
+
+	endpoint =
+		fwnode_graph_get_endpoint_by_id(dev_fwnode(dev), 0, 0,
+			FWNODE_GRAPH_ENDPOINT_NEXT);
+	if (!endpoint) {
+		dev_err(dev, "endpoint node not found");
+		return -EPROBE_DEFER;
+	}
+
+	ret = v4l2_fwnode_endpoint_alloc_parse(endpoint, &bus_cfg);
+	if (ret) {
+		dev_err(dev, "parsing endpoint node fail");
+		goto out_err;
+	}
+
+	/* Check the number of MIPI CSI2 data lanes */
+	if (bus_cfg.bus.mipi_csi2.num_data_lanes != 2 &&
+		bus_cfg.bus.mipi_csi2.num_data_lanes != 4) {
+		dev_err(dev, "only 2 or 4 data lanes are currently supported");
+		goto out_err;
+	}
+
+	isx031->lanes = bus_cfg.bus.mipi_csi2.num_data_lanes;
+
+out_err:
+	v4l2_fwnode_endpoint_free(&bus_cfg);
+	fwnode_handle_put(endpoint);
+
+	return ret;
+}
+
 static int isx031_start_streaming(struct isx031 *isx031)
 {
 	int ret;
@@ -471,7 +580,7 @@ static int isx031_start_streaming(struct isx031 *isx031)
 
 	if (isx031->cur_mode != isx031->pre_mode) {
 		reg_list = &isx031->cur_mode->reg_list;
-		ret = isx031_write_reg_list(isx031, reg_list);
+		ret = isx031_write_reg_list(isx031, reg_list, true);
 		if (ret) {
 			dev_err(&client->dev, "failed to set stream mode");
 			return ret;
@@ -479,6 +588,14 @@ static int isx031_start_streaming(struct isx031 *isx031)
 		isx031->pre_mode = isx031->cur_mode;
 	} else {
 		dev_dbg(&client->dev, "same mode, skip write reg list");
+	}
+
+	if (isx031->is_direct) {
+		ret = __v4l2_ctrl_handler_setup(&isx031->ctrls);
+		if (ret) {
+			dev_err(&client->dev, "failed to setup ctrls");
+			return ret;
+		}
 	}
 
 	ret = isx031_mode_transit(isx031, ISX031_STATE_STREAMING);
@@ -506,13 +623,12 @@ static int isx031_set_stream(struct v4l2_subdev *sd, int enable)
 	if (isx031->streaming == enable)
 		return 0;
 
-	mutex_lock(&isx031->mutex);
+	mutex_lock(&isx031_mutex);
 	if (enable) {
 		ret = pm_runtime_get_sync(&client->dev);
 		if (ret < 0) {
 			pm_runtime_put_noidle(&client->dev);
-			mutex_unlock(&isx031->mutex);
-			return ret;
+			goto err_unlock;
 		}
 
 		ret = isx031_start_streaming(isx031);
@@ -528,7 +644,8 @@ static int isx031_set_stream(struct v4l2_subdev *sd, int enable)
 
 	isx031->streaming = enable;
 
-	mutex_unlock(&isx031->mutex);
+err_unlock:
+	mutex_unlock(&isx031_mutex);
 
 	return ret;
 }
@@ -553,11 +670,14 @@ static int __maybe_unused isx031_suspend(struct device *dev)
 	struct v4l2_subdev *sd = i2c_get_clientdata(client);
 	struct isx031 *isx031 = to_isx031(sd);
 
-	mutex_lock(&isx031->mutex);
+	mutex_lock(&isx031_mutex);
 	if (isx031->streaming)
 		isx031_stop_streaming(isx031);
 
-	mutex_unlock(&isx031->mutex);
+	mutex_unlock(&isx031_mutex);
+
+	/* Active low gpio reset, set 1 to power off sensor */
+	gpiod_set_value_cansleep(isx031->reset_gpio, 1);
 
 	return 0;
 }
@@ -568,38 +688,60 @@ static int __maybe_unused isx031_resume(struct device *dev)
 	struct v4l2_subdev *sd = i2c_get_clientdata(client);
 	struct isx031 *isx031 = to_isx031(sd);
 	const struct isx031_reg_list *reg_list;
-	int ret;
+	int count = 0;
+	int ret = 0;
 
-	if (isx031->reset_gpio != NULL)
-		isx031_reset(isx031->reset_gpio);
+	mutex_lock(&isx031_mutex);
 
-	ret = isx031_identify_module(isx031);
-	if (ret == 0) {
-		reg_list = &isx031->cur_mode->reg_list;
-		ret = isx031_write_reg_list(isx031, reg_list);
-		if (ret) {
-			dev_err(&client->dev, "resume: failed to apply cur mode");
-			return ret;
-		}
-	} else {
-		dev_err(&client->dev, "isx031 resume failed");
-		return ret;
+	/* Active low gpio reset, set 0 to power on sensor,
+	 * sensor must on back before start resume
+	 */
+	if (isx031->reset_gpio != NULL) {
+		do {
+			gpiod_set_value_cansleep(isx031->reset_gpio, 0);
+			ret = gpiod_get_value_cansleep(isx031->reset_gpio);
+			usleep_range(200 * 1000, 200 * 1000 + 500);
+
+			if (++count >= 20) {
+				dev_err(&client->dev,
+					"%s: failed to power on reset gpio, reset gpio is %d",
+					__func__, ret);
+				break;
+			}
+		} while (ret != 0);
 	}
 
-	mutex_lock(&isx031->mutex);
+	ret = isx031_identify_module(isx031->client);
+	if (ret) {
+		dev_err(&client->dev, "isx031 identify module failed");
+		goto err_unlock;
+	}
+
+	ret = isx031_initialize_module(isx031);
+	if (ret == 0) {
+		reg_list = &isx031->cur_mode->reg_list;
+		ret = isx031_write_reg_list(isx031, reg_list, true);
+		if (ret) {
+			dev_err(&client->dev, "resume: failed to apply cur mode");
+			goto err_unlock;
+		}
+	} else {
+		dev_err(&client->dev, "isx031 resume initialization failed");
+		goto err_unlock;
+	}
 	if (isx031->streaming) {
 		ret = isx031_start_streaming(isx031);
 		if (ret) {
 			isx031->streaming = false;
 			isx031_stop_streaming(isx031);
-			mutex_unlock(&isx031->mutex);
-			return ret;
+			goto err_unlock;
 		}
 	}
 
-	mutex_unlock(&isx031->mutex);
+err_unlock:
+	mutex_unlock(&isx031_mutex);
 
-	return 0;
+	return ret;
 }
 
 static int isx031_get_frame_desc(struct v4l2_subdev *sd, unsigned int pad,
@@ -638,7 +780,7 @@ static int isx031_set_format(struct v4l2_subdev *sd,
 	if (i >= ARRAY_SIZE(supported_modes))
 		mode = &supported_modes[0];
 
-	mutex_lock(&isx031->mutex);
+	mutex_lock(&isx031_mutex);
 
 	isx031_update_pad_format(mode, &fmt->format);
 	if (fmt->which == V4L2_SUBDEV_FORMAT_TRY) {
@@ -647,7 +789,7 @@ static int isx031_set_format(struct v4l2_subdev *sd,
 		isx031->cur_mode = mode;
 	}
 
-	mutex_unlock(&isx031->mutex);
+	mutex_unlock(&isx031_mutex);
 
 	return 0;
 }
@@ -658,26 +800,24 @@ static int isx031_get_format(struct v4l2_subdev *sd,
 {
 	struct isx031 *isx031 = to_isx031(sd);
 
-	mutex_lock(&isx031->mutex);
+	mutex_lock(&isx031_mutex);
 	if (fmt->which == V4L2_SUBDEV_FORMAT_TRY)
 		fmt->format = *v4l2_subdev_state_get_format(sd_state,
 							  fmt->pad);
 	else
 		isx031_update_pad_format(isx031->cur_mode, &fmt->format);
 
-	mutex_unlock(&isx031->mutex);
+	mutex_unlock(&isx031_mutex);
 
 	return 0;
 }
 
 static int isx031_open(struct v4l2_subdev *sd, struct v4l2_subdev_fh *fh)
 {
-	struct isx031 *isx031 = to_isx031(sd);
-
-	mutex_lock(&isx031->mutex);
+	mutex_lock(&isx031_mutex);
 	isx031_update_pad_format(&supported_modes[0],
 				 v4l2_subdev_state_get_format(fh->state, 0));
-	mutex_unlock(&isx031->mutex);
+	mutex_unlock(&isx031_mutex);
 
 	return 0;
 }
@@ -707,15 +847,42 @@ static const struct v4l2_subdev_internal_ops isx031_internal_ops = {
 	.open = isx031_open,
 };
 
+static int isx031_set_ctrl(struct v4l2_ctrl *ctrl)
+{
+	return 0;
+};
+
+static const struct v4l2_ctrl_ops isx031_ctrl_ops = {
+	.s_ctrl = isx031_set_ctrl,
+};
+
+static int isx031_ctrls_init(struct isx031 *sensor)
+{
+	int ret = 0;
+	struct v4l2_ctrl *ctrl;
+
+	v4l2_ctrl_handler_init(&sensor->ctrls, 10);
+
+	/* There's a need to set the link frequency because IPU6 dictates it. */
+	ctrl = v4l2_ctrl_new_int_menu(&sensor->ctrls, &isx031_ctrl_ops,
+				      V4L2_CID_LINK_FREQ,
+				      ARRAY_SIZE(isx031_link_frequencies) - 1, 0,
+				      isx031_link_frequencies);
+
+	if (ctrl)
+		ctrl->flags |= V4L2_CTRL_FLAG_READ_ONLY;
+
+	sensor->sd.ctrl_handler = &sensor->ctrls;
+	return ret;
+}
+
 static void isx031_remove(struct i2c_client *client)
 {
 	struct v4l2_subdev *sd = i2c_get_clientdata(client);
-	struct isx031 *isx031 = to_isx031(sd);
 
 	v4l2_async_unregister_subdev(sd);
 	media_entity_cleanup(&sd->entity);
 	pm_runtime_disable(&client->dev);
-	mutex_destroy(&isx031->mutex);
 
 }
 
@@ -723,6 +890,7 @@ static int isx031_probe(struct i2c_client *client)
 {
 	struct v4l2_subdev *sd;
 	struct isx031 *isx031;
+	const struct isx031_info *info;
 	const struct isx031_reg_list *reg_list;
 	int ret;
 
@@ -736,19 +904,37 @@ static int isx031_probe(struct i2c_client *client)
 		dev_warn(&client->dev, "no platform data provided\n");
 
 	isx031->reset_gpio = devm_gpiod_get_optional(&client->dev, "reset",
-						     GPIOD_OUT_HIGH);
+						     GPIOD_OUT_LOW);
+
 	if (IS_ERR(isx031->reset_gpio))
 		return -EPROBE_DEFER;
 	else if (isx031->reset_gpio == NULL)
 		dev_warn(&client->dev, "Reset GPIO not found");
-	else {
-		dev_dbg(&client->dev, "Found reset GPIO");
-		isx031_reset(isx031->reset_gpio);
+	else
+		dev_dbg(&client->dev, "Reset GPIO found");
+
+	ret = isx031_identify_module(client);
+	if (ret) {
+		dev_err(&client->dev, "isx031 identify module failed");
+		return ret;
 	}
+
+	info = device_get_match_data(&client->dev);
+	if (info)
+		isx031->is_direct = info->is_direct;
+	else
+		isx031->is_direct = false;
 
 	/* initialize subdevice */
 	sd = &isx031->sd;
 	v4l2_i2c_subdev_init(sd, client, &isx031_subdev_ops);
+	if (isx031->is_direct) {
+		ret = isx031_ctrls_init(isx031);
+		if (ret) {
+			dev_err(&client->dev, "failed to init sensor ctrls: %d", ret);
+			return ret;
+		}
+	}
 	sd->flags |= V4L2_SUBDEV_FL_HAS_DEVNODE;
 	sd->internal_ops = &isx031_internal_ops;
 	sd->entity.ops = &isx031_subdev_entity_ops;
@@ -758,36 +944,47 @@ static int isx031_probe(struct i2c_client *client)
 	isx031->pad.flags = MEDIA_PAD_FL_SOURCE;
 	ret = media_entity_pads_init(&sd->entity, 1, &isx031->pad);
 	if (ret < 0) {
-		dev_err(&client->dev,
-			"%s : media entity init Failed %d\n", __func__, ret);
-		return ret;
+		dev_err(&client->dev, "failed to init entity pads: %d", ret);
+		goto probe_error_v4l2_ctrl_handler_free;
 	}
 
-	ret = isx031_identify_module(isx031);
-	if (ret) {
-		dev_err(&client->dev, "failed to find sensor: %d", ret);
-		return ret;
+	if (isx031->is_direct) {
+		isx031->sd.state_lock = isx031->sd.ctrl_handler->lock;
+		v4l2_subdev_init_finalize(&isx031->sd);
 	}
 
-	if (isx031->platform_data)
+	if (isx031->platform_data && isx031->platform_data->suffix[0])
 		snprintf(isx031->sd.name, sizeof(isx031->sd.name), "isx031 %s",
 			 isx031->platform_data->suffix);
 
 	if (isx031->platform_data)
 		isx031->lanes = isx031->platform_data->lanes;
 
-	mutex_init(&isx031->mutex);
+	if (isx031->is_direct) {
+		/* mipi sensor read info from fwnode entrypoint bus cfg */
+		ret = isx031_get_mipi_lane(isx031, &client->dev);
+		if (ret) {
+			dev_err(&client->dev, "failed to get MIPI lane configuration");
+			return ret;
+		}
+	}
 
 	/* 1920x1536 default */
-	isx031->cur_mode = NULL;
-	isx031->pre_mode = &supported_modes[0];
-	reg_list = &isx031->pre_mode->reg_list;
-	ret = isx031_write_reg_list(isx031, reg_list);
+	isx031->pre_mode = NULL;
+	isx031->cur_mode = &supported_modes[0];
+	ret = isx031_initialize_module(isx031);
+	if (ret) {
+		dev_err(&client->dev, "failed to initialize sensor: %d", ret);
+		return ret;
+	}
+	reg_list = &isx031->cur_mode->reg_list;
+	ret = isx031_write_reg_list(isx031, reg_list, true);
 	if (ret) {
 		dev_err(&client->dev, "failed to apply preset mode");
 		goto probe_error_media_entity_cleanup;
 	}
-	isx031->cur_mode = isx031->pre_mode;
+	isx031->pre_mode = isx031->cur_mode;
+
 	ret = v4l2_async_register_subdev_sensor(&isx031->sd);
 	if (ret < 0) {
 		dev_err(&client->dev, "failed to register V4L2 subdev: %d",
@@ -807,8 +1004,9 @@ static int isx031_probe(struct i2c_client *client)
 
 probe_error_media_entity_cleanup:
 	media_entity_cleanup(&isx031->sd.entity);
-	pm_runtime_disable(&client->dev);
-	mutex_destroy(&isx031->mutex);
+
+probe_error_v4l2_ctrl_handler_free:
+	v4l2_ctrl_handler_free(isx031->sd.ctrl_handler);
 
 	return ret;
 }
@@ -819,13 +1017,25 @@ static const struct dev_pm_ops isx031_pm_ops = {
 
 static const struct i2c_device_id isx031_id_table[] = {
 	{ "isx031", 0 },
-	{ /* sentinel */ },
+	{},
 };
 MODULE_DEVICE_TABLE(i2c, isx031_id_table);
+
+static const struct isx031_info isx031_mipi_info = {
+	.is_direct = true,
+};
+
+static const struct acpi_device_id isx031_acpi_ids[] = {
+	{ "INTC3031", (kernel_ulong_t)&isx031_mipi_info },
+	{}
+};
+
+MODULE_DEVICE_TABLE(acpi, isx031_acpi_ids);
 
 static struct i2c_driver isx031_i2c_driver = {
 	.driver = {
 		.name = "isx031",
+		.acpi_match_table = ACPI_PTR(isx031_acpi_ids),
 		.pm = &isx031_pm_ops,
 	},
 	.probe = isx031_probe,
@@ -835,6 +1045,8 @@ static struct i2c_driver isx031_i2c_driver = {
 
 module_i2c_driver(isx031_i2c_driver);
 
-MODULE_AUTHOR("Hao Yao <hao.yao@intel.com>");
 MODULE_DESCRIPTION("isx031 sensor driver");
+MODULE_AUTHOR("Hao Yao <hao.yao@intel.com>");
+MODULE_AUTHOR("Jonathan Lui <jonathan.ming.jun.lui@intel.com>");
+MODULE_AUTHOR("Wei Khang, Goh <wei.khang1.goh@intel.com>");
 MODULE_LICENSE("GPL v2");

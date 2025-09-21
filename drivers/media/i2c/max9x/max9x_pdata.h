@@ -39,6 +39,7 @@ struct max9x_serdes_mipi_map {
 	u16 dst_vc;
 	u16 dst_dt;
 	u16 dst_csi;
+	bool is_csi_enabled;
 };
 
 struct max9x_video_pipe_pdata {

@@ -30,6 +30,7 @@
 #include <linux/slab.h>
 
 #include "max9295.h"
+#include "regmap-retry.h"
 
 static const char *const max9295_gpio_chip_names[] = {
 	"MFP1",
@@ -176,7 +177,7 @@ static int max9295_setup_gpio(struct max9x_common *common)
 {
 	struct device *dev = common->dev;
 	int ret;
-	struct max9x_gpio_pdata *gpio_pdata;
+	struct max9x_gpio_pdata *gpio_pdata = NULL;
 
 	if (dev->platform_data) {
 		struct max9x_pdata *pdata = dev->platform_data;
@@ -261,14 +262,14 @@ static int max9295_set_pipe_data_types_enabled(struct max9x_common *common,
 	struct device *dev = common->dev;
 	struct regmap *map = common->map;
 	int data_type_slot, dt;
-	int ret;
+	int ret = 0;
 
 	for (data_type_slot = 0; data_type_slot < common->video_pipe[pipe_id].config.num_data_types; data_type_slot++) {
 		dt = common->video_pipe[pipe_id].config.data_type[data_type_slot];
 		dev_dbg(dev, "Video-pipe %d, data type %d: (%#.2x: %s)",
 			pipe_id, data_type_slot, dt, (enable ? "enable" : "disable"));
 
-		TRY(ret, regmap_update_bits(map, MAX9295_MEM_DT_SEL(pipe_id, data_type_slot),
+		TRY(ret, regmap_update_bits_retry(map, MAX9295_MEM_DT_SEL(pipe_id, data_type_slot),
 				MAX9295_MEM_DT_SEL_DT_FIELD | MAX9295_MEM_DT_SEL_EN_FIELD,
 				MAX9X_FIELD_PREP(MAX9295_MEM_DT_SEL_DT_FIELD, dt) |
 				MAX9X_FIELD_PREP(MAX9295_MEM_DT_SEL_EN_FIELD, enable ? 1U : 0U))
@@ -522,13 +523,13 @@ static int max9295_enable_rclk(struct max9x_common *common)
 	);
 
 	// Configure reference generation output on MFP4
-	TRY(ret, regmap_update_bits(map, MAX9295_REF_VTG1,
+	TRY(ret, regmap_update_bits_retry(map, MAX9295_REF_VTG1,
 			MAX9295_PCLK_GPIO_FIELD,
 			MAX9X_FIELD_PREP(MAX9295_PCLK_GPIO_FIELD, 4U))
 	);
 
 	// Enable output
-	TRY(ret, regmap_update_bits(map, MAX9295_REF_VTG1,
+	TRY(ret, regmap_update_bits_retry(map, MAX9295_REF_VTG1,
 			MAX9295_PCLK_EN_FIELD,
 			MAX9X_FIELD_PREP(MAX9295_PCLK_EN_FIELD, 1U))
 	);
@@ -553,7 +554,7 @@ static int max9295_set_local_control_channel_enabled(struct max9x_common *common
 
 	dev_dbg(dev, "set rem cc %s", (enabled ? "enable" : "disable"));
 
-	return regmap_update_bits(map, MAX9295_PHY_REM_CTRL, MAX9295_PHY_LOCAL_CTRL_DIS_FIELD,
+	return regmap_update_bits_retry(map, MAX9295_PHY_REM_CTRL, MAX9295_PHY_LOCAL_CTRL_DIS_FIELD,
 				  MAX9X_FIELD_PREP(MAX9295_PHY_LOCAL_CTRL_DIS_FIELD,  (enabled ? 0U : 1U)));
 }
 
@@ -575,8 +576,8 @@ static int max9295_verify_devid(struct max9x_common *common)
 	int ret;
 
 	// Fetch and output chip name + revision
-	TRY(ret, regmap_read(map, MAX9295_DEV_ID, &dev_id));
-	TRY(ret, regmap_read(map, MAX9295_DEV_REV, &dev_rev));
+	TRY(ret, regmap_read_retry(map, MAX9295_DEV_ID, &dev_id));
+	TRY(ret, regmap_read_retry(map, MAX9295_DEV_REV, &dev_rev));
 
 	switch (dev_id) {
 	case MAX9295A:
@@ -617,10 +618,10 @@ static int max9295_enable(struct max9x_common *common)
 	TRY(ret, max9295_set_local_control_channel_enabled(common, false));
 
 	/* Clear the pipe maps */
-	TRY(ret, regmap_write(map, MAX9295_FRONTTOP_9, 0));
+	TRY(ret, regmap_write_retry(map, MAX9295_FRONTTOP_9, 0));
 
 	/* Clear the csi port selections */
-	TRY(ret, regmap_write(map, MAX9295_FRONTTOP_0, MAX9295_FRONTTOP_0_LINE_INFO));
+	TRY(ret, regmap_write_retry(map, MAX9295_FRONTTOP_0, MAX9295_FRONTTOP_0_LINE_INFO));
 
 	return 0;
 }
@@ -694,15 +695,14 @@ static int max9295_remap_reset(struct max9x_common *common)
 	struct device *dev = common->dev;
 	struct max9x_pdata *pdata = dev->platform_data;
 	u32 phys_addr = pdata->phys_addr ? pdata->phys_addr :
-					   common->client->addr;
+			common->client->addr;
 	u32 virt_addr = common->client->addr;
 
 	dev_info(dev, "Remap reset address from 0x%02x to 0x%02x", virt_addr,
 		 phys_addr);
 
-	TRY(ret, regmap_update_bits(
-			 common->map, MAX9295_REG0, MAX9295_REG0_DEV_ADDR_FIELD,
-			 FIELD_PREP(MAX9295_REG0_DEV_ADDR_FIELD, phys_addr)));
+	TRY(ret, regmap_update_bits(common->map, MAX9295_REG0, MAX9295_REG0_DEV_ADDR_FIELD,
+				    FIELD_PREP(MAX9295_REG0_DEV_ADDR_FIELD, phys_addr)));
 
 	return 0;
 }
@@ -717,18 +717,18 @@ static int max9295_add_translate_addr(struct max9x_common *common,
 	int ret;
 
 	for (alias = 0; alias < MAX9295_NUM_ALIASES; alias++) {
-		TRY(ret, regmap_read(map, MAX9295_I2C_SRC(i2c_id, alias), &src));
+		TRY(ret, regmap_read_retry(map, MAX9295_I2C_SRC(i2c_id, alias), &src));
 
 		src = FIELD_GET(MAX9295_I2C_SRC_FIELD, src);
 		if (src == virt_addr || src == 0) {
 			dev_dbg(dev, "SRC %02x = %02x, DST %02x = %02x",
 				MAX9295_I2C_SRC(i2c_id, alias), virt_addr,
 				MAX9295_I2C_DST(i2c_id, alias), phys_addr);
-			TRY(ret, regmap_write(map, MAX9295_I2C_DST(i2c_id, alias),
+			TRY(ret, regmap_write_retry(map, MAX9295_I2C_DST(i2c_id, alias),
 					      MAX9X_FIELD_PREP(MAX9295_I2C_DST_FIELD, phys_addr))
 			);
 
-			TRY(ret, regmap_write(map, MAX9295_I2C_SRC(i2c_id, alias),
+			TRY(ret, regmap_write_retry(map, MAX9295_I2C_SRC(i2c_id, alias),
 					      MAX9X_FIELD_PREP(MAX9295_I2C_SRC_FIELD, virt_addr))
 			);
 		}
@@ -746,10 +746,10 @@ static int max9295_remove_translate_addr(struct max9x_common *common,
 	int ret;
 
 	for (alias = 0; alias < MAX9295_NUM_ALIASES; alias++) {
-		TRY(ret, regmap_read(map, MAX9295_I2C_SRC(i2c_id, alias), &src));
+		TRY(ret, regmap_read_retry(map, MAX9295_I2C_SRC(i2c_id, alias), &src));
 		src = FIELD_GET(MAX9295_I2C_SRC_FIELD, src);
 		if (src == virt_addr) {
-			return regmap_write(map, MAX9295_I2C_DST(i2c_id, alias),
+			return regmap_write_retry(map, MAX9295_I2C_DST(i2c_id, alias),
 					    MAX9X_FIELD_PREP(MAX9295_I2C_DST_FIELD, 0));
 		}
 	}

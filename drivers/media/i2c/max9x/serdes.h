@@ -41,10 +41,7 @@
 #include <media/v4l2-subdev.h>
 #include <uapi/linux/media-bus-format.h>
 
-#if IS_ENABLED(CONFIG_VIDEO_INTEL_IPU6)
-#include "ipu6-isys.h"
-#endif
-#include <media/ipu-acpi-pdata.h>
+#include <media/serdes-pdata.h>
 #include "max9x_pdata.h"
 
 #define MAX9X_VDD_REGULATOR_NAME "vdd"
@@ -219,6 +216,7 @@ struct max9x_serdes_csi_link {
 	bool enabled;
 	unsigned int usecount;
 	struct max9x_serdes_csi_config config;
+	struct mutex csi_mutex;
 };
 
 struct max9x_serdes_video_pipe {
