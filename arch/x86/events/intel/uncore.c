@@ -1368,6 +1368,10 @@ static void uncore_pci_pmus_register(void)
 
 		for (node = rb_first(type->boxes); node; node = rb_next(node)) {
 			unit = rb_entry(node, struct intel_uncore_discovery_unit, node);
+
+			if (WARN_ON(unit->die >= uncore_max_dies()))
+				continue;
+
 			pdev = pci_get_domain_bus_and_slot(UNCORE_DISCOVERY_PCI_DOMAIN(unit->addr),
 							   UNCORE_DISCOVERY_PCI_BUS(unit->addr),
 							   UNCORE_DISCOVERY_PCI_DEVFN(unit->addr));
