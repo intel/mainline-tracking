@@ -1,14 +1,19 @@
-# SPDX-License-Identifier: GPL-2.0-only
-
-comment "Intel media platform drivers"
-
-config VIDEO_PXA27x
-	tristate "PXA27x Quick Capture Interface driver"
-	depends on V4L_PLATFORM_DRIVERS
-	depends on VIDEO_DEV
-	depends on PXA27x || COMPILE_TEST
-	select VIDEOBUF2_DMA_SG
-	select SG_SPLIT
-	select V4L2_FWNODE
+config INTEL_IPU7_FPGA_PDATA
+	bool "Enable built in platform data for ipu7 fpga"
+	depends on VIDEO_INTEL_IPU7
 	help
-	  This is a v4l2 driver for the PXA27x Quick Capture Interface
+	Pre-ACPI system platform data is compiled inside kernel.
+
+	This platform data is only used for PSS stage software
+	development and mainly used for pixter or sensor enablement
+	without ACPI support.
+
+config INTEL_IPU7_ACPI
+	tristate "Enable IPU ACPI driver"
+	default VIDEO_INTEL_IPU7
+	depends on I2C
+	depends on ACPI
+	help
+	  Driver to read ACPI data from BIOS
+
+	  This driver is used to read ACPI data from BIOS
