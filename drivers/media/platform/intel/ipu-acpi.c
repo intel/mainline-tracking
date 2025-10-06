@@ -191,7 +191,6 @@ static int ipu_acpi_test(struct device *dev, void *priv)
 
 int ipu_get_acpi_devices(void **spdata)
 {
-	struct ipu_i2c_helper helper = {0};
 	int rval;
 	struct ipu7_isys_subdev_pdata *ptr = NULL;
 

@@ -769,11 +769,11 @@ static int isx031_probe(struct i2c_client *client)
 		return ret;
 	}
 
-	if (isx031->platform_data && isx031->platform_data->suffix)
+	if (isx031->platform_data)
 		snprintf(isx031->sd.name, sizeof(isx031->sd.name), "isx031 %s",
 			 isx031->platform_data->suffix);
 
-	if (isx031->platform_data && isx031->platform_data->lanes)
+	if (isx031->platform_data)
 		isx031->lanes = isx031->platform_data->lanes;
 
 	mutex_init(&isx031->mutex);

@@ -517,6 +517,7 @@ static void isys_tpg_unregister_subdevices(struct ipu7_isys *isys)
 	isys->tpg = NULL;
 }
 
+/*
 static int isys_tpg_register_subdevices(struct ipu7_isys *isys)
 {
 	const struct ipu7_isys_internal_tpg_pdata *tpg_pdata =
@@ -577,7 +578,7 @@ static int isys_tpg_create_media_links(struct ipu7_isys *isys)
 
 	return 0;
 }
-
+*/
 #endif
 
 #if IS_ENABLED(CONFIG_INTEL_IPU7_ACPI)
