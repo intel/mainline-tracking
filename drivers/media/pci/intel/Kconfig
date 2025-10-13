@@ -19,3 +19,9 @@ config IPU_BRIDGE
 	  - Microsoft Surface models (except Surface Pro 3)
 	  - The Lenovo Miix line (for example the 510, 520, 710 and 720)
 	  - Dell 7285
+
+config VIDEO_INTEL_IPU_USE_PLATFORMDATA
+        bool "Enable platform data"
+        default y
+        help
+          Enable platform data in IPU.
