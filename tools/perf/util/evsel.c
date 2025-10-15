@@ -2816,11 +2816,11 @@ try_fallback:
 	if (err == -EMFILE && rlimit__increase_nofile(&set_rlimit))
 		goto retry_open;
 
-	if (err == -EINVAL && evsel__detect_missing_features(evsel, cpu))
-		goto fallback_missing_features;
-
 	if (evsel__precise_ip_fallback(evsel))
 		goto retry_open;
+
+	if (err == -EINVAL && evsel__detect_missing_features(evsel, cpu))
+		goto fallback_missing_features;
 
 out_close:
 	if (err)
