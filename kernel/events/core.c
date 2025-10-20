@@ -7733,15 +7733,18 @@ perf_output_sample_simd_regs(struct perf_output_handle *handle,
 {
 	u16 pred_qwords = event->attr.sample_simd_pred_reg_qwords;
 	u16 vec_qwords = event->attr.sample_simd_vec_reg_qwords;
-	u16 nr_pred = hweight16(pred_mask);
-	u16 nr_vectors = hweight64(mask);
+	u64 pred_bitmap = pred_mask;
+	u64 bitmap = mask;
+	u16 nr_vectors;
+	u16 nr_pred;
 	int bit;
 	u64 val;
 	u16 i;
 
 	/* Get the number of available regs */
-	perf_simd_reg_check(regs, 0, mask, &nr_vectors, &vec_qwords,
-			    pred_mask, &nr_pred, &pred_qwords);
+	perf_simd_reg_check(regs, &bitmap, &vec_qwords, &pred_bitmap, &pred_qwords);
+	nr_vectors = hweight64(bitmap);
+	nr_pred = hweight64(pred_bitmap);
 
 	perf_output_put(handle, nr_vectors);
 	perf_output_put(handle, vec_qwords);
@@ -7749,7 +7752,8 @@ perf_output_sample_simd_regs(struct perf_output_handle *handle,
 	perf_output_put(handle, pred_qwords);
 
 	if (nr_vectors) {
-		for_each_set_bit(bit, (unsigned long *)&mask, sizeof(mask) * BITS_PER_BYTE) {
+		for_each_set_bit(bit, (unsigned long *)&bitmap,
+				 sizeof(bitmap) * BITS_PER_BYTE) {
 			for (i = 0; i < vec_qwords; i++) {
 				val = perf_simd_reg_value(regs, bit, i, false);
 				perf_output_put(handle, val);
@@ -7757,7 +7761,8 @@ perf_output_sample_simd_regs(struct perf_output_handle *handle,
 		}
 	}
 	if (nr_pred) {
-		for_each_set_bit(bit, (unsigned long *)&pred_mask, sizeof(pred_mask) * BITS_PER_BYTE) {
+		for_each_set_bit(bit, (unsigned long *)&pred_bitmap,
+				 sizeof(pred_bitmap) * BITS_PER_BYTE) {
 			for (i = 0; i < pred_qwords; i++) {
 				val = perf_simd_reg_value(regs, bit, i, true);
 				perf_output_put(handle, val);
@@ -7799,12 +7804,11 @@ u64 __weak perf_simd_reg_value(struct pt_regs *regs, int idx,
 	return 0;
 }
 
-void __weak perf_simd_reg_check(struct pt_regs *regs, u64 ignore,
-				u64 mask, u16 *nr_vectors, u16 *vec_qwords,
-				u16 pred_mask, u16 *nr_pred, u16 *pred_qwords)
+void __weak perf_simd_reg_check(struct pt_regs *regs, u64 *mask, u16 *vec_qwords,
+				u64 *pred_mask, u16 *pred_qwords)
 {
-	*nr_vectors = 0;
-	*nr_pred = 0;
+	*mask = 0;
+	*pred_mask = 0;
 }
 
 /*

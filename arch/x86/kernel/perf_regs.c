@@ -57,35 +57,31 @@ static unsigned int pt_regs_offset[PERF_REG_X86_MAX] = {
 #endif
 };
 
-void perf_simd_reg_check(struct pt_regs *regs, u64 ignore,
-			 u64 mask, u16 *nr_vectors, u16 *vec_qwords,
-			 u16 pred_mask, u16 *nr_pred, u16 *pred_qwords)
+void perf_simd_reg_check(struct pt_regs *regs, u64 *mask, u16 *vec_qwords,
+			 u64 *pred_mask, u16 *pred_qwords)
 {
 	struct x86_perf_regs *perf_regs = container_of(regs, struct x86_perf_regs, regs);
 
-	if (!(ignore & XFEATURE_MASK_SSE) &&
-	    *vec_qwords >= PERF_X86_XMM_QWORDS &&
-	    !perf_regs->xmm_regs)
-		*nr_vectors = 0;
+	if (*vec_qwords >= PERF_X86_XMM_QWORDS && !perf_regs->xmm_regs)
+		*mask = 0;
 
-	if (!(ignore & XFEATURE_MASK_YMM) &&
-	    *vec_qwords >= PERF_X86_YMM_QWORDS &&
-	    !perf_regs->ymmh_regs)
+	if (*vec_qwords >= PERF_X86_YMM_QWORDS && !perf_regs->ymmh_regs) {
+		*mask = BIT_ULL(PERF_X86_SIMD_XMM_REGS) - 1;
 		*vec_qwords = PERF_X86_XMM_QWORDS;
+	}
 
-	if (!(ignore & XFEATURE_MASK_ZMM_Hi256) &&
-	    *vec_qwords >= PERF_X86_ZMM_QWORDS &&
-	    !perf_regs->zmmh_regs)
+	if (*vec_qwords >= PERF_X86_ZMM_QWORDS && !perf_regs->zmmh_regs) {
+		*mask = BIT_ULL(PERF_X86_SIMD_YMM_REGS) - 1;
 		*vec_qwords = PERF_X86_YMM_QWORDS;
+	}
 
-	if (!(ignore & XFEATURE_MASK_Hi16_ZMM) &&
-	    *nr_vectors > PERF_X86_H16ZMM_BASE &&
-	    !perf_regs->h16zmm_regs)
-		*nr_vectors = PERF_X86_H16ZMM_BASE;
+	if (hweight64(*mask) > PERF_X86_H16ZMM_BASE && !perf_regs->h16zmm_regs) {
+		*mask = BIT_ULL(PERF_X86_SIMD_ZMMH_REGS) - 1;
+		*vec_qwords = PERF_X86_ZMM_QWORDS;
+	}
 
-	if (!(ignore & XFEATURE_MASK_OPMASK) &&
-	    *nr_pred && !perf_regs->opmask_regs)
-		*nr_pred = 0;
+	if (*pred_mask && !perf_regs->opmask_regs)
+		*pred_mask = 0;
 }
 
 u64 perf_reg_value(struct pt_regs *regs, int idx)

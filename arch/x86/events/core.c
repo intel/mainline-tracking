@@ -1840,13 +1840,12 @@ x86_pmu_update_ext_regs_size(struct perf_event_attr *attr,
 {
 	u16 pred_qwords = attr->sample_simd_pred_reg_qwords;
 	u16 vec_qwords = attr->sample_simd_vec_reg_qwords;
-	u16 nr_pred = hweight16(pred_mask);
-	u16 nr_vectors = hweight64(mask);
+	u64 pred_bitmap = pred_mask;
+	u64 bitmap = mask;
 
-	perf_simd_reg_check(regs, ignore,
-			    mask, &nr_vectors, &vec_qwords,
-			    pred_mask, &nr_pred, &pred_qwords);
-	data->dyn_size += (nr_vectors * vec_qwords + nr_pred * pred_qwords) * sizeof(u64);
+	perf_simd_reg_check(regs, &bitmap, &vec_qwords, &pred_bitmap, &pred_qwords);
+	data->dyn_size += (hweight64(bitmap) * vec_qwords +
+			   hweight64(pred_bitmap) * pred_qwords) * sizeof(u64);
 }
 
 static void x86_pmu_setup_basic_regs_data(struct perf_event *event,
