@@ -9,6 +9,9 @@
 #include <linux/bug.h>
 #include <linux/completion.h>
 #include <linux/container_of.h>
+#ifdef CONFIG_DEBUG_FS
+#include <linux/debugfs.h>
+#endif
 #include <linux/delay.h>
 #include <linux/device.h>
 #include <linux/dma-mapping.h>
@@ -582,6 +585,10 @@ static void isys_remove(struct auxiliary_device *auxdev)
 	struct isys_fw_msgs *fwmsg, *safe;
 	struct ipu7_bus_device *adev = auxdev_to_adev(auxdev);
 
+#ifdef CONFIG_DEBUG_FS
+	if (adev->isp->ipu7_dir)
+		debugfs_remove_recursive(isys->debugfsdir);
+#endif
 	for (int i = 0; i < IPU_ISYS_MAX_STREAMS; i++)
 		mutex_destroy(&isys->streams[i].mutex);
 
@@ -604,6 +611,78 @@ static void isys_remove(struct auxiliary_device *auxdev)
 	mutex_destroy(&isys->reset_mutex);
 #endif
 }
+
+#ifdef CONFIG_DEBUG_FS
+static ssize_t fwlog_read(struct file *file, char __user *userbuf, size_t size,
+			  loff_t *pos)
+{
+	struct ipu7_isys *isys = file->private_data;
+	struct isys_fw_log *fw_log = isys->fw_log;
+	struct device *dev = &isys->adev->auxdev.dev;
+	u32 log_size;
+	int ret = 0;
+	void *buf;
+
+	if (!fw_log)
+		return 0;
+
+	buf = kvzalloc(FW_LOG_BUF_SIZE, GFP_KERNEL);
+	if (!buf)
+		return -ENOMEM;
+
+	mutex_lock(&fw_log->mutex);
+	if (!fw_log->size) {
+		dev_warn(dev, "no available fw log\n");
+		mutex_unlock(&fw_log->mutex);
+		goto free_and_return;
+	}
+
+	if (fw_log->size > FW_LOG_BUF_SIZE)
+		log_size = FW_LOG_BUF_SIZE;
+	else
+		log_size = fw_log->size;
+
+	memcpy(buf, fw_log->addr, log_size);
+	dev_info(dev, "copy %d bytes fw log to user...\n", log_size);
+	mutex_unlock(&fw_log->mutex);
+
+	ret = simple_read_from_buffer(userbuf, size, pos, buf,
+				      log_size);
+free_and_return:
+	kvfree(buf);
+
+	return ret;
+}
+
+static const struct file_operations isys_fw_log_fops = {
+	.open = simple_open,
+	.owner = THIS_MODULE,
+	.read = fwlog_read,
+	.llseek = default_llseek,
+};
+
+static int ipu7_isys_init_debugfs(struct ipu7_isys *isys)
+{
+	struct dentry *file;
+	struct dentry *dir;
+
+	dir = debugfs_create_dir("isys", isys->adev->isp->ipu7_dir);
+	if (IS_ERR(dir))
+		return -ENOMEM;
+
+	file = debugfs_create_file("fwlog", 0400,
+				   dir, isys, &isys_fw_log_fops);
+	if (IS_ERR(file))
+		goto err;
+
+	isys->debugfsdir = dir;
+
+	return 0;
+err:
+	debugfs_remove_recursive(dir);
+	return -ENOMEM;
+}
+#endif
 
 static int alloc_fw_msg_bufs(struct ipu7_isys *isys, int amount)
 {
@@ -762,6 +841,11 @@ static int isys_probe(struct auxiliary_device *auxdev,
 	isys->phy_rext_cal = 0;
 
 	isys_stream_init(isys);
+
+#ifdef CONFIG_DEBUG_FS
+	/* Debug fs failure is not fatal. */
+	ipu7_isys_init_debugfs(isys);
+#endif
 
 	cpu_latency_qos_add_request(&isys->pm_qos, PM_QOS_DEFAULT_VALUE);
 	ret = alloc_fw_msg_bufs(isys, 20);

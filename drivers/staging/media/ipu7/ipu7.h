@@ -81,6 +81,9 @@ struct ipu7_device {
 
 	void __iomem *base;
 	void __iomem *pb_base;
+#ifdef CONFIG_DEBUG_FS
+	struct dentry *ipu7_dir;
+#endif
 	u8 hw_ver;
 	bool ipc_reinit;
 	bool secure_mode;
