@@ -7,6 +7,9 @@
 #include <linux/bitfield.h>
 #include <linux/bits.h>
 #include <linux/bug.h>
+#ifdef CONFIG_DEBUG_FS
+#include <linux/debugfs.h>
+#endif
 #include <linux/dma-mapping.h>
 #include <linux/err.h>
 #include <linux/firmware.h>
@@ -2247,6 +2250,49 @@ void ipu7_dump_fw_error_log(const struct ipu7_bus_device *adev)
 }
 EXPORT_SYMBOL_NS_GPL(ipu7_dump_fw_error_log, "INTEL_IPU7");
 
+#ifdef CONFIG_DEBUG_FS
+static struct debugfs_blob_wrapper isys_fw_error;
+static struct debugfs_blob_wrapper psys_fw_error;
+
+static int ipu7_init_debugfs(struct ipu7_device *isp)
+{
+	struct dentry *file;
+	struct dentry *dir;
+
+	dir = debugfs_create_dir(pci_name(isp->pdev), NULL);
+	if (!dir)
+		return -ENOMEM;
+
+	isys_fw_error.data = &fw_error_log[IPU_IS];
+	isys_fw_error.size = sizeof(fw_error_log[IPU_IS]);
+	file = debugfs_create_blob("is_fw_error", 0400, dir, &isys_fw_error);
+	if (!file)
+		goto err;
+	psys_fw_error.data = &fw_error_log[IPU_PS];
+	psys_fw_error.size = sizeof(fw_error_log[IPU_PS]);
+	file = debugfs_create_blob("ps_fw_error", 0400, dir, &psys_fw_error);
+	if (!file)
+		goto err;
+
+	isp->ipu7_dir = dir;
+
+	return 0;
+err:
+	debugfs_remove_recursive(dir);
+	return -ENOMEM;
+}
+
+static void ipu7_remove_debugfs(struct ipu7_device *isp)
+{
+	/*
+	 * Since isys and psys debugfs dir will be created under ipu root dir,
+	 * mark its dentry to NULL to avoid duplicate removal.
+	 */
+	debugfs_remove_recursive(isp->ipu7_dir);
+	isp->ipu7_dir = NULL;
+}
+#endif /* CONFIG_DEBUG_FS */
+
 static void ipu7_pci_config_setup(struct pci_dev *dev)
 {
 	u16 pci_command;
@@ -2603,6 +2649,13 @@ static int ipu7_pci_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 		pm_runtime_put(&isp->psys->auxdev.dev);
 	}
 
+#ifdef CONFIG_DEBUG_FS
+	ret = ipu7_init_debugfs(isp);
+	if (ret) {
+		dev_err_probe(dev, ret, "Failed to initialize debugfs\n");
+		goto out_ipu_bus_del_devices;
+	}
+#endif
 	pm_runtime_put_noidle(dev);
 	pm_runtime_allow(dev);
 
@@ -2615,6 +2668,10 @@ out_ipu_bus_del_devices:
 		ipu7_unmap_fw_code_region(isp->isys);
 	if (!IS_ERR_OR_NULL(isp->psys) && isp->psys->fw_sgt.nents)
 		ipu7_unmap_fw_code_region(isp->psys);
+#ifdef CONFIG_DEBUG_FS
+	if (!IS_ERR_OR_NULL(isp->fw_code_region))
+		vfree(isp->fw_code_region);
+#endif
 	if (!IS_ERR_OR_NULL(isp->psys) && !IS_ERR_OR_NULL(isp->psys->mmu))
 		ipu7_mmu_cleanup(isp->psys->mmu);
 	if (!IS_ERR_OR_NULL(isp->isys) && !IS_ERR_OR_NULL(isp->isys->mmu))
@@ -2635,6 +2692,9 @@ static void ipu7_pci_remove(struct pci_dev *pdev)
 {
 	struct ipu7_device *isp = pci_get_drvdata(pdev);
 
+#ifdef CONFIG_DEBUG_FS
+	ipu7_remove_debugfs(isp);
+#endif
 	if (!IS_ERR_OR_NULL(isp->isys) && isp->isys->fw_sgt.nents)
 		ipu7_unmap_fw_code_region(isp->isys);
 	if (!IS_ERR_OR_NULL(isp->psys) && isp->psys->fw_sgt.nents)
