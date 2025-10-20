@@ -17,22 +17,19 @@ u64 perf_simd_reg_value(struct pt_regs *regs, int idx,
  * Check and update the configuration of the requested SIMD registers
  *
  * regs: Used to locate the SIMD registers
- * ignore: A mask to ignore the check of some configuration
  * mask: The requested vector mask
- * nr_vectors: Number of the vector registers
  * vec_qwords: The QWORD of the vector registers
  * pred_mask: The requested predicate mask
- * nr_pred: Number of the predicate registers
  * pred_qwords: The QWORD of the predicate registers
  *
- * It's possible (e.g., ARM) that the number and width of the dumped
- * SIMD registers are a little different from the request.
- * The function is to calculate the real number and width before dumping
- * the data.
+ * It's possible that the mask and width of the really sampled
+ * SIMD registers are different from the request mask and width, e.g.,
+ * user requires to sample YMM registers (x86) but only XMM registers
+ * are sampled as the XSAVE's configuration. The function is to
+ * calculate the real mask and width before dumping the data.
  */
-void perf_simd_reg_check(struct pt_regs *regs, u64 ignore,
-			 u64 mask, u16 *nr_vectors, u16 *vec_qwords,
-			 u16 pred_mask, u16 *nr_pred, u16 *pred_qwords);
+void perf_simd_reg_check(struct pt_regs *regs, u64 *mask, u16 *vec_qwords,
+			 u64 *pred_mask, u16 *pred_qwords);
 
 
 #ifdef CONFIG_HAVE_PERF_REGS
