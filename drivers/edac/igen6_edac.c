@@ -286,8 +286,6 @@ static struct work_struct ecclog_work;
 
 /* Compute die IDs for Wildcat Lake with IBECC */
 #define DID_WCL_SKU1	0xfd00
-#define DID_WCL_SKU2	0xfd02
-#define DID_WCL_SKU3	0xfd03
 
 static int get_mchbar(struct pci_dev *pdev, u64 *mchbar)
 {
@@ -656,8 +654,6 @@ static struct pci_device_id igen6_pci_tbl[] = {
 	{ PCI_VDEVICE(INTEL, DID_PTL_H_SKU10), (kernel_ulong_t)&mtl_p_cfg },
 	{ PCI_VDEVICE(INTEL, DID_PTL_H_SKU11), (kernel_ulong_t)&mtl_p_cfg },
 	{ PCI_VDEVICE(INTEL, DID_WCL_SKU1), (kernel_ulong_t)&wcl_cfg },
-	{ PCI_VDEVICE(INTEL, DID_WCL_SKU2), (kernel_ulong_t)&wcl_cfg },
-	{ PCI_VDEVICE(INTEL, DID_WCL_SKU3), (kernel_ulong_t)&wcl_cfg },
 	{ },
 };
 MODULE_DEVICE_TABLE(pci, igen6_pci_tbl);
