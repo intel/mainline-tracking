@@ -540,6 +540,12 @@ static int isys_runtime_pm_suspend(struct device *dev)
 	isys->power = 0;
 	spin_unlock_irqrestore(&isys->power_lock, flags);
 
+	#ifdef CONFIG_VIDEO_INTEL_IPU7_ISYS_RESET
+	mutex_lock(&isys->reset_mutex);
+	isys->need_reset = false;
+	mutex_unlock(&isys->reset_mutex);
+
+#endif
 	cpu_latency_qos_update_request(&isys->pm_qos, PM_QOS_DEFAULT_VALUE);
 
 	ipu7_mmu_hw_cleanup(adev->mmu);
@@ -594,6 +600,9 @@ static void isys_remove(struct auxiliary_device *auxdev)
 
 	mutex_destroy(&isys->stream_mutex);
 	mutex_destroy(&isys->mutex);
+#ifdef CONFIG_VIDEO_INTEL_IPU7_ISYS_RESET
+	mutex_destroy(&isys->reset_mutex);
+#endif
 }
 
 static int alloc_fw_msg_bufs(struct ipu7_isys *isys, int amount)
@@ -738,6 +747,10 @@ static int isys_probe(struct auxiliary_device *auxdev,
 
 	mutex_init(&isys->mutex);
 	mutex_init(&isys->stream_mutex);
+#ifdef CONFIG_VIDEO_INTEL_IPU7_ISYS_RESET
+	mutex_init(&isys->reset_mutex);
+	isys->state = 0;
+#endif
 
 	spin_lock_init(&isys->listlock);
 	INIT_LIST_HEAD(&isys->framebuflist);
@@ -767,6 +780,9 @@ static int isys_probe(struct auxiliary_device *auxdev,
 	if (ret)
 		goto out_cleanup;
 
+#ifdef CONFIG_VIDEO_INTEL_IPU7_ISYS_RESET
+	mutex_destroy(&isys->reset_mutex);
+#endif
 	ipu7_mmu_hw_cleanup(adev->mmu);
 	pm_runtime_put(&auxdev->dev);
 

@@ -17,3 +17,13 @@ config VIDEO_INTEL_IPU7
 
 	  To compile this driver, say Y here! It contains 2 modules -
 	  intel_ipu7 and intel_ipu7_isys.
+
+config VIDEO_INTEL_IPU7_ISYS_RESET
+	bool "IPU7 ISYS RESET"
+	depends on VIDEO_INTEL_IPU7
+	default n
+	help
+	  This option enables IPU7 ISYS reset feature to support
+	  HDMI-MIPI converter hot-plugging.
+
+	  If doubt, say N here

@@ -44,8 +44,16 @@
 #define IPU_ISYS_MAX_WIDTH		8160U
 #define IPU_ISYS_MAX_HEIGHT		8190U
 
+#ifdef CONFIG_VIDEO_INTEL_IPU7_ISYS_RESET
+#define RESET_STATE_IN_RESET                 1U
+#define RESET_STATE_IN_STOP_STREAMING        2U
+
+#endif
 #define FW_CALL_TIMEOUT_JIFFIES		\
 	msecs_to_jiffies(IPU_LIB_CALL_TIMEOUT_MS)
+#ifdef CONFIG_VIDEO_INTEL_IPU7_ISYS_RESET
+#define FW_CALL_TIMEOUT_JIFFIES_RESET	msecs_to_jiffies(200)
+#endif
 
 struct isys_fw_log {
 	struct mutex mutex; /* protect whole struct */
@@ -68,6 +76,9 @@ struct isys_fw_log {
  * @streams_lock: serialise access to streams
  * @streams: streams per firmware stream ID
  * @syscom: fw communication layer context
+ #ifdef CONFIG_VIDEO_INTEL_IPU7_ISYS_RESET
+ * @need_reset: Isys requires d0i0->i3 transition
+ #endif
  * @ref_count: total number of callers fw open
  * @mutex: serialise access isys video open/release related operations
  * @stream_mutex: serialise stream start and stop, queueing requests
@@ -109,6 +120,11 @@ struct ipu7_isys {
 
 	struct ipu7_insys_config *subsys_config;
 	dma_addr_t subsys_config_dma_addr;
+#ifdef CONFIG_VIDEO_INTEL_IPU7_ISYS_RESET
+	struct mutex reset_mutex;
+	bool need_reset;
+	int state;
+#endif
 };
 
 struct isys_fw_msgs {
