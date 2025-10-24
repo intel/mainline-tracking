@@ -96,6 +96,126 @@ skip_unregister_subdev:
 	return ret;
 }
 
+struct isys_i2c_test {
+	u8 bus_nr;
+	u16 addr;
+	struct i2c_client *client;
+};
+
+static int isys_i2c_test(struct device *dev, void *priv)
+{
+	struct i2c_client *client = i2c_verify_client(dev);
+	struct isys_i2c_test *test = priv;
+
+	if (!client)
+		return 0;
+
+	if (i2c_adapter_id(client->adapter) != test->bus_nr ||
+	    client->addr != test->addr)
+		return 0;
+
+	test->client = client;
+
+	return 0;
+}
+
+static
+struct i2c_client *isys_find_i2c_subdev(struct i2c_adapter *adapter,
+					struct ipu7_isys_subdev_info *sd_info)
+{
+	struct i2c_board_info *info = &sd_info->i2c.board_info;
+	struct isys_i2c_test test = {
+		.bus_nr = i2c_adapter_id(adapter),
+		.addr = info->addr,
+	};
+	int ret;
+
+	ret = i2c_for_each_dev(&test, isys_i2c_test);
+	if (ret || !test.client)
+		return NULL;
+	return test.client;
+}
+
+static int isys_register_ext_subdev(struct ipu7_isys *isys,
+				    struct ipu7_isys_subdev_info *sd_info)
+{
+	struct device *dev = &isys->adev->auxdev.dev;
+	struct i2c_adapter *adapter;
+	struct v4l2_subdev *sd;
+	struct i2c_client *client;
+	int ret;
+	int bus;
+
+	bus = sd_info->i2c.i2c_adapter_id;
+	adapter = i2c_get_adapter(bus);
+	if (!adapter) {
+		dev_warn(dev, "can't find adapter\n");
+		return -ENOENT;
+	}
+
+	dev_info(dev, "creating i2c subdev for %s (address %2.2x, bus %d)\n",
+		 sd_info->i2c.board_info.type, sd_info->i2c.board_info.addr,
+		 bus);
+
+	if (sd_info->csi2) {
+		dev_info(dev, "sensor device on CSI port: %d\n",
+			 sd_info->csi2->port);
+		if (sd_info->csi2->port >= isys->pdata->ipdata->csi2.nports ||
+		    !isys->csi2[sd_info->csi2->port].isys) {
+			dev_warn(dev, "invalid csi2 port %u\n",
+				 sd_info->csi2->port);
+			ret = -EINVAL;
+			goto skip_put_adapter;
+		}
+	} else {
+		dev_info(dev, "No camera subdevice\n");
+	}
+
+	client = isys_find_i2c_subdev(adapter, sd_info);
+	if (client) {
+		dev_warn(dev, "Device exists\n");
+#if IS_ENABLED(CONFIG_INTEL_IPU_ACPI)
+		/* TODO: remove i2c_unregister_device() */
+		i2c_unregister_device(client);
+#else
+		ret = 0;
+		goto skip_put_adapter;
+#endif
+	}
+
+	sd = v4l2_i2c_new_subdev_board(&isys->v4l2_dev, adapter,
+				       &sd_info->i2c.board_info, NULL);
+	if (!sd) {
+		dev_warn(dev, "can't create new i2c subdev\n");
+		ret = -EINVAL;
+		goto skip_put_adapter;
+	}
+
+	if (!sd_info->csi2)
+		return 0;
+
+	return isys_complete_ext_device_registration(isys, sd, sd_info->csi2);
+
+skip_put_adapter:
+	i2c_put_adapter(adapter);
+
+	return ret;
+}
+
+static void isys_register_ext_subdevs(struct ipu7_isys *isys)
+{
+	struct ipu7_isys_subdev_pdata *spdata = isys->pdata->spdata;
+	struct ipu7_isys_subdev_info **sd_info;
+
+	if (!spdata) {
+		dev_info(&isys->adev->auxdev.dev,
+			 "no subdevice info provided\n");
+		return;
+	}
+	for (sd_info = spdata->subdevs; *sd_info; sd_info++)
+		isys_register_ext_subdev(isys, *sd_info);
+}
+
 static void isys_stream_init(struct ipu7_isys *isys)
 {
 	unsigned int i;
@@ -142,6 +262,7 @@ static int isys_fw_log_init(struct ipu7_isys *isys)
 	return 0;
 }
 
+#if IS_ENABLED(CONFIG_INTEL_IPU_ACPI)
 /* The .bound() notifier callback when a match is found */
 static int isys_notifier_bound(struct v4l2_async_notifier *notifier,
 			       struct v4l2_subdev *sd,
@@ -260,6 +381,7 @@ static void isys_notifier_cleanup(struct ipu7_isys *isys)
 	v4l2_async_nf_unregister(&isys->notifier);
 	v4l2_async_nf_cleanup(&isys->notifier);
 }
+#endif
 
 static void isys_unregister_video_devices(struct ipu7_isys *isys)
 {
@@ -374,6 +496,7 @@ static int isys_csi2_create_media_links(struct ipu7_isys *isys)
 	return 0;
 }
 
+#if IS_ENABLED(CONFIG_INTEL_IPU_ACPI)
 static int isys_register_devices(struct ipu7_isys *isys)
 {
 	struct device *dev = &isys->adev->auxdev.dev;
@@ -409,7 +532,74 @@ static int isys_register_devices(struct ipu7_isys *isys)
 	if (ret)
 		goto out_csi2_unregister_subdevices;
 
-	ret = isys_notifier_init(isys);
+	if (!isys->pdata->spdata) {
+		ret = isys_notifier_init(isys);
+		if (ret)
+			goto out_csi2_unregister_subdevices;
+	} else {
+		isys_register_ext_subdevs(isys);
+		ret = v4l2_device_register_subdev_nodes(&isys->v4l2_dev);
+		if (ret)
+			goto out_csi2_unregister_subdevices;
+	}
+
+	return 0;
+
+out_csi2_unregister_subdevices:
+	isys_csi2_unregister_subdevices(isys);
+
+out_video_unregister_device:
+	isys_unregister_video_devices(isys);
+
+out_v4l2_device_unregister:
+	v4l2_device_unregister(&isys->v4l2_dev);
+
+out_media_device_unregister:
+	media_device_unregister(&isys->media_dev);
+	media_device_cleanup(&isys->media_dev);
+
+	dev_err(dev, "failed to register isys devices\n");
+
+	return ret;
+}
+#else
+static int isys_register_devices(struct ipu7_isys *isys)
+{
+	struct device *dev = &isys->adev->auxdev.dev;
+	struct pci_dev *pdev = isys->adev->isp->pdev;
+	int ret;
+
+	media_device_pci_init(&isys->media_dev,
+			      pdev, IPU_MEDIA_DEV_MODEL_NAME);
+
+	strscpy(isys->v4l2_dev.name, isys->media_dev.model,
+		sizeof(isys->v4l2_dev.name));
+
+	ret = media_device_register(&isys->media_dev);
+	if (ret < 0)
+		goto out_media_device_unregister;
+
+	isys->v4l2_dev.mdev = &isys->media_dev;
+	isys->v4l2_dev.ctrl_handler = NULL;
+
+	ret = v4l2_device_register(dev, &isys->v4l2_dev);
+	if (ret < 0)
+		goto out_media_device_unregister;
+
+	ret = isys_register_video_devices(isys);
+	if (ret)
+		goto out_v4l2_device_unregister;
+
+	ret = isys_csi2_register_subdevices(isys);
+	if (ret)
+		goto out_video_unregister_device;
+
+	ret = isys_csi2_create_media_links(isys);
+	if (ret)
+		goto out_csi2_unregister_subdevices;
+
+	isys_register_ext_subdevs(isys);
+	ret = v4l2_device_register_subdev_nodes(&isys->v4l2_dev);
 	if (ret)
 		goto out_csi2_unregister_subdevices;
 
@@ -432,6 +622,7 @@ out_media_device_unregister:
 
 	return ret;
 }
+#endif
 
 static void isys_unregister_devices(struct ipu7_isys *isys)
 {
@@ -579,6 +770,7 @@ static const struct dev_pm_ops isys_pm_ops = {
 	.resume = isys_resume,
 };
 
+#if IS_ENABLED(CONFIG_INTEL_IPU_ACPI)
 static void isys_remove(struct auxiliary_device *auxdev)
 {
 	struct ipu7_isys *isys = dev_get_drvdata(&auxdev->dev);
@@ -600,7 +792,9 @@ static void isys_remove(struct auxiliary_device *auxdev)
 		ipu7_dma_free(adev, sizeof(struct isys_fw_msgs),
 			      fwmsg, fwmsg->dma_addr, 0);
 
-	isys_notifier_cleanup(isys);
+	if (!isys->pdata->spdata)
+		isys_notifier_cleanup(isys);
+
 	isys_unregister_devices(isys);
 
 	cpu_latency_qos_remove_request(&isys->pm_qos);
@@ -611,6 +805,39 @@ static void isys_remove(struct auxiliary_device *auxdev)
 	mutex_destroy(&isys->reset_mutex);
 #endif
 }
+#else
+static void isys_remove(struct auxiliary_device *auxdev)
+{
+	struct ipu7_isys *isys = dev_get_drvdata(&auxdev->dev);
+	struct isys_fw_msgs *fwmsg, *safe;
+	struct ipu7_bus_device *adev = auxdev_to_adev(auxdev);
+
+#ifdef CONFIG_DEBUG_FS
+	if (adev->isp->ipu7_dir)
+		debugfs_remove_recursive(isys->debugfsdir);
+#endif
+	for (int i = 0; i < IPU_ISYS_MAX_STREAMS; i++)
+		mutex_destroy(&isys->streams[i].mutex);
+
+	list_for_each_entry_safe(fwmsg, safe, &isys->framebuflist, head)
+		ipu7_dma_free(adev, sizeof(struct isys_fw_msgs),
+			      fwmsg, fwmsg->dma_addr, 0);
+
+	list_for_each_entry_safe(fwmsg, safe, &isys->framebuflist_fw, head)
+		ipu7_dma_free(adev, sizeof(struct isys_fw_msgs),
+			      fwmsg, fwmsg->dma_addr, 0);
+
+	isys_unregister_devices(isys);
+
+	cpu_latency_qos_remove_request(&isys->pm_qos);
+
+	mutex_destroy(&isys->stream_mutex);
+	mutex_destroy(&isys->mutex);
+#ifdef CONFIG_VIDEO_INTEL_IPU7_ISYS_RESET
+	mutex_destroy(&isys->reset_mutex);
+#endif
+}
+#endif
 
 #ifdef CONFIG_DEBUG_FS
 static ssize_t fwlog_read(struct file *file, char __user *userbuf, size_t size,

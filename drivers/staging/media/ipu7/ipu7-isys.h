@@ -150,6 +150,21 @@ struct ipu7_isys_csi2_config {
 	enum v4l2_mbus_type bus_type;
 };
 
+struct ipu7_isys_subdev_i2c_info {
+	struct i2c_board_info board_info;
+	int i2c_adapter_id;
+	char i2c_adapter_bdf[32];
+};
+
+struct ipu7_isys_subdev_info {
+	struct ipu7_isys_csi2_config *csi2;
+	struct ipu7_isys_subdev_i2c_info i2c;
+};
+
+struct ipu7_isys_subdev_pdata {
+	struct ipu7_isys_subdev_info **subdevs;
+};
+
 struct sensor_async_sd {
 	struct v4l2_async_connection asc;
 	struct ipu7_isys_csi2_config csi2;
