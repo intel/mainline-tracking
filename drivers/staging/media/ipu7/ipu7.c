@@ -2300,7 +2300,7 @@ static void ipu7_remove_debugfs(struct ipu7_device *isp)
 }
 #endif /* CONFIG_DEBUG_FS */
 
-static int ipu7_pci_config_setup(struct pci_dev *dev)
+static void ipu7_pci_config_setup(struct pci_dev *dev)
 {
 	u16 pci_command;
 
