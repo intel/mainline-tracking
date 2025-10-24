@@ -251,6 +251,10 @@ struct ipu7_insys_output_link {
 struct ipu7_insys_output_cropping {
 	u16 line_top;
 	u16 line_bottom;
+#ifdef IPU8_INSYS_NEW_ABI
+	u16 column_left;
+	u16 column_right;
+#endif
 };
 
 struct ipu7_insys_output_dpcm {
@@ -260,16 +264,55 @@ struct ipu7_insys_output_dpcm {
 	u8 pad;
 };
 
+#ifdef IPU8_INSYS_NEW_ABI
+enum ipu_insys_cfa_dim {
+	IPU_INSYS_CFA_DIM_2x2 = 0,
+	IPU_INSYS_CFA_DIM_4x4 = 1,
+	N_IPU_INSYS_CFA_DIM
+};
+
+#define IPU_INSYS_MAX_BINNING_FACTOR		(4U)
+#define IPU_INSYS_UPIPE_MAX_OUTPUTS		(2U)
+#define IPU_INSYS_UPIPE_MAX_UOB_FIFO_ALLOC	(4U)
+#define IPU_INSYS_UPIPE_STREAM_CFG_BUF_SIZE	(32U)
+#define IPU_INSYS_UPIPE_FRAME_CFG_BUF_SIZE	(36U)
+
+struct ipu7_insys_upipe_output_pin {
+	ia_gofo_addr_t opaque_pin_cfg;
+	u16 plane_offset_1;
+	u16 plane_offset_2;
+	u8 single_uob_fifo;
+	u8 shared_uob_fifo;
+	u8 pad[2];
+};
+
+struct ipu7_insys_capture_output_pin_cfg {
+	struct ipu7_insys_capture_output_pin_payload pin_payload;
+	ia_gofo_addr_t upipe_capture_cfg;
+};
+
+#endif
 struct ipu7_insys_output_pin {
 	struct ipu7_insys_output_link link;
 	struct ipu7_insys_output_cropping crop;
 	struct ipu7_insys_output_dpcm dpcm;
+#ifdef IPU8_INSYS_NEW_ABI
+	struct ipu7_insys_upipe_output_pin upipe_pin_cfg;
+#endif
 	u32 stride;
 	u16 ft;
+#ifdef IPU8_INSYS_NEW_ABI
+	u8 upipe_enable;
+#endif
 	u8 send_irq;
 	u8 input_pin_id;
 	u8 early_ack_en;
+#ifdef IPU8_INSYS_NEW_ABI
+	u8 cfa_dim;
+	u8 binning_factor;
+#else
 	u8 pad[3];
+#endif
 };
 
 struct ipu7_insys_input_pin {
@@ -294,7 +337,11 @@ struct ipu7_insys_stream_cfg {
 };
 
 struct ipu7_insys_buffset {
+#ifdef IPU8_INSYS_NEW_ABI
+	struct ipu7_insys_capture_output_pin_cfg output_pins[4];
+#else
 	struct ipu7_insys_capture_output_pin_payload output_pins[4];
+#endif
 	u8 capture_msg_map;
 	u8 frame_id;
 	u8 skip_frame;

@@ -268,6 +268,12 @@ void ipu7_fw_isys_dump_stream_cfg(struct device *dev,
 			cfg->output_pins[i].crop.line_top);
 		dev_dbg(dev, "\t.crop.line_bottom = %d\n",
 			cfg->output_pins[i].crop.line_bottom);
+#ifdef IPU8_INSYS_NEW_ABI
+		dev_dbg(dev, "\t.crop.column_left = %d\n",
+			cfg->output_pins[i].crop.column_left);
+		dev_dbg(dev, "\t.crop.colunm_right = %d\n",
+			cfg->output_pins[i].crop.column_right);
+#endif
 
 		dev_dbg(dev, "\t.dpcm_enable = %d\n",
 			cfg->output_pins[i].dpcm.enable);
@@ -275,6 +281,20 @@ void ipu7_fw_isys_dump_stream_cfg(struct device *dev,
 			cfg->output_pins[i].dpcm.type);
 		dev_dbg(dev, "\t.dpcm.predictor = %d\n",
 			cfg->output_pins[i].dpcm.predictor);
+#ifdef IPU8_INSYS_NEW_ABI
+		dev_dbg(dev, "\t.upipe_enable = %d\n",
+			cfg->output_pins[i].upipe_enable);
+		dev_dbg(dev, "\t.upipe_pin_cfg.opaque_pin_cfg = %d\n",
+			cfg->output_pins[i].upipe_pin_cfg.opaque_pin_cfg);
+		dev_dbg(dev, "\t.upipe_pin_cfg.plane_offset_1 = %d\n",
+			cfg->output_pins[i].upipe_pin_cfg.plane_offset_1);
+		dev_dbg(dev, "\t.upipe_pin_cfg.plane_offset_2 = %d\n",
+			cfg->output_pins[i].upipe_pin_cfg.plane_offset_2);
+		dev_dbg(dev, "\t.upipe_pin_cfg.singel_uob_fifo = %d\n",
+			cfg->output_pins[i].upipe_pin_cfg.single_uob_fifo);
+		dev_dbg(dev, "\t.upipe_pin_cfg.shared_uob_fifo = %d\n",
+			cfg->output_pins[i].upipe_pin_cfg.shared_uob_fifo);
+#endif
 	}
 	dev_dbg(dev, "---------------------------\n");
 }
@@ -293,9 +313,18 @@ void ipu7_fw_isys_dump_frame_buff_set(struct device *dev,
 
 	for (i = 0; i < outputs; i++) {
 		dev_dbg(dev, ".output_pin[%d]:\n", i);
+#ifndef IPU8_INSYS_NEW_ABI
 		dev_dbg(dev, "\t.user_token = %llx\n",
 			buf->output_pins[i].user_token);
 		dev_dbg(dev, "\t.addr = 0x%x\n", buf->output_pins[i].addr);
+#else
+		dev_dbg(dev, "\t.pin_payload.user_token = %llx\n",
+			buf->output_pins[i].pin_payload.user_token);
+		dev_dbg(dev, "\t.pin_payload.addr = 0x%x\n",
+			buf->output_pins[i].pin_payload.addr);
+		dev_dbg(dev, "\t.pin_payload.upipe_capture_cfg = 0x%x\n",
+			buf->output_pins[i].upipe_capture_cfg);
+#endif
 	}
 	dev_dbg(dev, "---------------------------\n");
 }

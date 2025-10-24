@@ -457,9 +457,26 @@ static int ipu7_isys_fw_pin_cfg(struct ipu7_isys_video *av,
 	/* output pin crop */
 	output_pin->crop.line_top = 0;
 	output_pin->crop.line_bottom = 0;
+#ifdef IPU8_INSYS_NEW_ABI
+	output_pin->crop.column_left = 0;
+	output_pin->crop.column_right = 0;
+#endif
 
 	/* output de-compression */
 	output_pin->dpcm.enable = 0;
+
+#ifdef IPU8_INSYS_NEW_ABI
+	/* upipe_cfg */
+	output_pin->upipe_pin_cfg.opaque_pin_cfg = 0;
+	output_pin->upipe_pin_cfg.plane_offset_1 = 0;
+	output_pin->upipe_pin_cfg.plane_offset_2 = 0;
+	output_pin->upipe_pin_cfg.single_uob_fifo = 0;
+	output_pin->upipe_pin_cfg.shared_uob_fifo = 0;
+	output_pin->upipe_enable = 0;
+	output_pin->binning_factor = 0;
+	/* stupid setting, even unused, SW still need to set a valid value */
+	output_pin->cfa_dim = IPU_INSYS_CFA_DIM_2x2;
+#endif
 
 	/* frame format type */
 	pfmt = ipu7_isys_get_isys_format(av->pix_fmt.pixelformat);
