@@ -19,6 +19,11 @@ static DEFINE_PER_CPU_PAGE_ALIGNED(struct exception_stacks, exception_stacks);
 DEFINE_PER_CPU(struct cea_exception_stacks*, cea_exception_stacks);
 
 /*
+ * FRED introduced new fields in the host-state area of the VMCS for
+ * stack levels 1->3 (HOST_IA32_FRED_RSP[123]), each respectively
+ * corresponding to per CPU stacks for #DB, NMI and #DF.  KVM must
+ * populate these each time a vCPU is loaded onto a CPU.
+ *
  * Typically invoked by entry code, so must be noinstr.
  */
 noinstr unsigned long __this_cpu_ist_bottom_va(enum exception_stack_ordering stack)
@@ -36,6 +41,7 @@ noinstr unsigned long __this_cpu_ist_top_va(enum exception_stack_ordering stack)
 {
 	return __this_cpu_ist_bottom_va(stack) + EXCEPTION_STKSZ;
 }
+EXPORT_SYMBOL_FOR_MODULES(__this_cpu_ist_top_va, "kvm-intel");
 
 static DEFINE_PER_CPU_READ_MOSTLY(unsigned long, _cea_offset);
 
