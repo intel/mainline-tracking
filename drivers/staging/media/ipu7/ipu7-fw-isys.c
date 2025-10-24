@@ -31,6 +31,118 @@ static const char * const send_msg_types[N_IPU_INSYS_SEND_TYPE] = {
 	"STREAM_CLOSE"
 };
 
+static void isys_stream_cfg_to_v1(struct ipu7_insys_stream_cfg_v1 *dst,
+				  const struct ipu7_insys_stream_cfg *src)
+{
+	unsigned int i;
+
+	memset(dst, 0, sizeof(*dst));
+	memcpy(dst->input_pins, src->input_pins, sizeof(dst->input_pins));
+	dst->stream_msg_map = src->stream_msg_map;
+	dst->port_id = src->port_id;
+	dst->vc = src->vc;
+	dst->nof_input_pins = src->nof_input_pins;
+	dst->nof_output_pins = src->nof_output_pins;
+
+	for (i = 0; i < ARRAY_SIZE(dst->output_pins); i++) {
+		dst->output_pins[i].link = src->output_pins[i].link;
+		dst->output_pins[i].crop.line_top =
+			src->output_pins[i].crop.line_top;
+		dst->output_pins[i].crop.line_bottom =
+			src->output_pins[i].crop.line_bottom;
+		dst->output_pins[i].dpcm = src->output_pins[i].dpcm;
+		dst->output_pins[i].stride = src->output_pins[i].stride;
+		dst->output_pins[i].ft = src->output_pins[i].ft;
+		dst->output_pins[i].send_irq = src->output_pins[i].send_irq;
+		dst->output_pins[i].input_pin_id =
+			src->output_pins[i].input_pin_id;
+		dst->output_pins[i].early_ack_en =
+			src->output_pins[i].early_ack_en;
+	}
+}
+
+static void isys_buffset_to_v1(struct ipu7_insys_buffset_v1 *dst,
+			       const struct ipu7_insys_buffset *src)
+{
+	unsigned int i;
+
+	memset(dst, 0, sizeof(*dst));
+	for (i = 0; i < ARRAY_SIZE(dst->output_pins); i++)
+		dst->output_pins[i] = src->output_pins[i].pin_payload;
+
+	dst->capture_msg_map = src->capture_msg_map;
+	dst->frame_id = src->frame_id;
+	dst->skip_frame = src->skip_frame;
+}
+
+static size_t isys_prepare_fw_payload_v1(void *cpu_mapped_buf,
+					 u16 send_type, size_t size)
+{
+	if (!cpu_mapped_buf)
+		return 0;
+
+	switch (send_type) {
+	case IPU_INSYS_SEND_TYPE_STREAM_OPEN: {
+		struct ipu7_insys_stream_cfg cfg;
+
+		memcpy(&cfg, cpu_mapped_buf, sizeof(cfg));
+		isys_stream_cfg_to_v1(cpu_mapped_buf, &cfg);
+		return sizeof(struct ipu7_insys_stream_cfg_v1);
+	}
+	case IPU_INSYS_SEND_TYPE_STREAM_START_AND_CAPTURE:
+	case IPU_INSYS_SEND_TYPE_STREAM_CAPTURE: {
+		struct ipu7_insys_buffset set;
+
+		memcpy(&set, cpu_mapped_buf, sizeof(set));
+		isys_buffset_to_v1(cpu_mapped_buf, &set);
+		return sizeof(struct ipu7_insys_buffset_v1);
+	}
+	default:
+		return size;
+	}
+}
+
+static size_t isys_prepare_fw_payload(void *cpu_mapped_buf,
+				      u16 send_type, size_t size)
+{
+	if (!cpu_mapped_buf)
+		return 0;
+
+	switch (send_type) {
+	case IPU_INSYS_SEND_TYPE_STREAM_OPEN:
+		return sizeof(struct ipu7_insys_stream_cfg);
+	case IPU_INSYS_SEND_TYPE_STREAM_START_AND_CAPTURE:
+	case IPU_INSYS_SEND_TYPE_STREAM_CAPTURE:
+		return sizeof(struct ipu7_insys_buffset);
+	default:
+		return size;
+	}
+}
+
+static void isys_decode_resp_v1(struct ipu7_insys_resp *dst, const void *token)
+{
+	const struct ipu7_insys_resp_v1 *src = token;
+
+	memset(dst, 0, sizeof(*dst));
+	dst->buf_id = src->buf_id;
+	dst->pin = src->pin;
+	dst->error_info = src->error_info;
+	dst->timestamp[0] = src->timestamp[0];
+	dst->timestamp[1] = src->timestamp[1];
+	dst->type = src->type;
+	dst->msg_link_streaming_mode = src->msg_link_streaming_mode;
+	dst->stream_id = src->stream_id;
+	dst->pin_id = src->pin_id;
+	dst->frame_id = src->frame_id;
+	dst->skip_frame = src->skip_frame;
+	dst->mipi_fn = src->mipi_fn;
+}
+
+static void isys_decode_resp(struct ipu7_insys_resp *dst, const void *token)
+{
+	memcpy(dst, token, sizeof(*dst));
+}
+
 int ipu7_fw_isys_complex_cmd(struct ipu7_isys *isys,
 			     const unsigned int stream_handle,
 			     void *cpu_mapped_buf,
@@ -50,8 +162,11 @@ int ipu7_fw_isys_complex_cmd(struct ipu7_isys *isys,
 	 * Time to flush cache in case we have some payload. Not all messages
 	 * have that
 	 */
-	if (cpu_mapped_buf)
+	if (cpu_mapped_buf) {
+		size = isys->abi_ops.prepare_payload(cpu_mapped_buf,
+						     send_type, size);
 		clflush_cache_range(cpu_mapped_buf, size);
+	}
 
 	token = ipu7_syscom_get_token(ctx, stream_handle +
 				      IPU_INSYS_INPUT_MSG_QUEUE);
@@ -97,6 +212,18 @@ int ipu7_fw_isys_init(struct ipu7_isys *isys)
 	if (!syscom)
 		return -ENOMEM;
 
+	if (is_ipu8(adev->isp->hw_ver)) {
+		isys->abi_ops.prepare_payload = isys_prepare_fw_payload;
+		isys->abi_ops.decode_resp = isys_decode_resp;
+		isys->abi_ops.resp_queue_token_size =
+			sizeof(struct ipu7_insys_resp);
+	} else {
+		isys->abi_ops.prepare_payload = isys_prepare_fw_payload_v1;
+		isys->abi_ops.decode_resp = isys_decode_resp_v1;
+		isys->abi_ops.resp_queue_token_size =
+			sizeof(struct ipu7_insys_resp_v1);
+	}
+
 	adev->syscom = syscom;
 	syscom->num_input_queues = IPU_INSYS_MAX_INPUT_QUEUES;
 	syscom->num_output_queues = IPU_INSYS_MAX_OUTPUT_QUEUES;
@@ -111,11 +238,11 @@ int ipu7_fw_isys_init(struct ipu7_isys *isys)
 	queue_configs[IPU_INSYS_OUTPUT_MSG_QUEUE].max_capacity =
 		IPU_ISYS_SIZE_RECV_QUEUE;
 	queue_configs[IPU_INSYS_OUTPUT_MSG_QUEUE].token_size_in_bytes =
-		sizeof(struct ipu7_insys_resp);
+		isys->abi_ops.resp_queue_token_size;
 	queue_configs[IPU_INSYS_OUTPUT_LOG_QUEUE].max_capacity =
 		IPU_ISYS_SIZE_LOG_QUEUE;
 	queue_configs[IPU_INSYS_OUTPUT_LOG_QUEUE].token_size_in_bytes =
-		sizeof(struct ipu7_insys_resp);
+		isys->abi_ops.resp_queue_token_size;
 	queue_configs[IPU_INSYS_OUTPUT_RESERVED_QUEUE].max_capacity = 0;
 	queue_configs[IPU_INSYS_OUTPUT_RESERVED_QUEUE].token_size_in_bytes = 0;
 
@@ -195,9 +322,15 @@ int ipu7_fw_isys_close(struct ipu7_isys *isys)
 
 struct ipu7_insys_resp *ipu7_fw_isys_get_resp(struct ipu7_isys *isys)
 {
-	return (struct ipu7_insys_resp *)
-		ipu7_syscom_get_token(isys->adev->syscom,
-				      IPU_INSYS_OUTPUT_MSG_QUEUE);
+	void *token = ipu7_syscom_get_token(isys->adev->syscom,
+				     IPU_INSYS_OUTPUT_MSG_QUEUE);
+
+	if (!token)
+		return NULL;
+
+	isys->abi_ops.decode_resp(&isys->resp, token);
+
+	return &isys->resp;
 }
 
 void ipu7_fw_isys_put_resp(struct ipu7_isys *isys)
@@ -327,6 +460,10 @@ void ipu7_fw_isys_dump_stream_cfg(struct device *dev,
 			cfg->output_pins[i].crop.line_top);
 		dev_dbg(dev, "\t.crop.line_bottom = %d\n",
 			cfg->output_pins[i].crop.line_bottom);
+		dev_dbg(dev, "\t.crop.column_left = %d\n",
+			cfg->output_pins[i].crop.column_left);
+		dev_dbg(dev, "\t.crop.column_right = %d\n",
+			cfg->output_pins[i].crop.column_right);
 
 		dev_dbg(dev, "\t.dpcm_enable = %d\n",
 			cfg->output_pins[i].dpcm.enable);
@@ -334,6 +471,18 @@ void ipu7_fw_isys_dump_stream_cfg(struct device *dev,
 			cfg->output_pins[i].dpcm.type);
 		dev_dbg(dev, "\t.dpcm.predictor = %d\n",
 			cfg->output_pins[i].dpcm.predictor);
+		dev_dbg(dev, "\t.upipe_enable = %d\n",
+			cfg->output_pins[i].upipe_enable);
+		dev_dbg(dev, "\t.upipe_pin_cfg.opaque_pin_cfg = %d\n",
+			cfg->output_pins[i].upipe_pin_cfg.opaque_pin_cfg);
+		dev_dbg(dev, "\t.upipe_pin_cfg.plane_offset_1 = %d\n",
+			cfg->output_pins[i].upipe_pin_cfg.plane_offset_1);
+		dev_dbg(dev, "\t.upipe_pin_cfg.plane_offset_2 = %d\n",
+			cfg->output_pins[i].upipe_pin_cfg.plane_offset_2);
+		dev_dbg(dev, "\t.upipe_pin_cfg.singel_uob_fifo = %d\n",
+			cfg->output_pins[i].upipe_pin_cfg.single_uob_fifo);
+		dev_dbg(dev, "\t.upipe_pin_cfg.shared_uob_fifo = %d\n",
+			cfg->output_pins[i].upipe_pin_cfg.shared_uob_fifo);
 	}
 	dev_dbg(dev, "---------------------------\n");
 }
@@ -352,9 +501,12 @@ void ipu7_fw_isys_dump_frame_buff_set(struct device *dev,
 
 	for (i = 0; i < outputs; i++) {
 		dev_dbg(dev, ".output_pin[%d]:\n", i);
-		dev_dbg(dev, "\t.user_token = %llx\n",
-			buf->output_pins[i].user_token);
-		dev_dbg(dev, "\t.addr = 0x%x\n", buf->output_pins[i].addr);
+		dev_dbg(dev, "\t.pin_payload.user_token = %llx\n",
+			buf->output_pins[i].pin_payload.user_token);
+		dev_dbg(dev, "\t.pin_payload.addr = 0x%x\n",
+			buf->output_pins[i].pin_payload.addr);
+		dev_dbg(dev, "\t.pin_payload.upipe_capture_cfg = 0x%x\n",
+			buf->output_pins[i].upipe_capture_cfg);
 	}
 	dev_dbg(dev, "---------------------------\n");
 }

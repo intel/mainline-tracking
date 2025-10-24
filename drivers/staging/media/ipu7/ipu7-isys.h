@@ -67,6 +67,13 @@ struct isys_fw_log {
 	u32 size; /* actual size of log content, in bits */
 };
 
+struct ipu7_isys_abi_ops {
+	size_t (*prepare_payload)(void *cpu_mapped_buf, u16 send_type,
+				  size_t size);
+	void (*decode_resp)(struct ipu7_insys_resp *dst, const void *token);
+	size_t resp_queue_token_size;
+};
+
 /*
  * struct ipu7_isys
  *
@@ -124,6 +131,8 @@ struct ipu7_isys {
 	struct list_head framebuflist;
 	struct list_head framebuflist_fw;
 	struct v4l2_async_notifier notifier;
+	struct ipu7_isys_abi_ops abi_ops;
+	struct ipu7_insys_resp resp;
 
 	struct ipu7_insys_config *subsys_config;
 	dma_addr_t subsys_config_dma_addr;
