@@ -4,7 +4,12 @@ config VIDEO_INTEL_IPU7
 	depends on VIDEO_DEV
 	depends on X86 && HAS_DMA
 	depends on IPU_BRIDGE || !IPU_BRIDGE
-	depends on PCI
+        #
+        # This driver incorrectly tries to override the dma_ops.  It should
+        # never have done that, but for now keep it working on architectures
+        # that use dma ops
+        #
+        depends on ARCH_HAS_DMA_OPS
 	select AUXILIARY_BUS
 	select IOMMU_IOVA
 	select VIDEO_V4L2_SUBDEV_API
@@ -15,8 +20,8 @@ config VIDEO_INTEL_IPU7
 	  This is the 7th Gen Intel Image Processing Unit, found in Intel SoCs
 	  and used for capturing images and video from camera sensors.
 
-	  To compile this driver, say Y here! It contains 2 modules -
-	  intel_ipu7 and intel_ipu7_isys.
+	  To compile this driver, say Y here! It contains 3 modules -
+	  intel_ipu7, intel_ipu7_isys and intel_ipu7_psys.
 
 config VIDEO_INTEL_IPU7_ISYS_RESET
 	bool "IPU7 ISYS RESET"
