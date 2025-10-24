@@ -35,6 +35,13 @@
 
 #ifndef __ASSEMBLER__
 
+enum fred_stack_level {
+	FRED_STACK_LEVEL_0,
+	FRED_STACK_LEVEL_1,
+	FRED_STACK_LEVEL_2,
+	FRED_STACK_LEVEL_3
+};
+
 #ifdef CONFIG_X86_FRED
 #include <linux/kernel.h>
 #include <linux/sched/task_stack.h>
@@ -105,6 +112,8 @@ static __always_inline void fred_update_rsp0(void)
 		__this_cpu_write(fred_rsp0, rsp0);
 	}
 }
+
+unsigned long this_cpu_fred_rsp(enum fred_stack_level lvl);
 #else /* CONFIG_X86_FRED */
 static __always_inline unsigned long fred_event_data(struct pt_regs *regs) { return 0; }
 static inline void cpu_init_fred_exceptions(void) { }
@@ -112,6 +121,7 @@ static inline void cpu_init_fred_rsps(void) { }
 static inline void fred_complete_exception_setup(void) { }
 static inline void fred_sync_rsp0(unsigned long rsp0) { }
 static inline void fred_update_rsp0(void) { }
+static inline unsigned long this_cpu_fred_rsp(enum fred_stack_level lvl) { return 0; }
 #endif /* CONFIG_X86_FRED */
 #endif /* !__ASSEMBLER__ */
 
