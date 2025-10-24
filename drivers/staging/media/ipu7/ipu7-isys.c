@@ -84,10 +84,10 @@ isys_complete_ext_device_registration(struct ipu7_isys *isys,
 	}
 
 	isys->csi2[csi2->port].nlanes = csi2->nlanes;
-	if (csi2->bus_type == V4L2_MBUS_CSI2_DPHY)
-		isys->csi2[csi2->port].phy_mode = PHY_MODE_DPHY;
-	else
+	if (csi2->bus_type == V4L2_MBUS_CSI2_CPHY)
 		isys->csi2[csi2->port].phy_mode = PHY_MODE_CPHY;
+	else
+		isys->csi2[csi2->port].phy_mode = PHY_MODE_DPHY;
 
 	return 0;
 
