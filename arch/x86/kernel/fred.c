@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: GPL-2.0 */
 #include <linux/kernel.h>
+#include <linux/kvm_types.h>
 
 #include <asm/desc.h>
 #include <asm/fred.h>
@@ -69,6 +70,23 @@ void cpu_init_fred_exceptions(void)
 	setup_clear_cpu_cap(X86_FEATURE_SYSCALL32);
 }
 
+unsigned long this_cpu_fred_rsp(enum fred_stack_level lvl)
+{
+	switch (lvl) {
+	case FRED_STACK_LEVEL_0:
+		return __this_cpu_read(fred_rsp0);
+	case FRED_STACK_LEVEL_1:
+		return __this_cpu_ist_top_va(ESTACK_DB);
+	case FRED_STACK_LEVEL_2:
+		return __this_cpu_ist_top_va(ESTACK_NMI);
+	case FRED_STACK_LEVEL_3:
+		return __this_cpu_ist_top_va(ESTACK_DF);
+	default:
+		BUG();
+	}
+}
+EXPORT_SYMBOL_FOR_KVM(this_cpu_fred_rsp);
+
 /* Must be called after setup_cpu_entry_areas() */
 void cpu_init_fred_rsps(void)
 {
@@ -84,7 +102,7 @@ void cpu_init_fred_rsps(void)
 	       FRED_STKLVL(X86_TRAP_DF,  FRED_DF_STACK_LEVEL));
 
 	/* The FRED equivalents to IST stacks... */
-	wrmsrq(MSR_IA32_FRED_RSP1, __this_cpu_ist_top_va(ESTACK_DB));
-	wrmsrq(MSR_IA32_FRED_RSP2, __this_cpu_ist_top_va(ESTACK_NMI));
-	wrmsrq(MSR_IA32_FRED_RSP3, __this_cpu_ist_top_va(ESTACK_DF));
+	wrmsrq(MSR_IA32_FRED_RSP1, this_cpu_fred_rsp(FRED_STACK_LEVEL_1));
+	wrmsrq(MSR_IA32_FRED_RSP2, this_cpu_fred_rsp(FRED_STACK_LEVEL_2));
+	wrmsrq(MSR_IA32_FRED_RSP3, this_cpu_fred_rsp(FRED_STACK_LEVEL_3));
 }
