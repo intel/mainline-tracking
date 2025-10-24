@@ -1286,6 +1286,10 @@ int isys_isr_one(struct ipu7_bus_device *adev)
 	if (!isys->adev->syscom)
 		return 1;
 
+#ifdef ENABLE_FW_OFFLINE_LOGGER
+	ipu7_fw_isys_get_log(isys);
+#endif
+
 	resp = ipu7_fw_isys_get_resp(isys);
 	if (!resp)
 		return 1;
