@@ -85,7 +85,9 @@ static int ipu7_isys_queue_setup(struct vb2_queue *q, unsigned int *num_buffers,
 static int ipu7_isys_buf_prepare(struct vb2_buffer *vb)
 {
 	struct ipu7_isys_queue *aq = vb2_queue_to_isys_queue(vb->vb2_queue);
+	struct ipu7_isys *isys = vb2_get_drv_priv(vb->vb2_queue);
 	struct ipu7_isys_video *av = ipu7_isys_queue_to_video(aq);
+	struct sg_table *sg = vb2_dma_sg_plane_desc(vb, 0);
 	struct device *dev = &av->isys->adev->auxdev.dev;
 	u32 bytesperline = av->pix_fmt.bytesperline;
 	u32 height = av->pix_fmt.height;
@@ -99,6 +101,9 @@ static int ipu7_isys_buf_prepare(struct vb2_buffer *vb)
 	dev_dbg(dev, "buffer: %s: bytesperline %u, height %u\n",
 		av->vdev.name, bytesperline, height);
 	vb2_set_plane_payload(vb, 0, bytesperline * height);
+
+	/* assume IPU is not DMA coherent */
+	ipu7_dma_sync_sgtable(isys->adev, sg);
 
 	return 0;
 }
