@@ -9,6 +9,7 @@
 
 #include "i915_reg.h"
 #include "intel_atomic.h"
+#include "intel_bios.h"
 #include "intel_cx0_phy_regs.h"
 #include "intel_ddi.h"
 #include "intel_de.h"
@@ -24,6 +25,9 @@
 #include "intel_mg_phy_regs.h"
 #include "intel_modeset_lock.h"
 #include "intel_tc.h"
+
+#define IOM_DP_RES_SEMAPHORE_LOCK_TIMEOUT_US	10
+#define IOM_DP_RES_SEMAPHORE_RETRY_TIMEOUT_US	10000
 
 enum tc_port_mode {
 	TC_PORT_DISCONNECTED,
@@ -1200,6 +1204,143 @@ static void xelpdp_tc_phy_get_hw_state(struct intel_tc_port *tc)
 	__tc_cold_unblock(tc, domain, tc_cold_wref);
 }
 
+static void iom_res_mgmt_prepare_reg_access(struct intel_display *display)
+{
+	/*
+	 * IOM resource management registers live in the 2nd 4KB page of IOM
+	 * address space. So we need to configure HIP_INDEX_REG0 with the
+	 * correct index.
+	 *
+	 * FIXME: We need to have this and dekel PHY implementation using a
+	 * common abstraction to access registers on the HIP-indexed ranges, and
+	 * this function would then be dropped.
+	 */
+	intel_de_rmw(display, HIP_INDEX_REG0,
+		     HIP_168_INDEX_MASK, HIP_168_IOM_RES_MGMT);
+}
+
+/*
+ * FIXME: This function also needs to avoid concurrent accesses from the driver
+ * itself, possibly via a software lock.
+ */
+static int iom_dp_resource_lock(struct intel_tc_port *tc)
+{
+	struct intel_display *display = to_intel_display(tc->dig_port);
+	u32 val = IOM_DP_HW_SEMLOCK | IOM_REQUESTOR_ID_DISPLAY_ENGINE;
+	int ret;
+
+	iom_res_mgmt_prepare_reg_access(display);
+	ret = poll_timeout_us(intel_de_write(display, IOM_DP_HW_RESOURCE_SEMAPHORE, val),
+			      (intel_de_read(display, IOM_DP_HW_RESOURCE_SEMAPHORE) & val) == val,
+			      IOM_DP_RES_SEMAPHORE_LOCK_TIMEOUT_US,
+			      IOM_DP_RES_SEMAPHORE_RETRY_TIMEOUT_US, false);
+
+	if (ret)
+		drm_err(display->drm, "Port %s: timeout trying to lock IOM semaphore\n",
+			tc->port_name);
+
+	return ret;
+}
+
+static void iom_dp_resource_unlock(struct intel_tc_port *tc)
+{
+	struct intel_display *display = to_intel_display(tc->dig_port);
+
+	iom_res_mgmt_prepare_reg_access(display);
+	intel_de_write(display, IOM_DP_HW_RESOURCE_SEMAPHORE, IOM_REQUESTOR_ID_DISPLAY_ENGINE);
+}
+
+static bool xe3p_tc_iom_allocate_ddi(struct intel_tc_port *tc, bool allocate)
+{
+	struct intel_display *display = to_intel_display(tc->dig_port);
+	struct intel_digital_port *dig_port = tc->dig_port;
+	enum tc_port tc_port = intel_encoder_to_tc(&dig_port->base);
+	u32 val;
+	u32 consumer;
+	u32 expected_consumer;
+	bool ret;
+
+	if (DISPLAY_VER(display) < 35)
+		return true;
+
+	if (tc->mode != TC_PORT_LEGACY)
+		return true;
+
+	if (!intel_bios_encoder_supports_dyn_port_over_tc(dig_port->base.devdata))
+		return true;
+
+	if (iom_dp_resource_lock(tc))
+		return false;
+
+	val = intel_de_read(display, IOM_DP_RESOURCE_MNG);
+
+	consumer = val & IOM_DDI_CONSUMER_MASK(tc_port);
+	consumer >>= IOM_DDI_CONSUMER_SHIFT(tc_port);
+
+	/*
+	 * Bspec instructs to select first available DDI, but our driver is not
+	 * ready for such dynamic allocation yet. For now, we force a "static"
+	 * allocation: map the physical port (where HPD happens) to the
+	 * encoder's DDI (logical TC port, represented by tc_port).
+	 */
+	expected_consumer = IOM_DDI_CONSUMER_STATIC_TC(tc_port);
+	expected_consumer >>= IOM_DDI_CONSUMER_SHIFT(tc_port);
+
+	if (allocate) {
+		struct intel_encoder *other_encoder;
+
+		/*
+		 * Check if this encoder's DDI is already allocated for another
+		 * physical port, which could have happened prior to the driver
+		 * taking over (e.g. GOP).
+		 */
+		for_each_intel_encoder(display->drm, other_encoder) {
+			enum tc_port other_tc_port = intel_encoder_to_tc(other_encoder);
+			u32 other_consumer;
+
+			if (tc_port == TC_PORT_NONE || other_tc_port == tc_port)
+				continue;
+
+			other_consumer = val & IOM_DDI_CONSUMER_MASK(other_tc_port);
+			other_consumer >>= IOM_DDI_CONSUMER_SHIFT(other_tc_port);
+			if (other_consumer == expected_consumer) {
+				drm_err(display->drm, "Port %s: expected consumer %u already allocated another DDI; IOM_DP_RESOURCE_MNG=0x%08x\n",
+					tc->port_name, expected_consumer, val);
+				ret = false;
+				goto out_resource_unlock;
+			}
+		}
+
+		if (consumer == 0) {
+			/* DDI is free to use, let's allocate it. */
+			val &= ~IOM_DDI_CONSUMER_MASK(tc_port);
+			val |= IOM_DDI_CONSUMER(tc_port, expected_consumer);
+			intel_de_write(display, IOM_DP_RESOURCE_MNG, val);
+			ret = true;
+		} else if (consumer == expected_consumer) {
+			/*
+			 * Nothing to do, as the expected "static" DDI allocation is
+			 * already in place.
+			 */
+			ret = true;
+		} else {
+			drm_err(display->drm, "Port %s: DDI already allocated for consumer %u; IOM_DP_RESOURCE_MNG=0x%08x\n",
+				tc->port_name, consumer, val);
+			ret = false;
+		}
+	} else {
+		drm_WARN_ON(display->drm, consumer != expected_consumer);
+		val &= ~IOM_DDI_CONSUMER_MASK(tc_port);
+		intel_de_write(display, IOM_DP_RESOURCE_MNG, val);
+		ret = true;
+	}
+
+out_resource_unlock:
+	iom_dp_resource_unlock(tc);
+
+	return ret;
+}
+
 static bool xelpdp_tc_phy_connect(struct intel_tc_port *tc, int required_lanes)
 {
 	tc->lock_wakeref = tc_cold_block(tc);
@@ -1210,8 +1351,11 @@ static bool xelpdp_tc_phy_connect(struct intel_tc_port *tc, int required_lanes)
 		return true;
 	}
 
-	if (!xelpdp_tc_phy_enable_tcss_power(tc, true))
+	if (!xe3p_tc_iom_allocate_ddi(tc, true))
 		goto out_unblock_tccold;
+
+	if (!xelpdp_tc_phy_enable_tcss_power(tc, true))
+		goto out_deallocate_ddi;
 
 	xelpdp_tc_phy_take_ownership(tc, true);
 
@@ -1226,6 +1370,9 @@ out_release_phy:
 	xelpdp_tc_phy_take_ownership(tc, false);
 	xelpdp_tc_phy_wait_for_tcss_power(tc, false);
 
+out_deallocate_ddi:
+	xe3p_tc_iom_allocate_ddi(tc, false);
+
 out_unblock_tccold:
 	tc_cold_unblock(tc, fetch_and_zero(&tc->lock_wakeref));
 
@@ -1236,6 +1383,8 @@ static void xelpdp_tc_phy_disconnect(struct intel_tc_port *tc)
 {
 	switch (tc->mode) {
 	case TC_PORT_LEGACY:
+		xe3p_tc_iom_allocate_ddi(tc, false);
+		fallthrough;
 	case TC_PORT_DP_ALT:
 		xelpdp_tc_phy_take_ownership(tc, false);
 		xelpdp_tc_phy_enable_tcss_power(tc, false);

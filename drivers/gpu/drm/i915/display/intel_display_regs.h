@@ -2908,6 +2908,25 @@ enum skl_power_gate {
 #define   DP_PIN_ASSIGNMENT(idx, x)		((x) << ((idx) * 4))
 /* See enum intel_tc_pin_assignment for the pin assignment field values. */
 
+/*
+ * FIXME: There is also a definition for this register in intel_dkl_phy_regs.h.
+ * We need to consolidate the definitions.
+ */
+#define HIP_INDEX_REG0				_MMIO(0x1010a0)
+#define   HIP_168_INDEX_MASK			REG_GENMASK(3, 0)
+#define   HIP_168_IOM_RES_MGMT			REG_FIELD_PREP(HIP_168_INDEX_MASK, 0x1)
+
+#define IOM_DP_HW_RESOURCE_SEMAPHORE		_MMIO(0x168038)
+#define   IOM_DP_HW_SEMLOCK			REG_BIT(31)
+#define   IOM_REQUESTOR_ID_MASK			REG_GENMASK(3, 0)
+#define   IOM_REQUESTOR_ID_DISPLAY_ENGINE	REG_FIELD_PREP(IOM_REQUESTOR_ID_MASK, 0x4)
+
+#define IOM_DP_RESOURCE_MNG			_MMIO(0x16802c)
+#define   IOM_DDI_CONSUMER_SHIFT(tc_port)	((tc_port) * 4)
+#define   IOM_DDI_CONSUMER_MASK(tc_port)	(0xf << IOM_DDI_CONSUMER_SHIFT(tc_port))
+#define   IOM_DDI_CONSUMER(tc_port, x)		((x) << IOM_DDI_CONSUMER_SHIFT(tc_port))
+#define   IOM_DDI_CONSUMER_STATIC_TC(tc_port)	IOM_DDI_CONSUMER(tc_port, 0x8 + (tc_port))
+
 #define _TCSS_DDI_STATUS_1			0x161500
 #define _TCSS_DDI_STATUS_2			0x161504
 #define TCSS_DDI_STATUS(tc)			_MMIO(_PICK_EVEN(tc, \
@@ -2944,7 +2963,6 @@ enum skl_power_gate {
 #define MTL_MEM_SS_INFO_QGV_POINT_HIGH(point)	_MMIO(MTL_MEM_SS_INFO_QGV_POINT_OFFSET + (point) * 8 + 4)
 #define   MTL_TRAS_MASK			REG_GENMASK(16, 8)
 #define   MTL_TRDPRE_MASK		REG_GENMASK(7, 0)
-
 
 
 #endif /* __INTEL_DISPLAY_REGS_H__ */
