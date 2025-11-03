@@ -3225,6 +3225,18 @@ static void make_wm_latency_monotonic(struct intel_display *display)
 	}
 }
 
+static bool is_wm_latency_monotonic(struct intel_display *display)
+{
+	u16 *wm = display->wm.skl_latency;
+	int level, num_levels = display->wm.num_levels;
+
+	for (level = 1; level < num_levels; level++)
+		if (wm[level] < wm[level - 1])
+			return false;
+
+	return true;
+}
+
 static void
 adjust_wm_latency(struct intel_display *display)
 {
@@ -3235,7 +3247,8 @@ adjust_wm_latency(struct intel_display *display)
 
 	sanitize_wm_latency(display);
 
-	make_wm_latency_monotonic(display);
+	if (DISPLAY_VER(display) < 30)
+		make_wm_latency_monotonic(display);
 
 	/*
 	 * WaWmMemoryReadLatency
@@ -3255,6 +3268,8 @@ adjust_wm_latency(struct intel_display *display)
 	 */
 	if (need_16gb_dimm_wa(display))
 		increase_wm_latency(display, 1);
+
+	drm_WARN_ON(display->drm, !is_wm_latency_monotonic(display));
 }
 
 static void mtl_read_wm_latency(struct intel_display *display)
