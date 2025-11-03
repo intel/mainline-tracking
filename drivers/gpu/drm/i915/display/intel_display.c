@@ -1909,6 +1909,13 @@ bool intel_encoder_is_tc(struct intel_encoder *encoder)
 	if (dig_port && dig_port->dedicated_external)
 		return false;
 
+	if (intel_encoder_is_dig_port(encoder)) {
+		struct intel_digital_port *dig_port = enc_to_dig_port(encoder);
+
+		if (dig_port->dedicated_external)
+			return false;
+	}
+
 	return intel_phy_is_tc(display, intel_encoder_to_phy(encoder));
 }
 
