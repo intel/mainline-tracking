@@ -370,7 +370,7 @@ static int isx031_set_driver_mode(struct isx031 *isx031)
 	if (mode < 0)
 		return mode;
 
-	ret = isx031_write_reg_retry(isx031, ISX031_REG_MODE_SELECT, 1, (u32)mode);
+	ret = isx031_write_reg_retry(isx031, ISX031_REG_MODE_SELECT, 1, mode);
 	return ret;
 }
 
@@ -411,7 +411,7 @@ static int isx031_mode_transit(struct isx031 *isx031, int state)
 		return ret;
 	}
 	ret = isx031_write_reg(isx031, ISX031_REG_MODE_SET_F, 1,
-			       (u32)mode);
+			mode);
 	if (ret) {
 		dev_err(&client->dev, "failed to transit mode from 0x%x to 0x%x",
 			cur_mode, mode);

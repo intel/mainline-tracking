@@ -177,7 +177,7 @@ static int max9295_setup_gpio(struct max9x_common *common)
 {
 	struct device *dev = common->dev;
 	int ret;
-	struct max9x_gpio_pdata *gpio_pdata = NULL;
+	struct max9x_gpio_pdata *gpio_pdata;
 
 	if (dev->platform_data) {
 		struct max9x_pdata *pdata = dev->platform_data;
@@ -697,14 +697,15 @@ static int max9295_remap_reset(struct max9x_common *common)
 	struct device *dev = common->dev;
 	struct max9x_pdata *pdata = dev->platform_data;
 	u32 phys_addr = pdata->phys_addr ? pdata->phys_addr :
-			common->client->addr;
+					   common->client->addr;
 	u32 virt_addr = common->client->addr;
 
 	dev_info(dev, "Remap reset address from 0x%02x to 0x%02x", virt_addr,
 		 phys_addr);
 
-	TRY(ret, regmap_update_bits(common->map, MAX9295_REG0, MAX9295_REG0_DEV_ADDR_FIELD,
-				    FIELD_PREP(MAX9295_REG0_DEV_ADDR_FIELD, phys_addr)));
+	TRY(ret, regmap_update_bits(
+			 common->map, MAX9295_REG0, MAX9295_REG0_DEV_ADDR_FIELD,
+			 FIELD_PREP(MAX9295_REG0_DEV_ADDR_FIELD, phys_addr)));
 
 	return 0;
 }

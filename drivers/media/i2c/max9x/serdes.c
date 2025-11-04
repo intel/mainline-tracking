@@ -133,7 +133,7 @@ static const struct of_device_id max9x_of_match[] = {
 MODULE_DEVICE_TABLE(of, max9x_of_match);
 
 static const struct i2c_device_id max9x_id[] = {
-	{ "max9x", 0 },
+	{ "max9x", MAX9296 },
 	{ "max9296", MAX9296 },
 	{ "max96724", MAX96724 },
 	{ "max9295", MAX9295 },
@@ -841,7 +841,6 @@ void max9x_destroy(struct max9x_common *common)
 	/* unregister devices? */
 
 	v4l2_async_unregister_subdev(&common->v4l.sd);
-	v4l2_subdev_cleanup(&common->v4l.sd);
 	media_entity_cleanup(&common->v4l.sd.entity);
 
 	i2c_mux_del_adapters(common->muxc);
@@ -1484,7 +1483,10 @@ static struct v4l2_mbus_framefmt *__max9x_get_ffmt(struct v4l2_subdev *sd,
 	if (fmt->which == V4L2_SUBDEV_FORMAT_TRY)
 		return v4l2_subdev_state_get_format(v4l2_state, fmt->pad, fmt->stream);
 
-	return &common->v4l.ffmts[fmt->pad];
+	if (fmt->pad >= 0 && fmt->pad < common->v4l.num_pads)
+		return &common->v4l.ffmts[fmt->pad];
+
+	return ERR_PTR(-EINVAL);
 }
 
 static int max9x_get_fmt(struct v4l2_subdev *sd,
@@ -1560,7 +1562,7 @@ static int max9x_get_frame_desc(struct v4l2_subdev *sd, unsigned int pad,
 	for_each_active_route(&state->routing, route) {
 		if (route->source_pad != pad)
 			continue;
-		if (unlikely(route->sink_pad >= common->v4l.num_pads)) {
+		if (route->sink_pad >= common->v4l.num_pads) {
 			ret = -EINVAL;
 			dev_err(common->dev, "Found invalid route sink_pad!");
 			goto out_unlock;
@@ -2090,7 +2092,7 @@ int max9x_disable_serial_link(struct max9x_common *common, unsigned int link_id)
 	struct device *dev = common->dev;
 	int ret;
 
-	if (unlikely(link_id >= common->num_serial_links))
+	if (link_id >= common->num_serial_links)
 		return 0;
 
 	serial_link = &common->serial_link[link_id];
@@ -2411,8 +2413,12 @@ static int max9x_parse_subdev_pdata(struct max9x_common *common,
 int max9x_select_i2c_chan(struct i2c_mux_core *muxc, u32 chan_id)
 {
 	struct max9x_common *common = i2c_mux_priv(muxc);
+	struct i2c_client *client = common->serial_link[chan_id].remote.client;
 	int ret = 0;
 	unsigned long timeout = jiffies + msecs_to_jiffies(10000);
+
+	dev_dbg(common->dev, "try to select %d for %s", chan_id,
+		client ? dev_name(&client->dev) : "");
 
 	if (unlikely(chan_id > common->num_serial_links))
 		return -EINVAL;
@@ -2427,7 +2433,7 @@ int max9x_select_i2c_chan(struct i2c_mux_core *muxc, u32 chan_id)
 		usleep_range(1000, 1050);
 
 		if (time_is_before_jiffies(timeout)) {
-			dev_warn(common->dev, "select %d TIMEOUT", chan_id);
+			dev_dbg(common->dev, "select %d TIMEOUT", chan_id);
 			return -ETIMEDOUT;
 		}
 	} while (1);
@@ -2445,7 +2451,11 @@ int max9x_select_i2c_chan(struct i2c_mux_core *muxc, u32 chan_id)
 int max9x_deselect_i2c_chan(struct i2c_mux_core *muxc, u32 chan_id)
 {
 	struct max9x_common *common = i2c_mux_priv(muxc);
+	struct i2c_client *client = common->serial_link[chan_id].remote.client;
 	int ret = 0;
+
+	dev_dbg(common->dev, "try to deselect %d for %s", chan_id,
+		client ? dev_name(&client->dev) : "");
 
 	if (unlikely(chan_id > common->num_serial_links))
 		return -EINVAL;

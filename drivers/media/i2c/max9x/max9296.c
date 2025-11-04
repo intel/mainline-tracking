@@ -730,7 +730,7 @@ static int max9296_deisolate_serial_link(struct max9x_common *common, unsigned i
 		link_cfg = MAX9296_LINK_B;
 	else {
 		dev_err(dev, "No link was detected");
-		return -EINVAL;
+		return -1;
 	}
 
 	dev_dbg(dev, "Deisolate link %d (link_cfg=%d)", link, link_cfg);
