@@ -3554,8 +3554,10 @@ static int handle_pmi_common(struct pt_regs *regs, u64 status)
 		 * cpuc->enabled has been forced to 0 in PMI.
 		 * Update the MSR if pebs_enabled is changed.
 		 */
-		if (pebs_enabled != cpuc->pebs_enabled)
-			wrmsrq(MSR_IA32_PEBS_ENABLE, cpuc->pebs_enabled);
+		if (pebs_enabled != cpuc->pebs_enabled) {
+			wrmsrq(MSR_IA32_PEBS_ENABLE,
+			       cpuc->pebs_enabled & x86_pmu.pebs_capable);
+		}
 
 		/*
 		 * Above PEBS handler (PEBS counters snapshotting) has updated fixed

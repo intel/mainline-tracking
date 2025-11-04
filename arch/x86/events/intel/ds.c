@@ -1963,6 +1963,7 @@ void intel_pmu_pebs_disable(struct perf_event *event)
 {
 	struct cpu_hw_events *cpuc = this_cpu_ptr(&cpu_hw_events);
 	struct hw_perf_event *hwc = &event->hw;
+	u64 pebs_enabled;
 
 	__intel_pmu_pebs_disable(event);
 
@@ -1974,16 +1975,18 @@ void intel_pmu_pebs_disable(struct perf_event *event)
 
 	intel_pmu_pebs_via_pt_disable(event);
 
-	if (cpuc->enabled)
-		wrmsrq(MSR_IA32_PEBS_ENABLE, cpuc->pebs_enabled);
+	pebs_enabled = cpuc->pebs_enabled & x86_pmu.pebs_capable;
+	if (pebs_enabled)
+		wrmsrq(MSR_IA32_PEBS_ENABLE, pebs_enabled);
 }
 
 void intel_pmu_pebs_enable_all(void)
 {
 	struct cpu_hw_events *cpuc = this_cpu_ptr(&cpu_hw_events);
+	u64 pebs_enabled = cpuc->pebs_enabled & x86_pmu.pebs_capable;
 
-	if (cpuc->pebs_enabled)
-		wrmsrq(MSR_IA32_PEBS_ENABLE, cpuc->pebs_enabled);
+	if (pebs_enabled)
+		wrmsrq(MSR_IA32_PEBS_ENABLE, pebs_enabled);
 }
 
 void intel_pmu_pebs_disable_all(void)
