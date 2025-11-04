@@ -30,7 +30,6 @@
 #include <linux/slab.h>
 
 #include "max96724.h"
-#include "regmap-retry.h"
 
 // Params
 int max96724_serial_link_timeout_ms = MAX96724_DEFAULT_SERIAL_LINK_TIMEOUT_MS;
@@ -338,7 +337,7 @@ static int max96724_set_all_reset(struct max9x_common *common, bool enable)
 
 	dev_dbg(dev, "Reset %s", (enable ? "enable" : "disable"));
 
-	return regmap_update_bits_retry(map, MAX96724_RESET_ALL,
+	return regmap_update_bits(map, MAX96724_RESET_ALL,
 		MAX96724_RESET_ALL_FIELD,
 		MAX9X_FIELD_PREP(MAX96724_RESET_ALL_FIELD, enable ? 1U : 0U));
 }
@@ -355,8 +354,8 @@ static int max96724_soft_reset(struct max9x_common *common)
 		return ret;
 
 	/* Wait for hardware available after soft reset */
-	/* TODO: Optimize sleep time 20 ms */
-	msleep(20);
+	/* TODO: Optimize sleep time 45 ms */
+	msleep(45);
 
 	ret = max96724_set_all_reset(common, 0);
 	if (ret)

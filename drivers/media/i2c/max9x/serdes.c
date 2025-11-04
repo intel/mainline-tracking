@@ -31,7 +31,6 @@
 #include <linux/of_gpio.h>
 
 #include "serdes.h"
-#include "regmap-retry.h"
 
 static const s64 max9x_op_sys_clock[] =  {
 	MAX9X_LINK_FREQ_MBPS_TO_HZ(2500),
@@ -398,6 +397,22 @@ static void *parse_serdes_pdata(struct device *dev)
 	return des_pdata;
 }
 
+static int regmap_read_retry(struct regmap *map, unsigned int reg,
+			   unsigned int *val)
+{
+	int ret = 0;
+	int i = 0;
+
+	for (i = 0; i < 50; i++) {
+		ret = regmap_read(map, reg, val);
+		if (!ret)
+			break;
+		msleep(20);
+	}
+
+	return ret;
+}
+
 static int max9x_enable_resume(struct max9x_common *common)
 {
 	struct device *dev = common->dev;
@@ -442,7 +457,6 @@ static int max9x_remap_serializers_resume(struct max9x_common *common, unsigned 
 	unsigned int phys_addr, virt_addr;
 	struct i2c_client *phys_client;
 	struct regmap *phys_map, *virt_map;
-	struct device *dev = &serial_link->remote.client->dev;
 	unsigned int val;
 	const struct regmap_config regmap_config = {
 		.reg_bits = 16,
@@ -452,23 +466,27 @@ static int max9x_remap_serializers_resume(struct max9x_common *common, unsigned 
 	if (!serial_link->remote.pdata)
 		return 0;
 
+	ret = max9x_des_isolate_serial_link(common, link_id);
+	if (ret)
+		return ret;
+
 	phys_addr = serial_link->remote.pdata->phys_addr;
 	virt_addr = serial_link->remote.pdata->board_info.addr;
 	if (phys_addr == virt_addr)
 		return 0;
 
-	dev_info(dev, "Remap serializer from 0x%02x to 0x%02x", phys_addr, virt_addr);
+	dev_info(common->dev, "Remap serializer from 0x%02x to 0x%02x", phys_addr, virt_addr);
 
 	phys_client = i2c_new_dummy_device(serial_link->remote.client->adapter, phys_addr);
 	if (IS_ERR_OR_NULL(phys_client)) {
-		dev_err(dev, "Failed to create dummy client for phys_addr 0x%x", phys_addr);
+		dev_err(common->dev, "Failed to create dummy client for phys_addr 0x%x", phys_addr);
 		ret = PTR_ERR(phys_client);
 		return ret;
 	}
 
 	phys_map = regmap_init_i2c(phys_client, &regmap_config);
 	if (IS_ERR_OR_NULL(phys_map)) {
-		dev_err(dev, "Failed to create dummy map for phys_addr 0x%x", phys_addr);
+		dev_err(common->dev, "Failed to create dummy map for phys_addr 0x%x", phys_addr);
 		ret = PTR_ERR(phys_map);
 		goto err_client;
 	}
@@ -476,42 +494,44 @@ static int max9x_remap_serializers_resume(struct max9x_common *common, unsigned 
 	struct max9x_common *ser_common = max9x_client_to_common(serial_link->remote.client);
 
 	virt_map = ser_common->map;
-	ret = regmap_read_retry(virt_map, MAX9X_DEV_ID, &val);
+	ret = regmap_read(virt_map, MAX9X_DEV_ID, &val);
 	if (!ret) {
-		dev_info(dev, "Remap not necessary");
+		dev_info(common->dev, "Remap not necessary");
 		ret = 0;
 		goto err_regmap;
 	}
 
 	ret = regmap_read_retry(phys_map, MAX9X_DEV_ID, &val);
 	if (ret) {
-		dev_err(dev, "Device not present at 0x%02x", phys_addr);
+		dev_err(common->dev, "Device not present at 0x%02x", phys_addr);
 		goto err_regmap;
 	} else {
-		dev_info(dev, "DEV_ID before: 0x%02x", val);
+		dev_info(common->dev, "DEV_ID before: 0x%02x", val);
 	}
 
-	ret = regmap_write_retry(phys_map, 0x00, (virt_addr & 0x7f) << 1);
+	ret = regmap_write(phys_map, 0x00, (virt_addr & 0x7f) << 1);
 	if (ret) {
-		dev_err(dev, "Failed to remap serialzier from 0x%02x to 0x%02x (%d)",
+		dev_err(common->dev, "Failed to remap serialzier from 0x%02x to 0x%02x (%d)",
 				phys_addr, virt_addr, ret);
 		goto err_regmap;
 	}
 
 	msleep(100);
 
-	ret = regmap_read_retry(virt_map, MAX9X_DEV_ID, &val);
+	ret = regmap_read(virt_map, MAX9X_DEV_ID, &val);
 	if (ret) {
-		dev_err(dev, "Device not present after remap to 0x%02x", virt_addr);
+		dev_err(common->dev, "Device not present after remap to 0x%02x", virt_addr);
 		goto err_regmap;
 	} else {
-		dev_info(dev, "DEV_ID after: 0x%02x", val);
+		dev_info(common->dev, "DEV_ID after: 0x%02x", val);
 	}
 
 err_regmap:
 	regmap_exit(phys_map);
 err_client:
 	i2c_unregister_device(phys_client);
+
+	max9x_des_deisolate_serial_link(common, link_id);
 
 	return ret;
 }
@@ -562,31 +582,42 @@ int max9x_common_resume(struct max9x_common *common)
 	struct max9x_common *des_common = NULL;
 	struct device *dev = common->dev;
 	u32 des_link;
+	u32 phys_addr, virt_addr;
 	int ret = 0;
+	int retry = 50;
 
-	if (dev->platform_data && common->type == MAX9X_SERIALIZER) {
+	if (dev->platform_data) {
 		struct max9x_pdata *pdata = dev->platform_data;
-		WARN_ON(pdata->num_serial_links < 1);
 
-		des_common = max9x_client_to_common(
-		       pdata->serial_links[0].des_client);
-	       if (des_common) {
-		       des_link = pdata->serial_links[0].des_link_id;
-		       ret = max9x_des_isolate_serial_link(des_common, des_link);
-		       if (ret)
-			       goto err_deisolate;
-		       ret = max9x_remap_serializers_resume(des_common, des_link);
-		       if (ret)
-			       goto err_deisolate;
-	       } else {
-		       return ret;
+		virt_addr = common->client->addr;
+		phys_addr = pdata->phys_addr ? pdata->phys_addr : virt_addr;
+
+		if (common->type == MAX9X_SERIALIZER) {
+			WARN_ON(pdata->num_serial_links < 1);
+
+			des_common = max9x_client_to_common(pdata->serial_links[0].des_client);
+			if (des_common) {
+				des_link = pdata->serial_links[0].des_link_id;
+				ret = max9x_remap_serializers_resume(des_common, des_link);
+				if (ret)
+					return ret;
+				ret = max9x_des_isolate_serial_link(des_common, des_link);
+				if (ret)
+					goto err_reset_serializer;
+			}
 		}
 	}
 
-	ret = max9x_verify_devid(common);
+	while (retry--) {
+		ret = max9x_verify_devid(common);
+		if (ret)
+			msleep(100);
+		else
+			break;
+	}
 	if (ret) {
 		dev_err(dev, "can't get devid after resume");
-		goto err_reset_serializer;
+		goto err_deisolate;
 	}
 
 	ret = max9x_enable_resume(common);
@@ -610,6 +641,11 @@ int max9x_common_resume(struct max9x_common *common)
 err_disable:
 	max9x_disable(common);
 
+err_deisolate:
+	if (common->type == MAX9X_SERIALIZER && des_common) {
+		max9x_des_deisolate_serial_link(des_common, des_link);
+	}
+
 err_reset_serializer:
 	if (common->type == MAX9X_SERIALIZER) {
 		if (common->common_ops && common->common_ops->remap_reset) {
@@ -617,11 +653,6 @@ err_reset_serializer:
 			if (ret)
 				return ret;
 		}
-	}
-
-err_deisolate:
-	if (common->type == MAX9X_SERIALIZER && des_common) {
-			max9x_des_deisolate_serial_link(des_common, des_link);
 	}
 
 	return ret;
@@ -633,11 +664,25 @@ int max9x_common_suspend(struct max9x_common *common)
 
 	dev_dbg(common->dev, "try to suspend");
 
+	max9x_disable_translations(common);
 
 	for (link_id = 0; link_id < common->num_serial_links; link_id++)
 		max9x_disable_serial_link(common, link_id);
 
 	max9x_disable(common);
+
+	if (common->type == MAX9X_SERIALIZER) {
+		struct device *dev = common->dev;
+		int ret;
+
+		if (dev->platform_data) {
+			if (common->common_ops && common->common_ops->remap_reset) {
+				ret = common->common_ops->remap_reset(common);
+				if (ret)
+					return ret;
+			}
+		}
+	}
 
 	return 0;
 }
@@ -1054,7 +1099,7 @@ int max9x_verify_devid(struct max9x_common *common)
 	 * Fetch and output chip name + revision
 	 * try both virtual address and physical address
 	 */
-	ret = regmap_read_retry(map, MAX9X_DEV_ID, &dev_id);
+	ret = regmap_read(map, MAX9X_DEV_ID, &dev_id);
 	if (ret) {
 		dev_warn(dev, "Failed to read chip ID from virtual address");
 		if (phys_map) {
@@ -1074,7 +1119,7 @@ int max9x_verify_devid(struct max9x_common *common)
 	}
 	common->des = &max9x_chips[chip_type];
 	common->type = common->des->serdes_type;
-	TRY(ret, regmap_read_retry(map, common->des->rev_reg, &dev_rev));
+	TRY(ret, regmap_read(map, common->des->rev_reg, &dev_rev));
 	dev_rev = FIELD_GET(MAX9X_DEV_REV_FIELD, dev_rev);
 
 	dev_info(dev, "Detected MAX9x chip ID  0x%x revision 0x%x", dev_id, dev_rev);
@@ -1131,14 +1176,14 @@ int max9x_remap_serializers(struct max9x_common *common, unsigned int link_id)
 	if (IS_ERR_OR_NULL(virt_map))
 		goto err_virt_client;
 
-	ret = regmap_read_retry(virt_map, MAX9X_DEV_ID, &val);
+	ret = regmap_read(virt_map, MAX9X_DEV_ID, &val);
 	if (!ret) {
 		dev_info(common->dev, "Remap not necessary");
 		ret = 0;
 		goto err_virt_regmap;
 	}
 
-	ret = regmap_read_retry(phys_map, MAX9X_DEV_ID, &val);
+	ret = regmap_read(phys_map, MAX9X_DEV_ID, &val);
 	if (ret) {
 		dev_err(common->dev, "Device not present at 0x%02x", phys_addr);
 		goto err_virt_regmap;
@@ -1146,7 +1191,7 @@ int max9x_remap_serializers(struct max9x_common *common, unsigned int link_id)
 		dev_info(common->dev, "DEV_ID before: 0x%02x", val);
 	}
 
-	ret = regmap_write_retry(phys_map, 0x00, (virt_addr & 0x7f) << 1);
+	ret = regmap_write(phys_map, 0x00, (virt_addr & 0x7f) << 1);
 	if (ret) {
 		dev_err(common->dev, "Failed to remap serialzier from 0x%02x to 0x%02x (%d)",
 				phys_addr, virt_addr, ret);
@@ -1155,7 +1200,7 @@ int max9x_remap_serializers(struct max9x_common *common, unsigned int link_id)
 
 	usleep_range(1000, 1050);
 
-	ret = regmap_read_retry(virt_map, MAX9X_DEV_ID, &val);
+	ret = regmap_read(virt_map, MAX9X_DEV_ID, &val);
 	if (ret) {
 		dev_err(common->dev, "Device not present after remap to 0x%02x", virt_addr);
 		goto err_virt_regmap;
@@ -1172,6 +1217,10 @@ err_regmap:
 	regmap_exit(phys_map);
 err_client:
 	i2c_unregister_device(phys_client);
+
+	max9x_deselect_i2c_chan(common->muxc, link_id);
+
+	max9x_des_deisolate_serial_link(common, link_id);
 
 	return ret;
 }
@@ -1737,7 +1786,6 @@ static int max9x_registered(struct v4l2_subdev *sd)
 			if (subdev_pdata) {
 				struct max9x_pdata *ser_pdata =
 					subdev_pdata->board_info.platform_data;
-				struct v4l2_subdev *subdev = NULL;
 
 				WARN_ON(ser_pdata->num_serial_links < 1);
 
@@ -1749,13 +1797,13 @@ static int max9x_registered(struct v4l2_subdev *sd)
 				 * physical i2c at the same time
 				 */
 				ret = max9x_des_isolate_serial_link(common, link_id);
+				if (ret)
+					return ret;
 
-				if (!ret)
-				       subdev = v4l2_i2c_new_subdev_board(
-					       sd->v4l2_dev,
-					       common->muxc->adapter[link_id],
-					       &subdev_pdata->board_info,
-					       NULL);
+				struct v4l2_subdev *subdev =
+					v4l2_i2c_new_subdev_board(sd->v4l2_dev,
+								  common->muxc->adapter[link_id],
+								  &subdev_pdata->board_info, NULL);
 
 				ret = max9x_des_deisolate_serial_link(common, link_id);
 				if (ret)
@@ -2584,6 +2632,8 @@ int max9x_setup_translations(struct max9x_common *common)
 				 virt_addr, phys_addr, err);
 		break;
 	}
+
+	msleep(10);
 
 	return err;
 }

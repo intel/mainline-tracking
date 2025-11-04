@@ -33,8 +33,6 @@
 #define ISX031_MODE_4LANES_30FPS	0x17
 #define ISX031_MODE_2LANES_30FPS	0x18
 
-static DEFINE_MUTEX(isx031_mutex);
-
 struct isx031_reg {
 	enum {
 		ISX031_REG_LEN_DELAY = 0,
@@ -97,7 +95,7 @@ struct isx031 {
 	u8 lanes;
 
 	/* To serialize asynchronus callbacks */
-	struct mutex *mutex;
+	struct mutex mutex;
 
 	/* i2c client */
 	struct i2c_client *client;
@@ -308,21 +306,6 @@ static int isx031_write_reg(struct isx031 *isx031, u16 reg, u16 len, u32 val)
 	return 0;
 }
 
-static int isx031_write_reg_retry(struct isx031 *isx031, u16 reg, u16 len, u32 val)
-{
-	int ret;
-	int retry = 100;
-
-	while (retry--) {
-			ret = isx031_write_reg(isx031, reg, len, val);
-			if (!ret)
-					break;
-			msleep(20);
-	}
-
-	return ret;
-}
-
 static int isx031_write_reg_list(struct isx031 *isx031,
 				 const struct isx031_reg_list *r_list)
 {
@@ -335,7 +318,7 @@ static int isx031_write_reg_list(struct isx031 *isx031,
 			msleep(r_list->regs[i].val);
 			continue;
 		}
-		ret = isx031_write_reg_retry(isx031, r_list->regs[i].address,
+		ret = isx031_write_reg(isx031, r_list->regs[i].address,
 				       ISX031_REG_LEN_08BIT,
 				       r_list->regs[i].val);
 		if (ret) {
@@ -370,7 +353,7 @@ static int isx031_set_driver_mode(struct isx031 *isx031)
 	if (mode < 0)
 		return mode;
 
-	ret = isx031_write_reg_retry(isx031, ISX031_REG_MODE_SELECT, 1, mode);
+	ret = isx031_write_reg(isx031, ISX031_REG_MODE_SELECT, 1, mode);
 	return ret;
 }
 
@@ -523,12 +506,13 @@ static int isx031_set_stream(struct v4l2_subdev *sd, int enable)
 	if (isx031->streaming == enable)
 		return 0;
 
-	mutex_lock(isx031->mutex);
+	mutex_lock(&isx031->mutex);
 	if (enable) {
 		ret = pm_runtime_get_sync(&client->dev);
 		if (ret < 0) {
 			pm_runtime_put_noidle(&client->dev);
-			goto err_unlock;
+			mutex_unlock(&isx031->mutex);
+			return ret;
 		}
 
 		ret = isx031_start_streaming(isx031);
@@ -544,8 +528,7 @@ static int isx031_set_stream(struct v4l2_subdev *sd, int enable)
 
 	isx031->streaming = enable;
 
-err_unlock:
-	mutex_unlock(isx031->mutex);
+	mutex_unlock(&isx031->mutex);
 
 	return ret;
 }
@@ -570,11 +553,11 @@ static int __maybe_unused isx031_suspend(struct device *dev)
 	struct v4l2_subdev *sd = i2c_get_clientdata(client);
 	struct isx031 *isx031 = to_isx031(sd);
 
-	mutex_lock(isx031->mutex);
+	mutex_lock(&isx031->mutex);
 	if (isx031->streaming)
 		isx031_stop_streaming(isx031);
 
-	mutex_unlock(isx031->mutex);
+	mutex_unlock(&isx031->mutex);
 
 	return 0;
 }
@@ -585,9 +568,7 @@ static int __maybe_unused isx031_resume(struct device *dev)
 	struct v4l2_subdev *sd = i2c_get_clientdata(client);
 	struct isx031 *isx031 = to_isx031(sd);
 	const struct isx031_reg_list *reg_list;
-	int ret = 0;
-
-	mutex_lock(isx031->mutex);
+	int ret;
 
 	if (isx031->reset_gpio != NULL)
 		isx031_reset(isx031->reset_gpio);
@@ -598,26 +579,27 @@ static int __maybe_unused isx031_resume(struct device *dev)
 		ret = isx031_write_reg_list(isx031, reg_list);
 		if (ret) {
 			dev_err(&client->dev, "resume: failed to apply cur mode");
-			goto err_unlock;
+			return ret;
 		}
 	} else {
 		dev_err(&client->dev, "isx031 resume failed");
-		goto err_unlock;
+		return ret;
 	}
 
+	mutex_lock(&isx031->mutex);
 	if (isx031->streaming) {
 		ret = isx031_start_streaming(isx031);
 		if (ret) {
 			isx031->streaming = false;
 			isx031_stop_streaming(isx031);
-			goto err_unlock;
+			mutex_unlock(&isx031->mutex);
+			return ret;
 		}
 	}
 
-err_unlock:
-	mutex_unlock(isx031->mutex);
+	mutex_unlock(&isx031->mutex);
 
-	return ret;
+	return 0;
 }
 
 static int isx031_get_frame_desc(struct v4l2_subdev *sd, unsigned int pad,
@@ -656,7 +638,7 @@ static int isx031_set_format(struct v4l2_subdev *sd,
 	if (i >= ARRAY_SIZE(supported_modes))
 		mode = &supported_modes[0];
 
-	mutex_lock(isx031->mutex);
+	mutex_lock(&isx031->mutex);
 
 	isx031_update_pad_format(mode, &fmt->format);
 	if (fmt->which == V4L2_SUBDEV_FORMAT_TRY) {
@@ -665,7 +647,7 @@ static int isx031_set_format(struct v4l2_subdev *sd,
 		isx031->cur_mode = mode;
 	}
 
-	mutex_unlock(isx031->mutex);
+	mutex_unlock(&isx031->mutex);
 
 	return 0;
 }
@@ -676,14 +658,14 @@ static int isx031_get_format(struct v4l2_subdev *sd,
 {
 	struct isx031 *isx031 = to_isx031(sd);
 
-	mutex_lock(isx031->mutex);
+	mutex_lock(&isx031->mutex);
 	if (fmt->which == V4L2_SUBDEV_FORMAT_TRY)
 		fmt->format = *v4l2_subdev_state_get_format(sd_state,
 							  fmt->pad);
 	else
 		isx031_update_pad_format(isx031->cur_mode, &fmt->format);
 
-	mutex_unlock(isx031->mutex);
+	mutex_unlock(&isx031->mutex);
 
 	return 0;
 }
@@ -692,10 +674,10 @@ static int isx031_open(struct v4l2_subdev *sd, struct v4l2_subdev_fh *fh)
 {
 	struct isx031 *isx031 = to_isx031(sd);
 
-	mutex_lock(isx031->mutex);
+	mutex_lock(&isx031->mutex);
 	isx031_update_pad_format(&supported_modes[0],
 				 v4l2_subdev_state_get_format(fh->state, 0));
-	mutex_unlock(isx031->mutex);
+	mutex_unlock(&isx031->mutex);
 
 	return 0;
 }
@@ -728,10 +710,12 @@ static const struct v4l2_subdev_internal_ops isx031_internal_ops = {
 static void isx031_remove(struct i2c_client *client)
 {
 	struct v4l2_subdev *sd = i2c_get_clientdata(client);
+	struct isx031 *isx031 = to_isx031(sd);
 
 	v4l2_async_unregister_subdev(sd);
 	media_entity_cleanup(&sd->entity);
 	pm_runtime_disable(&client->dev);
+	mutex_destroy(&isx031->mutex);
 
 }
 
@@ -792,7 +776,8 @@ static int isx031_probe(struct i2c_client *client)
 	if (isx031->platform_data)
 		isx031->lanes = isx031->platform_data->lanes;
 
-	isx031->mutex = &isx031_mutex;
+	mutex_init(&isx031->mutex);
+
 	/* 1920x1536 default */
 	isx031->cur_mode = NULL;
 	isx031->pre_mode = &supported_modes[0];
@@ -823,6 +808,7 @@ static int isx031_probe(struct i2c_client *client)
 probe_error_media_entity_cleanup:
 	media_entity_cleanup(&isx031->sd.entity);
 	pm_runtime_disable(&client->dev);
+	mutex_destroy(&isx031->mutex);
 
 	return ret;
 }
