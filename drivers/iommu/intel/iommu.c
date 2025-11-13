@@ -3017,6 +3017,11 @@ static __init int tboot_force_iommu(void)
 	if (!tboot_enabled())
 		return 0;
 
+	//If TPR is enabled we don't need to force IOMMU,
+	//TPR set by SINIT ACM will take care of DMA protection
+	if (tboot_is_tpr_enabled())
+		return 0;
+
 	if (no_iommu || dmar_disabled)
 		pr_warn("Forcing Intel-IOMMU to enabled\n");
 
@@ -3074,7 +3079,7 @@ int __init intel_iommu_init(void)
 		 * calling SENTER, but the kernel is expected to reset/tear
 		 * down the PMRs.
 		 */
-		if (intel_iommu_tboot_noforce) {
+		if (intel_iommu_tboot_noforce || tboot_is_tpr_enabled()) {
 			for_each_iommu(iommu, drhd)
 				iommu_disable_protect_mem_regions(iommu);
 		}
