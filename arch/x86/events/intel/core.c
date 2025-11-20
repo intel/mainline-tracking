@@ -3549,17 +3549,24 @@ static int intel_alt_er(struct cpu_hw_events *cpuc,
 	struct extra_reg *extra_regs = hybrid(cpuc->pmu, extra_regs);
 	int alt_idx = idx;
 
-	if (!(x86_pmu.flags & PMU_FL_HAS_RSP_1))
-		return idx;
+	if (idx == EXTRA_REG_RSP_0 || idx == EXTRA_REG_RSP_1) {
+		if (!(x86_pmu.flags & PMU_FL_HAS_RSP_1))
+			return idx;
+		if (++alt_idx > EXTRA_REG_RSP_1)
+			alt_idx = EXTRA_REG_RSP_0;
+		if (config & ~extra_regs[alt_idx].valid_mask)
+			return idx;
+	}
 
-	if (idx == EXTRA_REG_RSP_0)
-		alt_idx = EXTRA_REG_RSP_1;
-
-	if (idx == EXTRA_REG_RSP_1)
-		alt_idx = EXTRA_REG_RSP_0;
-
-	if (config & ~extra_regs[alt_idx].valid_mask)
-		return idx;
+	if (idx >= EXTRA_REG_OMR_0 && idx <= EXTRA_REG_OMR_3) {
+		if (!(x86_pmu.flags & PMU_FL_HAS_OMR))
+			return idx;
+		if (++alt_idx > EXTRA_REG_OMR_3)
+			alt_idx = EXTRA_REG_OMR_0;
+		if (config &
+		    ~extra_regs[alt_idx - EXTRA_REG_OMR_0].valid_mask)
+			return idx;
+	}
 
 	return alt_idx;
 }
@@ -3567,16 +3574,28 @@ static int intel_alt_er(struct cpu_hw_events *cpuc,
 static void intel_fixup_er(struct perf_event *event, int idx)
 {
 	struct extra_reg *extra_regs = hybrid(event->pmu, extra_regs);
-	event->hw.extra_reg.idx = idx;
+	int omr_idx;
 
-	if (idx == EXTRA_REG_RSP_0) {
+	event->hw.extra_reg.idx = idx;
+	switch (idx) {
+	case EXTRA_REG_RSP_0:
 		event->hw.config &= ~INTEL_ARCH_EVENT_MASK;
 		event->hw.config |= extra_regs[EXTRA_REG_RSP_0].event;
 		event->hw.extra_reg.reg = MSR_OFFCORE_RSP_0;
-	} else if (idx == EXTRA_REG_RSP_1) {
+		break;
+	case EXTRA_REG_RSP_1:
 		event->hw.config &= ~INTEL_ARCH_EVENT_MASK;
 		event->hw.config |= extra_regs[EXTRA_REG_RSP_1].event;
 		event->hw.extra_reg.reg = MSR_OFFCORE_RSP_1;
+		break;
+	case EXTRA_REG_OMR_0 ... EXTRA_REG_OMR_3:
+		omr_idx = idx - EXTRA_REG_OMR_0;
+		event->hw.config &= ~ARCH_PERFMON_EVENTSEL_UMASK;
+		event->hw.config |= 1ULL << (8 + omr_idx);
+		event->hw.extra_reg.reg = MSR_OMR_0 + omr_idx;
+		break;
+	default:
+		pr_warn("The extra reg idx %d is not supported.\n", idx);
 	}
 }
 
