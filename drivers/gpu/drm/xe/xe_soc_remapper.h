@@ -13,5 +13,6 @@
 int xe_soc_remapper_init(struct xe_device *xe);
 void xe_soc_remapper_set_telem_region(struct xe_device *xe, u32 index);
 void xe_soc_remapper_set_sysctrl_region(struct xe_device *xe, u32 index);
+void xe_soc_remapper_resume(struct xe_device *xe);
 
 #endif

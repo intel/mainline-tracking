@@ -25,6 +25,7 @@
 #include "xe_late_bind_fw.h"
 #include "xe_pcode.h"
 #include "xe_pxp.h"
+#include "xe_soc_remapper.h"
 #include "xe_sriov_vf_ccs.h"
 #include "xe_trace.h"
 #include "xe_vm.h"
@@ -236,6 +237,8 @@ int xe_pm_resume(struct xe_device *xe)
 	xe_pm_block_begin_signalling();
 	drm_dbg(&xe->drm, "Resuming device\n");
 	trace_xe_pm_resume(xe, __builtin_return_address(0));
+
+	xe_soc_remapper_resume(xe);
 
 	for_each_gt(gt, xe, id)
 		xe_gt_idle_disable_c6(gt);
@@ -639,6 +642,8 @@ int xe_pm_runtime_resume(struct xe_device *xe)
 	xe_pm_write_callback_task(xe, current);
 
 	xe_rpm_lockmap_acquire(xe);
+
+	xe_soc_remapper_resume(xe);
 
 	for_each_gt(gt, xe, id)
 		xe_gt_idle_disable_c6(gt);

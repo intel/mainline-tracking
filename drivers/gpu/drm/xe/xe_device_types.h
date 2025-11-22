@@ -572,6 +572,12 @@ struct xe_device {
 	struct {
 		/* Serialize access to SoC Remapper's index registers */
 		spinlock_t lock;
+
+		/* Last value of INDEX1 register */
+		u32 state;
+
+		/* A flag indicating state is initialized */
+		bool state_initialized;
 	} soc_remapper;
 
 	/**
