@@ -110,6 +110,7 @@ xe-y += xe_bb.o \
 	xe_range_fence.o \
 	xe_reg_sr.o \
 	xe_reg_whitelist.o \
+	xe_soc_remapper.o \
 	xe_ring_ops.o \
 	xe_rtp.o \
 	xe_sa.o \

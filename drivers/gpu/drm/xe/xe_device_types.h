@@ -568,6 +568,12 @@ struct xe_device {
 		struct mutex lock;
 	} pmt;
 
+	/* @soc_remapper: SoC remapper object */
+	struct {
+		/* Serialize access to SoC Remapper's index registers */
+		spinlock_t lock;
+	} soc_remapper;
+
 	/**
 	 * @pm_callback_task: Track the active task that is running in either
 	 * the runtime_suspend or runtime_resume callbacks.
