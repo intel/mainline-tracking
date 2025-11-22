@@ -330,6 +330,8 @@ struct xe_device {
 		u8 has_range_tlb_inval:1;
 		/** @info.has_sriov: Supports SR-IOV */
 		u8 has_sriov:1;
+		/** @info.has_sysctrl: Supports System Controller */
+		u8 has_sysctrl:1;
 		/** @info.has_usm: Device has unified shared memory support */
 		u8 has_usm:1;
 		/** @info.has_64bit_timestamp: Device supports 64-bit timestamps */
@@ -591,6 +593,9 @@ struct xe_device {
 
 	/** @heci_gsc: graphics security controller */
 	struct xe_heci_gsc heci_gsc;
+
+	/** @sc: System Controller */
+	struct xe_sc *sc;
 
 	/** @nvm: discrete graphics non-volatile memory */
 	struct intel_dg_nvm_dev *nvm;

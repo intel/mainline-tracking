@@ -114,7 +114,9 @@ xe-y += xe_bb.o \
 	xe_ring_ops.o \
 	xe_rtp.o \
 	xe_sa.o \
+	xe_sc.o \
 	xe_sched_job.o \
+	xe_sc_mailbox.o \
 	xe_shrinker.o \
 	xe_step.o \
 	xe_survivability_mode.o \

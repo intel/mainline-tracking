@@ -60,6 +60,7 @@
 #include "xe_psmi.h"
 #include "xe_pxp.h"
 #include "xe_query.h"
+#include "xe_sc.h"
 #include "xe_soc_remapper.h"
 #include "xe_shrinker.h"
 #include "xe_survivability_mode.h"
@@ -965,6 +966,10 @@ int xe_device_probe(struct xe_device *xe)
 		goto err_unregister_display;
 
 	err = xe_i2c_probe(xe);
+	if (err)
+		goto err_unregister_display;
+
+	err = xe_sc_init(xe);
 	if (err)
 		goto err_unregister_display;
 
