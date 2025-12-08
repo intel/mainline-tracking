@@ -4890,12 +4890,23 @@ static int tcp_prune_queue(struct sock *sk, const struct sk_buff *in_skb);
 
 /* Check if this incoming skb can be added to socket receive queues
  * while satisfying sk->sk_rcvbuf limit.
+ *
+ * In theory we should use skb->truesize, but this can cause problems
+ * when applications use too small SO_RCVBUF values.
+ * When LRO / hw gro is used, the socket might have a high tp->scaling_ratio,
+ * allowing RWIN to be close to available space.
+ * Whenever the receive queue gets full, we can receive a small packet
+ * filling RWIN, but with a high skb->truesize, because most NIC use 4K page
+ * plus sk_buff metadata even when receiving less than 1500 bytes of payload.
+ *
+ * Note that we use skb->len to decide to accept or drop this packet,
+ * but sk->sk_rmem_alloc is the sum of all skb->truesize.
  */
 static bool tcp_can_ingest(const struct sock *sk, const struct sk_buff *skb)
 {
-	unsigned int new_mem = atomic_read(&sk->sk_rmem_alloc) + skb->truesize;
+	unsigned int rmem = atomic_read(&sk->sk_rmem_alloc);
 
-	return new_mem <= sk->sk_rcvbuf;
+	return rmem + skb->len <= sk->sk_rcvbuf;
 }
 
 static int tcp_try_rmem_schedule(struct sock *sk, const struct sk_buff *skb,
@@ -7264,7 +7275,6 @@ int tcp_conn_request(struct request_sock_ops *rsk_ops,
 				    &foc, TCP_SYNACK_FASTOPEN, skb);
 		/* Add the child socket directly into the accept queue */
 		if (!inet_csk_reqsk_queue_add(sk, req, fastopen_sk)) {
-			reqsk_fastopen_remove(fastopen_sk, req, false);
 			bh_unlock_sock(fastopen_sk);
 			sock_put(fastopen_sk);
 			goto drop_and_free;

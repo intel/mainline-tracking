@@ -356,8 +356,14 @@ void fuse_file_release(struct inode *inode, struct fuse_file *ff,
 	 * Make the release synchronous if this is a fuseblk mount,
 	 * synchronous RELEASE is allowed (and desirable) in this case
 	 * because the server can be trusted not to screw up.
+	 *
+	 * Always use the asynchronous file put because the current thread
+	 * might be the fuse server.  This can happen if a process starts some
+	 * aio and closes the fd before the aio completes.  Since aio takes its
+	 * own ref to the file, the IO completion has to drop the ref, which is
+	 * how the fuse server can end up closing its clients' files.
 	 */
-	fuse_file_put(ff, ff->fm->fc->destroy);
+	fuse_file_put(ff, false);
 }
 
 void fuse_release_common(struct file *file, bool isdir)
@@ -1175,7 +1181,6 @@ static ssize_t fuse_fill_write_pages(struct fuse_io_args *ia,
 	num = min(iov_iter_count(ii), fc->max_write);
 
 	ap->args.in_pages = true;
-	ap->descs[0].offset = offset;
 
 	while (num && ap->num_folios < max_folios) {
 		size_t tmp;

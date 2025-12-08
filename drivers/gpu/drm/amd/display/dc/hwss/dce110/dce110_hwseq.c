@@ -1600,19 +1600,17 @@ enum dc_status dce110_apply_single_controller_ctx_to_hw(
 	}
 
 	if (pipe_ctx->stream_res.audio != NULL) {
-		struct audio_output audio_output = {0};
+		build_audio_output(context, pipe_ctx, &pipe_ctx->stream_res.audio_output);
 
-		build_audio_output(context, pipe_ctx, &audio_output);
-
-		link_hwss->setup_audio_output(pipe_ctx, &audio_output,
+		link_hwss->setup_audio_output(pipe_ctx, &pipe_ctx->stream_res.audio_output,
 				pipe_ctx->stream_res.audio->inst);
 
 		pipe_ctx->stream_res.audio->funcs->az_configure(
 				pipe_ctx->stream_res.audio,
 				pipe_ctx->stream->signal,
-				&audio_output.crtc_info,
+				&pipe_ctx->stream_res.audio_output.crtc_info,
 				&pipe_ctx->stream->audio_info,
-				&audio_output.dp_link_info);
+				&pipe_ctx->stream_res.audio_output.dp_link_info);
 
 		if (dc->config.disable_hbr_audio_dp2)
 			if (pipe_ctx->stream_res.audio->funcs->az_disable_hbr_audio &&
@@ -1924,10 +1922,8 @@ void dce110_enable_accelerated_mode(struct dc *dc, struct dc_state *context)
 
 	get_edp_streams(context, edp_streams, &edp_stream_num);
 
-	// Check fastboot support, disable on DCE8 because of blank screens
-	if (edp_num && edp_stream_num && dc->ctx->dce_version != DCE_VERSION_8_0 &&
-		    dc->ctx->dce_version != DCE_VERSION_8_1 &&
-		    dc->ctx->dce_version != DCE_VERSION_8_3) {
+	/* Check fastboot support, disable on DCE 6-8 because of blank screens */
+	if (edp_num && edp_stream_num && dc->ctx->dce_version < DCE_VERSION_10_0) {
 		for (i = 0; i < edp_num; i++) {
 			edp_link = edp_links[i];
 			if (edp_link != edp_streams[0]->link)
@@ -2386,9 +2382,7 @@ static void dce110_setup_audio_dto(
 		if (pipe_ctx->stream->signal != SIGNAL_TYPE_HDMI_TYPE_A)
 			continue;
 		if (pipe_ctx->stream_res.audio != NULL) {
-			struct audio_output audio_output;
-
-			build_audio_output(context, pipe_ctx, &audio_output);
+			build_audio_output(context, pipe_ctx, &pipe_ctx->stream_res.audio_output);
 
 			if (dc->res_pool->dccg && dc->res_pool->dccg->funcs->set_audio_dtbclk_dto) {
 				struct dtbclk_dto_params dto_params = {0};
@@ -2399,14 +2393,14 @@ static void dce110_setup_audio_dto(
 				pipe_ctx->stream_res.audio->funcs->wall_dto_setup(
 						pipe_ctx->stream_res.audio,
 						pipe_ctx->stream->signal,
-						&audio_output.crtc_info,
-						&audio_output.pll_info);
+						&pipe_ctx->stream_res.audio_output.crtc_info,
+						&pipe_ctx->stream_res.audio_output.pll_info);
 			} else
 				pipe_ctx->stream_res.audio->funcs->wall_dto_setup(
 					pipe_ctx->stream_res.audio,
 					pipe_ctx->stream->signal,
-					&audio_output.crtc_info,
-					&audio_output.pll_info);
+					&pipe_ctx->stream_res.audio_output.crtc_info,
+					&pipe_ctx->stream_res.audio_output.pll_info);
 			break;
 		}
 	}
@@ -2426,15 +2420,15 @@ static void dce110_setup_audio_dto(
 				continue;
 
 			if (pipe_ctx->stream_res.audio != NULL) {
-				struct audio_output audio_output = {0};
-
-				build_audio_output(context, pipe_ctx, &audio_output);
+				build_audio_output(context,
+						   pipe_ctx,
+						   &pipe_ctx->stream_res.audio_output);
 
 				pipe_ctx->stream_res.audio->funcs->wall_dto_setup(
 					pipe_ctx->stream_res.audio,
 					pipe_ctx->stream->signal,
-					&audio_output.crtc_info,
-					&audio_output.pll_info);
+					&pipe_ctx->stream_res.audio_output.crtc_info,
+					&pipe_ctx->stream_res.audio_output.pll_info);
 				break;
 			}
 		}
