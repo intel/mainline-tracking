@@ -1850,6 +1850,7 @@ static const struct intel_uncore_init_fun dmr_uncore_init __initconst = {
 	.pci_init = dmr_uncore_pci_init,
 	.mmio_init = dmr_uncore_mmio_init,
 	.discovery_pci = DMR_UNCORE_DISCOVERY_TABLE_DEVICE,
+	.discovery_msr = DMR_UNCORE_DISCOVERY_MSR,
 	.uncore_units_ignore = dmr_uncore_units_ignore,
 };
 
