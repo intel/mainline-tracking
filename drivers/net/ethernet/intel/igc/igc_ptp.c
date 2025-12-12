@@ -815,16 +815,9 @@ static void igc_ptp_tx_reg_to_stamp(struct igc_adapter *adapter,
 static void igc_ptp_tx_hwtstamp(struct igc_adapter *adapter)
 {
 	struct igc_hw *hw = &adapter->hw;
-	u32 txstmpl_old;
 	u64 regval;
 	u32 mask;
 	int i;
-
-	/* Read the "low" register 0 first to establish a baseline value.
-	 * This avoids a race where a new timestamp could be latched
-	 * after checking the TXTT mask.
-	 */
-	txstmpl_old = rd32(IGC_TXSTMPL);
 
 	mask = rd32(IGC_TSYNCTXCTL) & IGC_TSYNCTXCTL_TXTT_ANY;
 	if (mask & IGC_TSYNCTXCTL_TXTT_0) {
@@ -849,8 +842,9 @@ static void igc_ptp_tx_hwtstamp(struct igc_adapter *adapter)
 		 * timestamp was captured, we can read the "high"
 		 * register again.
 		 */
-		u32 txstmpl_new;
+		u32 txstmpl_old, txstmpl_new;
 
+		txstmpl_old = rd32(IGC_TXSTMPL);
 		rd32(IGC_TXSTMPH);
 		txstmpl_new = rd32(IGC_TXSTMPL);
 
