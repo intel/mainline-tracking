@@ -12,24 +12,6 @@
 static struct rb_root discovery_tables = RB_ROOT;
 static int num_discovered_types[UNCORE_ACCESS_MAX];
 
-static bool has_generic_discovery_table(void)
-{
-	struct pci_dev *dev;
-	int dvsec;
-
-	dev = pci_get_device(PCI_VENDOR_ID_INTEL, UNCORE_DISCOVERY_TABLE_DEVICE, NULL);
-	if (!dev)
-		return false;
-
-	/* A discovery table device has the unique capability ID. */
-	dvsec = pci_find_next_ext_capability(dev, 0, UNCORE_EXT_CAP_ID_DISCOVERY);
-	pci_dev_put(dev);
-	if (dvsec)
-		return true;
-
-	return false;
-}
-
 static int logical_die_id;
 
 static int get_device_die_id(struct pci_dev *dev)
@@ -350,17 +332,12 @@ static int parse_discovery_table(struct pci_dev *dev, int die,
 	return __parse_discovery_table(addr, die, parsed, ignore);
 }
 
-static bool intel_uncore_has_discovery_tables_pci(int *ignore)
+static bool intel_uncore_has_discovery_tables_pci(int *ignore, u32 device)
 {
-	u32 device, val, entry_id, bar_offset;
+	u32 val, entry_id, bar_offset;
 	int die, dvsec = 0, ret = true;
 	struct pci_dev *dev = NULL;
 	bool parsed = false;
-
-	if (has_generic_discovery_table())
-		device = UNCORE_DISCOVERY_TABLE_DEVICE;
-	else
-		device = PCI_ANY_ID;
 
 	/*
 	 * Start a new search and iterates through the list of
@@ -399,7 +376,7 @@ err:
 	return ret;
 }
 
-static bool intel_uncore_has_discovery_tables_msr(int *ignore)
+static bool intel_uncore_has_discovery_tables_msr(int *ignore, u32 msr)
 {
 	unsigned long *die_mask;
 	bool parsed = false;
@@ -417,7 +394,7 @@ static bool intel_uncore_has_discovery_tables_msr(int *ignore)
 		if (__test_and_set_bit(die, die_mask))
 			continue;
 
-		if (rdmsrq_safe_on_cpu(cpu, UNCORE_DISCOVERY_MSR, &base))
+		if (rdmsrq_safe_on_cpu(cpu, msr, &base))
 			continue;
 
 		if (!base)
@@ -432,10 +409,15 @@ static bool intel_uncore_has_discovery_tables_msr(int *ignore)
 	return parsed;
 }
 
-bool intel_uncore_has_discovery_tables(int *ignore)
+bool intel_uncore_has_discovery_tables(int *ignore, u32 msr, u32 device)
 {
-	return intel_uncore_has_discovery_tables_msr(ignore) ||
-	       intel_uncore_has_discovery_tables_pci(ignore);
+	bool ret = false;
+
+	if (msr)
+		ret = intel_uncore_has_discovery_tables_msr(ignore, msr);
+	if (device)
+		ret |= intel_uncore_has_discovery_tables_pci(ignore, device);
+	return ret;
 }
 
 void intel_uncore_clear_discovery_tables(void)

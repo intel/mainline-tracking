@@ -1706,8 +1706,10 @@ struct intel_uncore_init_fun {
 	void	(*cpu_init)(void);
 	int	(*pci_init)(void);
 	void	(*mmio_init)(void);
-	/* Discovery table is required */
-	bool	use_discovery;
+	/* MSR carries the Discovery table base address */
+	u32	discovery_msr;
+	/* PCI device carries the Discovery table base address */
+	u32	discovery_pci;
 	/* The units in the discovery table should be ignored. */
 	int	*uncore_units_ignore;
 };
@@ -1813,7 +1815,7 @@ static const struct intel_uncore_init_fun lnl_uncore_init __initconst = {
 static const struct intel_uncore_init_fun ptl_uncore_init __initconst = {
 	.cpu_init = ptl_uncore_cpu_init,
 	.mmio_init = ptl_uncore_mmio_init,
-	.use_discovery = true,
+	.discovery_msr = UNCORE_DISCOVERY_MSR,
 };
 
 static const struct intel_uncore_init_fun icx_uncore_init __initconst = {
@@ -1832,7 +1834,7 @@ static const struct intel_uncore_init_fun spr_uncore_init __initconst = {
 	.cpu_init = spr_uncore_cpu_init,
 	.pci_init = spr_uncore_pci_init,
 	.mmio_init = spr_uncore_mmio_init,
-	.use_discovery = true,
+	.discovery_pci = UNCORE_DISCOVERY_TABLE_DEVICE,
 	.uncore_units_ignore = spr_uncore_units_ignore,
 };
 
@@ -1840,7 +1842,7 @@ static const struct intel_uncore_init_fun gnr_uncore_init __initconst = {
 	.cpu_init = gnr_uncore_cpu_init,
 	.pci_init = gnr_uncore_pci_init,
 	.mmio_init = gnr_uncore_mmio_init,
-	.use_discovery = true,
+	.discovery_pci = UNCORE_DISCOVERY_TABLE_DEVICE,
 	.uncore_units_ignore = gnr_uncore_units_ignore,
 };
 
@@ -1912,6 +1914,11 @@ static const struct x86_cpu_id intel_uncore_match[] __initconst = {
 };
 MODULE_DEVICE_TABLE(x86cpu, intel_uncore_match);
 
+static bool ucore_use_discovery(struct intel_uncore_init_fun *uncore_init)
+{
+	return (uncore_init->discovery_pci || uncore_init->discovery_msr);
+}
+
 static int __init intel_uncore_init(void)
 {
 	const struct x86_cpu_id *id;
@@ -1926,16 +1933,21 @@ static int __init intel_uncore_init(void)
 
 	id = x86_match_cpu(intel_uncore_match);
 	if (!id) {
-		if (!uncore_no_discover && intel_uncore_has_discovery_tables(NULL))
+		if (!uncore_no_discover &&
+		    intel_uncore_has_discovery_tables(NULL,
+				UNCORE_DISCOVERY_MSR, PCI_ANY_ID))
 			uncore_init = (struct intel_uncore_init_fun *)&generic_uncore_init;
 		else
 			return -ENODEV;
 	} else {
 		uncore_init = (struct intel_uncore_init_fun *)id->driver_data;
-		if (uncore_no_discover && uncore_init->use_discovery)
+		if (uncore_no_discover && ucore_use_discovery(uncore_init))
 			return -ENODEV;
-		if (uncore_init->use_discovery &&
-		    !intel_uncore_has_discovery_tables(uncore_init->uncore_units_ignore))
+		if (ucore_use_discovery(uncore_init) &&
+		    !intel_uncore_has_discovery_tables(
+			uncore_init->uncore_units_ignore,
+			uncore_init->discovery_msr,
+			uncore_init->discovery_pci))
 			return -ENODEV;
 	}
 
