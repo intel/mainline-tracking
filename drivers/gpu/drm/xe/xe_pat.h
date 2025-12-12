@@ -58,4 +58,23 @@ int xe_pat_dump(struct xe_gt *gt, struct drm_printer *p);
  */
 u16 xe_pat_index_get_coh_mode(struct xe_device *xe, u16 pat_index);
 
+/**
+ * xe_pat_index_get_comp_en - Extract the compression enable flag for
+ * the given pat_index.
+ * @xe: xe device
+ * @pat_index: The pat_index to query
+ *
+ * Return: true if compression is enabled for this pat_index, false otherwise.
+ */
+bool xe_pat_index_get_comp_en(struct xe_device *xe, u16 pat_index);
+
+#define XE_L3_POLICY_WB		0 /* Write-back */
+#define XE_L3_POLICY_XD		1 /* WB - Transient Display */
+#define XE_L3_POLICY_UC		3 /* Uncached */
+/**
+ * xe_pat_index_get_l3_policy - Extract the L3 policy for the given pat_index.
+ * @xe: xe device
+ * @pat_index: The pat_index to query
+ */
+u16 xe_pat_index_get_l3_policy(struct xe_device *xe, u16 pat_index);
 #endif
