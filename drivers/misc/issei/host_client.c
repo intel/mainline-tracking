@@ -111,6 +111,17 @@ static void __issei_cl_disconnect(struct issei_device *idev, struct issei_host_c
 	cl_dbg(idev, cl, "Disconnected\n");
 }
 
+static void __issei_cl_dma_unmap(struct issei_host_client *cl)
+{
+	if (!cl->dma_size)
+		return;
+
+	dma_free_coherent(cl->idev->parent, cl->dma_size, cl->dma_vaddr, cl->dma_daddr);
+	cl->dma_size = 0;
+	cl->dma_vaddr = NULL;
+	cl->dma_daddr = 0;
+}
+
 static void __issei_cl_init(struct issei_host_client *cl, struct issei_device *idev,
 			    u16 id, struct file *fp)
 {
@@ -183,6 +194,8 @@ void issei_cl_remove(struct issei_host_client *cl)
 	list_del(&cl->list);
 
 	__issei_cl_disconnect(idev, cl);
+
+	__issei_cl_dma_unmap(cl);
 
 	cl_dbg(idev, cl, "Removed\n");
 	kfree(cl);
@@ -517,4 +530,56 @@ void issei_cl_clean_all_wbuf(struct issei_host_client *cl)
 	guard(mutex)(&idev->client_lock);
 
 	__issei_cl_clean_all_wbuf(idev, cl);
+}
+
+/**
+ * issei_cl_dma_map - allocate DMA mapping for client
+ *
+ * @cl: host client
+ * @size: memory size to allocate
+ * @daddr: pointer for buffer physical address
+ * @vaddr: pointer for buffer virtual address
+ *
+ * Return: 0 on success, < 0 on error
+ */
+int issei_cl_dma_map(struct issei_host_client *cl, size_t size,
+		     dma_addr_t *daddr, void **vaddr)
+{
+	struct issei_device *idev = cl->idev;
+
+	if (size == 0 || size > ISSEI_HOST_DMA_MAX_SIZE) {
+		cl_err(idev, cl, "The size is out of bounds.");
+		return -EINVAL;
+	}
+
+	guard(mutex)(&idev->client_lock);
+
+	if (cl->dma_size) {
+		cl_err(idev, cl, "DMA already allocated.");
+		return -EALREADY;
+	}
+
+	cl->dma_vaddr = dma_alloc_coherent(cl->idev->parent, size, &cl->dma_daddr, GFP_KERNEL);
+	if (!cl->dma_vaddr)
+		return -ENOMEM;
+
+	cl->dma_size = size;
+
+	*daddr = cl->dma_daddr;
+	*vaddr = cl->dma_vaddr;
+	return 0;
+}
+
+/**
+ * issei_cl_dma_unmap - deallocate DMA mapping for client
+ *
+ * @cl: host client
+ */
+void issei_cl_dma_unmap(struct issei_host_client *cl)
+{
+	struct issei_device *idev = cl->idev;
+
+	guard(mutex)(&idev->client_lock);
+
+	__issei_cl_dma_unmap(cl);
 }

@@ -6,6 +6,7 @@
 #include <linux/device.h>
 #include <linux/mutex.h>
 #include <linux/sched.h>
+#include <linux/sizes.h>
 #include <linux/time64.h>
 #include <linux/types.h>
 #include <linux/wait.h>
@@ -29,6 +30,8 @@ extern struct class *issei_class;
 #define ISSEI_RST_STEP_TIMEOUT_MSEC     (2 * MSEC_PER_SEC)
 #define ISSEI_STOP_TIMEOUT_MSEC         500
 #define ISSEI_WRITE_TIMEOUT_MSEC        (MSEC_PER_SEC)
+
+#define ISSEI_HOST_DMA_MAX_SIZE	        SZ_64M
 
 /**
  * struct issei_write_buf - write buffer object

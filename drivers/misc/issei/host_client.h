@@ -3,6 +3,7 @@
 #ifndef _ISSEI_HOST_CLIENT_H_
 #define _ISSEI_HOST_CLIENT_H_
 
+#include <linux/dma-mapping.h>
 #include <linux/types.h>
 #include <linux/uuid.h>
 #include <linux/wait.h>
@@ -38,6 +39,10 @@ enum issei_host_client_state {
  * @read_wait: waitqueue for read object
  * @read_data: received data pointer
  * @read_data_size: received data size
+ *
+ * @dma_vaddr: allocated DMA buffer virtual address
+ * @dma_daddr: allocated DMA buffer physical address
+ * @dma_size: allocated DMA buffer size, zero if no buffer allocated
  */
 struct issei_host_client {
 	struct list_head list;
@@ -54,6 +59,10 @@ struct issei_host_client {
 	wait_queue_head_t read_wait;
 	u8 *read_data;
 	size_t read_data_size;
+
+	void *dma_vaddr;
+	dma_addr_t dma_daddr;
+	size_t dma_size;
 };
 
 struct issei_host_client *issei_cl_create(struct issei_device *idev, struct file *fp);
@@ -71,5 +80,9 @@ ssize_t issei_cl_read(struct issei_host_client *cl, u8 **buf, size_t buf_size);
 int issei_cl_check_read(struct issei_host_client *cl);
 int issei_cl_check_write(struct issei_host_client *cl);
 void issei_cl_clean_all_wbuf(struct issei_host_client *cl);
+
+int issei_cl_dma_map(struct issei_host_client *cl, size_t size,
+		     dma_addr_t *daddr, void **vaddr);
+void issei_cl_dma_unmap(struct issei_host_client *cl);
 
 #endif /* ISSEI_HOST_CLIENT_H_ */
