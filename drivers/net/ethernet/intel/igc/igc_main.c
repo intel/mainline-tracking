@@ -2868,8 +2868,6 @@ static int igc_clean_rx_irq_zc(struct igc_q_vector *q_vector, const int budget)
 			md = bi->xdp->data - sizeof(*md);
 			md->timestamp = igc_ptp_rx_pktstamp(adapter, ctx->rx_ts->timer0);
 			bi->xdp->data_meta = md;
-		} else {
-			xdp_set_data_meta_invalid(bi->xdp);
 		}
 
 		res = __igc_xdp_run_prog(adapter, prog, bi->xdp);
