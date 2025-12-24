@@ -378,18 +378,22 @@ int fpu_swap_kvm_fpstate(struct fpu_guest *guest_fpu, bool enter_guest)
 	struct fpstate *cur_fps = fpu->fpstate;
 
 	fpregs_lock();
-	if (!cur_fps->is_confidential && !test_thread_flag(TIF_NEED_FPU_LOAD))
+	if (!cur_fps->is_confidential && !test_thread_flag(TIF_NEED_FPU_LOAD)) {
 		save_fpregs_to_fpstate(fpu);
+		set_thread_flag(TIF_NEED_FPU_LOAD);
+	}
 
 	/* Swap fpstate */
 	if (enter_guest) {
-		fpu->__task_fpstate = cur_fps;
+		WRITE_ONCE(fpu->__task_fpstate, cur_fps);
+		barrier();
 		fpu->fpstate = guest_fps;
 		guest_fps->in_use = true;
 	} else {
 		guest_fps->in_use = false;
 		fpu->fpstate = fpu->__task_fpstate;
-		fpu->__task_fpstate = NULL;
+		barrier();
+		WRITE_ONCE(fpu->__task_fpstate, NULL);
 	}
 
 	cur_fps = fpu->fpstate;
@@ -482,8 +486,8 @@ void kernel_fpu_begin_mask(unsigned int kfpu_mask)
 
 	if (!(current->flags & (PF_KTHREAD | PF_USER_WORKER)) &&
 	    !test_thread_flag(TIF_NEED_FPU_LOAD)) {
-		set_thread_flag(TIF_NEED_FPU_LOAD);
 		save_fpregs_to_fpstate(x86_task_fpu(current));
+		set_thread_flag(TIF_NEED_FPU_LOAD);
 	}
 	__cpu_invalidate_fpregs_state();
 
