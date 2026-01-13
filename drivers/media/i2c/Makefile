@@ -174,3 +174,4 @@ obj-$(CONFIG_VIDEO_VPX3220) += vpx3220.o
 obj-$(CONFIG_VIDEO_WM8739) += wm8739.o
 obj-$(CONFIG_VIDEO_WM8775) += wm8775.o
 obj-$(CONFIG_VIDEO_D4XX) += d4xx.o
+obj-$(CONFIG_VIDEO_MAXIM_SERDES) += maxim-serdes/

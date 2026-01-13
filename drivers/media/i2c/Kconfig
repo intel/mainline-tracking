@@ -876,6 +876,8 @@ config VIDEO_THP7312
 
 endmenu
 
+source "drivers/media/i2c/maxim-serdes/Kconfig"
+
 menuconfig VIDEO_CAMERA_LENS
 	bool "Lens drivers"
 	depends on MEDIA_CAMERA_SUPPORT && I2C
