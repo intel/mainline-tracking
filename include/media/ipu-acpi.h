@@ -16,16 +16,56 @@
 #ifndef MEDIA_INTEL_IPU_ACPI_H
 #define MEDIA_INTEL_IPU_ACPI_H
 
-#include "ipu7-isys.h"
+#include <linux/version.h>
+
+#include <linux/clkdev.h>
+#include <linux/i2c.h>
+
+#include <media/v4l2-mediabus.h>
+
+struct ipu_isys_csi2_config {
+	unsigned int nlanes;
+	unsigned int port;
+	enum v4l2_mbus_type bus_type;
+};
+
+struct ipu_isys_subdev_i2c_info {
+	struct i2c_board_info board_info;
+	int i2c_adapter_id;
+	char i2c_adapter_bdf[32];
+};
+
+struct ipu_isys_subdev_info {
+	struct ipu_isys_csi2_config *csi2;
+	struct ipu_isys_subdev_i2c_info i2c;
+#if IS_ENABLED(CONFIG_INTEL_IPU_ACPI)
+	char *acpi_hid;
+#endif
+};
+
+struct ipu_isys_clk_mapping {
+	struct clk_lookup clkdev_data;
+	char *platform_clock_name;
+};
+
+struct ipu_isys_subdev_pdata {
+	struct ipu_isys_subdev_info **subdevs;
+	struct ipu_isys_clk_mapping *clk_map;
+};
 
 #define MAX_ACPI_SENSOR_NUM	4
 #define MAX_ACPI_I2C_NUM	12
 #define MAX_ACPI_GPIO_NUM	12
 
 #define GPIO_RESET		0x0
+#define GPIO_POWER_EN		0xb
+#define GPIO_READY_STAT		0x13
+#define GPIO_HDMI_DETECT	0x14
 
-#define IPU7_SPDATA_GPIO_NUM 	4
-#define IPU7_SPDATA_IRQ_PIN_NAME_LEN 16
+#define IPU_SPDATA_GPIO_NUM	4
+#define IPU_SPDATA_IRQ_PIN_NAME_LEN 16
+
+void set_built_in_pdata(struct ipu_isys_subdev_pdata *pdata);
 
 enum connection_type {
 	TYPE_DIRECT,
@@ -122,6 +162,11 @@ struct ipu_gpio_info {
 	bool valid;
 };
 
+struct ipu_irq_info {
+	int irq_pin;
+	char irq_pin_name[IPU_SPDATA_IRQ_PIN_NAME_LEN];
+};
+
 /* Each I2C client linked to 1 set of CTL Logic */
 struct control_logic_data {
 	struct device *dev;
@@ -133,9 +178,7 @@ struct control_logic_data {
 	bool completed;
 };
 
-int ipu_get_acpi_devices(void **spdata);
-
-struct ipu7_isys_subdev_pdata *get_built_in_pdata(void);
+struct ipu_isys_subdev_pdata *get_built_in_pdata(void);
 
 int ipu_acpi_get_cam_data(struct device *dev,
 				struct sensor_bios_data *sensor);
@@ -146,17 +189,29 @@ int ipu_acpi_get_dep_data(struct device *dev,
 int ipu_acpi_get_control_logic_data(struct device *dev,
 				struct control_logic_data **ctl_data);
 
+struct intel_ipu6_regulator {
+	char *src_dev_name;
+	char *src_rail;
+	char *dest_rail;
+};
+
 struct ipu_i2c_helper {
 	int (*fn)(struct device *dev, void *priv,
-		struct ipu7_isys_csi2_config *csi2,
+		struct ipu_isys_csi2_config *csi2,
 		bool reprobe);
 	void *driver_data;
 };
 
+struct ipu_i2c_new_dev {
+	struct list_head list;
+	struct i2c_board_info info;
+	unsigned short int bus;
+};
+
 struct ipu_camera_module_data {
 	struct list_head list;
-	struct ipu7_isys_subdev_info sd;
-	struct ipu7_isys_csi2_config csi2;
+	struct ipu_isys_subdev_info sd;
+	struct ipu_isys_csi2_config csi2;
 	unsigned int ext_clk;
 	void *pdata; /* Ptr to generated platform data*/
 	void *priv; /* Private for specific subdevice */
