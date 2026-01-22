@@ -622,6 +622,48 @@ err_v4l2_ctrl_handler_free:
 	return ret;
 }
 
+static int lt6911gxd_suspend(struct device *dev)
+{
+	struct i2c_client *client = to_i2c_client(dev);
+	struct v4l2_subdev *sd = i2c_get_clientdata(client);
+	struct lt6911gxd *lt6911gxd = to_lt6911gxd(sd);
+
+	/* Active low gpio reset, set 1 to power off sensor */
+	gpiod_set_value_cansleep(lt6911gxd->reset_gpio, 1);
+
+	return 0;
+}
+
+static int lt6911gxd_resume(struct device *dev)
+{
+	struct i2c_client *client = to_i2c_client(dev);
+	struct v4l2_subdev *sd = i2c_get_clientdata(client);
+	struct lt6911gxd *lt6911gxd = to_lt6911gxd(sd);
+	int ret = 0;
+	int count = 0;
+
+	if (lt6911gxd->reset_gpio != NULL) {
+		do {
+			gpiod_set_value_cansleep(lt6911gxd->reset_gpio, 0);
+			ret = gpiod_get_value_cansleep(lt6911gxd->reset_gpio);
+			usleep_range(200 * 1000, 200 * 1000 + 500);
+
+			if (++count >= 20) {
+				dev_err(&client->dev,
+					"%s: failed to power on reset gpio, reset gpio is %d",
+					__func__, ret);
+				break;
+			}
+		} while (ret != 0);
+	}
+
+	return ret;
+}
+
+static const struct dev_pm_ops lt6911gxd_pm_ops = {
+	SET_SYSTEM_SLEEP_PM_OPS(lt6911gxd_suspend, lt6911gxd_resume)
+};
+
 static const struct acpi_device_id lt6911gxd_acpi_ids[] = {
 	{ "INTC1124" },
 	{}
@@ -632,6 +674,7 @@ static struct i2c_driver lt6911gxd_i2c_driver = {
 	.driver = {
 		.name = "lt6911gxd",
 		.acpi_match_table = ACPI_PTR(lt6911gxd_acpi_ids),
+		.pm = &lt6911gxd_pm_ops,
 	},
 	.probe = lt6911gxd_probe,
 	.remove = lt6911gxd_remove,
