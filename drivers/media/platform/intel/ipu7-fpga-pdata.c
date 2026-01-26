@@ -3,6 +3,7 @@
 #include <linux/i2c.h>
 #include <linux/kernel.h>
 #include <linux/pci.h>
+#include <media/v4l2-mediabus.h>
 
 #include "ipu7.h"
 #include "ipu7-isys.h"
@@ -14,6 +15,7 @@
 static struct ipu7_isys_csi2_config ov13b10_csi2_cfg_0 = {
 	.nlanes = OV13B10_LANES,
 	.port = 0,
+	.bus_type = V4L2_MBUS_CSI2_DPHY,
 };
 
 static struct ipu7_isys_subdev_info ov13b10_sd_0 = {
@@ -29,6 +31,7 @@ static struct ipu7_isys_subdev_info ov13b10_sd_0 = {
 static struct ipu7_isys_csi2_config ov13b10_csi2_cfg_1 = {
 	.nlanes = OV13B10_2LANES,
 	.port = 2,
+	.bus_type = V4L2_MBUS_CSI2_DPHY,
 };
 
 static struct ipu7_isys_subdev_info ov13b10_sd_1 = {

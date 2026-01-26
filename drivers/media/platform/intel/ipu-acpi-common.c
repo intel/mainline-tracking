@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0
 /*
- * Copyright (c) 2016-2024 Intel Corporation.
+ * Copyright (c) 2016-2025 Intel Corporation.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License version
@@ -12,8 +12,12 @@
  * GNU General Public License for more details.
  *
  */
-#include <linux/platform_device.h>
+
 #include <linux/version.h>
+#include <linux/platform_device.h>
+#include <linux/pci.h>
+#include <linux/gpio/consumer.h>
+
 #include <media/ipu-acpi-pdata.h>
 #include <media/ipu-acpi.h>
 

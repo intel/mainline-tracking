@@ -32,15 +32,10 @@
 #include <linux/clkdev.h>
 #include <linux/kernel.h>
 #include <linux/pci.h>
+
 #include <media/ipu-acpi-pdata.h>
 #include <media/ipu-acpi.h>
-
-#if IS_ENABLED(CONFIG_VIDEO_ISX031)
-#include <media/i2c/isx031.h>
-#endif
-
-#include "ipu7.h"
-#include "ipu7-isys.h"
+#include <media/ipu-get-acpi.h>
 
 static LIST_HEAD(devices);
 
@@ -73,7 +68,7 @@ static const struct ipu_acpi_devices supported_devices[] = {
 
 static int get_table_index(const char *acpi_name)
 {
-	unsigned int i;
+	int i;
 
 	for (i = 0; i < ARRAY_SIZE(supported_devices); i++) {
 		if (!strncmp(supported_devices[i].hid_name, acpi_name,
@@ -143,8 +138,8 @@ static int ipu_acpi_test(struct device *dev, void *priv)
 
 	if (acpi_idx < 0)
 		return 0;
-	else
-		dev_info(dev, "IPU6 ACPI: ACPI device %s\n", dev_name(dev));
+
+	dev_info(dev, "IPU6 ACPI: ACPI device %s\n", dev_name(dev));
 
 	const char *target_hid = supported_devices[acpi_idx].hid_name;
 
@@ -161,10 +156,10 @@ static int ipu_acpi_test(struct device *dev, void *priv)
 		if (!adev) {
 			dev_dbg(dev, "No ACPI device found for %s\n", target_hid);
 			return 0;
-		} else {
-			set_primary_fwnode(dev, &adev->fwnode);
-			dev_dbg(dev, "Assigned fwnode to %s\n", dev_name(dev));
 		}
+
+		set_primary_fwnode(dev, &adev->fwnode);
+		dev_dbg(dev, "Assigned fwnode to %s\n", dev_name(dev));
 	}
 
 	if (ACPI_COMPANION(dev) != adev) {
@@ -185,14 +180,52 @@ static int ipu_acpi_test(struct device *dev, void *priv)
 	return 0; /* Continue iteration */
 }
 
+/* Scan all i2c devices and pick ones which we can handle */
+
 /* Try to get all IPU related devices mentioned in BIOS and all related information
- * return a new generated existing pdata
+ * If there is existing ipu_isys_subdev_pdata, update the existing pdata
+ * If not, return a new generated existing pdata
  */
 
-int ipu_get_acpi_devices(void **spdata)
+int ipu_get_acpi_devices(void *driver_data,
+				struct device *dev,
+				void **spdata,
+				void **built_in_pdata,
+				int (*fn)
+				(struct device *, void *,
+				 void *csi2,
+				 bool reprobe))
 {
 	int rval;
-	struct ipu7_isys_subdev_pdata *ptr = NULL;
+
+	if (!built_in_pdata)
+		dev_dbg(dev, "Built-in pdata not found");
+	else {
+		dev_dbg(dev, "Built-in pdata found");
+		set_built_in_pdata(*built_in_pdata);
+	}
+
+	if ((!fn) || (!driver_data))
+		return -ENODEV;
+
+	rval = acpi_bus_for_each_dev(ipu_acpi_test, NULL);
+	if (rval < 0)
+		return rval;
+
+	if (!built_in_pdata) {
+		dev_dbg(dev, "Return ACPI generated pdata");
+		*spdata = get_acpi_subdev_pdata();
+	} else
+		dev_dbg(dev, "Return updated built-in pdata");
+
+	return 0;
+}
+EXPORT_SYMBOL(ipu_get_acpi_devices);
+
+int ipu_get_acpi_devices_new(void **spdata)
+{
+	int rval;
+	struct ipu_isys_subdev_pdata *ptr = NULL;
 
 	rval = acpi_bus_for_each_dev(ipu_acpi_test, NULL);
 	if (rval < 0)
@@ -204,10 +237,11 @@ int ipu_get_acpi_devices(void **spdata)
 
 	return 0;
 }
-EXPORT_SYMBOL(ipu_get_acpi_devices);
+EXPORT_SYMBOL(ipu_get_acpi_devices_new);
 
 static int __init ipu_acpi_init(void)
 {
+	set_built_in_pdata(NULL);
 	return 0;
 }
 

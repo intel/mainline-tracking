@@ -8,9 +8,8 @@ config INTEL_IPU7_FPGA_PDATA
 	development and mainly used for pixter or sensor enablement
 	without ACPI support.
 
-config INTEL_IPU7_ACPI
+config INTEL_IPU_ACPI
 	tristate "Enable IPU ACPI driver"
-	default VIDEO_INTEL_IPU7
 	depends on I2C
 	depends on ACPI
 	help
