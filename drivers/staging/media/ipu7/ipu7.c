@@ -56,6 +56,7 @@ static const unsigned int ipu7_csi_offsets[] = {
 static struct ipu_isys_internal_pdata ipu7p5_isys_ipdata = {
 	.csi2 = {
 		.gpreg = IS_IO_CSI2_GPREGS_BASE,
+		.gpreg_stride = 0x1000,
 	},
 	.hw_variant = {
 		.offset = IPU_UNIFIED_OFFSET,
@@ -796,6 +797,7 @@ static struct ipu_psys_internal_pdata ipu7p5_psys_ipdata = {
 static struct ipu_isys_internal_pdata ipu7_isys_ipdata = {
 	.csi2 = {
 		.gpreg = IS_IO_CSI2_GPREGS_BASE,
+		.gpreg_stride = 0x1000,
 	},
 	.hw_variant = {
 		.offset = IPU_UNIFIED_OFFSET,
@@ -1313,6 +1315,7 @@ static struct ipu_psys_internal_pdata ipu7_psys_ipdata = {
 static struct ipu_isys_internal_pdata ipu8_isys_ipdata = {
 	.csi2 = {
 		.gpreg = IPU8_IS_IO_CSI2_GPREGS_BASE,
+		.gpreg_stride = 0x2000,
 	},
 	.hw_variant = {
 		.offset = IPU_UNIFIED_OFFSET,

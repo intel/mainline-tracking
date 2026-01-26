@@ -206,6 +206,7 @@ struct ipu7_isys_internal_csi2_pdata {
 	u32 nports;
 	u32 const *offsets;
 	u32 gpreg;
+	u32 gpreg_stride;
 };
 
 struct ipu7_hw_variants {
