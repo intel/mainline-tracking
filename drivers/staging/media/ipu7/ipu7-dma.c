@@ -206,8 +206,6 @@ void *ipu7_dma_alloc(struct ipu7_bus_device *sys, size_t size,
 		}
 	}
 
-	mmu->tlb_invalidate(mmu);
-
 	info->vaddr = vmap(pages, count, VM_USERMAP, PAGE_KERNEL);
 	if (!info->vaddr)
 		goto out_unmap;
