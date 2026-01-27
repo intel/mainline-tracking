@@ -217,7 +217,7 @@ struct ipu7_msg_task {
 	u8 frag_id;
 	u8 req_done_msg;
 	u8 req_done_irq;
-	u8 disable_save;
+	u8 reserved[1];
 	ipu7_msg_teb_t payload_reuse_bm;
 	ia_gofo_addr_t term_buffers[IPU_MSG_MAX_NODE_TERMS];
 };

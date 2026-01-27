@@ -47,6 +47,7 @@ enum ipu7_insys_resp_type {
 	IPU_INSYS_RESP_TYPE_FRAME_EOF = 8,
 	IPU_INSYS_RESP_TYPE_STREAM_START_AND_CAPTURE_DONE = 9,
 	IPU_INSYS_RESP_TYPE_STREAM_CAPTURE_DONE = 10,
+	IPU_INSYS_RESP_TYPE_PWM_IRQ = 11,
 	N_IPU_INSYS_RESP_TYPE
 };
 
@@ -200,8 +201,7 @@ enum ipu7_insys_mipi_dt_rename_mode {
 enum ipu7_insys_output_link_dest {
 	IPU_INSYS_OUTPUT_LINK_DEST_MEM = 0,
 	IPU_INSYS_OUTPUT_LINK_DEST_PSYS = 1,
-	IPU_INSYS_OUTPUT_LINK_DEST_IPU_EXTERNAL = 2,
-	N_IPU_INSYS_OUTPUT_LINK_DEST
+	IPU_INSYS_OUTPUT_LINK_DEST_IPU_EXTERNAL = 2
 };
 
 enum ipu7_insys_dpcm_type {
@@ -220,11 +220,8 @@ enum ipu7_insys_dpcm_predictor {
 
 enum ipu7_insys_send_queue_token_flag {
 	IPU_INSYS_SEND_QUEUE_TOKEN_FLAG_NONE = 0,
-	IPU_INSYS_SEND_QUEUE_TOKEN_FLAG_FLUSH_FORCE = 1,
-	N_IPU_INSYS_SEND_QUEUE_TOKEN_FLAG
+	IPU_INSYS_SEND_QUEUE_TOKEN_FLAG_FLUSH_FORCE = 1
 };
-
-#define IPU_INSYS_MIPI_FRAME_NUMBER_DONT_CARE UINT16_MAX
 
 #pragma pack(push, 1)
 struct ipu7_insys_resolution {
@@ -315,7 +312,7 @@ struct ipu7_insys_resp {
 	u8 pin_id;
 	u8 frame_id;
 	u8 skip_frame;
-	u16 mipi_fn;
+	u8 pad[2];
 };
 
 struct ipu7_insys_resp_queue_token {
