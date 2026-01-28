@@ -10,7 +10,8 @@
 #include "util/perf_regs.h"
 #include "util/parse-regs-options.h"
 
-static void list_perf_regs(FILE *fp, uint64_t mask)
+static void
+list_perf_regs(FILE *fp, uint64_t mask, int abi)
 {
 	const char *last_name = NULL;
 
@@ -21,7 +22,7 @@ static void list_perf_regs(FILE *fp, uint64_t mask)
 		if (((1ULL << reg) & mask) == 0)
 			continue;
 
-		name = perf_reg_name(reg, EM_HOST, EF_HOST);
+		name = perf_reg_name(reg, EM_HOST, EF_HOST, abi);
 		if (name && (!last_name || strcmp(last_name, name)))
 			fprintf(fp, "%s%s", reg > 0 ? " " : "", name);
 		last_name = name;
@@ -29,7 +30,8 @@ static void list_perf_regs(FILE *fp, uint64_t mask)
 	fputc('\n', fp);
 }
 
-static uint64_t name_to_perf_reg_mask(const char *to_match, uint64_t mask)
+static uint64_t
+name_to_perf_reg_mask(const char *to_match, uint64_t mask, int abi)
 {
 	uint64_t reg_mask = 0;
 
@@ -39,7 +41,7 @@ static uint64_t name_to_perf_reg_mask(const char *to_match, uint64_t mask)
 		if (((1ULL << reg) & mask) == 0)
 			continue;
 
-		name = perf_reg_name(reg, EM_HOST, EF_HOST);
+		name = perf_reg_name(reg, EM_HOST, EF_HOST, abi);
 		if (!name)
 			continue;
 
@@ -56,6 +58,7 @@ __parse_regs(const struct option *opt, const char *str, int unset, bool intr)
 	char *s, *os = NULL, *p;
 	int ret = -1;
 	uint64_t mask;
+	int abi;
 
 	if (unset)
 		return 0;
@@ -66,7 +69,7 @@ __parse_regs(const struct option *opt, const char *str, int unset, bool intr)
 	if (*mode)
 		return -1;
 
-	mask = intr ? perf_intr_reg_mask(EM_HOST) : perf_user_reg_mask(EM_HOST);
+	mask = intr ? perf_intr_reg_mask(EM_HOST, &abi) : perf_user_reg_mask(EM_HOST, &abi);
 
 	/* str may be NULL in case no arg is passed to -I */
 	if (!str) {
@@ -87,11 +90,11 @@ __parse_regs(const struct option *opt, const char *str, int unset, bool intr)
 			*p = '\0';
 
 		if (!strcmp(s, "?")) {
-			list_perf_regs(stderr, mask);
+			list_perf_regs(stderr, mask, abi);
 			goto error;
 		}
 
-		reg_mask = name_to_perf_reg_mask(s, mask);
+		reg_mask = name_to_perf_reg_mask(s, mask, abi);
 		if (reg_mask == 0) {
 			ui__warning("Unknown register \"%s\", check man page or run \"perf record %s?\"\n",
 				s, intr ? "-I" : "--user-regs=");
