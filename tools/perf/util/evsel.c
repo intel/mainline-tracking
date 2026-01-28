@@ -1583,12 +1583,39 @@ void evsel__config(struct evsel *evsel, struct record_opts *opts,
 	if (opts->sample_intr_regs && !evsel->no_aux_samples &&
 	    !evsel__is_dummy_event(evsel)) {
 		attr->sample_regs_intr = opts->sample_intr_regs;
+		attr->sample_simd_regs_enabled = !!opts->sample_pred_reg_qwords;
+		evsel__set_sample_bit(evsel, REGS_INTR);
+	}
+
+	if ((opts->sample_intr_vec_regs || opts->sample_intr_pred_regs) &&
+	    !evsel->no_aux_samples && !evsel__is_dummy_event(evsel)) {
+		/* The pred qwords is to implies the set of SIMD registers is used */
+		if (opts->sample_pred_reg_qwords)
+			attr->sample_simd_pred_reg_qwords = opts->sample_pred_reg_qwords;
+		else
+			attr->sample_simd_pred_reg_qwords = 1;
+		attr->sample_simd_vec_reg_intr = opts->sample_intr_vec_regs;
+		attr->sample_simd_vec_reg_qwords = opts->sample_vec_reg_qwords;
+		attr->sample_simd_pred_reg_intr = opts->sample_intr_pred_regs;
 		evsel__set_sample_bit(evsel, REGS_INTR);
 	}
 
 	if (opts->sample_user_regs && !evsel->no_aux_samples &&
 	    !evsel__is_dummy_event(evsel)) {
 		attr->sample_regs_user |= opts->sample_user_regs;
+		attr->sample_simd_regs_enabled = !!opts->sample_pred_reg_qwords;
+		evsel__set_sample_bit(evsel, REGS_USER);
+	}
+
+	if ((opts->sample_user_vec_regs || opts->sample_user_pred_regs) &&
+	    !evsel->no_aux_samples && !evsel__is_dummy_event(evsel)) {
+		if (opts->sample_pred_reg_qwords)
+			attr->sample_simd_pred_reg_qwords = opts->sample_pred_reg_qwords;
+		else
+			attr->sample_simd_pred_reg_qwords = 1;
+		attr->sample_simd_vec_reg_user = opts->sample_user_vec_regs;
+		attr->sample_simd_vec_reg_qwords = opts->sample_vec_reg_qwords;
+		attr->sample_simd_pred_reg_user = opts->sample_user_pred_regs;
 		evsel__set_sample_bit(evsel, REGS_USER);
 	}
 
