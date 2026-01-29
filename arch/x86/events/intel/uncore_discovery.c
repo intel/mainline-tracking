@@ -287,7 +287,7 @@ static int __parse_discovery_table(struct uncore_discovery_domain *domain,
 	if (!io_addr)
 		return -ENOMEM;
 
-	if (domain->global_init && domain->global_init(global.ctl)) {
+	if (domain->global_init && domain->global_init(die, global.ctl)) {
 		ret = -ENODEV;
 		goto out;
 	}
