@@ -144,6 +144,8 @@ struct ipu7_device {
 /* Currently chosen arbitration mechanism for VC1 */
 #define IPU_BTRS_ARB_STALL_MODE_VC1	IPU_BTRS_ARB_MODE_TYPE_REARB
 
+struct ipu7_isys_subdev_pdata;
+
 /* One L2 entry maps 1024 L1 entries and one L1 entry per page */
 #define IPU_MMUV2_L2_RANGE		(1024 * PAGE_SIZE)
 /* Max L2 blocks per stream */
@@ -226,6 +228,7 @@ struct ipu_isys_internal_pdata {
 struct ipu7_isys_pdata {
 	void __iomem *base;
 	const struct ipu_isys_internal_pdata *ipdata;
+	struct ipu7_isys_subdev_pdata *spdata;
 };
 
 struct ipu_psys_internal_pdata {
