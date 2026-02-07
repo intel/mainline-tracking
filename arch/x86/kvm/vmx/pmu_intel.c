@@ -465,17 +465,24 @@ static __always_inline u64 intel_get_fixed_pmc_eventsel(unsigned int index)
 		[1] = PERF_COUNT_HW_CPU_CYCLES,
 		[2] = PERF_COUNT_HW_REF_CPU_CYCLES,
 	};
-	u64 eventsel;
+	u64 eventsel = 0;
 
-	BUILD_BUG_ON(ARRAY_SIZE(fixed_pmc_perf_ids) != KVM_MAX_NR_INTEL_FIXED_COUNTERS);
 	BUILD_BUG_ON(index >= KVM_MAX_NR_INTEL_FIXED_COUNTERS);
 
 	/*
-	 * Yell if perf reports support for a fixed counter but perf doesn't
-	 * have a known encoding for the associated general purpose event.
+	 * Fixed counter 3 and up do not have corresponding generic hardware
+	 * perf event, and KVM does not intend to emulate these fixed counters
+	 * on non-mediated vPMU going forward.
 	 */
-	eventsel = perf_get_hw_event_config(fixed_pmc_perf_ids[index]);
-	WARN_ON_ONCE(!eventsel && index < kvm_pmu_cap.num_counters_fixed);
+	if (index < 3) {
+		/*
+		 * Yell if perf reports support for a fixed counter but perf
+		 * doesn't have a known encoding for the associated general
+		 * purpose event.
+		 */
+		eventsel = perf_get_hw_event_config(fixed_pmc_perf_ids[index]);
+		WARN_ON_ONCE(!eventsel && index < kvm_pmu_cap.num_counters_fixed);
+	}
 	return eventsel;
 }
 
