@@ -1527,8 +1527,13 @@ size_t perf_event__sample_event_size(const struct perf_sample *sample, u64 type,
 		if (sample->user_regs && sample->user_regs->abi) {
 			result += sizeof(u64);
 			sz = hweight64(sample->user_regs->mask) * sizeof(u64);
-			if (sample->user_regs->abi & PERF_SAMPLE_REGS_ABI_SIMD)
+			if (sample->user_regs->abi & PERF_SAMPLE_REGS_ABI_SIMD) {
 				sz += 4 * sizeof(u64);
+				sz += (sample->user_regs->nr_vectors *
+				       sample->user_regs->vector_qwords +
+				       sample->user_regs->nr_pred *
+				       sample->user_regs->pred_qwords) * sizeof(u64);
+			}
 			result += sz;
 		} else {
 			result += sizeof(u64);
@@ -1557,8 +1562,13 @@ size_t perf_event__sample_event_size(const struct perf_sample *sample, u64 type,
 		if (sample->intr_regs && sample->intr_regs->abi) {
 			result += sizeof(u64);
 			sz = hweight64(sample->intr_regs->mask) * sizeof(u64);
-			if (sample->intr_regs->abi & PERF_SAMPLE_REGS_ABI_SIMD)
+			if (sample->intr_regs->abi & PERF_SAMPLE_REGS_ABI_SIMD) {
 				sz += 4 * sizeof(u64);
+				sz += (sample->intr_regs->nr_vectors *
+				       sample->intr_regs->vector_qwords +
+				       sample->intr_regs->nr_pred *
+				       sample->intr_regs->pred_qwords) * sizeof(u64);
+			}
 			result += sz;
 		} else {
 			result += sizeof(u64);
@@ -1744,8 +1754,13 @@ int perf_event__synthesize_sample(union perf_event *event, u64 type, u64 read_fo
 		if (sample->user_regs && sample->user_regs->abi) {
 			*array++ = sample->user_regs->abi;
 			sz = hweight64(sample->user_regs->mask) * sizeof(u64);
-			if (sample->user_regs->abi & PERF_SAMPLE_REGS_ABI_SIMD)
+			if (sample->user_regs->abi & PERF_SAMPLE_REGS_ABI_SIMD) {
 				sz += 4 * sizeof(u64);
+				sz += (sample->user_regs->nr_vectors *
+				       sample->user_regs->vector_qwords +
+				       sample->user_regs->nr_pred *
+				       sample->user_regs->pred_qwords) * sizeof(u64);
+			}
 			memcpy(array, sample->user_regs->regs, sz);
 			array = (void *)array + sz;
 		} else {
@@ -1782,8 +1797,13 @@ int perf_event__synthesize_sample(union perf_event *event, u64 type, u64 read_fo
 		if (sample->intr_regs && sample->intr_regs->abi) {
 			*array++ = sample->intr_regs->abi;
 			sz = hweight64(sample->intr_regs->mask) * sizeof(u64);
-			if (sample->intr_regs->abi & PERF_SAMPLE_REGS_ABI_SIMD)
+			if (sample->intr_regs->abi & PERF_SAMPLE_REGS_ABI_SIMD) {
 				sz += 4 * sizeof(u64);
+				sz += (sample->intr_regs->nr_vectors *
+				       sample->intr_regs->vector_qwords +
+				       sample->intr_regs->nr_pred *
+				       sample->intr_regs->pred_qwords) * sizeof(u64);
+			}
 			memcpy(array, sample->intr_regs->regs, sz);
 			array = (void *)array + sz;
 		} else {
