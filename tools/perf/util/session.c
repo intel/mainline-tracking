@@ -966,15 +966,16 @@ static void branch_stack__printf(struct perf_sample *sample,
 	}
 }
 
-static void regs_dump__printf(u64 mask, u64 *regs, uint16_t e_machine, uint32_t e_flags)
+static void regs_dump__printf(u64 mask, struct regs_dump *regs,
+			      uint16_t e_machine, uint32_t e_flags)
 {
 	unsigned rid, i = 0;
 
 	for_each_set_bit(rid, (unsigned long *) &mask, sizeof(mask) * 8) {
-		u64 val = regs[i++];
+		u64 val = regs->regs[i++];
 
 		printf(".... %-5s 0x%016" PRIx64 "\n",
-		       perf_reg_name(rid, e_machine, e_flags), val);
+		       perf_reg_name(rid, e_machine, e_flags, regs->abi), val);
 	}
 }
 
@@ -982,11 +983,12 @@ static const char *regs_abi[] = {
 	[PERF_SAMPLE_REGS_ABI_NONE] = "none",
 	[PERF_SAMPLE_REGS_ABI_32] = "32-bit",
 	[PERF_SAMPLE_REGS_ABI_64] = "64-bit",
+	[PERF_SAMPLE_REGS_ABI_SIMD | PERF_SAMPLE_REGS_ABI_64] = "64-bit SIMD",
 };
 
 static inline const char *regs_dump_abi(struct regs_dump *d)
 {
-	if (d->abi > PERF_SAMPLE_REGS_ABI_64)
+	if (d->abi >= ARRAY_SIZE(regs_abi) || !regs_abi[d->abi])
 		return "unknown";
 
 	return regs_abi[d->abi];
@@ -1002,7 +1004,7 @@ static void regs__printf(const char *type, struct regs_dump *regs,
 	       mask,
 	       regs_dump_abi(regs));
 
-	regs_dump__printf(mask, regs->regs, e_machine, e_flags);
+	regs_dump__printf(mask, regs, e_machine, e_flags);
 }
 
 static void regs_user__printf(struct perf_sample *sample, uint16_t e_machine, uint32_t e_flags)

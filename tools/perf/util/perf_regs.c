@@ -35,7 +35,7 @@ int perf_sdt_arg_parse_op(uint16_t e_machine, char *old_op, char **new_op)
 	return ret;
 }
 
-uint64_t perf_intr_reg_mask(uint16_t e_machine)
+uint64_t perf_intr_reg_mask(uint16_t e_machine, int *abi /*inout*/)
 {
 	uint64_t mask = 0;
 
@@ -67,7 +67,7 @@ uint64_t perf_intr_reg_mask(uint16_t e_machine)
 		break;
 	case EM_386:
 	case EM_X86_64:
-		mask = __perf_reg_mask_x86(/*intr=*/true);
+		mask = __perf_reg_mask_x86(/*intr=*/true, abi);
 		break;
 	default:
 		pr_debug("Unknown ELF machine %d, interrupt sampling register mask will be empty.\n",
@@ -78,7 +78,7 @@ uint64_t perf_intr_reg_mask(uint16_t e_machine)
 	return mask;
 }
 
-uint64_t perf_user_reg_mask(uint16_t e_machine)
+uint64_t perf_user_reg_mask(uint16_t e_machine, int *abi /*inout*/)
 {
 	uint64_t mask = 0;
 
@@ -110,7 +110,7 @@ uint64_t perf_user_reg_mask(uint16_t e_machine)
 		break;
 	case EM_386:
 	case EM_X86_64:
-		mask = __perf_reg_mask_x86(/*intr=*/false);
+		mask = __perf_reg_mask_x86(/*intr=*/false, abi);
 		break;
 	default:
 		pr_debug("Unknown ELF machine %d, user sampling register mask will be empty.\n",
@@ -121,7 +121,7 @@ uint64_t perf_user_reg_mask(uint16_t e_machine)
 	return mask;
 }
 
-const char *perf_reg_name(int id, uint16_t e_machine, uint32_t e_flags)
+const char *perf_reg_name(int id, uint16_t e_machine, uint32_t e_flags, int abi)
 {
 	const char *reg_name = NULL;
 
@@ -153,7 +153,7 @@ const char *perf_reg_name(int id, uint16_t e_machine, uint32_t e_flags)
 		break;
 	case EM_386:
 	case EM_X86_64:
-		reg_name = __perf_reg_name_x86(id);
+		reg_name = __perf_reg_name_x86(id, abi);
 		break;
 	default:
 		break;
