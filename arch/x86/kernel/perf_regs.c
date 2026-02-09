@@ -89,8 +89,14 @@ u64 perf_simd_reg_value(struct pt_regs *regs, int idx,
 	if (!(perf_regs->abi & PERF_SAMPLE_REGS_ABI_SIMD))
 		return 0;
 
-	if (pred)
-		return 0;
+	if (pred) {
+		if (WARN_ON_ONCE(idx >= PERF_X86_SIMD_PRED_REGS_MAX ||
+				 qwords_idx >= PERF_X86_OPMASK_QWORDS))
+			return 0;
+		if (!perf_regs->opmask_regs)
+			return 0;
+		return perf_regs->opmask_regs[idx];
+	}
 
 	if (WARN_ON_ONCE(idx >= PERF_X86_SIMD_VEC_REGS_MAX ||
 			 qwords_idx >= PERF_X86_SIMD_QWORDS_MAX))
@@ -155,8 +161,21 @@ int perf_simd_reg_validate(u64 sample_type, u16 simd_enabled,
 			return -EINVAL;
 	}
 
-	if (pred_qwords || pred_mask_intr || pred_mask_user)
-		return -EINVAL;
+	if (!pred_qwords) {
+		if (pred_mask_intr || pred_mask_user)
+			return -EINVAL;
+	} else {
+		if (pred_qwords != PERF_X86_OPMASK_QWORDS)
+			return -EINVAL;
+		if (!pred_mask_intr && !pred_mask_user)
+			return -EINVAL;
+		if ((sample_type & PERF_SAMPLE_REGS_INTR) &&
+		    (pred_mask_intr & ~PERF_X86_SIMD_PRED_MASK))
+			return -EINVAL;
+		if ((sample_type & PERF_SAMPLE_REGS_USER) &&
+		    (pred_mask_user & ~PERF_X86_SIMD_PRED_MASK))
+			return -EINVAL;
+	}
 
 	if (sample_type & PERF_SAMPLE_REGS_INTR) {
 		size = (vec_qwords * hweight64(vec_mask_intr) +
