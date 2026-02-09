@@ -4697,7 +4697,9 @@ static void intel_pebs_aliases_skl(struct perf_event *event)
 static unsigned long intel_pmu_large_pebs_flags(struct perf_event *event)
 {
 	unsigned long flags = x86_pmu.large_pebs_flags;
-	u64 gprs_mask = PEBS_GP_REGS | PERF_REG_EXTENDED_MASK;
+	u64 gprs_mask = event->attr.sample_simd_regs_enabled ?
+			PEBS_GP_REGS :
+			PEBS_GP_REGS | PERF_REG_EXTENDED_MASK;
 
 	if (event->attr.use_clockid)
 		flags &= ~PERF_SAMPLE_TIME;
