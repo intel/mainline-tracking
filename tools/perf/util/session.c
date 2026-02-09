@@ -979,6 +979,69 @@ static void regs_dump__printf(u64 mask, struct regs_dump *regs,
 	}
 }
 
+static void simd_regs_dump__printf(uint16_t e_machine, struct regs_dump *regs, bool intr)
+{
+	const char *name = "unknown";
+	u32 i, idx = 0;
+	uint16_t qwords;
+	int reg_c;
+
+	if (!(regs->abi & PERF_SAMPLE_REGS_ABI_SIMD))
+		return;
+
+	printf("... SIMD ABI nr_vectors %ld vector_qwords %ld nr_pred %ld pred_qwords %ld\n",
+	       regs->nr_vectors, regs->vector_qwords,
+	       regs->nr_pred, regs->pred_qwords);
+
+	for (reg_c = 0; reg_c < 64; reg_c++) {
+		if (intr) {
+			perf_intr_simd_reg_class_bitmap_qwords(e_machine, reg_c,
+							       &qwords, /*pred=*/false);
+		} else {
+			perf_user_simd_reg_class_bitmap_qwords(e_machine, reg_c,
+							       &qwords, /*pred=*/false);
+		}
+		if (regs->vector_qwords == qwords) {
+			name = perf_simd_reg_class_name(e_machine, reg_c, /*pred=*/false);
+			break;
+		}
+	}
+
+	for (i = 0; i < regs->nr_vectors; i++) {
+		if (regs->vector_qwords > 1) {
+			printf(".... %-5s[%d] 0x%016" PRIx64 "\n", name, i, regs->simd_data[idx++]);
+			printf(".... %-5s[%d] 0x%016" PRIx64 "\n", name, i, regs->simd_data[idx++]);
+		}
+		if (regs->vector_qwords > 3) {
+			printf(".... %-5s[%d] 0x%016" PRIx64 "\n", name, i, regs->simd_data[idx++]);
+			printf(".... %-5s[%d] 0x%016" PRIx64 "\n", name, i, regs->simd_data[idx++]);
+		}
+		if (regs->vector_qwords > 7) {
+			printf(".... %-5s[%d] 0x%016" PRIx64 "\n", name, i, regs->simd_data[idx++]);
+			printf(".... %-5s[%d] 0x%016" PRIx64 "\n", name, i, regs->simd_data[idx++]);
+			printf(".... %-5s[%d] 0x%016" PRIx64 "\n", name, i, regs->simd_data[idx++]);
+			printf(".... %-5s[%d] 0x%016" PRIx64 "\n", name, i, regs->simd_data[idx++]);
+		}
+	}
+
+	name = "unknown";
+	for (reg_c = 0; reg_c < 64; reg_c++) {
+		if (intr) {
+			perf_intr_simd_reg_class_bitmap_qwords(e_machine, reg_c,
+							       &qwords, /*pred=*/true);
+		} else {
+			perf_user_simd_reg_class_bitmap_qwords(e_machine, reg_c,
+							       &qwords, /*pred=*/true);
+		}
+		if (regs->pred_qwords == qwords) {
+			name = perf_simd_reg_class_name(e_machine, reg_c, /*pred=*/true);
+			break;
+		}
+	}
+	for (i = 0; i < regs->nr_pred; i++)
+		printf(".... %-5s[%d] 0x%016" PRIx64 "\n", name, i, regs->simd_data[idx++]);
+}
+
 static const char *regs_abi[] = {
 	[PERF_SAMPLE_REGS_ABI_NONE] = "none",
 	[PERF_SAMPLE_REGS_ABI_32] = "32-bit",
@@ -1018,6 +1081,7 @@ static void regs_user__printf(struct perf_sample *sample, uint16_t e_machine, ui
 
 	if (user_regs->regs)
 		regs__printf("user", user_regs, e_machine, e_flags);
+	simd_regs_dump__printf(e_machine, user_regs, /*intr=*/false);
 }
 
 static void regs_intr__printf(struct perf_sample *sample, uint16_t e_machine, uint32_t e_flags)
@@ -1031,6 +1095,7 @@ static void regs_intr__printf(struct perf_sample *sample, uint16_t e_machine, ui
 
 	if (intr_regs->regs)
 		regs__printf("intr", intr_regs, e_machine, e_flags);
+	simd_regs_dump__printf(e_machine, intr_regs, /*intr=*/true);
 }
 
 static void stack_user__printf(struct stack_dump *dump)
