@@ -2679,6 +2679,13 @@ again:
 		__setup_pebs_gpr_group(event, regs,
 				       (struct pebs_gprs *)gprs,
 				       sample_type);
+
+		/* Currently only user space mode enables SSP. */
+		if (user_mode(regs) && (sample_type &
+		    (PERF_SAMPLE_REGS_INTR | PERF_SAMPLE_REGS_USER))) {
+			perf_regs->ssp = &gprs->ssp;
+			ignore_mask |= XFEATURE_MASK_CET_USER;
+		}
 	}
 
 	if (header->aux) {
