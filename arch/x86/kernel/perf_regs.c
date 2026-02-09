@@ -63,6 +63,9 @@ u64 perf_reg_value(struct pt_regs *regs, int idx)
 
 	if (idx >= PERF_REG_X86_XMM0 && idx < PERF_REG_X86_XMM_MAX) {
 		perf_regs = container_of(regs, struct x86_perf_regs, regs);
+		/* SIMD registers are moved to dedicated sample_simd_vec_reg */
+		if (perf_regs->abi & PERF_SAMPLE_REGS_ABI_SIMD)
+			return 0;
 		if (!perf_regs->xmm_regs)
 			return 0;
 		return perf_regs->xmm_regs[idx - PERF_REG_X86_XMM0];
@@ -72,6 +75,80 @@ u64 perf_reg_value(struct pt_regs *regs, int idx)
 		return 0;
 
 	return regs_get_register(regs, pt_regs_offset[idx]);
+}
+
+u64 perf_simd_reg_value(struct pt_regs *regs, int idx,
+			u16 qwords_idx, bool pred)
+{
+	struct x86_perf_regs *perf_regs =
+			container_of(regs, struct x86_perf_regs, regs);
+
+	if (!(perf_regs->abi & PERF_SAMPLE_REGS_ABI_SIMD))
+		return 0;
+
+	if (pred)
+		return 0;
+
+	if (WARN_ON_ONCE(idx >= PERF_X86_SIMD_VEC_REGS_MAX ||
+			 qwords_idx >= PERF_X86_SIMD_QWORDS_MAX))
+		return 0;
+
+	if (qwords_idx < PERF_X86_XMM_QWORDS) {
+		if (!perf_regs->xmm_regs)
+			return 0;
+		return perf_regs->xmm_regs[idx * PERF_X86_XMM_QWORDS +
+					   qwords_idx];
+	}
+
+	return 0;
+}
+
+int perf_simd_reg_validate(u64 sample_type, u16 simd_enabled,
+			   u16 vec_qwords, u64 vec_mask_intr,
+			   u64 vec_mask_user, u16 pred_qwords,
+			   u32 pred_mask_intr, u32 pred_mask_user)
+{
+	u64 size = 0;
+
+	if (!(sample_type &
+	      (PERF_SAMPLE_REGS_INTR | PERF_SAMPLE_REGS_USER)))
+		return 0;
+
+	if (!simd_enabled)
+		return 0;
+
+	if (!vec_qwords) {
+		if (vec_mask_intr || vec_mask_user)
+			return -EINVAL;
+	} else {
+		if (vec_qwords != PERF_X86_XMM_QWORDS)
+			return -EINVAL;
+		if (!vec_mask_intr && !vec_mask_user)
+			return -EINVAL;
+		if ((sample_type & PERF_SAMPLE_REGS_INTR) &&
+		    (vec_mask_intr & ~PERF_X86_SIMD_VEC_MASK))
+			return -EINVAL;
+		if ((sample_type & PERF_SAMPLE_REGS_USER) &&
+		    (vec_mask_user & ~PERF_X86_SIMD_VEC_MASK))
+			return -EINVAL;
+	}
+
+	if (pred_qwords || pred_mask_intr || pred_mask_user)
+		return -EINVAL;
+
+	if (sample_type & PERF_SAMPLE_REGS_INTR) {
+		size = (vec_qwords * hweight64(vec_mask_intr) +
+			pred_qwords * hweight32(pred_mask_intr)) * sizeof(u64);
+	}
+	if (sample_type & PERF_SAMPLE_REGS_USER) {
+		size += (vec_qwords * hweight64(vec_mask_user) +
+			 pred_qwords * hweight32(pred_mask_user)) * sizeof(u64);
+	}
+
+	if (size > U16_MAX)
+		return -EINVAL;
+
+	return 0;
 }
 
 #define PERF_REG_X86_RESERVED	(((1ULL << PERF_REG_X86_XMM0) - 1) & \
@@ -89,7 +166,8 @@ u64 perf_reg_value(struct pt_regs *regs, int idx)
 
 int perf_reg_validate(u64 mask)
 {
-	if (!mask || (mask & (REG_NOSUPPORT | PERF_REG_X86_RESERVED)))
+	/* The mask could be 0 if only the SIMD registers are interested */
+	if (mask & (REG_NOSUPPORT | PERF_REG_X86_RESERVED))
 		return -EINVAL;
 
 	return 0;
@@ -108,7 +186,8 @@ u64 perf_reg_abi(struct task_struct *task)
 
 int perf_reg_validate(u64 mask)
 {
-	if (!mask || (mask & (REG_NOSUPPORT | PERF_REG_X86_RESERVED)))
+	/* The mask could be 0 if only the SIMD registers are interested */
+	if (mask & (REG_NOSUPPORT | PERF_REG_X86_RESERVED))
 		return -EINVAL;
 
 	return 0;
