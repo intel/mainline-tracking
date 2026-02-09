@@ -6297,14 +6297,37 @@ static inline void __intel_update_pmu_xregs_caps(struct pmu *pmu)
 	 */
 	x86_pmu.ext_regs_mask |= XFEATURE_MASK_SSE;
 
+	if (boot_cpu_has(X86_FEATURE_AVX) &&
+	    cpu_has_xfeatures(XFEATURE_MASK_YMM, NULL))
+		x86_pmu.ext_regs_mask |= XFEATURE_MASK_YMM;
+	if (boot_cpu_has(X86_FEATURE_APX) &&
+	    cpu_has_xfeatures(XFEATURE_MASK_APX, NULL))
+		x86_pmu.ext_regs_mask |= XFEATURE_MASK_APX;
+	if (boot_cpu_has(X86_FEATURE_AVX512F)) {
+		if (cpu_has_xfeatures(XFEATURE_MASK_OPMASK, NULL))
+			x86_pmu.ext_regs_mask |= XFEATURE_MASK_OPMASK;
+		if (cpu_has_xfeatures(XFEATURE_MASK_ZMM_Hi256, NULL))
+			x86_pmu.ext_regs_mask |= XFEATURE_MASK_ZMM_Hi256;
+		if (cpu_has_xfeatures(XFEATURE_MASK_Hi16_ZMM, NULL))
+			x86_pmu.ext_regs_mask |= XFEATURE_MASK_Hi16_ZMM;
+	}
+	if (cpu_feature_enabled(X86_FEATURE_USER_SHSTK))
+		x86_pmu.ext_regs_mask |= XFEATURE_MASK_CET_USER;
+
 	/* PEBS supported case */
-	if ((x86_pmu.arch_pebs && (caps & ARCH_PEBS_VECR_XMM)) ||
-	    (x86_pmu.intel_cap.pebs_format >= 4 && x86_pmu.intel_cap.pebs_baseline))
+	if (x86_pmu.intel_cap.pebs_format >= 4 && x86_pmu.intel_cap.pebs_baseline)
 		dest_pmu->capabilities |= PERF_PMU_CAP_EXTENDED_REGS;
+	if (x86_pmu.arch_pebs && (caps & ARCH_PEBS_VECR_EXT)) {
+		dest_pmu->capabilities |= PERF_PMU_CAP_EXTENDED_REGS |
+					  PERF_PMU_CAP_SIMD_REGS;
+	}
 
 	/* PEBS unsupported case (e.g., guest) */
-	if (!x86_pmu.intel_cap.pebs_format)
+	if (!x86_pmu.intel_cap.pebs_format) {
 		dest_pmu->capabilities |= PERF_PMU_CAP_EXTENDED_REGS;
+		if (x86_pmu.ext_regs_mask > XFEATURE_MASK_SSE)
+			dest_pmu->capabilities |= PERF_PMU_CAP_SIMD_REGS;
+	}
 }
 
 static inline void __intel_update_large_pebs_flags(struct pmu *pmu)
