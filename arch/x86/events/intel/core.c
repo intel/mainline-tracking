@@ -3474,6 +3474,21 @@ static void intel_pmu_enable_event_ext(struct perf_event *event)
 			if (pebs_data_cfg & PEBS_DATACFG_XMMS)
 				ext |= ARCH_PEBS_VECR_XMM & cap.caps;
 
+			if (pebs_data_cfg & PEBS_DATACFG_YMMHS)
+				ext |= ARCH_PEBS_VECR_YMMH & cap.caps;
+
+			if (pebs_data_cfg & PEBS_DATACFG_EGPRS)
+				ext |= ARCH_PEBS_VECR_EGPRS & cap.caps;
+
+			if (pebs_data_cfg & PEBS_DATACFG_OPMASKS)
+				ext |= ARCH_PEBS_VECR_OPMASK & cap.caps;
+
+			if (pebs_data_cfg & PEBS_DATACFG_ZMMHS)
+				ext |= ARCH_PEBS_VECR_ZMMH & cap.caps;
+
+			if (pebs_data_cfg & PEBS_DATACFG_H16ZMMS)
+				ext |= ARCH_PEBS_VECR_H16ZMM & cap.caps;
+
 			if (pebs_data_cfg & PEBS_DATACFG_LBRS)
 				ext |= ARCH_PEBS_LBR & cap.caps;
 
@@ -4694,21 +4709,118 @@ static void intel_pebs_aliases_skl(struct perf_event *event)
 	return intel_pebs_aliases_precdist(event);
 }
 
+static inline bool intel_pebs_support_regs(struct perf_event *event, u64 regs)
+{
+	struct arch_pebs_cap cap = hybrid(event->pmu, arch_pebs_cap);
+	int pebs_format = x86_pmu.intel_cap.pebs_format;
+	bool supported = true;
+
+	if (regs & PEBS_DATACFG_GP) {
+		/* Legacy PEBS always supports GPRs sampling. */
+		supported &= x86_pmu.arch_pebs ?
+			     !!(ARCH_PEBS_GPR & cap.caps) : true;
+	}
+	if (regs & PEBS_DATACFG_XMMS) {
+		supported &= x86_pmu.arch_pebs ?
+			     !!(ARCH_PEBS_VECR_XMM & cap.caps) :
+			     pebs_format > 3 && x86_pmu.intel_cap.pebs_baseline;
+	}
+	/* Legacy PEBS doesn't support OPMASK/YMM+ and eGPRs sampling. */
+	if (regs & PEBS_DATACFG_YMMHS)
+		supported &= x86_pmu.arch_pebs && (ARCH_PEBS_VECR_YMMH & cap.caps);
+	if (regs & PEBS_DATACFG_EGPRS)
+		supported &= x86_pmu.arch_pebs && (ARCH_PEBS_VECR_EGPRS & cap.caps);
+	if (regs & PEBS_DATACFG_OPMASKS)
+		supported &= x86_pmu.arch_pebs && (ARCH_PEBS_VECR_OPMASK & cap.caps);
+	if (regs & PEBS_DATACFG_ZMMHS)
+		supported &= x86_pmu.arch_pebs && (ARCH_PEBS_VECR_ZMMH & cap.caps);
+	if (regs & PEBS_DATACFG_H16ZMMS)
+		supported &= x86_pmu.arch_pebs && (ARCH_PEBS_VECR_H16ZMM & cap.caps);
+
+	return supported;
+}
+
+static bool __regs_support_large_pebs(struct perf_event *event, bool intr)
+{
+	u64 regs = intr ? event->attr.sample_regs_intr :
+			  event->attr.sample_regs_user;
+	u64 vec_regs = intr ? event->attr.sample_simd_vec_reg_intr :
+			      event->attr.sample_simd_vec_reg_user;
+	u64 pred_regs = intr ? event->attr.sample_simd_pred_reg_intr :
+			       event->attr.sample_simd_pred_reg_user;
+	u64 xregs_mask = PEBS_GP_REGS | PERF_X86_EGPRS_MASK |
+			 BIT_ULL(PERF_REG_X86_SSP);
+
+	if (regs & ~xregs_mask)
+		return false;
+
+	if ((regs & PEBS_GP_REGS) &&
+	    !intel_pebs_support_regs(event, PEBS_DATACFG_GP))
+		return false;
+
+	if ((regs & PERF_X86_EGPRS_MASK) &&
+	    !intel_pebs_support_regs(event, PEBS_DATACFG_EGPRS))
+		return false;
+
+	if ((regs & BIT_ULL(PERF_REG_X86_SSP)) &&
+	    (!x86_pmu.arch_pebs ||
+	     !intel_pebs_support_regs(event, PEBS_DATACFG_GP)))
+		return false;
+
+	if (event_needs_opmask(event) && pred_regs &&
+	    !intel_pebs_support_regs(event, PEBS_DATACFG_OPMASKS))
+		return false;
+
+	if (event_needs_xmm(event) && vec_regs &&
+	    !intel_pebs_support_regs(event, PEBS_DATACFG_XMMS))
+		return false;
+
+	if (event_needs_ymm(event) && vec_regs &&
+	    !intel_pebs_support_regs(event, PEBS_DATACFG_YMMHS))
+		return false;
+
+	if (event_needs_low16_zmm(event) && vec_regs &&
+	    !intel_pebs_support_regs(event, PEBS_DATACFG_ZMMHS))
+		return false;
+
+	if (event_needs_high16_zmm(event) && vec_regs &&
+	    !intel_pebs_support_regs(event, PEBS_DATACFG_H16ZMMS))
+		return false;
+
+	return true;
+}
+
+static inline bool intr_regs_support_large_pebs(struct perf_event *event)
+{
+	return __regs_support_large_pebs(event, true);
+}
+
+static inline bool user_regs_support_large_pebs(struct perf_event *event)
+{
+	return __regs_support_large_pebs(event, false);
+}
+
 static unsigned long intel_pmu_large_pebs_flags(struct perf_event *event)
 {
 	unsigned long flags = x86_pmu.large_pebs_flags;
-	u64 gprs_mask = event->attr.sample_simd_regs_enabled ?
-			PEBS_GP_REGS :
-			PEBS_GP_REGS | PERF_REG_EXTENDED_MASK;
 
 	if (event->attr.use_clockid)
 		flags &= ~PERF_SAMPLE_TIME;
 	if (!event->attr.exclude_kernel)
 		flags &= ~PERF_SAMPLE_REGS_USER;
-	if (event->attr.sample_regs_user & ~gprs_mask)
-		flags &= ~PERF_SAMPLE_REGS_USER;
-	if (event->attr.sample_regs_intr & ~gprs_mask)
-		flags &= ~PERF_SAMPLE_REGS_INTR;
+	if (event->attr.sample_simd_regs_enabled) {
+		if (!user_regs_support_large_pebs(event))
+			flags &= ~PERF_SAMPLE_REGS_USER;
+		if (!intr_regs_support_large_pebs(event))
+			flags &= ~PERF_SAMPLE_REGS_INTR;
+	} else {
+		u64 gprs_mask = PEBS_GP_REGS | PERF_REG_EXTENDED_MASK;
+
+		if (event->attr.sample_regs_user & ~gprs_mask)
+			flags &= ~PERF_SAMPLE_REGS_USER;
+		if (event->attr.sample_regs_intr & ~gprs_mask)
+			flags &= ~PERF_SAMPLE_REGS_INTR;
+	}
 	return flags;
 }
 
