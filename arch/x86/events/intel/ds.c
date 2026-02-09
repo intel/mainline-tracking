@@ -2945,6 +2945,8 @@ __intel_pmu_pebs_events(struct perf_event *event,
 	void *at = get_next_pebs_record_by_bit(base, top, bit);
 	int cnt = count;
 
+	x86_pmu_clear_perf_regs(regs);
+
 	if (!iregs)
 		iregs = &dummy_iregs;
 
