@@ -2490,6 +2490,7 @@ static int intel_pt_do_synth_pebs_sample(struct intel_pt_queue *ptq, struct evse
 	}
 
 	if (sample_type & PERF_SAMPLE_REGS_INTR &&
+	    !evsel->core.attr.sample_simd_regs_enabled &&
 	    (items->mask[INTEL_PT_GP_REGS_POS] ||
 	     items->mask[INTEL_PT_XMM_POS])) {
 		u64 regs_mask = evsel->core.attr.sample_regs_intr;
