@@ -3221,6 +3221,21 @@ static void intel_pmu_enable_event_ext(struct perf_event *event)
 			if (pebs_data_cfg & PEBS_DATACFG_XMMS)
 				ext |= ARCH_PEBS_VECR_XMM & cap.caps;
 
+			if (pebs_data_cfg & PEBS_DATACFG_YMMHS)
+				ext |= ARCH_PEBS_VECR_YMMH & cap.caps;
+
+			if (pebs_data_cfg & PEBS_DATACFG_EGPRS)
+				ext |= ARCH_PEBS_VECR_EGPRS & cap.caps;
+
+			if (pebs_data_cfg & PEBS_DATACFG_OPMASKS)
+				ext |= ARCH_PEBS_VECR_OPMASK & cap.caps;
+
+			if (pebs_data_cfg & PEBS_DATACFG_ZMMHS)
+				ext |= ARCH_PEBS_VECR_ZMMH & cap.caps;
+
+			if (pebs_data_cfg & PEBS_DATACFG_H16ZMMS)
+				ext |= ARCH_PEBS_VECR_H16ZMM & cap.caps;
+
 			if (pebs_data_cfg & PEBS_DATACFG_LBRS)
 				ext |= ARCH_PEBS_LBR & cap.caps;
 
@@ -4443,6 +4458,34 @@ static void intel_pebs_aliases_skl(struct perf_event *event)
 	return intel_pebs_aliases_precdist(event);
 }
 
+static inline bool intel_pebs_support_regs(struct perf_event *event, u64 regs)
+{
+	struct arch_pebs_cap cap = hybrid(event->pmu, arch_pebs_cap);
+	int pebs_format = x86_pmu.intel_cap.pebs_format;
+	bool supported = true;
+
+	/* SSP */
+	if (regs & PEBS_DATACFG_GP)
+		supported &= x86_pmu.arch_pebs && (ARCH_PEBS_GPR & cap.caps);
+	if (regs & PEBS_DATACFG_XMMS) {
+		supported &= x86_pmu.arch_pebs ?
+			     ARCH_PEBS_VECR_XMM & cap.caps :
+			     pebs_format > 3 && x86_pmu.intel_cap.pebs_baseline;
+	}
+	if (regs & PEBS_DATACFG_YMMHS)
+		supported &= x86_pmu.arch_pebs && (ARCH_PEBS_VECR_YMMH & cap.caps);
+	if (regs & PEBS_DATACFG_EGPRS)
+		supported &= x86_pmu.arch_pebs && (ARCH_PEBS_VECR_EGPRS & cap.caps);
+	if (regs & PEBS_DATACFG_OPMASKS)
+		supported &= x86_pmu.arch_pebs && (ARCH_PEBS_VECR_OPMASK & cap.caps);
+	if (regs & PEBS_DATACFG_ZMMHS)
+		supported &= x86_pmu.arch_pebs && (ARCH_PEBS_VECR_ZMMH & cap.caps);
+	if (regs & PEBS_DATACFG_H16ZMMS)
+		supported &= x86_pmu.arch_pebs && (ARCH_PEBS_VECR_H16ZMM & cap.caps);
+
+	return supported;
+}
+
 static unsigned long intel_pmu_large_pebs_flags(struct perf_event *event)
 {
 	unsigned long flags = x86_pmu.large_pebs_flags;
@@ -4452,24 +4495,20 @@ static unsigned long intel_pmu_large_pebs_flags(struct perf_event *event)
 	if (!event->attr.exclude_kernel)
 		flags &= ~PERF_SAMPLE_REGS_USER;
 	if (event->attr.sample_simd_regs_enabled) {
-		u64 nolarge = PERF_X86_EGPRS_MASK | BIT_ULL(PERF_REG_X86_SSP);
-
-		/*
-		 * PEBS HW can only collect the XMM0-XMM15 for now.
-		 * Disable large PEBS for other vector registers, predicate
-		 * registers, eGPRs, and SSP.
-		 */
-		if (event->attr.sample_regs_user & nolarge ||
-		    fls64(event->attr.sample_simd_vec_reg_user) > PERF_X86_H16ZMM_BASE ||
-		    event->attr.sample_simd_pred_reg_user)
-			flags &= ~PERF_SAMPLE_REGS_USER;
-
-		if (event->attr.sample_regs_intr & nolarge ||
-		    fls64(event->attr.sample_simd_vec_reg_intr) > PERF_X86_H16ZMM_BASE ||
-		    event->attr.sample_simd_pred_reg_intr)
-			flags &= ~PERF_SAMPLE_REGS_INTR;
-
-		if (event->attr.sample_simd_vec_reg_qwords > PERF_X86_XMM_QWORDS)
+		if ((event_needs_ssp(event) &&
+		     !intel_pebs_support_regs(event, PEBS_DATACFG_GP)) ||
+		    (event_needs_xmm(event) &&
+		     !intel_pebs_support_regs(event, PEBS_DATACFG_XMMS)) ||
+		    (event_needs_ymm(event) &&
+		     !intel_pebs_support_regs(event, PEBS_DATACFG_YMMHS)) ||
+		    (event_needs_egprs(event) &&
+		     !intel_pebs_support_regs(event, PEBS_DATACFG_EGPRS)) ||
+		    (event_needs_opmask(event) &&
+		     !intel_pebs_support_regs(event, PEBS_DATACFG_OPMASKS)) ||
+		    (event_needs_low16_zmm(event) &&
+		     !intel_pebs_support_regs(event, PEBS_DATACFG_ZMMHS)) ||
+		    (event_needs_high16_zmm(event) &&
+		     !intel_pebs_support_regs(event, PEBS_DATACFG_H16ZMMS)))
 			flags &= ~(PERF_SAMPLE_REGS_USER | PERF_SAMPLE_REGS_INTR);
 	} else {
 		if (event->attr.sample_regs_user & ~PEBS_GP_REGS)
