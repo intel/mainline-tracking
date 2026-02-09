@@ -26,6 +26,7 @@
 #include <sys/resource.h>
 #include <sys/syscall.h>
 #include <sys/types.h>
+#include <sys/param.h>
 #include <dirent.h>
 #include <stdlib.h>
 #include <perf/evsel.h>
@@ -1594,10 +1595,29 @@ void evsel__config(struct evsel *evsel, const struct record_opts *opts,
 		evsel__set_sample_bit(evsel, REGS_INTR);
 	}
 
+	if ((opts->sample_intr_vec_regs || opts->sample_intr_pred_regs) &&
+	    !evsel->no_aux_samples && !evsel__is_dummy_event(evsel)) {
+		/* The pred qwords is to implies the set of SIMD registers is used */
+		attr->sample_simd_pred_reg_qwords = MAX(opts->sample_pred_reg_qwords, 1);
+		attr->sample_simd_vec_reg_intr = opts->sample_intr_vec_regs;
+		attr->sample_simd_vec_reg_qwords = opts->sample_vec_reg_qwords;
+		attr->sample_simd_pred_reg_intr = opts->sample_intr_pred_regs;
+		evsel__set_sample_bit(evsel, REGS_INTR);
+	}
+
 	if (opts->sample_user_regs && !evsel->no_aux_samples &&
 	    !evsel__is_dummy_event(evsel)) {
 		attr->sample_regs_user |= opts->sample_user_regs;
 		attr->sample_simd_regs_enabled = !!opts->sample_pred_reg_qwords;
+		evsel__set_sample_bit(evsel, REGS_USER);
+	}
+
+	if ((opts->sample_user_vec_regs || opts->sample_user_pred_regs) &&
+	    !evsel->no_aux_samples && !evsel__is_dummy_event(evsel)) {
+		attr->sample_simd_pred_reg_qwords = MAX(opts->sample_pred_reg_qwords, 1);
+		attr->sample_simd_vec_reg_user = opts->sample_user_vec_regs;
+		attr->sample_simd_vec_reg_qwords = opts->sample_vec_reg_qwords;
+		attr->sample_simd_pred_reg_user = opts->sample_user_pred_regs;
 		evsel__set_sample_bit(evsel, REGS_USER);
 	}
 
