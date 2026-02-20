@@ -176,6 +176,36 @@ struct drm_suballoc *__xe_sa_bo_new(struct xe_sa_manager *sa_manager, u32 size, 
 }
 
 /**
+ * xe_sa_bo_alloc() - Allocate uninitialized suballoc object.
+ * @gfp: gfp flags used for memory allocation.
+ *
+ * Allocate memory for an uninitialized suballoc object. Intended usage is
+ * allocate memory for suballoc object outside of a reclaim tainted context
+ * and then be initialized at a later time in a reclaim tainted context.
+ *
+ * Return: a new uninitialized suballoc object, or an ERR_PTR(-ENOMEM).
+ */
+struct drm_suballoc *xe_sa_bo_alloc(gfp_t gfp)
+{
+	return drm_suballoc_alloc(gfp);
+}
+
+/**
+ * xe_sa_bo_init() - Initialize a suballocation.
+ * @sa_manager: pointer to the sa_manager
+ * @sa: The struct drm_suballoc.
+ * @size: number of bytes we want to suballocate.
+ *
+ * Try to make a suballocation on a pre-allocated suballoc object of size @size.
+ *
+ * Return: zero on success, errno on failure.
+ */
+int xe_sa_bo_init(struct xe_sa_manager *sa_manager, struct drm_suballoc *sa, size_t size)
+{
+	return drm_suballoc_insert(&sa_manager->base, sa, size, true, 0);
+}
+
+/**
  * xe_sa_bo_flush_write() - Copy the data from the sub-allocation to the GPU memory.
  * @sa_bo: the &drm_suballoc to flush
  */
