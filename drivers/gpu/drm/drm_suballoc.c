@@ -293,6 +293,125 @@ static bool drm_suballoc_next_hole(struct drm_suballoc_manager *sa_manager,
 }
 
 /**
+ * drm_suballoc_alloc() - Allocate uninitialized suballoc object.
+ * @gfp: gfp flags used for memory allocation.
+ *
+ * Allocate memory for an uninitialized suballoc object. Intended usage is
+ * allocate memory for suballoc object outside of a reclaim tainted context
+ * and then be initialized at a later time in a reclaim tainted context.
+ *
+ * @drm_suballoc_free() should be used to release the memory if returned
+ * suballoc object is in uninitialized state.
+ *
+ * Return: a new uninitialized suballoc object, or an ERR_PTR(-ENOMEM).
+ */
+struct drm_suballoc *drm_suballoc_alloc(gfp_t gfp)
+{
+	struct drm_suballoc *sa;
+
+	sa = kmalloc_obj(*sa, gfp);
+	if (!sa)
+		return ERR_PTR(-ENOMEM);
+
+	sa->manager = NULL;
+
+	return sa;
+}
+EXPORT_SYMBOL(drm_suballoc_alloc);
+
+/**
+ * drm_suballoc_insert() - Initialize a suballocation and insert a hole.
+ * @sa_manager: pointer to the sa_manager
+ * @sa: The struct drm_suballoc.
+ * @size: number of bytes we want to suballocate.
+ * @intr: Whether to perform waits interruptible. This should typically
+ *        always be true, unless the caller needs to propagate a
+ *        non-interruptible context from above layers.
+ * @align: Alignment. Must not exceed the default manager alignment.
+ *         If @align is zero, then the manager alignment is used.
+ *
+ * Try to make a suballocation on a pre-allocated suballoc object of size @size,
+ * which will be rounded up to the alignment specified in specified in
+ * drm_suballoc_manager_init().
+ *
+ * Return: zero on success, errno on failure.
+ */
+int drm_suballoc_insert(struct drm_suballoc_manager *sa_manager,
+			struct drm_suballoc *sa, size_t size,
+			bool intr, size_t align)
+{
+	struct dma_fence *fences[DRM_SUBALLOC_MAX_QUEUES];
+	unsigned int tries[DRM_SUBALLOC_MAX_QUEUES];
+	unsigned int count;
+	int i, r;
+
+	if (WARN_ON_ONCE(align > sa_manager->align))
+		return -EINVAL;
+	if (WARN_ON_ONCE(size > sa_manager->size || !size))
+		return -EINVAL;
+
+	if (!align)
+		align = sa_manager->align;
+
+	sa->manager = sa_manager;
+	sa->fence = NULL;
+	INIT_LIST_HEAD(&sa->olist);
+	INIT_LIST_HEAD(&sa->flist);
+
+	spin_lock(&sa_manager->wq.lock);
+	do {
+		for (i = 0; i < DRM_SUBALLOC_MAX_QUEUES; ++i)
+			tries[i] = 0;
+
+		do {
+			drm_suballoc_try_free(sa_manager);
+
+			if (drm_suballoc_try_alloc(sa_manager, sa,
+						   size, align)) {
+				spin_unlock(&sa_manager->wq.lock);
+				return 0;
+			}
+
+			/* see if we can skip over some allocations */
+		} while (drm_suballoc_next_hole(sa_manager, fences, tries));
+
+		for (i = 0, count = 0; i < DRM_SUBALLOC_MAX_QUEUES; ++i)
+			if (fences[i])
+				fences[count++] = dma_fence_get(fences[i]);
+
+		if (count) {
+			long t;
+
+			spin_unlock(&sa_manager->wq.lock);
+			t = dma_fence_wait_any_timeout(fences, count, intr,
+							 MAX_SCHEDULE_TIMEOUT,
+							 NULL);
+			for (i = 0; i < count; ++i)
+				dma_fence_put(fences[i]);
+
+			r = (t > 0) ? 0 : t;
+			spin_lock(&sa_manager->wq.lock);
+		} else if (intr) {
+			/* if we have nothing to wait for block */
+			r = wait_event_interruptible_locked
+				(sa_manager->wq,
+				 __drm_suballoc_event(sa_manager, size, align));
+		} else {
+			spin_unlock(&sa_manager->wq.lock);
+			wait_event(sa_manager->wq,
+				   drm_suballoc_event(sa_manager, size, align));
+			r = 0;
+			spin_lock(&sa_manager->wq.lock);
+		}
+	} while (!r);
+
+	spin_unlock(&sa_manager->wq.lock);
+	sa->manager = NULL;
+	return r;
+}
+EXPORT_SYMBOL(drm_suballoc_insert);
+
+/**
  * drm_suballoc_new() - Make a suballocation.
  * @sa_manager: pointer to the sa_manager
  * @size: number of bytes we want to suballocate.
@@ -315,78 +434,20 @@ struct drm_suballoc *
 drm_suballoc_new(struct drm_suballoc_manager *sa_manager, size_t size,
 		 gfp_t gfp, bool intr, size_t align)
 {
-	struct dma_fence *fences[DRM_SUBALLOC_MAX_QUEUES];
-	unsigned int tries[DRM_SUBALLOC_MAX_QUEUES];
-	unsigned int count;
-	int i, r;
 	struct drm_suballoc *sa;
+	int err;
 
-	if (WARN_ON_ONCE(align > sa_manager->align))
-		return ERR_PTR(-EINVAL);
-	if (WARN_ON_ONCE(size > sa_manager->size || !size))
-		return ERR_PTR(-EINVAL);
+	sa = drm_suballoc_alloc(gfp);
+	if (IS_ERR(sa))
+		return sa;
 
-	if (!align)
-		align = sa_manager->align;
+	err = drm_suballoc_insert(sa_manager, sa, size, intr, align);
+	if (err) {
+		drm_suballoc_free(sa, NULL);
+		return ERR_PTR(err);
+	}
 
-	sa = kmalloc_obj(*sa, gfp);
-	if (!sa)
-		return ERR_PTR(-ENOMEM);
-	sa->manager = sa_manager;
-	sa->fence = NULL;
-	INIT_LIST_HEAD(&sa->olist);
-	INIT_LIST_HEAD(&sa->flist);
-
-	spin_lock(&sa_manager->wq.lock);
-	do {
-		for (i = 0; i < DRM_SUBALLOC_MAX_QUEUES; ++i)
-			tries[i] = 0;
-
-		do {
-			drm_suballoc_try_free(sa_manager);
-
-			if (drm_suballoc_try_alloc(sa_manager, sa,
-						   size, align)) {
-				spin_unlock(&sa_manager->wq.lock);
-				return sa;
-			}
-
-			/* see if we can skip over some allocations */
-		} while (drm_suballoc_next_hole(sa_manager, fences, tries));
-
-		for (i = 0, count = 0; i < DRM_SUBALLOC_MAX_QUEUES; ++i)
-			if (fences[i])
-				fences[count++] = dma_fence_get(fences[i]);
-
-		if (count) {
-			long t;
-
-			spin_unlock(&sa_manager->wq.lock);
-			t = dma_fence_wait_any_timeout(fences, count, intr,
-						       MAX_SCHEDULE_TIMEOUT,
-						       NULL);
-			for (i = 0; i < count; ++i)
-				dma_fence_put(fences[i]);
-
-			r = (t > 0) ? 0 : t;
-			spin_lock(&sa_manager->wq.lock);
-		} else if (intr) {
-			/* if we have nothing to wait for block */
-			r = wait_event_interruptible_locked
-				(sa_manager->wq,
-				 __drm_suballoc_event(sa_manager, size, align));
-		} else {
-			spin_unlock(&sa_manager->wq.lock);
-			wait_event(sa_manager->wq,
-				   drm_suballoc_event(sa_manager, size, align));
-			r = 0;
-			spin_lock(&sa_manager->wq.lock);
-		}
-	} while (!r);
-
-	spin_unlock(&sa_manager->wq.lock);
-	kfree(sa);
-	return ERR_PTR(r);
+	return sa;
 }
 EXPORT_SYMBOL(drm_suballoc_new);
 
@@ -404,6 +465,11 @@ void drm_suballoc_free(struct drm_suballoc *suballoc,
 
 	if (!suballoc)
 		return;
+
+	if (!suballoc->manager) {
+		kfree(suballoc);
+		return;
+	}
 
 	sa_manager = suballoc->manager;
 
