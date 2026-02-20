@@ -158,7 +158,7 @@ static void vf_migration_init_early(struct xe_device *xe)
 {
 	if (!xe_device_has_memirq(xe))
 		return xe_sriov_vf_migration_disable(xe, "requires memory-based IRQ support");
-
+    xe_sriov_vf_migration_disable(xe, "temporary disabled until ready to be enabled");
 }
 
 /**
