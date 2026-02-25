@@ -535,12 +535,6 @@ void xe_gt_mcr_init_early(struct xe_gt *gt)
 		}
 	} else {
 		if (GRAPHICS_VERx100(xe) == 3511) {
-			/*
-			 * TODO: there are some ranges in bspec with missing
-			 * termination: [0x00B000, 0x00B0FF] and
-			 * [0x00D880, 0x00D8FF] (NODE); [0x00B100, 0x00B3FF]
-			 * (L3BANK). Update them here once bspec is updated.
-			 */
 			gt->steering[DSS].ranges = xe3p_xpc_xecore_steering_table;
 			gt->steering[GAM1].ranges = xe3p_xpc_gam_grp1_steering_table;
 			gt->steering[INSTANCE0].ranges = xe3p_xpc_instance0_steering_table;
