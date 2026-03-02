@@ -543,6 +543,8 @@ static struct pmc_info ptl_pmc_info_list[] = {
 	{}
 };
 
+static u8 ptl_pmc_list[] = {PMC_IDX_MAIN, PMC_IDX_MAX};
+
 #define PTL_NPU_PCI_DEV                0xb03e
 #define PTL_IPU_PCI_DEV                0xb05d
 
@@ -569,6 +571,7 @@ static int ptl_core_init(struct pmc_dev *pmcdev, struct pmc_dev_info *pmc_dev_in
 }
 
 struct pmc_dev_info ptl_pmc_dev = {
+	.pmc_list = ptl_pmc_list,
 	.regmap_list = ptl_pmc_info_list,
 	.map = &ptl_pcdp_reg_map,
 	.sub_req_show = &pmc_core_substate_blk_req_fops,
