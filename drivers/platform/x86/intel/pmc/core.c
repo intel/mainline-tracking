@@ -1071,6 +1071,28 @@ static int pmc_core_die_c6_us_show(struct seq_file *s, void *unused)
 }
 DEFINE_SHOW_ATTRIBUTE(pmc_core_die_c6_us);
 
+static int pmc_core_pkgc_ltr_blocker_show(struct seq_file *s, void *unused)
+{
+	struct pmc_dev *pmcdev = s->private;
+	const char **pkgc_ltr_blocker_counters;
+	u32 counter, offset;
+	unsigned int i;
+	int ret;
+
+	offset = pmcdev->pkgc_ltr_blocker_offset;
+	pkgc_ltr_blocker_counters = pmcdev->pkgc_ltr_blocker_counters;
+	for (i = 0; pkgc_ltr_blocker_counters[i]; i++, offset++) {
+		ret = pmt_telem_read32(pmcdev->pc_ep, offset,
+				       &counter, 1);
+		if (ret)
+			return ret;
+		seq_printf(s, "%-30s %-30u\n", pkgc_ltr_blocker_counters[i], counter);
+	}
+
+	return 0;
+}
+DEFINE_SHOW_ATTRIBUTE(pmc_core_pkgc_ltr_blocker);
+
 static int pmc_core_lpm_latch_mode_show(struct seq_file *s, void *unused)
 {
 	struct pmc_dev *pmcdev = s->private;
@@ -1322,7 +1344,7 @@ static struct telem_endpoint *pmc_core_register_endpoint(struct pci_dev *pcidev,
 	return ERR_PTR(-ENODEV);
 }
 
-void pmc_core_punit_pmt_init(struct pmc_dev *pmcdev, u32 *guids)
+void pmc_core_punit_pmt_init(struct pmc_dev *pmcdev, struct pmc_dev_info *pmc_dev_info)
 {
 	struct telem_endpoint *ep;
 	struct pci_dev *pcidev;
@@ -1333,17 +1355,35 @@ void pmc_core_punit_pmt_init(struct pmc_dev *pmcdev, u32 *guids)
 		return;
 	}
 
-	ep = pmc_core_register_endpoint(pcidev, guids);
-	pci_dev_put(pcidev);
-	if (IS_ERR(ep)) {
-		dev_err(&pmcdev->pdev->dev,
-			"pmc_core: couldn't get DMU telem endpoint %ld",
-			PTR_ERR(ep));
-		return;
+	if (pmc_dev_info->dmu_guids) {
+		ep = pmc_core_register_endpoint(pcidev, pmc_dev_info->dmu_guids);
+		if (IS_ERR(ep)) {
+			dev_err(&pmcdev->pdev->dev,
+				"pmc_core: couldn't get DMU telem endpoint %ld",
+				PTR_ERR(ep));
+			goto release_dev;
+		}
+
+		pmcdev->punit_ep = ep;
+		pmcdev->die_c6_offset = MTL_PMT_DMU_DIE_C6_OFFSET;
 	}
 
-	pmcdev->punit_ep = ep;
-	pmcdev->die_c6_offset = MTL_PMT_DMU_DIE_C6_OFFSET;
+	if (pmc_dev_info->pc_guid) {
+		ep = pmt_telem_find_and_register_endpoint(pcidev, pmc_dev_info->pc_guid, 0);
+		if (IS_ERR(ep)) {
+			dev_err(&pmcdev->pdev->dev,
+				"pmc_core: couldn't get Package C-state telem endpoint %ld",
+				PTR_ERR(ep));
+			goto release_dev;
+		}
+
+		pmcdev->pc_ep = ep;
+		pmcdev->pkgc_ltr_blocker_counters = pmc_dev_info->pkgc_ltr_blocker_counters;
+		pmcdev->pkgc_ltr_blocker_offset = pmc_dev_info->pkgc_ltr_blocker_offset;
+	}
+
+release_dev:
+	pci_dev_put(pcidev);
 }
 
 void pmc_core_set_device_d3(unsigned int device)
@@ -1467,6 +1507,13 @@ static void pmc_core_dbgfs_register(struct pmc_dev *pmcdev, struct pmc_dev_info 
 				    pmcdev->dbgfs_dir, pmcdev,
 				    &pmc_core_die_c6_us_fops);
 	}
+
+	if (pmcdev->pc_ep) {
+		debugfs_create_file("pkgc_ltr_blocker_show", 0444,
+				    pmcdev->dbgfs_dir, pmcdev,
+				    &pmc_core_pkgc_ltr_blocker_fops);
+	}
+
 }
 
 /*
@@ -1717,8 +1764,8 @@ int generic_core_init(struct pmc_dev *pmcdev, struct pmc_dev_info *pmc_dev_info)
 	}
 
 	pmc_core_get_low_power_modes(pmcdev);
-	if (pmc_dev_info->dmu_guids)
-		pmc_core_punit_pmt_init(pmcdev, pmc_dev_info->dmu_guids);
+	if (pmc_dev_info->dmu_guids || pmc_dev_info->pc_guid)
+		pmc_core_punit_pmt_init(pmcdev, pmc_dev_info);
 
 	if (ssram) {
 		ret = pmc_core_get_telem_info(pmcdev, pmc_dev_info);
@@ -1738,6 +1785,9 @@ unmap_regbase:
 
 	if (pmcdev->punit_ep)
 		pmt_telem_unregister_endpoint(pmcdev->punit_ep);
+
+	if (pmcdev->pc_ep)
+		pmt_telem_unregister_endpoint(pmcdev->pc_ep);
 
 	return ret;
 }
@@ -1834,6 +1884,9 @@ static void pmc_core_clean_structure(struct platform_device *pdev)
 
 	if (pmcdev->punit_ep)
 		pmt_telem_unregister_endpoint(pmcdev->punit_ep);
+
+	if (pmcdev->pc_ep)
+		pmt_telem_unregister_endpoint(pmcdev->pc_ep);
 
 	platform_set_drvdata(pdev, NULL);
 }
