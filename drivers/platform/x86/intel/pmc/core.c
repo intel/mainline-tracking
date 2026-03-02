@@ -1093,6 +1093,28 @@ static int pmc_core_pkgc_ltr_blocker_show(struct seq_file *s, void *unused)
 }
 DEFINE_SHOW_ATTRIBUTE(pmc_core_pkgc_ltr_blocker);
 
+static int pmc_core_pkgc_blocker_residency_show(struct seq_file *s, void *unused)
+{
+	struct pmc_dev *pmcdev = s->private;
+	const char **pkgc_blocker_counters;
+	u32 counter, offset;
+	unsigned int i;
+	int ret;
+
+	offset = pmcdev->pkgc_blocker_offset;
+	pkgc_blocker_counters = pmcdev->pkgc_blocker_counters;
+	for (i = 0; pkgc_blocker_counters[i]; i++, offset++) {
+		ret = pmt_telem_read32(pmcdev->pc_ep, offset,
+				       &counter, 1);
+		if (ret)
+			return ret;
+		seq_printf(s, "%-30s %-30u\n", pkgc_blocker_counters[i], counter);
+	}
+
+	return 0;
+}
+DEFINE_SHOW_ATTRIBUTE(pmc_core_pkgc_blocker_residency);
+
 static int pmc_core_lpm_latch_mode_show(struct seq_file *s, void *unused)
 {
 	struct pmc_dev *pmcdev = s->private;
@@ -1380,6 +1402,8 @@ void pmc_core_punit_pmt_init(struct pmc_dev *pmcdev, struct pmc_dev_info *pmc_de
 		pmcdev->pc_ep = ep;
 		pmcdev->pkgc_ltr_blocker_counters = pmc_dev_info->pkgc_ltr_blocker_counters;
 		pmcdev->pkgc_ltr_blocker_offset = pmc_dev_info->pkgc_ltr_blocker_offset;
+		pmcdev->pkgc_blocker_counters = pmc_dev_info->pkgc_blocker_counters;
+		pmcdev->pkgc_blocker_offset = pmc_dev_info->pkgc_blocker_offset;
 	}
 
 release_dev:
@@ -1512,6 +1536,9 @@ static void pmc_core_dbgfs_register(struct pmc_dev *pmcdev, struct pmc_dev_info 
 		debugfs_create_file("pkgc_ltr_blocker_show", 0444,
 				    pmcdev->dbgfs_dir, pmcdev,
 				    &pmc_core_pkgc_ltr_blocker_fops);
+		debugfs_create_file("pkgc_blocker_residency_show", 0444,
+				    pmcdev->dbgfs_dir, pmcdev,
+				    &pmc_core_pkgc_blocker_residency_fops);
 	}
 
 }
