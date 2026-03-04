@@ -222,6 +222,9 @@ static __init bool cpu_has_vmcs12_field(unsigned int idx)
 	case HOST_SSP:
 	case HOST_INTR_SSP_TABLE:
 		return cpu_has_load_cet_ctrl();
+	VMCS12_CASE64(ORIGINAL_EVENT_DATA) :
+	VMCS12_CASE64(INJECTED_EVENT_DATA) :
+		return cpu_has_vmx_fred();
 
 	/* KVM always emulates PML and the VMX preemption timer in software. */
 	case GUEST_PML_INDEX:
