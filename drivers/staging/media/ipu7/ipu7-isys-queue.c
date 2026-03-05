@@ -1092,6 +1092,9 @@ void ipu7_isys_queue_buf_ready(struct ipu7_isys_stream *stream,
 	struct device *dev = &isys->adev->auxdev.dev;
 	struct ipu7_isys_buffer *ib;
 	struct vb2_buffer *vb;
+#ifdef CONFIG_VIDEO_INTEL_IPU7_ISYS_RESET
+	struct vb2_v4l2_buffer *vbuf;
+#endif
 	unsigned long flags;
 	bool first = true;
 	struct vb2_v4l2_buffer *buf;
@@ -1136,6 +1139,14 @@ void ipu7_isys_queue_buf_ready(struct ipu7_isys_stream *stream,
 
 		ipu7_isys_buf_calc_sequence_time(ib, time);
 
+#ifdef CONFIG_VIDEO_INTEL_IPU7_ISYS_RESET
+		if (!IA_GOFO_MSG_ERR_IS_OK(info->error_info)) {
+			vbuf = to_vb2_v4l2_buffer(vb);
+			dev_dbg(dev, "buffer:%s sequence %u frame error, skip frame\n",
+				ipu7_isys_queue_to_video(aq)->vdev.name, vbuf->sequence);
+			atomic_set(&ib->skipframe_flag, 1);
+		}
+#endif
 		ipu7_isys_queue_buf_done(ib);
 
 		return;
