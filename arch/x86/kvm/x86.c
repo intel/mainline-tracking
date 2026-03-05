@@ -5552,9 +5552,15 @@ static int emulator_set_dr(struct x86_emulate_ctxt *ctxt, int dr,
 	return kvm_set_dr(emul_to_vcpu(ctxt), dr, value);
 }
 
-static u64 mk_cr_64(u64 curr_cr, u32 new_val)
+static u64 mk_cr0_64(u64 curr_cr, u32 new_val)
 {
 	return (curr_cr & ~((1ULL << 32) - 1)) | new_val;
+}
+
+static u64 mk_cr4_64(struct kvm_vcpu *vcpu, u64 curr_cr, u64 new_val)
+{
+	u32 shift = guest_cpu_cap_has(vcpu, X86_FEATURE_FRED) ? 33 : 32;
+	return (curr_cr & ~((1ULL << shift) - 1)) | new_val;
 }
 
 static unsigned long emulator_get_cr(struct x86_emulate_ctxt *ctxt, int cr)
@@ -5593,7 +5599,7 @@ static int emulator_set_cr(struct x86_emulate_ctxt *ctxt, int cr, ulong val)
 
 	switch (cr) {
 	case 0:
-		res = kvm_set_cr0(vcpu, mk_cr_64(kvm_read_cr0(vcpu), val));
+		res = kvm_set_cr0(vcpu, mk_cr0_64(kvm_read_cr0(vcpu), val));
 		break;
 	case 2:
 		vcpu->arch.cr2 = val;
@@ -5602,7 +5608,7 @@ static int emulator_set_cr(struct x86_emulate_ctxt *ctxt, int cr, ulong val)
 		res = kvm_set_cr3(vcpu, val);
 		break;
 	case 4:
-		res = kvm_set_cr4(vcpu, mk_cr_64(kvm_read_cr4(vcpu), val));
+		res = kvm_set_cr4(vcpu, mk_cr4_64(vcpu, kvm_read_cr4(vcpu), val));
 		break;
 	case 8:
 		res = kvm_set_cr8(vcpu, val);
