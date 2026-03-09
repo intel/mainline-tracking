@@ -4702,6 +4702,14 @@ static int intel_pmu_hw_config(struct perf_event *event)
 		if (x86_pmu.pebs_aliases)
 			x86_pmu.pebs_aliases(event);
 
+		/*
+		 * If PMU_FL_PEBS_ALL is not set, restrict PEBS events only on
+		 * GP counters. This could happen in Guest environment that
+		 * extended PEBS is not supported.
+		 */
+		if (!(x86_pmu.flags & PMU_FL_PEBS_ALL))
+			event->hw.dyn_constraint &= BIT_ULL(INTEL_PMC_IDX_FIXED) - 1;
+
 		if (x86_pmu.arch_pebs) {
 			u64 cntr_mask = hybrid(event->pmu, intel_ctrl) &
 						~GLOBAL_CTRL_EN_PERF_METRICS;
