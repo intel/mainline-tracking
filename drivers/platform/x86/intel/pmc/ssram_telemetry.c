@@ -37,7 +37,6 @@ static const struct ssram_type pci_main = {
 };
 
 static struct pmc_ssram_telemetry pmc_ssram_telems[3];
-static bool device_probed;
 
 static inline u64 get_base(void __iomem *addr, u32 offset)
 {
@@ -52,8 +51,13 @@ static void pmc_ssram_get_devid_pwrmbase(void __iomem *ssram, unsigned int pmc_i
 	pwrm_base = get_base(ssram, SSRAM_PWRM_OFFSET);
 	devid = readw(ssram + SSRAM_DEVID_OFFSET);
 
-	pmc_ssram_telems[pmc_idx].devid = devid;
 	pmc_ssram_telems[pmc_idx].base_addr = pwrm_base;
+	/*
+	 * Memory barrier is used to ensure the correct write order between base_addr
+	 * and devid.
+	 */
+	smp_wmb();
+	pmc_ssram_telems[pmc_idx].devid = devid;
 }
 
 static int
@@ -151,32 +155,28 @@ static int pmc_ssram_telemetry_pci_init(struct pci_dev *pcidev)
  * * 0           - Success
  * * -EAGAIN     - Probe function has not finished yet. Try again.
  * * -EINVAL     - Invalid pmc_idx
- * * -ENODEV     - PMC device is not available
  */
 int pmc_ssram_telemetry_get_pmc_info(unsigned int pmc_idx,
 				     struct pmc_ssram_telemetry *pmc_ssram_telemetry)
 {
-	/*
-	 * PMCs are discovered in probe function. If this function is called before
-	 * probe function complete, the result would be invalid. Use device_probed
-	 * variable to avoid this case. Return -EAGAIN to inform the consumer to call
-	 * again later.
-	 */
-	if (!device_probed)
-		return -EAGAIN;
-
-	/*
-	 * Memory barrier is used to ensure the correct read order between
-	 * device_probed variable and PMC info.
-	 */
-	smp_rmb();
 	if (pmc_idx >= MAX_NUM_PMC)
 		return -EINVAL;
 
+	/*
+	 * PMCs are discovered in probe function. If this function is called before
+	 * probe function complete, the result would be invalid. Use devid to avoid
+	 * this case. Return -EAGAIN to inform the consumer to call
+	 * again later.
+	 */
 	if (!pmc_ssram_telems[pmc_idx].devid)
-		return -ENODEV;
+		return -EAGAIN;
 
 	pmc_ssram_telemetry->devid = pmc_ssram_telems[pmc_idx].devid;
+	/*
+	 * Memory barrier is used to ensure the correct read order between
+	 * devid variable and base_addr.
+	 */
+	smp_rmb();
 	pmc_ssram_telemetry->base_addr = pmc_ssram_telems[pmc_idx].base_addr;
 	return 0;
 }
@@ -209,12 +209,6 @@ static int pmc_ssram_telemetry_probe(struct pci_dev *pcidev, const struct pci_de
 		ret = -EINVAL;
 
 probe_finish:
-	/*
-	 * Memory barrier is used to ensure the correct write order between PMC info
-	 * and device_probed variable.
-	 */
-	smp_wmb();
-	device_probed = true;
 	return ret;
 }
 
