@@ -8,6 +8,7 @@
  * Author: "Alexander Duyck" <alexander.h.duyck@linux.intel.com>
  */
 
+#include <linux/bitfield.h>
 #include <linux/kernel.h>
 #include <linux/log2.h>
 #include <linux/intel_vsec.h>
@@ -368,18 +369,33 @@ fail_dev_create:
 	return ret;
 }
 
+static int pmt_read_header(struct intel_vsec_device *ivdev, int idx,
+			   struct intel_pmt_entry *entry)
+{
+	struct intel_pmt_header *header = &entry->header;
+	struct device *dev = &ivdev->auxdev.dev;
+	u64 headers[2];
+
+	entry->disc_table = devm_ioremap_resource(dev, &ivdev->resource[idx]);
+	if (IS_ERR(entry->disc_table))
+		return PTR_ERR(entry->disc_table);
+
+	memcpy_fromio(headers, entry->disc_table, 2 * sizeof(u64));
+
+	header->access_type = FIELD_GET(PMT_ACCESS_TYPE, headers[0]);
+	header->telem_type = FIELD_GET(PMT_TELEM_TYPE, headers[0]);
+	/* Size is measured in DWORDS, but accessor returns bytes */
+	header->size = PMT_GET_SIZE(FIELD_GET(PMT_SIZE, headers[0]));
+	header->guid = FIELD_GET(PMT_GUID32, headers[0]);
+	header->base_offset = FIELD_GET(PMT_BASE_OFFSET, headers[1]);
+
+	return 0;
+}
+
 int intel_pmt_dev_create(struct intel_pmt_entry *entry, struct intel_pmt_namespace *ns,
 			 struct intel_vsec_device *intel_vsec_dev, int idx)
 {
-	struct device *dev = &intel_vsec_dev->auxdev.dev;
-	struct resource	*disc_res;
 	int ret;
-
-	disc_res = &intel_vsec_dev->resource[idx];
-
-	entry->disc_table = devm_ioremap_resource(dev, disc_res);
-	if (IS_ERR(entry->disc_table))
-		return PTR_ERR(entry->disc_table);
 
 	if (ns->pmt_pre_decode) {
 		ret = ns->pmt_pre_decode(intel_vsec_dev, entry);
@@ -387,7 +403,7 @@ int intel_pmt_dev_create(struct intel_pmt_entry *entry, struct intel_pmt_namespa
 			return ret;
 	}
 
-	ret = ns->pmt_header_decode(entry, dev);
+	ret = pmt_read_header(intel_vsec_dev, idx, entry);
 	if (ret)
 		return ret;
 
@@ -397,11 +413,11 @@ int intel_pmt_dev_create(struct intel_pmt_entry *entry, struct intel_pmt_namespa
 			return ret;
 	}
 
-	ret = intel_pmt_populate_entry(entry, intel_vsec_dev, disc_res);
+	ret = intel_pmt_populate_entry(entry, intel_vsec_dev, &intel_vsec_dev->resource[idx]);
 	if (ret)
 		return ret;
 
-	return intel_pmt_dev_register(entry, ns, dev);
+	return intel_pmt_dev_register(entry, ns, &intel_vsec_dev->auxdev.dev);
 }
 EXPORT_SYMBOL_NS_GPL(intel_pmt_dev_create, "INTEL_PMT");
 

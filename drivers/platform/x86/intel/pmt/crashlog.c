@@ -516,28 +516,11 @@ static int pmt_crashlog_pre_decode(struct intel_vsec_device *ivdev,
 	return 0;
 }
 
-static int pmt_crashlog_header_decode(struct intel_pmt_entry *entry,
-				      struct device *dev)
-{
-	void __iomem *disc_table = entry->disc_table;
-	struct intel_pmt_header *header = &entry->header;
-
-	header->access_type = GET_ACCESS(readl(disc_table));
-	header->guid = readl(disc_table + GUID_OFFSET);
-	header->base_offset = readl(disc_table + BASE_OFFSET);
-
-	/* Size is measured in DWORDS, but accessor returns bytes */
-	header->size = GET_SIZE(readl(disc_table + SIZE_OFFSET));
-
-	return 0;
-}
-
 static DEFINE_XARRAY_ALLOC(crashlog_array);
 static struct intel_pmt_namespace pmt_crashlog_ns = {
 	.name = "crashlog",
 	.xa = &crashlog_array,
 	.pmt_pre_decode = pmt_crashlog_pre_decode,
-	.pmt_header_decode = pmt_crashlog_header_decode,
 };
 
 /*
