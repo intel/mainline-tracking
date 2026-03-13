@@ -1359,7 +1359,7 @@ static struct telem_endpoint *pmc_core_register_endpoint(struct pci_dev *pcidev,
 	unsigned int i;
 
 	for (i = 0; guids[i]; i++) {
-		ep = pmt_telem_find_and_register_endpoint(pcidev, guids[i], 0);
+		ep = pmt_telem_find_and_register_endpoint(&pcidev->dev, guids[i], 0);
 		if (!IS_ERR(ep))
 			return ep;
 	}
