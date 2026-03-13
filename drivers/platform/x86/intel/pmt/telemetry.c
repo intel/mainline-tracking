@@ -27,14 +27,6 @@
 
 #include "class.h"
 
-#define TELEM_SIZE_OFFSET	0x0
-#define TELEM_GUID_OFFSET	0x4
-#define TELEM_BASE_OFFSET	0x8
-#define TELEM_ACCESS(v)		((v) & GENMASK(3, 0))
-#define TELEM_TYPE(v)		(((v) & GENMASK(7, 4)) >> 4)
-/* size is in bytes */
-#define TELEM_SIZE(v)		(((v) & GENMASK(27, 12)) >> 10)
-
 /* Used by client hardware to identify a fixed telemetry entry*/
 #define TELEM_CLIENT_FIXED_BLOCK_GUID	0x10000000
 
@@ -67,23 +59,6 @@ static bool pmt_telem_region_overlaps(struct device *dev, u32 guid, u32 type)
 	}
 
 	return false;
-}
-
-static int pmt_telem_header_decode(struct intel_pmt_entry *entry,
-				   struct device *dev)
-{
-	void __iomem *disc_table = entry->disc_table;
-	struct intel_pmt_header *header = &entry->header;
-
-	header->access_type = TELEM_ACCESS(readl(disc_table));
-	header->guid = readl(disc_table + TELEM_GUID_OFFSET);
-	header->base_offset = readl(disc_table + TELEM_BASE_OFFSET);
-
-	/* Size is measured in DWORDS, but accessor returns bytes */
-	header->size = TELEM_SIZE(readl(disc_table));
-	header->telem_type = TELEM_TYPE(readl(entry->disc_table));
-
-	return 0;
 }
 
 static int pmt_telem_post_decode(struct intel_vsec_device *ivdev,
@@ -135,7 +110,6 @@ static DEFINE_XARRAY_ALLOC(telem_array);
 static struct intel_pmt_namespace pmt_telem_ns = {
 	.name = "telem",
 	.xa = &telem_array,
-	.pmt_header_decode = pmt_telem_header_decode,
 	.pmt_post_decode = pmt_telem_post_decode,
 	.pmt_add_endpoint = pmt_telem_add_endpoint,
 };

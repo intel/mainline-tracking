@@ -11,6 +11,19 @@
 
 #include "telemetry.h"
 
+/* PMT Discovery Table DWORD 1 */
+#define PMT_ACCESS_TYPE		GENMASK_ULL(3, 0)
+#define PMT_TELEM_TYPE		GENMASK_ULL(7, 4)
+#define PMT_SIZE		GENMASK_ULL(27, 12)
+#define PMT_GUID32		GENMASK_ULL(63, 32)
+
+/* PMT Discovery Table DWORD 2 */
+#define PMT_BASE_OFFSET		GENMASK_ULL(31, 0)
+#define PMT_TELE_ID		GENMASK_ULL(63, 32)
+
+/* Get size bytes from DWORDs */
+#define PMT_GET_SIZE(v)		((v) << 2)
+
 /* PMT access types */
 #define ACCESS_BARID		2
 #define ACCESS_LOCAL		3
@@ -61,8 +74,6 @@ struct intel_pmt_entry {
 struct intel_pmt_namespace {
 	const char *name;
 	struct xarray *xa;
-	int (*pmt_header_decode)(struct intel_pmt_entry *entry,
-				 struct device *dev);
 	int (*pmt_pre_decode)(struct intel_vsec_device *ivdev,
 			      struct intel_pmt_entry *entry);
 	int (*pmt_post_decode)(struct intel_vsec_device *ivdev,
