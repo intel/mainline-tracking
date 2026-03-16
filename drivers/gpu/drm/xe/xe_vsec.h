@@ -6,10 +6,10 @@
 
 #include <linux/types.h>
 
-struct device;
+struct pci_dev;
 struct xe_device;
 
 void xe_vsec_init(struct xe_device *xe);
-int xe_pmt_telem_read(struct device *dev, u32 guid, u64 *data, loff_t user_offset, u32 count);
+int xe_pmt_telem_read(struct pci_dev *pdev, u32 guid, u64 *data, loff_t user_offset, u32 count);
 
 #endif

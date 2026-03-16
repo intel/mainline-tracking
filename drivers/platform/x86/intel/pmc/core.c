@@ -1359,7 +1359,7 @@ static struct telem_endpoint *pmc_core_register_endpoint(struct pci_dev *pcidev,
 	unsigned int i;
 
 	for (i = 0; guids[i]; i++) {
-		ep = pmt_telem_find_and_register_endpoint(&pcidev->dev, guids[i], 0);
+		ep = pmt_telem_find_and_register_endpoint(pcidev, guids[i], 0);
 		if (!IS_ERR(ep))
 			return ep;
 	}
@@ -1671,7 +1671,6 @@ static int pmc_core_get_telem_info(struct pmc_dev *pmcdev, struct pmc_dev_info *
 
 		if (!pmc->map->lpm_req_guid)
 			return -ENXIO;
-
 		if (pmc_dev_info->ssram_hidden)
 			devid = pmcdev->pmcs[PMC_IDX_MAIN]->devid;
 		else
@@ -1682,7 +1681,6 @@ static int pmc_core_get_telem_info(struct pmc_dev *pmcdev, struct pmc_dev_info *
 			return -ENODEV;
 
 		ep = pmt_telem_find_and_register_endpoint(&pcidev->dev, pmc->map->lpm_req_guid, 0);
-
 		if (IS_ERR(ep)) {
 			dev_dbg(&pmcdev->pdev->dev, "couldn't get telem endpoint %pe", ep);
 			return -EPROBE_DEFER;
