@@ -3181,6 +3181,9 @@ void arch_perf_update_userpage(struct perf_event *event,
 	userpg->cap_user_time_zero = 0;
 	userpg->cap_user_rdpmc =
 		!!(event->hw.flags & PERF_EVENT_FLAG_USER_READ_CNT);
+	if (x86_pmu_has_rdpmc_user_disable(event->pmu) &&
+	    event->hw.config & ARCH_PERFMON_EVENTSEL_RDPMC_USER_DISABLE)
+		userpg->cap_user_rdpmc = 0;
 	userpg->pmc_width = x86_pmu.cntval_bits;
 
 	if (!using_native_sched_clock() || !sched_clock_stable())
