@@ -115,7 +115,23 @@ static inline bool is_topdown_event(struct perf_event *event)
 	return is_metric_event(event) || is_slots_event(event);
 }
 
-int is_x86_event(struct perf_event *event);
+static inline bool is_x86_pmu(struct pmu *pmu)
+{
+	/*
+	 * For a non-hybrid platforms, the type of X86 pmu is
+	 * always PERF_TYPE_RAW.
+	 * For a hybrid platform, the PERF_PMU_CAP_EXTENDED_HW_TYPE
+	 * is a unique capability for the X86 PMU.
+	 * Use them to detect a X86 event.
+	 */
+	return pmu->type == PERF_TYPE_RAW ||
+	       pmu->capabilities & PERF_PMU_CAP_EXTENDED_HW_TYPE;
+}
+
+static inline bool is_x86_event(struct perf_event *event)
+{
+	return is_x86_pmu(event->pmu);
+}
 
 static inline bool check_leader_group(struct perf_event *leader, int flags)
 {
