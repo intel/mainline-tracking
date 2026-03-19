@@ -60,8 +60,22 @@ static const u64 u64_val = 0xaaaa5555aaaa5555ull;
 #define MSR_TEST_CANONICAL(msr, feat)					\
 	__MSR_TEST(msr, #msr, canonical_val, NONCANONICAL, 0, feat)
 
+#define MSR_TEST_CANONICAL2(msr, feat, f2)				\
+	____MSR_TEST(msr, #msr, canonical_val, NONCANONICAL, 0, feat, f2, false)
+
 #define MSR_TEST_KVM(msr, val, rsvd, feat)				\
 	____MSR_TEST(KVM_REG_ ##msr, #msr, val, rsvd, 0, feat, feat, true)
+
+/* FRED RSPs are 64-byte aligned, thus bits 5:0 are all zero */
+static const u64 fred_rsp_canonical_val = canonical_val + 0xbc0;
+
+/*
+ * FRED SSP[123] are 8-byte aligned, thus bits 2:0 are all zero.
+ *
+ * For legacy reasons, FRED SSP0 is allowed to be 4-byte aligned, but treat
+ * it as 8-byte aligned to simplify the tests.
+ */
+static const u64 fred_ssp_canonical_val = canonical_val + 0xbc8;
 
 /*
  * The main struct must be scoped to a function due to the use of structures to
@@ -388,8 +402,9 @@ static void test_msrs(void)
 		MSR_TEST2(MSR_IA32_S_CET, CET_ENDBR_EN, CET_RESERVED, IBT, SHSTK),
 		MSR_TEST2(MSR_IA32_U_CET, CET_SHSTK_EN, CET_RESERVED, SHSTK, IBT),
 		MSR_TEST2(MSR_IA32_U_CET, CET_ENDBR_EN, CET_RESERVED, IBT, SHSTK),
-		MSR_TEST_CANONICAL(MSR_IA32_PL0_SSP, SHSTK),
-		MSR_TEST(MSR_IA32_PL0_SSP, canonical_val, canonical_val | 1, SHSTK),
+		MSR_TEST_CANONICAL2(MSR_IA32_PL0_SSP, SHSTK, FRED),
+		MSR_TEST2(MSR_IA32_PL0_SSP, canonical_val, canonical_val | 1, SHSTK, FRED),
+		MSR_TEST2(MSR_IA32_PL0_SSP, canonical_val, canonical_val | 1, FRED, SHSTK),
 		MSR_TEST_CANONICAL(MSR_IA32_PL1_SSP, SHSTK),
 		MSR_TEST(MSR_IA32_PL1_SSP, canonical_val, canonical_val | 1, SHSTK),
 		MSR_TEST_CANONICAL(MSR_IA32_PL2_SSP, SHSTK),
@@ -398,10 +413,35 @@ static void test_msrs(void)
 		MSR_TEST(MSR_IA32_PL3_SSP, canonical_val, canonical_val | 1, SHSTK),
 
 		MSR_TEST_KVM(GUEST_SSP, canonical_val, NONCANONICAL, SHSTK),
+
+		MSR_TEST_CANONICAL(MSR_IA32_FRED_RSP0, FRED),
+		MSR_TEST(MSR_IA32_FRED_RSP0, fred_rsp_canonical_val, fred_rsp_canonical_val | 1, FRED),
+		MSR_TEST_CANONICAL(MSR_IA32_FRED_RSP1, FRED),
+		MSR_TEST(MSR_IA32_FRED_RSP1, fred_rsp_canonical_val, fred_rsp_canonical_val | 2, FRED),
+		MSR_TEST_CANONICAL(MSR_IA32_FRED_RSP2, FRED),
+		MSR_TEST(MSR_IA32_FRED_RSP2, fred_rsp_canonical_val, fred_rsp_canonical_val | 4, FRED),
+		MSR_TEST_CANONICAL(MSR_IA32_FRED_RSP3, FRED),
+		MSR_TEST(MSR_IA32_FRED_RSP3, fred_rsp_canonical_val, fred_rsp_canonical_val | 7, FRED),
+
+		MSR_TEST_CANONICAL2(MSR_IA32_FRED_SSP0, FRED, SHSTK),
+		MSR_TEST2(MSR_IA32_FRED_SSP0, fred_ssp_canonical_val, fred_ssp_canonical_val | 1, SHSTK, FRED),
+		MSR_TEST2(MSR_IA32_FRED_SSP0, fred_ssp_canonical_val, fred_ssp_canonical_val | 1, FRED, SHSTK),
+		MSR_TEST_CANONICAL(MSR_IA32_FRED_SSP1, FRED),
+		MSR_TEST(MSR_IA32_FRED_SSP1, fred_ssp_canonical_val, fred_ssp_canonical_val | 2, FRED),
+		MSR_TEST_CANONICAL(MSR_IA32_FRED_SSP2, FRED),
+		MSR_TEST(MSR_IA32_FRED_SSP2, fred_ssp_canonical_val, fred_ssp_canonical_val | 4, FRED),
+		MSR_TEST_CANONICAL(MSR_IA32_FRED_SSP3, FRED),
+		MSR_TEST(MSR_IA32_FRED_SSP3, fred_ssp_canonical_val, fred_ssp_canonical_val | 7, FRED),
+
+		MSR_TEST(MSR_IA32_FRED_STKLVLS, 0xe41be41be41be41b, 0, FRED),
+
+		MSR_TEST_CANONICAL(MSR_IA32_FRED_CONFIG, FRED),
+		MSR_TEST(MSR_IA32_FRED_CONFIG, canonical_val, canonical_val | FRED_CONFIG_RESERVED, FRED),
 	};
 
 	const struct kvm_x86_cpu_feature feat_none = X86_FEATURE_NONE;
 	const struct kvm_x86_cpu_feature feat_lm = X86_FEATURE_LM;
+	const struct kvm_x86_cpu_feature feat_fred = X86_FEATURE_FRED;
 
 	/*
 	 * Create three vCPUs, but run them on the same task, to validate KVM's
@@ -432,6 +472,14 @@ static void test_msrs(void)
 	 * immutable once the vCPU has been run.
 	 */
 	for (idx = 0; idx < ARRAY_SIZE(__msrs); idx++) {
+		/*
+		 * Feature word 0x7:1:EAX used by FRED doesn't exist on some CPU
+		 * models, simply skip clearing FRED feature bit.
+		 */
+		if (!memcmp(&msrs[idx].feature, &feat_fred, sizeof(feat_fred)) &&
+		    !kvm_cpu_has(X86_FEATURE_FRED))
+			continue;
+
 		/*
 		 * Don't clear LM; selftests are 64-bit only, and KVM doesn't
 		 * honor LM=0 for MSRs that are supposed to exist if and only
