@@ -6479,7 +6479,7 @@ static void intel_pmu_cpu_dead(int cpu)
 	release_arch_pebs_buf_on_cpu(cpu);
 	intel_cpuc_finish(cpuc);
 
-	if (is_hybrid() && cpuc->pmu)
+	if (is_hybrid() && x86_pmu.num_hybrid_pmus && cpuc->pmu)
 		cpumask_clear_cpu(cpu, &hybrid_pmu(cpuc->pmu)->supported_cpus);
 }
 
