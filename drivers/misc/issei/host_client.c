@@ -6,6 +6,7 @@
 #include <linux/fs.h>
 #include <linux/list.h>
 #include <linux/overflow.h>
+#include <linux/pm_runtime.h>
 #include <linux/slab.h>
 #include <linux/types.h>
 #include <linux/wait.h>
@@ -72,6 +73,7 @@ static void __issei_cl_clean_all_wbuf(struct issei_device *idev, struct issei_ho
 		}
 	}
 	cl->write_in_progress = false;
+	pm_runtime_put_autosuspend(idev->parent);
 	/* synchronized under host client mutex */
 	if (waitqueue_active(&cl->write_wait))
 		wake_up_interruptible(&cl->write_wait);
@@ -306,6 +308,7 @@ ssize_t issei_cl_write(struct issei_host_client *cl, const u8 *buf, size_t buf_s
 	list_add_tail(&wbuf->list, &idev->write_queue);
 	cl->write_in_progress = true;
 	cl_dbg(idev, cl, "Write queued %zu bytes\n", buf_size);
+	pm_runtime_get(idev->parent);
 
 	issei_poke_process_thread(idev);
 
@@ -350,6 +353,7 @@ int issei_cl_write_from_queue(struct issei_device *idev)
 	if (ret >= 0)
 		idev->ops->irq_write_generate(idev);
 	cl->write_in_progress = false;
+	pm_runtime_put_autosuspend(idev->parent);
 	/* synchronized under host client mutex */
 	if (waitqueue_active(&cl->write_wait))
 		wake_up_interruptible(&cl->write_wait);

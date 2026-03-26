@@ -8,6 +8,7 @@
 #include <linux/err.h>
 #include <linux/io.h>
 #include <linux/pci.h>
+#include <linux/pm_runtime.h>
 #include <linux/sizes.h>
 #include <linux/spinlock.h>
 #include <linux/types.h>
@@ -501,11 +502,19 @@ irqreturn_t issei_heci_irq_quick_handler(int irq, void *dev_id)
 {
 	struct issei_device *idev = dev_id;
 	struct issei_heci_hw *hw = to_heci_hw(idev);
+	irqreturn_t ret;
+	int active;
 	u32 reg;
 
-	reg = heci_hcsr_read(idev);
-	if (!heci_irq_src(reg))
+	active = pm_runtime_get_if_active(idev->parent);
+	if (!active)
 		return IRQ_NONE;
+
+	reg = heci_hcsr_read(idev);
+	if (!heci_irq_src(reg)) {
+		ret = IRQ_NONE;
+		goto out;
+	}
 
 	scoped_guard(spinlock_irqsave, &hw->access_lock) {
 		reg = heci_hcsr_read(idev);
@@ -519,7 +528,13 @@ irqreturn_t issei_heci_irq_quick_handler(int irq, void *dev_id)
 
 	issei_poke_process_thread(idev);
 
-	return IRQ_HANDLED;
+	ret = IRQ_HANDLED;
+
+out:
+	if (active > 0)
+		pm_runtime_put_autosuspend(idev->parent);
+
+	return ret;
 }
 
 static const struct hw_heci_cfg hw_heci_pch_cfg = {

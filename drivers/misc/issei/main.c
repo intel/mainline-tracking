@@ -7,6 +7,7 @@
 #include <linux/export.h>
 #include <linux/jiffies.h>
 #include <linux/kthread.h>
+#include <linux/pm_runtime.h>
 #include <linux/slab.h>
 #include <linux/wait.h>
 
@@ -116,10 +117,13 @@ static int issei_process_thread(void *_dev)
 			idev->ops->irq_sync(idev);
 
 			if (!idev->power_down) {
+				if (!idev->reset_count)
+					pm_runtime_get_noresume(idev->parent);
 				idev->reset_count++;
 				if (idev->reset_count > ISSEI_MAX_CONSEC_RESET) {
 					dev_err(&idev->dev, "reset: reached maximal consecutive resets: disabling the device\n");
 					issei_rst_state_set(idev, ISSEI_RST_STATE_DISABLED);
+					pm_runtime_put_noidle(idev->parent);
 					break;
 				}
 			}
@@ -189,11 +193,19 @@ static int issei_process_thread(void *_dev)
 			} else {
 				idev->reset_count = 0;
 				idev->rst_state = ISSEI_RST_STATE_DONE;
+				pm_runtime_put_autosuspend(idev->parent);
 				dev_dbg(&idev->dev, "Reset finished successfully\n");
 			}
 			break;
 
 		case ISSEI_RST_STATE_DONE:
+			PM_RUNTIME_ACQUIRE_AUTOSUSPEND(idev->parent, pm);
+			ret = PM_RUNTIME_ACQUIRE_ERR(&pm);
+			if (ret) {
+				dev_err(&idev->dev, "Failed to acquire pm %d", ret);
+				break;
+			}
+
 			ret = issei_process_read_msg(idev);
 			if (ret != 0 && ret != -ENODATA)
 				break;
