@@ -1391,7 +1391,7 @@ void pmc_core_punit_pmt_init(struct pmc_dev *pmcdev, struct pmc_dev_info *pmc_de
 	}
 
 	if (pmc_dev_info->pc_guid) {
-		ep = pmt_telem_find_and_register_endpoint(pcidev, pmc_dev_info->pc_guid, 0);
+		ep = pmt_telem_find_and_register_endpoint(&pcidev->dev, pmc_dev_info->pc_guid, 0);
 		if (IS_ERR(ep)) {
 			dev_err(&pmcdev->pdev->dev,
 				"pmc_core: couldn't get Package C-state telem endpoint %ld",
@@ -1681,7 +1681,7 @@ static int pmc_core_get_telem_info(struct pmc_dev *pmcdev, struct pmc_dev_info *
 		if (!pcidev)
 			return -ENODEV;
 
-		ep = pmt_telem_find_and_register_endpoint(&pcidev, pmc->map->lpm_req_guid, 0);
+		ep = pmt_telem_find_and_register_endpoint(&pcidev->dev, pmc->map->lpm_req_guid, 0);
 		if (IS_ERR(ep)) {
 			dev_dbg(&pmcdev->pdev->dev, "couldn't get telem endpoint %pe", ep);
 			return -EPROBE_DEFER;
