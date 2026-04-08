@@ -3118,7 +3118,7 @@ static void intel_pmu_enable_fixed(struct perf_event *event)
 	intel_set_masks(event, idx);
 
 	/*
-	 * Enable IRQ generation (0x8), if not PEBS or self-reloaded
+	 * Enable IRQ generation (0x8), if not PEBS and not self-reloaded
 	 * ACR event, and enable ring-3 counting (0x2) and ring-0
 	 * counting (0x1) if requested:
 	 */
