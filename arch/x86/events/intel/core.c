@@ -3357,6 +3357,7 @@ static void intel_pmu_acr_late_setup(struct cpu_hw_events *cpuc)
 {
 	struct perf_event *event, *leader;
 	int i, j, k, bit, idx;
+	u64 group_mask;
 
 	/*
 	 * FIXME: ACR mask parsing relies on cpuc->event_list[] (active events only).
@@ -3377,6 +3378,11 @@ static void intel_pmu_acr_late_setup(struct cpu_hw_events *cpuc)
 				break;
 		}
 
+		/* Figure out the group indices bitmap. */
+		group_mask = 0;
+		for (k = i; k < j; k++)
+			group_mask |= BIT_ULL(cpuc->assign[k]);
+
 		/*
 		 * Translate the user-space ACR mask (attr.config2) into the physical
 		 * counter bitmask (hw.config1) for each ACR event in the group.
@@ -3387,8 +3393,9 @@ static void intel_pmu_acr_late_setup(struct cpu_hw_events *cpuc)
 			event->hw.config1 = 0;
 			for_each_set_bit(bit, (unsigned long *)&event->attr.config2, X86_PMC_IDX_MAX) {
 				idx = i + bit;
-				/* Event index of ACR group must locate in [i, j). */
-				if (idx >= j || !is_acr_event_group(cpuc->event_list[idx]))
+				if (idx >= cpuc->n_events ||
+				    !(BIT_ULL(cpuc->assign[idx]) & group_mask) ||
+				    !is_acr_event_group(cpuc->event_list[idx]))
 					continue;
 				__set_bit(cpuc->assign[idx], (unsigned long *)&event->hw.config1);
 			}
