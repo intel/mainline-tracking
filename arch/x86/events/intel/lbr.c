@@ -1245,7 +1245,7 @@ intel_pmu_lbr_filter(struct cpu_hw_events *cpuc)
 		}
 
 		/* if type does not correspond, then discard */
-		if (type == X86_BR_NONE || (br_sel & type) != type) {
+		if ((type & ~X86_BR_PLM) == X86_BR_NONE || (br_sel & type) != type) {
 			cpuc->lbr_entries[i].from = 0;
 			compress = true;
 		}
