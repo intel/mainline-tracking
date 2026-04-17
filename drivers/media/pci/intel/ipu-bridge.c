@@ -36,6 +36,9 @@
  */
 #define IVSC_DEV_NAME "intel_vsc"
 
+#define PHY_MODE_DPHY  0
+#define PHY_MODE_CPHY  1
+
 /*
  * Extend this array with ACPI Hardware IDs of devices known to be working
  * plus the number of link-frequencies expected by their drivers, along with
@@ -347,6 +350,7 @@ int ipu_bridge_parse_ssdb(struct acpi_device *adev, struct ipu_sensor *sensor)
 
 	sensor->link = ssdb.link;
 	sensor->lanes = ssdb.lanes;
+	sensor->phyconfig = ssdb.phyconfig;
 	sensor->mclkspeed = ssdb.mclkspeed;
 	sensor->rotation = ipu_bridge_parse_rotation(adev, &ssdb);
 	sensor->orientation = ipu_bridge_parse_orientation(adev);
@@ -365,6 +369,7 @@ static void ipu_bridge_create_fwnode_properties(
 {
 	struct ipu_property_names *names = &sensor->prop_names;
 	struct software_node *nodes = sensor->swnodes;
+	u8 bus_type;
 
 	sensor->prop_names = prop_names;
 
@@ -422,9 +427,16 @@ static void ipu_bridge_create_fwnode_properties(
 			PROPERTY_ENTRY_REF_ARRAY("lens-focus", sensor->vcm_ref);
 	}
 
+	if (sensor->phyconfig == PHY_MODE_DPHY)
+		bus_type = V4L2_FWNODE_BUS_TYPE_CSI2_DPHY;
+	else if (sensor->phyconfig == PHY_MODE_CPHY)
+		bus_type = V4L2_FWNODE_BUS_TYPE_CSI2_CPHY;
+	else
+		bus_type = V4L2_FWNODE_BUS_TYPE_GUESS;
+
 	sensor->ep_properties[0] = PROPERTY_ENTRY_U32(
 					sensor->prop_names.bus_type,
-					V4L2_FWNODE_BUS_TYPE_CSI2_DPHY);
+					bus_type);
 	sensor->ep_properties[1] = PROPERTY_ENTRY_U32_ARRAY_LEN(
 					sensor->prop_names.data_lanes,
 					bridge->data_lanes, sensor->lanes);
@@ -444,6 +456,15 @@ static void ipu_bridge_create_fwnode_properties(
 	sensor->ipu_properties[1] = PROPERTY_ENTRY_REF_ARRAY(
 					sensor->prop_names.remote_endpoint,
 					sensor->remote_ref);
+
+	/*
+	 * TODO: Remove the bus_type property for IPU
+	 * 1. keep fwnode property list no change.
+	 * 2. IPU driver needs to get bus_type from remote sensor ep.
+	 */
+	sensor->ipu_properties[2] = PROPERTY_ENTRY_U32
+					(sensor->prop_names.bus_type,
+					bus_type);
 }
 
 static void ipu_bridge_init_swnode_names(struct ipu_sensor *sensor)
