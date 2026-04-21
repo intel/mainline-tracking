@@ -371,6 +371,42 @@ static int isys_csi2_create_media_links(struct ipu7_isys *isys)
 	return 0;
 }
 
+#ifdef CONFIG_VIDEO_INTEL_IPU7_ISYS_RESET
+static void isys_v4l2_notify(struct v4l2_subdev *sd, unsigned int notification,
+			     void *arg)
+{
+	struct ipu7_isys *isys =
+		container_of(sd->v4l2_dev, struct ipu7_isys, v4l2_dev);
+	struct device *dev = &isys->adev->auxdev.dev;
+	struct v4l2_event *ev = arg;
+	unsigned long flags;
+
+	spin_lock_irqsave(&isys->power_lock, flags);
+	if (!isys->power) {
+		spin_unlock_irqrestore(&isys->power_lock, flags);
+		dev_dbg(dev, "%s: isys powered off, ignore notify %u\n",
+					  sd->name, notification);
+		return;
+	}
+	spin_unlock_irqrestore(&isys->power_lock, flags);
+
+	if (notification == V4L2_DEVICE_NOTIFY_EVENT) {
+		if ((ev->type == V4L2_EVENT_SOURCE_CHANGE ||
+		     ev->type == V4L2_EVENT_EOS) &&
+		    isys->stream_opened > 1) {
+			dev_dbg(dev, "%s: isys need reset due to notify %u, stream opened %d\n",
+					sd->name, ev->type, isys->stream_opened);
+			mutex_lock(&isys->reset_mutex);
+			isys->need_reset = true;
+			mutex_unlock(&isys->reset_mutex);
+		}
+	} else {
+		dev_warn(dev, "%s: unknown notification %u\n",
+				 sd->name, notification);
+	}
+}
+#endif
+
 static int isys_register_devices(struct ipu7_isys *isys)
 {
 	struct device *dev = &isys->adev->auxdev.dev;
@@ -390,6 +426,9 @@ static int isys_register_devices(struct ipu7_isys *isys)
 	isys->v4l2_dev.mdev = &isys->media_dev;
 	isys->v4l2_dev.ctrl_handler = NULL;
 
+#ifdef CONFIG_VIDEO_INTEL_IPU7_ISYS_RESET
+	isys->v4l2_dev.notify = isys_v4l2_notify;
+#endif
 	ret = v4l2_device_register(dev, &isys->v4l2_dev);
 	if (ret < 0)
 		goto out_media_device_unregister;
@@ -540,6 +579,12 @@ static int isys_runtime_pm_suspend(struct device *dev)
 	isys->power = 0;
 	spin_unlock_irqrestore(&isys->power_lock, flags);
 
+#ifdef CONFIG_VIDEO_INTEL_IPU7_ISYS_RESET
+	mutex_lock(&isys->reset_mutex);
+	isys->need_reset = false;
+	mutex_unlock(&isys->reset_mutex);
+
+#endif
 	cpu_latency_qos_update_request(&isys->pm_qos, PM_QOS_DEFAULT_VALUE);
 
 	ipu7_mmu_hw_cleanup(adev->mmu);
@@ -594,6 +639,9 @@ static void isys_remove(struct auxiliary_device *auxdev)
 
 	mutex_destroy(&isys->stream_mutex);
 	mutex_destroy(&isys->mutex);
+#ifdef CONFIG_VIDEO_INTEL_IPU7_ISYS_RESET
+	mutex_destroy(&isys->reset_mutex);
+#endif
 	mutex_destroy(&isys->acquire_fw_msgbuf_lock);
 }
 
@@ -759,6 +807,10 @@ static int isys_probe(struct auxiliary_device *auxdev,
 	mutex_init(&isys->mutex);
 	mutex_init(&isys->stream_mutex);
 	mutex_init(&isys->acquire_fw_msgbuf_lock);
+#ifdef CONFIG_VIDEO_INTEL_IPU7_ISYS_RESET
+	mutex_init(&isys->reset_mutex);
+	isys->state = 0;
+#endif
 
 	spin_lock_init(&isys->listlock);
 	INIT_LIST_HEAD(&isys->framebuflist);
@@ -798,6 +850,9 @@ out_cleanup:
 out_cleanup_fw:
 	ipu7_fw_isys_release(isys);
 out_cleanup_isys:
+#ifdef CONFIG_VIDEO_INTEL_IPU7_ISYS_RESET
+	mutex_destroy(&isys->reset_mutex);
+#endif
 	mutex_destroy(&isys->acquire_fw_msgbuf_lock);
 	cpu_latency_qos_remove_request(&isys->pm_qos);
 
