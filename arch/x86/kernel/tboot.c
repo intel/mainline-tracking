@@ -586,12 +586,22 @@ struct acpi_table_dtpr *tboot_get_dtpr_table(void **heap_base)
 }
 
 static bool tboot_tpr_enabled;
+
+/*
+ * Cache TPR register mappings at boot so they can be reused during
+ * S3 resume without calling ioremap() (which is unsafe in syscore
+ * resume context where interrupts are disabled).
+ */
+#define MAX_TPR_REGS 8
+static u8 __iomem *tpr_reg_map[MAX_TPR_REGS];
+static int tpr_reg_count;
+
 void tboot_parse_dtpr_table(struct acpi_table_dtpr *dtpr)
 {
 	struct acpi_tpr_instance *tpr_inst;
 	struct acpi_tpr_array    *tpr_arr;
 	u32 *instance_cnt;
-	u64 *base;
+	u8 __iomem *base;
 	u32 i, j;
 
 	if (!tboot_enabled())
@@ -608,14 +618,25 @@ void tboot_parse_dtpr_table(struct acpi_table_dtpr *dtpr)
 
 			base = ioremap(tpr_arr->base, 16);
 			if (!base) {
-				pr_warn("TPR Instance %d, TPR No.%d disabling failure.\n", i, j);
+				pr_err("Mapping TPR array[%d] base address has failed\n", j);
 				continue;
 			}
 
 			pr_info("TPR instance %d, TPR %d:base %llx limit %llx\n", i, j,
-				readq(base), readq(base + 1));
+				readq(base), readq(base + 8));
 			writeq(readq(base) | BIT(4), base);
-			iounmap(base);
+			/*
+			 * Keep mapping for S3 resume. The ioremap function is not
+			 * safe in syscore_resume context.
+			 */
+			if (tpr_reg_count < MAX_TPR_REGS)
+				tpr_reg_map[tpr_reg_count++] = base;
+			else {
+				pr_warn("The maximum number of TPRs (%d) has been"
+					" exceeded.\n", MAX_TPR_REGS);
+				pr_warn("Number of detected TPRs: %d\n", tpr_reg_count);
+				iounmap(base);
+			}
 		}
 
 		tpr_inst = (struct acpi_tpr_instance *)((u8 *)tpr_inst +
@@ -624,6 +645,28 @@ void tboot_parse_dtpr_table(struct acpi_table_dtpr *dtpr)
 
 	if (tboot_tpr_enabled)
 		pr_debug("TPR protection detected, PMR will be disabled\n");
+	if (tpr_reg_count)
+		pr_info("tboot: cached %d TPR register mapping(s) for"
+			" use during S3 resume\n", tpr_reg_count);
+}
+
+/*
+ * Disable TPR using cached mappings from boot. Safe to call from
+ * syscore_resume (interrupts disabled) since no ioremap is needed.
+ */
+void tboot_disable_tpr(void)
+{
+	int i;
+	u64 val;
+
+	for (i = 0; i < tpr_reg_count; i++) {
+		val = readq(tpr_reg_map[i]);
+		if (!(val & BIT(4))) {
+			writeq(val | BIT(4), tpr_reg_map[i]);
+			pr_info("tboot: TPR %d disabled prior to S3 device resume "
+				"(val %#llx)\n", i, val);
+		}
+	}
 }
 
 bool tboot_is_tpr_enabled(void)
