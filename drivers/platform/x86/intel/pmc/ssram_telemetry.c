@@ -109,6 +109,7 @@ pmc_ssram_telemetry_get_pmc_pci(struct pci_dev *pcidev, unsigned int pmc_idx, u3
 	void __iomem __free(pmc_ssram_telemetry_iounmap) *tmp_ssram = NULL;
 	void __iomem __free(pmc_ssram_telemetry_iounmap) *ssram = NULL;
 	u64 ssram_base;
+	int ret;
 
 	ssram_base = pci_resource_start(pcidev, 0);
 	tmp_ssram = ioremap(ssram_base, SSRAM_HDR_SIZE);
@@ -128,7 +129,6 @@ pmc_ssram_telemetry_get_pmc_pci(struct pci_dev *pcidev, unsigned int pmc_idx, u3
 		ssram = ioremap(ssram_base, SSRAM_HDR_SIZE);
 		if (!ssram)
 			return -ENOMEM;
-
 	} else {
 		ssram = no_free_ptr(tmp_ssram);
 	}
@@ -136,7 +136,11 @@ pmc_ssram_telemetry_get_pmc_pci(struct pci_dev *pcidev, unsigned int pmc_idx, u3
 	pmc_ssram_get_devid_pwrmbase(ssram, pmc_idx);
 
 	/* Find and register and PMC telemetry entries */
-	return pmc_ssram_telemetry_add_pmt(pcidev, ssram_base, ssram);
+	ret = pmc_ssram_telemetry_add_pmt(pcidev, ssram_base, ssram);
+	if (ret)
+		dev_warn(&pcidev->dev, "could not register PMT\n");
+
+	return 0;
 }
 
 static int pmc_ssram_telemetry_pci_init(struct pci_dev *pcidev)
@@ -209,7 +213,7 @@ static int pmc_ssram_telemetry_acpi_init(struct pci_dev *pcidev,
 
 	ret = intel_vsec_register(&pcidev->dev, &info);
 	if (ret)
-		return ret;
+		dev_warn(&pcidev->dev, "could not register PMT\n");
 
 	return pmc_ssram_telemetry_get_pmc_acpi(pcidev, index);
 }
