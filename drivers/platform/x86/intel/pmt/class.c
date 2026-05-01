@@ -383,6 +383,9 @@ int intel_pmt_dev_create(struct intel_pmt_entry *entry, struct intel_pmt_namespa
 	if (IS_ERR(entry->disc_table))
 		return PTR_ERR(entry->disc_table);
 
+	memcpy_fromio(entry->disc_header, entry->disc_table,
+		      sizeof(entry->disc_header));
+
 	if (ns->pmt_pre_decode) {
 		ret = ns->pmt_pre_decode(intel_vsec_dev, entry);
 		if (ret)
