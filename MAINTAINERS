@@ -13362,6 +13362,7 @@ F:	tools/testing/selftests/drivers/sdsi/
 INTEL SILICON SECURITY ENGINE INTERFACE (ISSEI)
 M:	Alexander Usyskin <alexander.usyskin@intel.com>
 S:	Supported
+F:	Documentation/ABI/testing/sysfs-class-issei
 F:	Documentation/driver-api/issei/issei.rst
 F:	drivers/misc/issei/
 F:	include/uapi/linux/issei.h
