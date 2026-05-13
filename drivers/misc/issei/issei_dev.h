@@ -157,4 +157,7 @@ static inline void issei_poke_process_thread(struct issei_device *idev)
 	WRITE_ONCE(idev->has_data, true);
 	wake_up_interruptible(&idev->wait_has_data);
 }
+
+int issei_start(struct issei_device *idev);
+void issei_stop(struct issei_device *idev);
 #endif /* _ISSEI_DEV_H_ */
