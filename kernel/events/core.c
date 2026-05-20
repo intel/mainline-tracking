@@ -11362,6 +11362,9 @@ static int perf_tp_event_init(struct perf_event *event)
 	if (err)
 		return err;
 
+	/* Trace event could be read from any CPU */
+	event->event_caps |= PERF_EV_CAP_READ_SCOPE;
+
 	event->destroy = tp_perf_event_destroy;
 
 	return 0;
@@ -11376,6 +11379,7 @@ static struct pmu perf_tracepoint = {
 	.start		= perf_swevent_start,
 	.stop		= perf_swevent_stop,
 	.read		= perf_swevent_read,
+	.scope		= PERF_PMU_SCOPE_SYS_WIDE,
 };
 
 static int perf_tp_filter_match(struct perf_event *event,
