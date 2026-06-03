@@ -635,6 +635,8 @@ static int __init
 parse_dmar_table(void)
 {
 	struct acpi_table_dmar *dmar;
+	struct acpi_table_dtpr *dtpr;
+	void                   *txt_heap;
 	int drhd_count = 0;
 	int ret;
 	struct dmar_res_callback cb = {
@@ -670,6 +672,16 @@ parse_dmar_table(void)
 		return -EINVAL;
 	}
 
+	dtpr = tboot_get_dtpr_table(&txt_heap);
+	if (dtpr) {
+		/* TPR is enabled
+		 * This will also tell not to establish IOMMU PMRs
+		 */
+		tboot_parse_dtpr_table(dtpr);
+		iounmap(txt_heap);
+	}
+
+	txt_heap = NULL;
 	pr_info("Host address width %d\n", dmar->width + 1);
 	ret = dmar_walk_dmar_table(dmar, &cb);
 	if (ret == 0 && drhd_count == 0)
