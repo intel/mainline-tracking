@@ -683,6 +683,20 @@ void ipu7_cleanup_fw_msg_bufs(struct ipu7_isys *isys)
 	spin_unlock_irqrestore(&isys->listlock, flags);
 }
 
+void ipu7_cleanup_fw_msg_bufs_by_stream_id(struct ipu7_isys *isys,
+					   u16 stream_id)
+{
+	struct isys_fw_msgs *fwmsg, *fwmsg0;
+	unsigned long flags;
+
+	spin_lock_irqsave(&isys->listlock, flags);
+	list_for_each_entry_safe(fwmsg, fwmsg0, &isys->framebuflist_fw, head) {
+		if (fwmsg->stream_id == stream_id)
+			list_move(&fwmsg->head, &isys->framebuflist);
+	}
+	spin_unlock_irqrestore(&isys->listlock, flags);
+}
+
 void ipu7_put_fw_msg_buf(struct ipu7_isys *isys, uintptr_t data)
 {
 	struct isys_fw_msgs *msg;

@@ -452,6 +452,7 @@ static int start_stream_firmware(struct ipu7_isys_video *av,
 	if (!msg)
 		return -ENOMEM;
 
+	msg->stream_id = stream->stream_handle;
 	stream_cfg = &msg->fw_msg.stream;
 	stream_cfg->port_id = stream->stream_source;
 	stream_cfg->vc = stream->vc;
@@ -508,6 +509,7 @@ static int start_stream_firmware(struct ipu7_isys_video *av,
 		ret = -ENOMEM;
 		goto out_put_stream_opened;
 	}
+	msg->stream_id = stream->stream_handle;
 	buf = &msg->fw_msg.frame;
 
 	ipu7_isys_buffer_to_fw_frame_buff(buf, stream, bl);
@@ -782,6 +784,7 @@ int ipu7_isys_video_set_streaming(struct ipu7_isys_video *av, int state,
 	struct media_pad *r_pad;
 	struct v4l2_subdev *sd;
 	u32 r_stream = 0;
+	u16 stream_id = stream->stream_handle;
 	int ret = 0;
 
 	dev_dbg(dev, "set stream: %d\n", state);
@@ -806,6 +809,7 @@ int ipu7_isys_video_set_streaming(struct ipu7_isys_video *av, int state,
 		}
 
 		close_streaming_firmware(av);
+		ipu7_cleanup_fw_msg_bufs_by_stream_id(av->isys, stream_id);
 	} else {
 		ret = start_stream_firmware(av, bl);
 		if (ret) {

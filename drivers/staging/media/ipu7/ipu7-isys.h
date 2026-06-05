@@ -121,6 +121,7 @@ struct isys_fw_msgs {
 	} fw_msg;
 	struct list_head head;
 	dma_addr_t dma_addr;
+	u16 stream_id;
 };
 
 struct ipu7_isys_csi2_config {
@@ -137,6 +138,8 @@ struct sensor_async_sd {
 struct isys_fw_msgs *ipu7_get_fw_msg_buf(struct ipu7_isys_stream *stream);
 void ipu7_put_fw_msg_buf(struct ipu7_isys *isys, uintptr_t data);
 void ipu7_cleanup_fw_msg_bufs(struct ipu7_isys *isys);
+void ipu7_cleanup_fw_msg_bufs_by_stream_id(struct ipu7_isys *isys,
+					   u16 stream_id);
 int isys_isr_one(struct ipu7_bus_device *adev);
 void ipu7_isys_setup_hw(struct ipu7_isys *isys);
 #endif /* IPU7_ISYS_H */
