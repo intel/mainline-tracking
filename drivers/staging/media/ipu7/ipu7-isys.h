@@ -109,6 +109,8 @@ struct ipu7_isys {
 
 	struct ipu7_insys_config *subsys_config;
 	dma_addr_t subsys_config_dma_addr;
+	/* Protect framebuflist when getting fw msg buf. */
+	struct mutex acquire_fw_msgbuf_lock;
 };
 
 struct isys_fw_msgs {

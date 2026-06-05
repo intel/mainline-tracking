@@ -594,6 +594,7 @@ static void isys_remove(struct auxiliary_device *auxdev)
 
 	mutex_destroy(&isys->stream_mutex);
 	mutex_destroy(&isys->mutex);
+	mutex_destroy(&isys->acquire_fw_msgbuf_lock);
 }
 
 static int alloc_fw_msg_bufs(struct ipu7_isys *isys, int amount)
@@ -642,18 +643,22 @@ struct isys_fw_msgs *ipu7_get_fw_msg_buf(struct ipu7_isys_stream *stream)
 	unsigned long flags;
 	int ret;
 
+	mutex_lock(&isys->acquire_fw_msgbuf_lock);
 	spin_lock_irqsave(&isys->listlock, flags);
 	if (list_empty(&isys->framebuflist)) {
 		spin_unlock_irqrestore(&isys->listlock, flags);
 		dev_dbg(dev, "Frame buffer list empty\n");
 
 		ret = alloc_fw_msg_bufs(isys, 5);
-		if (ret < 0)
+		if (ret < 0) {
+			mutex_unlock(&isys->acquire_fw_msgbuf_lock);
 			return NULL;
+		}
 
 		spin_lock_irqsave(&isys->listlock, flags);
 		if (list_empty(&isys->framebuflist)) {
 			spin_unlock_irqrestore(&isys->listlock, flags);
+			mutex_unlock(&isys->acquire_fw_msgbuf_lock);
 			dev_err(dev, "Frame list empty\n");
 			return NULL;
 		}
@@ -661,6 +666,7 @@ struct isys_fw_msgs *ipu7_get_fw_msg_buf(struct ipu7_isys_stream *stream)
 	msg = list_last_entry(&isys->framebuflist, struct isys_fw_msgs, head);
 	list_move(&msg->head, &isys->framebuflist_fw);
 	spin_unlock_irqrestore(&isys->listlock, flags);
+	mutex_unlock(&isys->acquire_fw_msgbuf_lock);
 	memset(&msg->fw_msg, 0, sizeof(msg->fw_msg));
 
 	return msg;
@@ -738,6 +744,7 @@ static int isys_probe(struct auxiliary_device *auxdev,
 
 	mutex_init(&isys->mutex);
 	mutex_init(&isys->stream_mutex);
+	mutex_init(&isys->acquire_fw_msgbuf_lock);
 
 	spin_lock_init(&isys->listlock);
 	INIT_LIST_HEAD(&isys->framebuflist);
@@ -777,6 +784,7 @@ out_cleanup:
 out_cleanup_fw:
 	ipu7_fw_isys_release(isys);
 out_cleanup_isys:
+	mutex_destroy(&isys->acquire_fw_msgbuf_lock);
 	cpu_latency_qos_remove_request(&isys->pm_qos);
 
 	for (unsigned int i = 0; i < IPU_ISYS_MAX_STREAMS; i++)

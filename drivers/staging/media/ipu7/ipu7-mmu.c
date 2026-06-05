@@ -30,6 +30,7 @@
 #include "ipu7-dma.h"
 #include "ipu7-mmu.h"
 #include "ipu7-platform-regs.h"
+#include "ipu7-isys.h"
 
 #define ISP_PAGE_SHIFT		12
 #define ISP_PAGE_SIZE		BIT(ISP_PAGE_SHIFT)
@@ -52,6 +53,8 @@
 #define TBL_PHYS_ADDR(a)	((phys_addr_t)(a) << ISP_PADDR_SHIFT)
 
 #define MMU_TLB_INVALIDATE_TIMEOUT	2000
+#define WAIT_FW_MSG_BUFS_CLEAR_TIME_MS	17
+#define WAIT_FW_MSG_BUFS_CLEAR_TIMES	5
 
 static __maybe_unused void mmu_irq_handler(struct ipu7_mmu *mmu)
 {
@@ -66,20 +69,86 @@ static __maybe_unused void mmu_irq_handler(struct ipu7_mmu *mmu)
 	}
 }
 
-static void tlb_invalidate(struct ipu7_mmu *mmu)
+static void tlb_invalidate(struct ipu7_mmu *mmu, int mmu_id)
 {
 	unsigned long flags;
+	unsigned int start, end;
 	unsigned int i;
 	int ret;
 	u32 val;
+	bool locked_get_fw = false;
+	struct ipu7_isys *isys = NULL;
+	unsigned int prev_fw_cnt = UINT_MAX;
+	unsigned int curr_fw_cnt = UINT_MAX;
+	unsigned int not_decreasing_count = 0;
+
+	if (mmu->mmid == ISYS_MMID) {
+		isys = dev_get_drvdata(mmu->dev);
+		if (!isys) {
+			dev_warn(mmu->dev, "isys drvdata is NULL, skip tlb invalidate wait\n");
+			return;
+		}
+
+		if (!mutex_is_locked(&isys->acquire_fw_msgbuf_lock)) {
+			mutex_lock(&isys->acquire_fw_msgbuf_lock);
+			locked_get_fw = true;
+		}
+
+		while (1) {
+			spin_lock_irqsave(&isys->listlock, flags);
+			curr_fw_cnt = list_count_nodes(&isys->framebuflist_fw);
+			spin_unlock_irqrestore(&isys->listlock, flags);
+			if (curr_fw_cnt == 0)
+				break;
+
+			if (curr_fw_cnt >= prev_fw_cnt)
+				not_decreasing_count++;
+			else
+				not_decreasing_count = 0;
+			prev_fw_cnt = curr_fw_cnt;
+
+			/*
+			 * Timeout after consecutive non-decreasing counts.
+			 * Continue invalidate to avoid indefinite stall.
+			 */
+			if (not_decreasing_count >
+			    WAIT_FW_MSG_BUFS_CLEAR_TIMES) {
+				dev_warn(&isys->adev->auxdev.dev,
+					 "wait framebuflist_fw empty timeout");
+				break;
+			}
+
+			msleep(WAIT_FW_MSG_BUFS_CLEAR_TIME_MS);
+		}
+	}
 
 	spin_lock_irqsave(&mmu->ready_lock, flags);
 	if (!mmu->ready) {
 		spin_unlock_irqrestore(&mmu->ready_lock, flags);
+		if (locked_get_fw)
+			mutex_unlock(&isys->acquire_fw_msgbuf_lock);
 		return;
 	}
 
-	for (i = 0; i < mmu->nr_mmus; i++) {
+	/* mmu_id < 0: all MMUs, otherwise one MMU. */
+	if (mmu_id < 0) {
+		start = 0;
+		end = mmu->nr_mmus;
+	} else if (mmu_id >= mmu->nr_mmus) {
+		dev_warn(mmu->dev, "invalid mmu_id %d, nr_mmus %u\n",
+			 mmu_id, mmu->nr_mmus);
+		spin_unlock_irqrestore(&mmu->ready_lock, flags);
+		if (locked_get_fw)
+			mutex_unlock(&isys->acquire_fw_msgbuf_lock);
+		return;
+	}
+
+	if (mmu_id >= 0) {
+		start = mmu_id;
+		end = mmu_id + 1;
+	}
+
+	for (i = start; i < end; i++) {
 		writel(0xffffffffU, mmu->mmu_hw[i].base +
 		       MMU_REG_INVALIDATE_0);
 
@@ -106,6 +175,8 @@ static void tlb_invalidate(struct ipu7_mmu *mmu)
 	}
 
 	spin_unlock_irqrestore(&mmu->ready_lock, flags);
+	if (locked_get_fw)
+		mutex_unlock(&isys->acquire_fw_msgbuf_lock);
 }
 
 static dma_addr_t map_single(struct ipu7_mmu_info *mmu_info, void *ptr)

@@ -206,6 +206,9 @@ void *ipu7_dma_alloc(struct ipu7_bus_device *sys, size_t size,
 		}
 	}
 
+	if (mmu->mmid == ISYS_MMID)
+		mmu->tlb_invalidate(mmu, IPU_IS_MMU_FW_RD);
+
 	info->vaddr = vmap(pages, count, VM_USERMAP, PAGE_KERNEL);
 	if (!info->vaddr)
 		goto out_unmap;
@@ -286,7 +289,7 @@ void ipu7_dma_free(struct ipu7_bus_device *sys, size_t size, void *vaddr,
 
 	__free_buffer(pages, size, attrs);
 
-	mmu->tlb_invalidate(mmu);
+	mmu->tlb_invalidate(mmu, -1);
 
 	__free_iova(&mmu->dmap->iovad, iova);
 
@@ -366,7 +369,7 @@ void ipu7_dma_unmap_sg(struct ipu7_bus_device *sys, struct scatterlist *sglist,
 	ipu7_mmu_unmap(mmu->dmap->mmu_info, PFN_PHYS(iova->pfn_lo),
 		       PFN_PHYS(iova_size(iova)));
 
-	mmu->tlb_invalidate(mmu);
+	mmu->tlb_invalidate(mmu, -1);
 	__free_iova(&mmu->dmap->iovad, iova);
 }
 EXPORT_SYMBOL_NS_GPL(ipu7_dma_unmap_sg, "INTEL_IPU7");
