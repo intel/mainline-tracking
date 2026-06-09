@@ -2,6 +2,16 @@
 
 comment "Intel media platform drivers"
 
+config INTEL_IPU_ACPI
+	tristate "Enable IPU ACPI driver"
+	depends on I2C
+	depends on ACPI
+	depends on INTEL_SKL_INT3472
+	help
+	Driver to read ACPI data from BIOS
+
+	This driver is used to read ACPI data from BIOS
+
 config VIDEO_PXA27x
 	tristate "PXA27x Quick Capture Interface driver"
 	depends on V4L_PLATFORM_DRIVERS

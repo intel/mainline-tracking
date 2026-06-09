@@ -91,7 +91,18 @@ struct ipu_sensor_ssdb {
 	u8 controllogicid;
 	u8 reserved1[3];
 	u8 mclkport;
-	u8 reserved2[13];
+#if IS_ENABLED(CONFIG_VIDEO_INTEL_IPU7)
+	u8 reserved2[5];
+	u8 phyconfig;
+	u8 reserved3[7];
+#else
+	u8 pmicpos;
+	u8 voltagerail;
+	u8 pprval;
+	u8 pprunit;
+	u8 flashid;
+	u8 reserved2[8];
+#endif
 } __packed;
 
 struct ipu_property_names {
@@ -134,16 +145,26 @@ struct ipu_sensor {
 	struct ipu_node_names node_names;
 
 	u8 link;
+#if !IS_ENABLED(CONFIG_VIDEO_INTEL_IPU7)
+	u8 pprval;
+#endif
 	u8 lanes;
 	u32 mclkspeed;
 	u32 rotation;
 	enum v4l2_fwnode_orientation orientation;
 	const char *vcm_type;
+#if IS_ENABLED(CONFIG_VIDEO_INTEL_IPU7)
+	u8 phyconfig;
+#endif
 
 	struct ipu_property_names prop_names;
 	struct property_entry ep_properties[5];
 	struct property_entry dev_properties[5];
+#if IS_ENABLED(CONFIG_VIDEO_INTEL_IPU7)
+	struct property_entry ipu_properties[4];
+#else
 	struct property_entry ipu_properties[3];
+#endif
 	struct property_entry ivsc_properties[1];
 	struct property_entry ivsc_sensor_ep_properties[4];
 	struct property_entry ivsc_ipu_ep_properties[4];

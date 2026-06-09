@@ -60,6 +60,41 @@ config VIDEO_AR0521
 	  To compile this driver as a module, choose M here: the
 	  module will be called ar0521.
 
+config VIDEO_AR0234
+	tristate "ON Semiconductor AR0234 sensor support"
+	depends on VIDEO_DEV && I2C
+	select VIDEO_V4L2_SUBDEV_API
+	depends on MEDIA_CAMERA_SUPPORT
+	help
+	  This is a Video4Linux2 sensor driver for the ON Semiconductor
+	  AR0234 camera.
+
+	  To compile this driver as a module, choose M here: the
+	  module will be called ar0234.
+
+config VIDEO_ISX031
+	tristate "ISX031 sensor support"
+	depends on VIDEO_DEV && I2C
+	depends on MEDIA_CAMERA_SUPPORT
+	select VIDEO_V4L2_SUBDEV_API
+	help
+	  This is a Video4Linux2 sensor-level driver for
+	  Sony ISX031 camera with a MIPI CSI-2 interface.
+
+	  To compile this driver as a module, choose M here: the
+	  module will be called isx031.
+
+config VIDEO_D4XX
+	tristate "D4XX sensor support"
+	depends on VIDEO_DEV && I2C
+	select VIDEO_V4L2_SUBDEV_API
+	depends on MEDIA_CAMERA_SUPPORT
+	help
+		This is a Video4Linux2 sensor-level driver for D4XX camera.
+
+		To compile this driver as a module, choose M here: the
+		module will be called d4xx
+
 config VIDEO_GC0308
 	tristate "GalaxyCore GC0308 sensor support"
 	select V4L2_CCI_I2C
@@ -129,13 +164,13 @@ config VIDEO_HI846
 	  module will be called hi846.
 
 config VIDEO_HI847
-        tristate "Hynix Hi-847 sensor support"
-        help
-          This is a Video4Linux2 sensor driver for the Hynix
-          Hi-847 camera.
+	tristate "Hynix Hi-847 sensor support"
+	help
+	  This is a Video4Linux2 sensor driver for the Hynix
+	  Hi-847 camera.
 
-          To compile this driver as a module, choose M here: the
-          module will be called hi847.
+	  To compile this driver as a module, choose M here: the
+	  module will be called hi847.
 
 config VIDEO_IMX111
 	tristate "Sony IMX111 sensor support"
@@ -373,14 +408,14 @@ config VIDEO_OG0VE1B
 	  module will be called og0ve1b.
 
 config VIDEO_OS05B10
-        tristate "OmniVision OS05B10 sensor support"
-        select V4L2_CCI_I2C
-        help
-          This is a Video4Linux2 sensor driver for Omnivision
-          OS05B10 camera sensor.
+	tristate "OmniVision OS05B10 sensor support"
+	select V4L2_CCI_I2C
+	help
+	  This is a Video4Linux2 sensor driver for Omnivision
+	  OS05B10 camera sensor.
 
 	  To compile this driver as a module, choose M here: the
-          module will be called os05b10.
+	  module will be called os05b10.
 
 config VIDEO_OV01A10
 	tristate "OmniVision OV01A10 sensor support"
@@ -422,13 +457,13 @@ config VIDEO_OV02C10
 	  module will be called ov02c10.
 
 config VIDEO_OV08D10
-        tristate "OmniVision OV08D10 sensor support"
-        help
-          This is a Video4Linux2 sensor driver for the OmniVision
-          OV08D10 camera sensor.
+	tristate "OmniVision OV08D10 sensor support"
+	help
+	  This is a Video4Linux2 sensor driver for the OmniVision
+	  OV08D10 camera sensor.
 
-          To compile this driver as a module, choose M here: the
-          module will be called ov08d10.
+	  To compile this driver as a module, choose M here: the
+	  module will be called ov08d10.
 
 config VIDEO_OV08X40
 	tristate "OmniVision OV08X40 sensor support"
@@ -1266,6 +1301,17 @@ config VIDEO_LT6911UXE
 	  To compile this driver as a module, choose M here: the
 	  module will be called lt6911uxe.
 
+config VIDEO_LT6911GXD
+	tristate "Lontium LT6911GXD decoder"
+	depends on ACPI || COMPILE_TEST
+	select V4L2_CCI_I2C
+	help
+	  This is a Video4Linux2 sensor-level driver for the Lontium
+	  LT6911GXD HDMI to MIPI CSI-2 bridge.
+
+	  To compile this driver as a module, choose M here: the
+	  module will be called lt6911gxd.
+
 config VIDEO_KS0127
 	tristate "KS0127 video decoder"
 	depends on VIDEO_DEV && I2C
@@ -1760,6 +1806,14 @@ config VIDEO_MAX96717
 
 	  To compile this driver as a module, choose M here: the
 	  module will be called max96717.
+
+config VIDEO_MAX9X
+				tristate "MAX9X serdes support"
+				depends on VIDEO_DEV && I2C
+				depends on MEDIA_CAMERA_SUPPORT
+				select VIDEO_V4L2_SUBDEV_API
+				help
+					This is a Video4Linux2 sensor-level driver for MAX9X serdes.
 
 endmenu
 
