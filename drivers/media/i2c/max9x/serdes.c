@@ -2730,4 +2730,3 @@ MODULE_LICENSE("GPL v2");
 MODULE_AUTHOR("Josh Watts <jwatts@d3embedded.com>");
 MODULE_AUTHOR("Yan, Dongcheng <dongcheng.yan@intel.com>");
 MODULE_DESCRIPTION("Common logic for Maxim GMSL serializers & deserializers");
-MODULE_VERSION(DRIVER_VERSION_SUFFIX);
