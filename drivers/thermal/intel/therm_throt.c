@@ -14,6 +14,7 @@
  * Credits: Adapted from Zwane Mwaikambo's original code in mce_intel.c.
  *          Inspired by Ross Biro's and Al Borchers' counter code.
  */
+#include <linux/syscore_ops.h>
 #include <linux/interrupt.h>
 #include <linux/notifier.h>
 #include <linux/jiffies.h>
@@ -572,7 +573,7 @@ static void config_directed_thermal_pkg_intr(void *info)
 
 /*
  * Accessed from CPU hotplug callbacks and from code that runs while CPU
- * hotplug is inactive: the init and cleanup paths.
+ * hotplug is inactive: the init and cleanup paths as well as syscore callbacks.
  * No extra locking needed.
  */
 static unsigned int *directed_intr_handler_cpus;
@@ -678,6 +679,10 @@ static void disable_directed_thermal_pkg_intr(unsigned int cpu)
 		 * We are here via CPU hotplug. Since we are holding the
 		 * cpu_hotplug_lock, @new_cpu cannot go offline and interrupts
 		 * are enabled, so the SMP function call is safe.
+		 *
+		 * The syscore suspend callback runs with interrupts disabled,
+		 * but it does not reach this path because all the secondary
+		 * CPUs are offline.
 		 */
 		smp_call_function_single(new_cpu, config_directed_thermal_pkg_intr,
 					 &enable, true);
@@ -709,6 +714,36 @@ static void disable_directed_thermal_pkg_intr(unsigned int cpu)
 	directed_intr_handler_cpus[pkg_id] = (new_cpu < nr_cpu_ids) ? new_cpu : nr_cpu_ids;
 }
 
+/*
+ * CPU0 may be handling the directed interrupt, but the CPU hotplug callbacks
+ * are not called for CPU0 during suspend and resume.
+ */
+static void directed_pkg_intr_syscore_resume(void *data)
+{
+	/*
+	 * We can't do anything to handle errors. If direction fails for CPU0,
+	 * another CPU will take over or disable direction entirely during CPU
+	 * hotplug.
+	 */
+	enable_directed_thermal_pkg_intr(0);
+}
+
+static int directed_pkg_intr_syscore_suspend(void *data)
+{
+	disable_directed_thermal_pkg_intr(0);
+
+	return 0;
+}
+
+static const struct syscore_ops directed_pkg_intr_pm_ops = {
+	.resume = directed_pkg_intr_syscore_resume,
+	.suspend = directed_pkg_intr_syscore_suspend,
+};
+
+static struct syscore directed_pkg_intr_pm = {
+	.ops = &directed_pkg_intr_pm_ops,
+};
+
 static __init void init_directed_pkg_intr(void)
 {
 	int i;
@@ -724,6 +759,8 @@ static __init void init_directed_pkg_intr(void)
 
 	for (i = 0; i < topology_max_packages(); i++)
 		directed_intr_handler_cpus[i] = nr_cpu_ids;
+
+	register_syscore(&directed_pkg_intr_pm);
 }
 
 static void cleanup_directed_pkg_thermal_intr(void)
@@ -731,6 +768,7 @@ static void cleanup_directed_pkg_thermal_intr(void)
 	if (!directed_thermal_pkg_intr_supported())
 		return;
 
+	unregister_syscore(&directed_pkg_intr_pm);
 	disable_directed_thermal_pkg_intr_all();
 	kfree(directed_intr_handler_cpus);
 	directed_intr_handler_cpus = NULL;
