@@ -20,6 +20,7 @@
 #include <linux/kernel.h>
 #include <linux/percpu.h>
 #include <linux/export.h>
+#include <linux/delay.h>
 #include <linux/types.h>
 #include <linux/init.h>
 #include <linux/smp.h>
@@ -244,16 +245,23 @@ static void thermal_intr_init_pkg_clear_mask(void)
 	 * IA32_PACKAGE_THERM_STATUS.
 	 */
 
-	/* All bits except BIT 26 depend on CPUID.06H: EAX[6] = 1 */
+	/* All bits except BITs 25 and 26 depend on CPUID.06H: EAX[6] = 1 */
 	if (boot_cpu_has(X86_FEATURE_PTS))
 		therm_intr_pkg_clear_mask = (BIT(1) | BIT(3) | BIT(5) | BIT(7) | BIT(9) | BIT(11));
 
 	/*
-	 * Intel SDM Volume 2A: Thermal and Power Management Leaf
+	 * Intel SDM Volume 1: Thermal and Power Management Leaf
 	 * Bit 26: CPUID.06H: EAX[19] = 1
 	 */
 	if (boot_cpu_has(X86_FEATURE_HFI))
 		therm_intr_pkg_clear_mask |= BIT(26);
+
+	/*
+	 * Intel SDM Volume 1: Thermal and Power Management Leaf
+	 * Bit 25: CPUID.06H: EAX[24] = 1
+	 */
+	if (boot_cpu_has(X86_FEATURE_DPTI))
+		therm_intr_pkg_clear_mask |= BIT(25);
 }
 
 /*
@@ -524,6 +532,44 @@ static void thermal_throttle_remove_dev(struct device *dev)
 	sysfs_remove_group(&dev->kobj, &thermal_attr_group);
 }
 
+static int check_directed_thermal_pkg_intr_ack(void)
+{
+	unsigned int count = 15000;
+	u64 msr_val;
+
+	/*
+	 * Hardware acknowledges the directed interrupt setup in 10ms or less.
+	 * Wait 15ms to be safe.
+	 */
+	do {
+		rdmsrq(MSR_IA32_PACKAGE_THERM_STATUS, msr_val);
+		udelay(1);
+	} while (!(msr_val & PACKAGE_THERM_STATUS_DPTI_ACK) && --count);
+
+	if (!count)
+		return -ETIMEDOUT;
+
+	thermal_clear_package_intr_status(PACKAGE_LEVEL,
+					  PACKAGE_THERM_STATUS_DPTI_ACK);
+
+	return 0;
+}
+
+static void config_directed_thermal_pkg_intr(void *info)
+{
+	bool enable = *((bool *)info);
+	u64 msr_val;
+
+	rdmsrq(MSR_IA32_THERM_INTERRUPT, msr_val);
+
+	if (enable)
+		msr_val |= THERM_INT_DPTI_ENABLE;
+	else
+		msr_val &= ~THERM_INT_DPTI_ENABLE;
+
+	wrmsrq(MSR_IA32_THERM_INTERRUPT, msr_val);
+}
+
 /*
  * Accessed from CPU hotplug callbacks and from code that runs while CPU
  * hotplug is inactive: the init and cleanup paths.
@@ -540,6 +586,127 @@ static bool directed_thermal_pkg_intr_supported(void)
 		return false;
 
 	return true;
+}
+
+/*
+ * Must be called with cpu_hotplug_lock held to prevent CPUs from going offline
+ * while iterating through packages and interrupts must be enabled to avoid
+ * deadlocks in SMP function calls.
+ */
+static void disable_directed_thermal_pkg_intr_all(void)
+{
+	bool enable = false;
+	int i;
+
+	if (!directed_thermal_pkg_intr_supported())
+		return;
+
+	for (i = 0; i < topology_max_packages(); i++) {
+		if (directed_intr_handler_cpus[i] == nr_cpu_ids)
+			continue;
+
+		smp_call_function_single(directed_intr_handler_cpus[i],
+					 config_directed_thermal_pkg_intr,
+					 &enable, true);
+	}
+}
+
+static int enable_directed_thermal_pkg_intr(unsigned int cpu)
+{
+	bool enable = true;
+	u16 pkg_id;
+
+	if (!directed_thermal_pkg_intr_supported())
+		return 0;
+
+	pkg_id = topology_logical_package_id(cpu);
+	if (pkg_id >= topology_max_packages())
+		return -EINVAL;
+
+	/* Another CPU in this package already handles the directed interrupt. */
+	if (directed_intr_handler_cpus[pkg_id] != nr_cpu_ids)
+		return 0;
+
+	thermal_clear_package_intr_status(PACKAGE_LEVEL,
+					  PACKAGE_THERM_STATUS_DPTI_ACK);
+
+	config_directed_thermal_pkg_intr(&enable);
+	if (!check_directed_thermal_pkg_intr_ack()) {
+		directed_intr_handler_cpus[pkg_id] = cpu;
+		return 0;
+	}
+
+	/*
+	 * A failure indicates faulty hardware. Roll back completely so that
+	 * no other CPU tries. This is especially important during boot as all
+	 * CPUs may come online and would otherwise keep trying.
+	 */
+	enable = false;
+	config_directed_thermal_pkg_intr(&enable);
+
+	return -ETIMEDOUT;
+}
+
+static void disable_directed_thermal_pkg_intr(unsigned int cpu)
+{
+	unsigned int new_cpu;
+	bool enable;
+	u16 pkg_id;
+
+	if (!directed_thermal_pkg_intr_supported())
+		return;
+
+	pkg_id = topology_logical_package_id(cpu);
+	if (pkg_id >= topology_max_packages())
+		return;
+
+	/* Not the CPU handling the directed interrupt. */
+	if (directed_intr_handler_cpus[pkg_id] != cpu)
+		return;
+
+	/*
+	 * The package-level interrupt must remain directed after this CPU goes
+	 * offline.
+	 */
+	new_cpu = cpumask_any_but(topology_core_cpumask(cpu), cpu);
+	if (new_cpu < nr_cpu_ids) {
+		enable = true;
+		thermal_clear_package_intr_status(PACKAGE_LEVEL,
+						  PACKAGE_THERM_STATUS_DPTI_ACK);
+
+		/*
+		 * We are here via CPU hotplug. Since we are holding the
+		 * cpu_hotplug_lock, @new_cpu cannot go offline and interrupts
+		 * are enabled, so the SMP function call is safe.
+		 */
+		smp_call_function_single(new_cpu, config_directed_thermal_pkg_intr,
+					 &enable, true);
+	}
+
+	/*
+	 * If hardware does not acknowledge the directed interrupt setup on
+	 * @new_cpu, disable the redirection. Since no other CPU is configured
+	 * to receive the package-level interrupt, all CPUs in the package will
+	 * receive it.
+	 */
+	enable = false;
+	if (new_cpu < nr_cpu_ids && check_directed_thermal_pkg_intr_ack()) {
+		smp_call_function_single(new_cpu, config_directed_thermal_pkg_intr,
+					 &enable, true);
+
+		pr_warn_once("Failed to redirect package thermal interrupt from CPU%u to CPU%u; reverting to broadcast.\n",
+			     cpu, new_cpu);
+
+		new_cpu = nr_cpu_ids;
+	}
+
+	/*
+	 * Clear the directed interrupt on @cpu. Hardware acknowledgment can be
+	 * ignored since @cpu is going offline.
+	 */
+	config_directed_thermal_pkg_intr(&enable);
+
+	directed_intr_handler_cpus[pkg_id] = (new_cpu < nr_cpu_ids) ? new_cpu : nr_cpu_ids;
 }
 
 static __init void init_directed_pkg_intr(void)
@@ -564,6 +731,7 @@ static void cleanup_directed_pkg_thermal_intr(void)
 	if (!directed_thermal_pkg_intr_supported())
 		return;
 
+	disable_directed_thermal_pkg_intr_all();
 	kfree(directed_intr_handler_cpus);
 	directed_intr_handler_cpus = NULL;
 }
@@ -593,6 +761,11 @@ static int thermal_throttle_online(unsigned int cpu)
 	 */
 	intel_hfi_online(cpu);
 
+	if (enable_directed_thermal_pkg_intr(cpu)) {
+		pr_info_once("Failed to direct package thermal interrupts. All CPUs will receive it.\n");
+		cleanup_directed_pkg_thermal_intr();
+	}
+
 	/* Unmask the thermal vector after the above workqueues are initialized. */
 	l = apic_read(APIC_LVTTHMR);
 	apic_write(APIC_LVTTHMR, l & ~APIC_LVT_MASKED);
@@ -609,6 +782,8 @@ static int thermal_throttle_offline(unsigned int cpu)
 	/* Mask the thermal vector before draining evtl. pending work */
 	l = apic_read(APIC_LVTTHMR);
 	apic_write(APIC_LVTTHMR, l | APIC_LVT_MASKED);
+
+	disable_directed_thermal_pkg_intr(cpu);
 
 	intel_hfi_offline(cpu);
 
