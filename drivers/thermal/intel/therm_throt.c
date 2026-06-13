@@ -592,7 +592,8 @@ static bool directed_thermal_pkg_intr_supported(void)
 /*
  * Must be called with cpu_hotplug_lock held to prevent CPUs from going offline
  * while iterating through packages and interrupts must be enabled to avoid
- * deadlocks in SMP function calls.
+ * deadlocks in SMP function calls. The syscore shutdown callback also calls
+ * this function, but runs with CPU hotplug disabled (and interrupts enabled).
  */
 static void disable_directed_thermal_pkg_intr_all(void)
 {
@@ -735,9 +736,15 @@ static int directed_pkg_intr_syscore_suspend(void *data)
 	return 0;
 }
 
+static void directed_pkg_intr_syscore_shutdown(void *data)
+{
+	disable_directed_thermal_pkg_intr_all();
+}
+
 static const struct syscore_ops directed_pkg_intr_pm_ops = {
 	.resume = directed_pkg_intr_syscore_resume,
 	.suspend = directed_pkg_intr_syscore_suspend,
+	.shutdown = directed_pkg_intr_syscore_shutdown,
 };
 
 static struct syscore directed_pkg_intr_pm = {
