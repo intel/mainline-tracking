@@ -524,6 +524,50 @@ static void thermal_throttle_remove_dev(struct device *dev)
 	sysfs_remove_group(&dev->kobj, &thermal_attr_group);
 }
 
+/*
+ * Accessed from CPU hotplug callbacks and from code that runs while CPU
+ * hotplug is inactive: the init and cleanup paths.
+ * No extra locking needed.
+ */
+static unsigned int *directed_intr_handler_cpus;
+
+static bool directed_thermal_pkg_intr_supported(void)
+{
+	if (!boot_cpu_has(X86_FEATURE_DPTI))
+		return false;
+
+	if (!directed_intr_handler_cpus)
+		return false;
+
+	return true;
+}
+
+static __init void init_directed_pkg_intr(void)
+{
+	int i;
+
+	if (!boot_cpu_has(X86_FEATURE_DPTI))
+		return;
+
+	directed_intr_handler_cpus = kmalloc_array(topology_max_packages(),
+						   sizeof(*directed_intr_handler_cpus),
+						   GFP_KERNEL);
+	if (!directed_intr_handler_cpus)
+		return;
+
+	for (i = 0; i < topology_max_packages(); i++)
+		directed_intr_handler_cpus[i] = nr_cpu_ids;
+}
+
+static void cleanup_directed_pkg_thermal_intr(void)
+{
+	if (!directed_thermal_pkg_intr_supported())
+		return;
+
+	kfree(directed_intr_handler_cpus);
+	directed_intr_handler_cpus = NULL;
+}
+
 /* Get notified when a cpu comes on/off. Be hotplug friendly. */
 static int thermal_throttle_online(unsigned int cpu)
 {
@@ -585,12 +629,19 @@ static __init int thermal_throttle_init_device(void)
 	if (!atomic_read(&therm_throt_en))
 		return 0;
 
+	init_directed_pkg_intr();
+
 	intel_hfi_init();
 
 	ret = cpuhp_setup_state(CPUHP_AP_ONLINE_DYN, "x86/therm:online",
 				thermal_throttle_online,
 				thermal_throttle_offline);
-	return ret < 0 ? ret : 0;
+	if (ret >= 0)
+		return 0;
+
+	cleanup_directed_pkg_thermal_intr();
+
+	return ret;
 }
 device_initcall(thermal_throttle_init_device);
 
