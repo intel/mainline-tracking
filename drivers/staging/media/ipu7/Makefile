@@ -31,4 +31,6 @@ obj-$(CONFIG_VIDEO_INTEL_IPU7)		+= intel-ipu7-isys.o
 
 obj-$(CONFIG_VIDEO_INTEL_IPU7)		+= psys/
 
+subdir-ccflags-$(CONFIG_VIDEO_INTEL_IPU8) += -DIPU8_INSYS_NEW_ABI
+
 ccflags-y += -I$(src)/

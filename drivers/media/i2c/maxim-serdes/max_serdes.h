@@ -25,8 +25,8 @@
 	{ (reg) + 1, ((val) >> 8)  & 0xff }, \
 	{ (reg) + 2, ((val) >> 16)  & 0xff }
 
-#define field_get(mask, val) (((val) & (mask)) >> __ffs(mask))
-#define field_prep(mask, val) (((val) << __ffs(mask)) & (mask))
+#define max_field_get(mask, val) (((val) & (mask)) >> __ffs(mask))
+#define max_field_prep(mask, val) (((val) << __ffs(mask)) & (mask))
 
 #define MAX_SERDES_PHYS_MAX		4
 #define MAX_SERDES_STREAMS_NUM		4

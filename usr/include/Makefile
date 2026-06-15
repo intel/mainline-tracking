@@ -101,6 +101,7 @@ uses-libc += linux/if_pppox.h
 uses-libc += linux/if_tunnel.h
 uses-libc += linux/input.h
 uses-libc += linux/ip6_tunnel.h
+uses-libc += linux/ipu7-psys.h
 uses-libc += linux/joystick.h
 uses-libc += linux/llc.h
 uses-libc += linux/mctp.h

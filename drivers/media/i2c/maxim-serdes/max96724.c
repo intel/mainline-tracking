@@ -373,14 +373,14 @@ static int max96724_log_phy_status(struct max_des *des,
 		return ret;
 
 	dev_info(priv->dev, "\tcsi2_pkt_cnt: %lu\n",
-		 field_get(MAX96724_MIPI_PHY25_CSI2_TX_PKT_CNT(index), val));
+		 max_field_get(MAX96724_MIPI_PHY25_CSI2_TX_PKT_CNT(index), val));
 
 	ret = regmap_read(priv->regmap, MAX96724_MIPI_PHY27(index), &val);
 	if (ret)
 		return ret;
 
 	dev_info(priv->dev, "\tphy_pkt_cnt: %lu\n",
-		 field_get(MAX96724_MIPI_PHY27_PHY_PKT_CNT(index), val));
+		 max_field_get(MAX96724_MIPI_PHY27_PHY_PKT_CNT(index), val));
 
 	return 0;
 }
@@ -531,7 +531,7 @@ static int max96724_init_phy(struct max_des *des, struct max_des_phy *phy)
 		mask = MAX96724_MIPI_PHY3_PHY_LANE_MAP_2(index);
 
 	ret = regmap_update_bits(priv->regmap, MAX96724_MIPI_PHY3(index),
-				 mask, field_prep(mask, val));
+				 mask, max_field_prep(mask, val));
 	if (ret)
 		return ret;
 
@@ -559,7 +559,7 @@ static int max96724_init_phy(struct max_des *des, struct max_des_phy *phy)
 	} else {
 		ret = regmap_update_bits(priv->regmap, MAX96724_MIPI_PHY5(index),
 					 MAX96724_MIPI_PHY5_PHY_POL_MAP_2(index),
-					 field_prep(MAX96724_MIPI_PHY5_PHY_POL_MAP_2(index), val));
+					 max_field_prep(MAX96724_MIPI_PHY5_PHY_POL_MAP_2(index), val));
 		if (ret)
 			return ret;
 
@@ -720,7 +720,7 @@ static int max96724_set_pipe_remap(struct max_des *des,
 	/* Set destination PHY. */
 	return regmap_update_bits(priv->regmap, MAX96724_MIPI_TX45(index, i),
 				  MAX96724_MIPI_TX45_MAP_DPHY_DEST(i),
-				  field_prep(MAX96724_MIPI_TX45_MAP_DPHY_DEST(i),
+				  max_field_prep(MAX96724_MIPI_TX45_MAP_DPHY_DEST(i),
 					     phy_id));
 }
 
@@ -760,7 +760,7 @@ static int max96724_set_pipe_phy(struct max_des *des, struct max_des_pipe *pipe,
 
 	return regmap_update_bits(priv->regmap, MAX96724_MIPI_CTRL_SEL,
 				  MAX96724_MIPI_CTRL_SEL_MASK(pipe->index),
-				  field_prep(MAX96724_MIPI_CTRL_SEL_MASK(pipe->index),
+				  max_field_prep(MAX96724_MIPI_CTRL_SEL_MASK(pipe->index),
 					     phy_index));
 }
 
@@ -782,7 +782,7 @@ static int max96724_set_pipe_stream_id(struct max_des *des, struct max_des_pipe 
 
 	return regmap_update_bits(priv->regmap, MAX96724_VIDEO_PIPE_SEL(index),
 				  MAX96724_VIDEO_PIPE_SEL_STREAM(index),
-				  field_prep(MAX96724_VIDEO_PIPE_SEL_STREAM(index),
+				  max_field_prep(MAX96724_VIDEO_PIPE_SEL_STREAM(index),
 					     stream_id));
 }
 
@@ -794,7 +794,7 @@ static int max96724_set_pipe_link(struct max_des *des, struct max_des_pipe *pipe
 
 	return regmap_update_bits(priv->regmap, MAX96724_VIDEO_PIPE_SEL(index),
 				  MAX96724_VIDEO_PIPE_SEL_LINK(index),
-				  field_prep(MAX96724_VIDEO_PIPE_SEL_LINK(index),
+				  max_field_prep(MAX96724_VIDEO_PIPE_SEL_LINK(index),
 					     link->index));
 }
 
@@ -866,7 +866,7 @@ static int max96724_select_links(struct max_des *des, unsigned int mask)
 	int ret;
 
 	ret = regmap_update_bits(priv->regmap, MAX96724_REG6, MAX96724_REG6_LINK_EN,
-				 field_prep(MAX96724_REG6_LINK_EN, mask));
+				 max_field_prep(MAX96724_REG6_LINK_EN, mask));
 	if (ret)
 		return ret;
 
@@ -895,7 +895,7 @@ static int max96724_set_link_version(struct max_des *des,
 
 	return regmap_update_bits(priv->regmap, MAX96724_REG26(index),
 				  MAX96724_REG26_RX_RATE_PHY(index),
-				  field_prep(MAX96724_REG26_RX_RATE_PHY(index), val));
+				  max_field_prep(MAX96724_REG26_RX_RATE_PHY(index), val));
 }
 
 static int max96724_set_tpg_timings(struct max96724_priv *priv,

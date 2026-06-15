@@ -328,7 +328,7 @@ static int max9296a_log_phy_status(struct max_des *des,
 		return ret;
 
 	dev_info(priv->dev, "\tcsi2_pkt_cnt: %lu\n",
-		 field_get(MAX9296A_MIPI_PHY18_CSI2_TX_PKT_CNT(index), val));
+		 max_field_get(MAX9296A_MIPI_PHY18_CSI2_TX_PKT_CNT(index), val));
 
 	ret = regmap_read(priv->regmap, MAX9296A_MIPI_PHY20(index), &val);
 	if (ret)
@@ -671,7 +671,7 @@ static int max9296a_set_pipe_remap(struct max_des *des,
 	/* Set destination PHY. */
 	return regmap_update_bits(priv->regmap, MAX9296A_MIPI_TX45(index, i),
 				  MAX9296A_MIPI_TX45_MAP_DPHY_DEST(i),
-				  field_prep(MAX9296A_MIPI_TX45_MAP_DPHY_DEST(i),
+				  max_field_prep(MAX9296A_MIPI_TX45_MAP_DPHY_DEST(i),
 					     phy_id));
 }
 
@@ -738,7 +738,7 @@ static int max96714_set_pipe_stream_id(struct max_des *des, struct max_des_pipe 
 
 	return regmap_update_bits(priv->regmap, MAX9296A_VIDEO_PIPE_SEL,
 				  MAX9296A_VIDEO_PIPE_SEL_STREAM(index),
-				  field_prep(MAX9296A_VIDEO_PIPE_SEL_STREAM(index),
+				  max_field_prep(MAX9296A_VIDEO_PIPE_SEL_STREAM(index),
 					     stream_id));
 }
 
@@ -750,7 +750,7 @@ static int max96716a_set_pipe_link(struct max_des *des, struct max_des_pipe *pip
 
 	return regmap_update_bits(priv->regmap, MAX9296A_VIDEO_PIPE_SEL,
 				  MAX9296A_VIDEO_PIPE_SEL_LINK(index),
-				  field_prep(MAX9296A_VIDEO_PIPE_SEL_LINK(index),
+				  max_field_prep(MAX9296A_VIDEO_PIPE_SEL_LINK(index),
 					     link->index));
 }
 
@@ -885,7 +885,7 @@ static int max9296a_set_link_version(struct max_des *des,
 	else
 		val = MAX9296A_REG1_RX_RATE_3GBPS;
 
-	ret = regmap_update_bits(priv->regmap, reg, mask, field_prep(mask, val));
+	ret = regmap_update_bits(priv->regmap, reg, mask, max_field_prep(mask, val));
 	if (ret)
 		return ret;
 

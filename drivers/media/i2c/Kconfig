@@ -95,6 +95,31 @@ config VIDEO_D4XX
 		To compile this driver as a module, choose M here: the
 		module will be called d4xx
 
+config VIDEO_LT6911UXE
+	tristate "Lontium LT6911UXE decoder"
+	depends on ACPI && VIDEO_DEV && I2C
+	select V4L2_FWNODE
+	select V4L2_CCI_I2C
+	select MEDIA_CONTROLLER
+	select VIDEO_V4L2_SUBDEV_API
+	help
+	  This is a Video4Linux2 sensor-level driver for the Lontium
+	  LT6911UXE HDMI to MIPI CSI-2 bridge.
+
+	  To compile this driver as a module, choose M here: the
+	  module will be called lt6911uxe.
+
+config VIDEO_LT6911GXD
+	tristate "Lontium LT6911GXD decoder"
+	depends on ACPI || COMPILE_TEST
+	select V4L2_CCI_I2C
+	help
+	  This is a Video4Linux2 sensor-level driver for the Lontium
+	  LT6911GXD HDMI to MIPI CSI-2 bridge.
+
+	  To compile this driver as a module, choose M here: the
+	  module will be called lt6911gxd.
+
 config VIDEO_GC0308
 	tristate "GalaxyCore GC0308 sensor support"
 	select V4L2_CCI_I2C
@@ -1289,31 +1314,6 @@ config VIDEO_ISL7998X
 	  Support for Intersil ISL7998x analog to MIPI-CSI2 or
 	  BT.656 decoder.
 
-config VIDEO_LT6911UXE
-	tristate "Lontium LT6911UXE decoder"
-	depends on ACPI && VIDEO_DEV && I2C
-	select V4L2_FWNODE
-	select V4L2_CCI_I2C
-	select MEDIA_CONTROLLER
-	select VIDEO_V4L2_SUBDEV_API
-	help
-	  This is a Video4Linux2 sensor-level driver for the Lontium
-	  LT6911UXE HDMI to MIPI CSI-2 bridge.
-
-	  To compile this driver as a module, choose M here: the
-	  module will be called lt6911uxe.
-
-config VIDEO_LT6911GXD
-	tristate "Lontium LT6911GXD decoder"
-	depends on ACPI || COMPILE_TEST
-	select V4L2_CCI_I2C
-	help
-	  This is a Video4Linux2 sensor-level driver for the Lontium
-	  LT6911GXD HDMI to MIPI CSI-2 bridge.
-
-	  To compile this driver as a module, choose M here: the
-	  module will be called lt6911gxd.
-
 config VIDEO_KS0127
 	tristate "KS0127 video decoder"
 	depends on VIDEO_DEV && I2C
@@ -1791,23 +1791,6 @@ config VIDEO_MAX96714
 
 	  To compile this driver as a module, choose M here: the
 	  module will be called max96714.
-
-config VIDEO_MAX96717
-	tristate "Maxim MAX96717 GMSL2 Serializer support"
-	depends on I2C && VIDEO_DEV && COMMON_CLK
-	select I2C_MUX
-	select MEDIA_CONTROLLER
-	select GPIOLIB
-	select V4L2_CCI_I2C
-	select V4L2_FWNODE
-	select VIDEO_V4L2_SUBDEV_API
-	help
-	  Device driver for the Maxim MAX96717 GMSL2 Serializer.
-	  MAX96717 serializers convert video on a MIPI CSI-2
-	  input to a GMSL2 output.
-
-	  To compile this driver as a module, choose M here: the
-	  module will be called max96717.
 
 config VIDEO_MAX9X
 				tristate "MAX9X serdes support"

@@ -685,7 +685,7 @@ static int set_pdata(struct ipu_isys_subdev_info **sensor_sd,
 		/* use ascii */
 		/* port for start from 0 */
 		if (port >= 0) {
-			snprintf(pdata->suffix, sizeof(pdata->suffix), "%s", port + SUFFIX_BASE);
+			snprintf(pdata->suffix, sizeof(pdata->suffix), "%c", port + SUFFIX_BASE);
 			pr_info("IPU ACPI: create %s on port %d",
 				sensor_name, port);
 		} else
