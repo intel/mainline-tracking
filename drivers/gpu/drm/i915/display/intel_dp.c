@@ -7015,6 +7015,13 @@ static bool intel_edp_init_connector(struct intel_dp *intel_dp,
 	if (!intel_dp_is_edp(intel_dp))
 		return true;
 
+	if (display->params.disable_edp) {
+		drm_info(display->drm,
+			 "[ENCODER:%d:%s] eDP disabled by module parameter, skipping init\n",
+			 encoder->base.base.id, encoder->base.name);
+		return false;
+	}
+
 	/*
 	 * On IBX/CPT we may get here with LVDS already registered. Since the
 	 * driver uses the only internal power sequencer available for both
