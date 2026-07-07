@@ -24,6 +24,7 @@
 #include <linux/slab.h>
 #include <linux/types.h>
 #include <linux/vmalloc.h>
+#include <linux/version.h>
 
 #include <media/ipu-bridge.h>
 
@@ -2161,7 +2162,7 @@ ipu7_isys_init(struct pci_dev *pdev, struct device *parent,
 		}
 	}
 
-	pdata = kzalloc_obj(*pdata);
+	pdata = kzalloc(sizeof(*pdata), GFP_KERNEL);
 	if (!pdata)
 		return ERR_PTR(-ENOMEM);
 
@@ -2209,7 +2210,7 @@ ipu7_psys_init(struct pci_dev *pdev, struct device *parent,
 	struct ipu7_psys_pdata *pdata;
 	int ret;
 
-	pdata = kzalloc_obj(*pdata);
+	pdata = kzalloc(sizeof(*pdata), GFP_KERNEL);
 	if (!pdata)
 		return ERR_PTR(-ENOMEM);
 
@@ -2257,7 +2258,11 @@ void ipu7_dump_fw_error_log(const struct ipu7_bus_device *adev)
 	memcpy_fromio(&fw_error_log[adev->subsys], reg,
 		      sizeof(fw_error_log[adev->subsys]));
 }
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 13, 0)
 EXPORT_SYMBOL_NS_GPL(ipu7_dump_fw_error_log, "INTEL_IPU7");
+#else
+EXPORT_SYMBOL_NS_GPL(ipu7_dump_fw_error_log, INTEL_IPU7);
+#endif
 
 #ifdef CONFIG_DEBUG_FS
 static struct debugfs_blob_wrapper isys_fw_error;
@@ -2326,7 +2331,7 @@ static int ipu7_map_fw_code_region(struct ipu7_bus_device *sys,
 
 	n_pages = PFN_UP(size);
 
-	pages = kmalloc_objs(*pages, n_pages);
+	pages = kmalloc_array(n_pages, sizeof(*pages), GFP_KERNEL);
 	if (!pages)
 		return -ENOMEM;
 
@@ -2470,6 +2475,9 @@ static int ipu7_pci_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 	struct device *dev = &pdev->dev;
 	void __iomem *isys_base = NULL;
 	void __iomem *psys_base = NULL;
+#if LINUX_VERSION_CODE < KERNEL_VERSION(6, 12, 0)
+	void __iomem *const *iomap;
+#endif
 	phys_addr_t phys, pb_phys;
 	struct ipu7_device *isp;
 	u32 is_es;
@@ -2497,6 +2505,23 @@ static int ipu7_pci_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 	dev_info(dev, "IPU7 PCI BAR0 base %pap BAR2 base %pap\n",
 		 &phys, &pb_phys);
 
+#if LINUX_VERSION_CODE < KERNEL_VERSION(6, 12, 0)
+	ret = pcim_iomap_regions(pdev, BIT(IPU_PCI_BAR) | BIT(IPU_PCI_PBBAR),
+				 pci_name(pdev));
+	if (ret)
+		return dev_err_probe(dev, ret,
+				     "Failed to I/O memory remapping (%d)\n",
+				     ret);
+
+	iomap = pcim_iomap_table(pdev);
+	if (!iomap)
+		return dev_err_probe(dev, -ENODEV, "Failed to iomap table\n");
+
+	isp->base = iomap[IPU_PCI_BAR];
+	isp->pb_base = iomap[IPU_PCI_PBBAR];
+	dev_info(dev, "IPU7 PCI BAR0 mapped at %p\n BAR2 mapped at %p\n",
+		 isp->base, isp->pb_base);
+#else
 	isp->base = pcim_iomap_region(pdev, IPU_PCI_BAR, IPU_NAME);
 	if (IS_ERR(isp->base))
 		return dev_err_probe(dev, PTR_ERR(isp->base),
@@ -2511,6 +2536,7 @@ static int ipu7_pci_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 
 	dev_info(dev, "IPU7 PCI BAR0 mapped at %p\n BAR2 mapped at %p\n",
 		 isp->base, isp->pb_base);
+#endif
 
 	pci_set_drvdata(pdev, isp);
 	pci_set_master(pdev);
@@ -2757,10 +2783,6 @@ static void ipu7_pci_reset_done(struct pci_dev *pdev)
  */
 static int ipu7_suspend(struct device *dev)
 {
-	struct pci_dev *pdev = to_pci_dev(dev);
-
-	synchronize_irq(pdev->irq);
-
 	return 0;
 }
 
@@ -2847,7 +2869,11 @@ static struct pci_driver ipu7_pci_driver = {
 
 module_pci_driver(ipu7_pci_driver);
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 13, 0)
 MODULE_IMPORT_NS("INTEL_IPU_BRIDGE");
+#else
+MODULE_IMPORT_NS(INTEL_IPU_BRIDGE);
+#endif
 MODULE_AUTHOR("Bingbu Cao <bingbu.cao@intel.com>");
 MODULE_AUTHOR("Tianshu Qiu <tian.shu.qiu@intel.com>");
 MODULE_AUTHOR("Qingwu Zhang <qingwu.zhang@intel.com>");

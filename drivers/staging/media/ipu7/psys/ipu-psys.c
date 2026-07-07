@@ -886,6 +886,20 @@ static long ipu_psys_graph_open(struct ipu_psys_graph_info *graph,
 	return 0;
 }
 
+static void ipu_psys_cleanup_running_task_queue(struct ipu7_psys_fh *fh)
+{
+	struct ipu7_psys_stream *ip = fh->ip;
+	struct ipu_psys_task_queue *tq;
+	struct ipu_psys_task_queue *tmp;
+
+	mutex_lock(&ip->task_mutex);
+	list_for_each_entry_safe(tq, tmp, &ip->tq_running_list, list) {
+		tq->task_state = IPU_MSG_TASK_STATE_DONE;
+		list_move_tail(&tq->list, &ip->tq_list);
+	}
+	mutex_unlock(&ip->task_mutex);
+}
+
 static long ipu_psys_graph_close(int graph_id, struct ipu7_psys_fh *fh)
 {
 	struct ipu7_psys *psys = fh->psys;
@@ -921,6 +935,8 @@ static long ipu_psys_graph_close(int graph_id, struct ipu7_psys_fh *fh)
 		fh->ip->graph_state = IPU_MSG_GRAPH_STATE_CLOSED;
 		return -EINVAL;
 	}
+
+	ipu_psys_cleanup_running_task_queue(fh);
 
 	return 0;
 }
@@ -989,6 +1005,27 @@ unlock:
 	return NULL;
 }
 
+static unsigned int ipu7_psys_get_running_fw_task_count(
+					      struct ipu7_bus_device *adev)
+{
+	struct ipu7_psys *psys = ipu7_bus_get_drvdata(adev);
+	struct ipu7_psys_fh *fh;
+	unsigned int count = 0;
+
+	if (!psys)
+		return 0;
+
+	mutex_lock(&psys->mutex);
+	list_for_each_entry(fh, &psys->fhs, list) {
+		mutex_lock(&fh->ip->task_mutex);
+		count += list_count_nodes(&fh->ip->tq_running_list);
+		mutex_unlock(&fh->ip->task_mutex);
+	}
+	mutex_unlock(&psys->mutex);
+
+	return count;
+}
+
 static long ipu_psys_task_request(struct ipu_psys_task_request *task,
 				  struct ipu7_psys_fh *fh)
 {
@@ -1001,7 +1038,9 @@ static long ipu_psys_task_request(struct ipu_psys_task_request *task,
 		return -EINVAL;
 	}
 
+	mutex_lock(&psys->adev->acquire_fw_task_buffer_lock);
 	tq = ipu7_psys_get_task_queue(fh->ip, task);
+	mutex_unlock(&psys->adev->acquire_fw_task_buffer_lock);
 	if (!tq) {
 		dev_err(&psys->dev, "Failed to get task queue\n");
 		return -EINVAL;
@@ -1424,6 +1463,8 @@ static int ipu7_psys_probe(struct auxiliary_device *auxdev,
 	}
 
 	dev_set_drvdata(dev, psys);
+	adev->get_running_fw_task_count =
+		ipu7_psys_get_running_fw_task_count;
 	mutex_unlock(&ipu7_psys_mutex);
 #ifdef CONFIG_DEBUG_FS
 	psys_fw_log_init(psys);
@@ -1458,6 +1499,8 @@ static void ipu7_psys_remove(struct auxiliary_device *auxdev)
 {
 	struct ipu7_psys *psys = dev_get_drvdata(&auxdev->dev);
 	struct device *dev = &auxdev->dev;
+
+	psys->adev->get_running_fw_task_count = NULL;
 #ifdef CONFIG_DEBUG_FS
 	struct ipu7_device *isp = psys->adev->isp;
 

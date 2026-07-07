@@ -44,7 +44,7 @@ struct dentry;
 #define IPU_ISYS_NUM_RECV_QUEUE		1U
 
 #define IPU_ISYS_MIN_WIDTH		2U
-#define IPU_ISYS_MIN_HEIGHT			2U
+#define IPU_ISYS_MIN_HEIGHT		2U
 #define IPU_ISYS_MAX_WIDTH		8160U
 #define IPU_ISYS_MAX_HEIGHT		8190U
 
@@ -158,7 +158,6 @@ struct ipu7_isys_csi2_config {
 	unsigned int nlanes;
 	unsigned int port;
 	enum v4l2_mbus_type bus_type;
-	struct fwnode_handle *ep;
 };
 
 struct ipu7_isys_subdev_i2c_info {

@@ -119,7 +119,7 @@ static size_t isys_prepare_fw_payload(void *cpu_mapped_buf,
 	}
 }
 
-static void isys_decode_resp_v1(struct ipu7_insys_resp *dst, const void *token)
+static __maybe_unused void isys_decode_resp_v1(struct ipu7_insys_resp *dst, const void *token)
 {
 	const struct ipu7_insys_resp_v1 *src = token;
 
@@ -212,17 +212,14 @@ int ipu7_fw_isys_init(struct ipu7_isys *isys)
 	if (!syscom)
 		return -ENOMEM;
 
-	if (is_ipu8(adev->isp->hw_ver)) {
+	if (is_ipu8(adev->isp->hw_ver))
 		isys->abi_ops.prepare_payload = isys_prepare_fw_payload;
-		isys->abi_ops.decode_resp = isys_decode_resp;
-		isys->abi_ops.resp_queue_token_size =
-			sizeof(struct ipu7_insys_resp);
-	} else {
+	else
 		isys->abi_ops.prepare_payload = isys_prepare_fw_payload_v1;
-		isys->abi_ops.decode_resp = isys_decode_resp_v1;
-		isys->abi_ops.resp_queue_token_size =
-			sizeof(struct ipu7_insys_resp_v1);
-	}
+
+	isys->abi_ops.decode_resp = isys_decode_resp;
+	isys->abi_ops.resp_queue_token_size =
+		sizeof(struct ipu7_insys_resp);
 
 	adev->syscom = syscom;
 	syscom->num_input_queues = IPU_INSYS_MAX_INPUT_QUEUES;

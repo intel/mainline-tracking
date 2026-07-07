@@ -489,6 +489,7 @@ static int start_stream_firmware(struct ipu7_isys_video *av,
 		return -ENOMEM;
 
 	msg->stream_id = stream->stream_handle;
+
 	stream_cfg = &msg->fw_msg.stream;
 	stream_cfg->port_id = stream->stream_source;
 	stream_cfg->vc = stream->vc;

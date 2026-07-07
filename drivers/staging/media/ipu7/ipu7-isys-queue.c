@@ -338,6 +338,7 @@ static int ipu7_isys_stream_start(struct ipu7_isys_video *av,
 			return -ENOMEM;
 
 		msg->stream_id = stream->stream_handle;
+
 		buf = &msg->fw_msg.frame;
 
 		ipu7_isys_buffer_to_fw_frame_buff(buf, stream, bl);
@@ -440,7 +441,6 @@ static void buf_queue(struct vb2_buffer *vb)
 	}
 	msg->stream_id = stream->stream_handle;
 
-	msg->stream_id = stream->stream_handle;
 	buf = &msg->fw_msg.frame;
 
 	ipu7_isys_buffer_to_fw_frame_buff(buf, stream, &bl);
@@ -665,7 +665,6 @@ static void reset_stop_streaming(struct ipu7_isys_video *av)
 	unsigned long flags;
 
 	dev_dbg(dev, "reset stop streams: %s\n", av->vdev.name);
-
 	mutex_lock(&av->isys->stream_mutex);
 	if (stream->nr_streaming == stream->nr_queues && stream->streaming)
 		ipu7_isys_video_set_streaming(av, 0, NULL);
