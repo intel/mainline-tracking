@@ -836,6 +836,8 @@ static void isys_remove(struct auxiliary_device *auxdev)
 	struct isys_fw_msgs *fwmsg, *safe;
 	struct ipu7_bus_device *adev = auxdev_to_adev(auxdev);
 
+	adev->get_running_fw_task_count = NULL;
+
 #ifdef CONFIG_DEBUG_FS
 	if (adev->isp->ipu7_dir)
 		debugfs_remove_recursive(isys->debugfsdir);

@@ -84,39 +84,14 @@ const struct ipu7_isys_pixelformat ipu7_isys_pfmts[] = {
 	{V4L2_PIX_FMT_UYVY, 16, 16, MEDIA_BUS_FMT_UYVY8_1X16,
 	 IPU_INSYS_FRAME_FORMAT_UYVY},
 	{V4L2_PIX_FMT_YUYV, 16, 16, MEDIA_BUS_FMT_YUYV8_1X16,
-	 IPU_INSYS_FRAME_FORMAT_UYVY}, /* D4XX fix for incorrect RGB stream */
+	 IPU_INSYS_FRAME_FORMAT_YUYV},
 	{V4L2_PIX_FMT_RGB565, 16, 16, MEDIA_BUS_FMT_RGB565_1X16,
 	 IPU_INSYS_FRAME_FORMAT_RGB565},
 	{V4L2_PIX_FMT_BGR24, 24, 24, MEDIA_BUS_FMT_RGB888_1X24,
 	 IPU_INSYS_FRAME_FORMAT_RGBA888},
-	/* D4XX specific */
-	{V4L2_PIX_FMT_Z16, 16, 16, MEDIA_BUS_FMT_UYVY8_1X16,
-	 IPU_INSYS_FRAME_FORMAT_UYVY},
-	{V4L2_PIX_FMT_Y8I, 16, 16, MEDIA_BUS_FMT_VYUY8_1X16,
-	 IPU_INSYS_FRAME_FORMAT_UYVY},
-	{V4L2_PIX_FMT_Y12I, 32, 24, MEDIA_BUS_FMT_RGB888_1X24,
-	 IPU_INSYS_FRAME_FORMAT_RGBA888},
-	{V4L2_PIX_FMT_GREY, 8, 8, MEDIA_BUS_FMT_Y8_1X8,
-	 IPU_INSYS_FRAME_FORMAT_RAW8},
 };
 
 #ifdef CONFIG_VIDEO_INTEL_IPU7_ISYS_RESET
-static int video_open(struct file *file)
-{
-	struct ipu7_isys_video *av = video_drvdata(file);
-	struct ipu7_isys *isys = av->isys;
-	struct ipu7_bus_device *adev = isys->adev;
-
-	mutex_lock(&isys->reset_mutex);
-	if (isys->need_reset) {
-		mutex_unlock(&isys->reset_mutex);
-		dev_warn(&adev->auxdev.dev, "isys power cycle required\n");
-		return -EIO;
-	}
-	mutex_unlock(&isys->reset_mutex);
-	return v4l2_fh_open(file);
-}
-
 static int video_release(struct file *file)
 {
 	struct ipu7_isys_video *av = video_drvdata(file);
@@ -135,7 +110,7 @@ static int video_release(struct file *file)
 	return vb2_fop_release(file);
 }
 
- #endif
+#endif
 const struct ipu7_isys_pixelformat *ipu7_isys_get_isys_format(u32 pixelformat)
 {
 	unsigned int i;
@@ -263,6 +238,7 @@ static void __ipu_isys_vidioc_try_fmt_vid_cap(struct ipu7_isys_video *av,
 			      &f->fmt.pix.bytesperline, &f->fmt.pix.sizeimage);
 
 	f->fmt.pix.field = V4L2_FIELD_NONE;
+	f->fmt.pix.colorspace = V4L2_COLORSPACE_RAW;
 	f->fmt.pix.ycbcr_enc = V4L2_YCBCR_ENC_DEFAULT;
 	f->fmt.pix.quantization = V4L2_QUANTIZATION_DEFAULT;
 	f->fmt.pix.xfer_func = V4L2_XFER_FUNC_DEFAULT;
@@ -951,11 +927,10 @@ static const struct v4l2_file_operations isys_fops = {
 	.poll = vb2_fop_poll,
 	.unlocked_ioctl = video_ioctl2,
 	.mmap = vb2_fop_mmap,
+	.open = v4l2_fh_open,
 #ifdef CONFIG_VIDEO_INTEL_IPU7_ISYS_RESET
-	.open = video_open,
 	.release = video_release,
 #else
-	.open = v4l2_fh_open,
 	.release = vb2_fop_release,
 #endif
 };

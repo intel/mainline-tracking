@@ -44,7 +44,7 @@ struct dentry;
 #define IPU_ISYS_NUM_RECV_QUEUE		1U
 
 #define IPU_ISYS_MIN_WIDTH		2U
-#define IPU_ISYS_MIN_HEIGHT		1U  /* D4XX specific */
+#define IPU_ISYS_MIN_HEIGHT			2U
 #define IPU_ISYS_MAX_WIDTH		8160U
 #define IPU_ISYS_MAX_HEIGHT		8190U
 
@@ -136,8 +136,6 @@ struct ipu7_isys {
 
 	struct ipu7_insys_config *subsys_config;
 	dma_addr_t subsys_config_dma_addr;
-	/* Protect framebuflist when getting fw msg buf. */
-	struct mutex acquire_fw_msgbuf_lock;
 #ifdef CONFIG_VIDEO_INTEL_IPU7_ISYS_RESET
 	struct mutex reset_mutex;
 	bool need_reset;

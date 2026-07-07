@@ -11,6 +11,7 @@
 #include <linux/mutex.h>
 #include <linux/spinlock.h>
 #include <linux/types.h>
+#include <linux/version.h>
 #ifdef CONFIG_VIDEO_INTEL_IPU7_ISYS_RESET
 #include <linux/delay.h>
 #endif
@@ -437,8 +438,8 @@ static void buf_queue(struct vb2_buffer *vb)
 		ret = -ENOMEM;
 		goto out;
 	}
-
 	msg->stream_id = stream->stream_handle;
+
 	buf = &msg->fw_msg.frame;
 
 	ipu7_isys_buffer_to_fw_frame_buff(buf, stream, &bl);
@@ -656,10 +657,13 @@ out_return_buffers:
 static void reset_stop_streaming(struct ipu7_isys_video *av)
 {
 	struct ipu7_isys_queue *aq = &av->aq;
+	struct device *dev = &av->isys->adev->auxdev.dev;
 	struct ipu7_isys_stream *stream = av->stream;
 	struct ipu7_isys_buffer *ib;
 	struct vb2_buffer *vb;
 	unsigned long flags;
+
+	dev_dbg(dev, "reset stop streams: %s\n", av->vdev.name);
 
 	mutex_lock(&av->isys->stream_mutex);
 	if (stream->nr_streaming == stream->nr_queues && stream->streaming)
@@ -831,7 +835,6 @@ static int ipu_isys_reset(struct ipu7_isys_video *self_av,
 
 	mutex_unlock(&isys->reset_mutex);
 
-	dev_dbg(dev, "reset stop streams\n");
 	for (i = 0; i < csi2_pdata->nports; i++) {
 		for (j = 0; j < IPU7_NR_OF_CSI2_SRC_PADS; j++) {
 			av = &isys->csi2[i].av[j];
@@ -855,8 +858,6 @@ static int ipu_isys_reset(struct ipu7_isys_video *self_av,
 		goto end_of_reset;
 
 	ipu7_cleanup_fw_msg_bufs(isys);
-
-	dev_dbg(dev, "reset start streams\n");
 
 	for (j = 0; j < csi2_pdata->nports; j++) {
 		for (i = 0; i < IPU7_NR_OF_CSI2_SRC_PADS; i++) {
@@ -948,7 +949,7 @@ static void stop_streaming(struct vb2_queue *q)
 	mutex_unlock(&av->isys->reset_mutex);
 
 	if (need_reset) {
-		if (!stream->nr_streaming) {
+		if (av->isys->stream_opened > 0) {
 			ipu_isys_reset(av, stream);
 		} else {
 			mutex_lock(&av->isys->reset_mutex);
@@ -1159,6 +1160,10 @@ void ipu7_isys_queue_buf_ready(struct ipu7_isys_stream *stream,
 
 static const struct vb2_ops ipu7_isys_queue_ops = {
 	.queue_setup = ipu7_isys_queue_setup,
+#if LINUX_VERSION_CODE <= KERNEL_VERSION(6, 12, 255)
+	.wait_prepare = vb2_ops_wait_prepare,
+	.wait_finish = vb2_ops_wait_finish,
+#endif
 	.buf_init = ipu7_isys_buf_init,
 	.buf_prepare = ipu7_isys_buf_prepare,
 	.buf_cleanup = ipu7_isys_buf_cleanup,
