@@ -440,6 +440,7 @@ static void buf_queue(struct vb2_buffer *vb)
 	}
 	msg->stream_id = stream->stream_handle;
 
+	msg->stream_id = stream->stream_handle;
 	buf = &msg->fw_msg.frame;
 
 	ipu7_isys_buffer_to_fw_frame_buff(buf, stream, &bl);
