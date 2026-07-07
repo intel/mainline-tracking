@@ -27,6 +27,7 @@
 #include <linux/spinlock.h>
 #include <linux/string.h>
 #include <linux/types.h>
+#include <linux/version.h>
 
 #include <media/ipu-bridge.h>
 #include <media/media-entity.h>
@@ -58,49 +59,23 @@ isys_complete_ext_device_registration(struct ipu7_isys *isys,
 				      struct ipu7_isys_csi2_config *csi2)
 {
 	struct device *dev = &isys->adev->auxdev.dev;
-	int source_pad;
+	unsigned int i;
 	int ret;
 
 	v4l2_set_subdev_hostdata(sd, csi2);
 
-	if (csi2->ep) {
-		struct fwnode_handle *ep_source;
-
-		ep_source = fwnode_graph_get_remote_endpoint(csi2->ep);
-		if (!ep_source) {
-			dev_warn(dev, "no remote endpoint for subdev\n");
-			ret = -ENOENT;
-			goto skip_unregister_subdev;
-		}
-
-		source_pad = media_entity_get_fwnode_pad(&sd->entity, ep_source,
-						MEDIA_PAD_FL_SOURCE);
-		fwnode_handle_put(ep_source);
-
-		if (source_pad < 0) {
-			dev_warn(dev, "error in no acquire source pad in external entity\n");
-			ret = -ENOENT;
-			goto skip_unregister_subdev;
-		}
-
-		dev_dbg(&isys->adev->auxdev.dev, "%s: CSI2 ep %pfw\n", __func__,
-			csi2->ep);
-		dev_dbg(&isys->adev->auxdev.dev,
-			"%s: source pad %d for subdev %s\n", __func__, source_pad,
-			sd->name);
-	} else {
-		for (source_pad = 0; source_pad < sd->entity.num_pads; source_pad++) {
-			if (sd->entity.pads[source_pad].flags & MEDIA_PAD_FL_SOURCE)
-				break;
-		}
-		if (source_pad == sd->entity.num_pads) {
-			dev_warn(dev, "no source pad in external entity\n");
-			ret = -ENOENT;
-			goto skip_unregister_subdev;
-		}
+	for (i = 0; i < sd->entity.num_pads; i++) {
+		if (sd->entity.pads[i].flags & MEDIA_PAD_FL_SOURCE)
+			break;
 	}
 
-	ret = media_create_pad_link(&sd->entity, source_pad,
+	if (i == sd->entity.num_pads) {
+		dev_warn(dev, "no source pad in external entity\n");
+		ret = -ENOENT;
+		goto skip_unregister_subdev;
+	}
+
+	ret = media_create_pad_link(&sd->entity, i,
 				    &isys->csi2[csi2->port].asd.sd.entity,
 				    0, MEDIA_LNK_FL_ENABLED |
 				    MEDIA_LNK_FL_IMMUTABLE);
@@ -325,18 +300,9 @@ static int isys_notifier_complete(struct v4l2_async_notifier *notifier)
 	return v4l2_device_register_subdev_nodes(&isys->v4l2_dev);
 }
 
-static void isys_notifier_destroy(struct v4l2_async_connection *asc)
-{
-	struct sensor_async_sd *s_asd =
-		container_of(asc, struct sensor_async_sd, asc);
-
-	fwnode_handle_put(s_asd->csi2.ep);
-}
-
 static const struct v4l2_async_notifier_operations isys_async_ops = {
 	.bound = isys_notifier_bound,
 	.complete = isys_notifier_complete,
-	.destroy = isys_notifier_destroy,
 };
 
 static int isys_notifier_init(struct ipu7_isys *isys)
@@ -385,7 +351,8 @@ static int isys_notifier_init(struct ipu7_isys *isys)
 		s_asd->csi2.port = vep.base.port;
 		s_asd->csi2.nlanes = vep.bus.mipi_csi2.num_data_lanes;
 		s_asd->csi2.bus_type = vep.bus_type;
-		s_asd->csi2.ep = ep;
+
+		fwnode_handle_put(ep);
 
 		continue;
 
@@ -538,6 +505,8 @@ static void isys_v4l2_notify(struct v4l2_subdev *sd, unsigned int notification,
 		container_of(sd->v4l2_dev, struct ipu7_isys, v4l2_dev);
 	struct device *dev = &isys->adev->auxdev.dev;
 	struct v4l2_event *ev = arg;
+	struct ipu7_isys_csi2_config *csi2_cfg;
+	unsigned int i;
 	unsigned long flags;
 
 	spin_lock_irqsave(&isys->power_lock, flags);
@@ -550,18 +519,35 @@ static void isys_v4l2_notify(struct v4l2_subdev *sd, unsigned int notification,
 	spin_unlock_irqrestore(&isys->power_lock, flags);
 
 	if (notification == V4L2_DEVICE_NOTIFY_EVENT) {
-		if ((ev->type == V4L2_EVENT_SOURCE_CHANGE ||
-		     ev->type == V4L2_EVENT_EOS) &&
-		    isys->stream_opened > 1) {
-			dev_dbg(dev, "%s: isys need reset due to notify %u, stream opened %d\n",
-					sd->name, ev->type, isys->stream_opened);
-			mutex_lock(&isys->reset_mutex);
-			isys->need_reset = true;
-			mutex_unlock(&isys->reset_mutex);
+		if (ev->type == V4L2_EVENT_SOURCE_CHANGE ||
+		    ev->type == V4L2_EVENT_EOS) {
+			csi2_cfg = v4l2_get_subdev_hostdata(sd);
+			if (!csi2_cfg) {
+				dev_warn(dev, "%s: missing csi2 cfg for notify %u\n",
+					 sd->name, ev->type);
+				return;
+			}
+
+			for (i = 0; i < IPU7_NR_OF_CSI2_SRC_PADS; i++) {
+				struct ipu7_isys_video *av =
+					&isys->csi2[csi2_cfg->port].av[i];
+
+				if (READ_ONCE(av->start_streaming)) {
+					dev_info(dev,
+						 "%s: isys need reset due to notify %u on port %u\n",
+						 sd->name, ev->type, csi2_cfg->port);
+					mutex_lock(&isys->reset_mutex);
+					isys->need_reset = true;
+					mutex_unlock(&isys->reset_mutex);
+					return;
+				}
+			}
+			dev_dbg(dev, "%s: notify %u ignored, no AV starting on this port\n",
+				sd->name, notification);
 		}
 	} else {
 		dev_warn(dev, "%s: unknown notification %u\n",
-				 sd->name, notification);
+			 sd->name, notification);
 	}
 }
 #endif
@@ -877,7 +863,6 @@ static void isys_remove(struct auxiliary_device *auxdev)
 #ifdef CONFIG_VIDEO_INTEL_IPU7_ISYS_RESET
 	mutex_destroy(&isys->reset_mutex);
 #endif
-	mutex_destroy(&isys->acquire_fw_msgbuf_lock);
 }
 #else
 static void isys_remove(struct auxiliary_device *auxdev)
@@ -885,6 +870,8 @@ static void isys_remove(struct auxiliary_device *auxdev)
 	struct ipu7_isys *isys = dev_get_drvdata(&auxdev->dev);
 	struct isys_fw_msgs *fwmsg, *safe;
 	struct ipu7_bus_device *adev = auxdev_to_adev(auxdev);
+
+	adev->get_running_fw_task_count = NULL;
 
 #ifdef CONFIG_DEBUG_FS
 	if (adev->isp->ipu7_dir)
@@ -910,7 +897,6 @@ static void isys_remove(struct auxiliary_device *auxdev)
 #ifdef CONFIG_VIDEO_INTEL_IPU7_ISYS_RESET
 	mutex_destroy(&isys->reset_mutex);
 #endif
-	mutex_destroy(&isys->acquire_fw_msgbuf_lock);
 }
 #endif
 
@@ -1024,6 +1010,23 @@ static int alloc_fw_msg_bufs(struct ipu7_isys *isys, int amount)
 	return -ENOMEM;
 }
 
+static unsigned int ipu7_isys_get_running_fw_task_count(
+	struct ipu7_bus_device *adev)
+{
+	struct ipu7_isys *isys = ipu7_bus_get_drvdata(adev);
+	unsigned long flags;
+	unsigned int count;
+
+	if (!isys)
+		return 0;
+
+	spin_lock_irqsave(&isys->listlock, flags);
+	count = list_count_nodes(&isys->framebuflist_fw);
+	spin_unlock_irqrestore(&isys->listlock, flags);
+
+	return count;
+}
+
 struct isys_fw_msgs *ipu7_get_fw_msg_buf(struct ipu7_isys_stream *stream)
 {
 	struct device *dev = &stream->isys->adev->auxdev.dev;
@@ -1032,22 +1035,22 @@ struct isys_fw_msgs *ipu7_get_fw_msg_buf(struct ipu7_isys_stream *stream)
 	unsigned long flags;
 	int ret;
 
-	mutex_lock(&isys->acquire_fw_msgbuf_lock);
+	mutex_lock(&isys->adev->acquire_fw_task_buffer_lock);
 	spin_lock_irqsave(&isys->listlock, flags);
 	if (list_empty(&isys->framebuflist)) {
 		spin_unlock_irqrestore(&isys->listlock, flags);
 		dev_dbg(dev, "Frame buffer list empty\n");
 
-		ret = alloc_fw_msg_bufs(isys, 5);
+		ret = alloc_fw_msg_bufs(isys, 10);
 		if (ret < 0) {
-			mutex_unlock(&isys->acquire_fw_msgbuf_lock);
+			mutex_unlock(&isys->adev->acquire_fw_task_buffer_lock);
 			return NULL;
 		}
 
 		spin_lock_irqsave(&isys->listlock, flags);
 		if (list_empty(&isys->framebuflist)) {
 			spin_unlock_irqrestore(&isys->listlock, flags);
-			mutex_unlock(&isys->acquire_fw_msgbuf_lock);
+			mutex_unlock(&isys->adev->acquire_fw_task_buffer_lock);
 			dev_err(dev, "Frame list empty\n");
 			return NULL;
 		}
@@ -1055,7 +1058,7 @@ struct isys_fw_msgs *ipu7_get_fw_msg_buf(struct ipu7_isys_stream *stream)
 	msg = list_last_entry(&isys->framebuflist, struct isys_fw_msgs, head);
 	list_move(&msg->head, &isys->framebuflist_fw);
 	spin_unlock_irqrestore(&isys->listlock, flags);
-	mutex_unlock(&isys->acquire_fw_msgbuf_lock);
+	mutex_unlock(&isys->adev->acquire_fw_task_buffer_lock);
 	memset(&msg->fw_msg, 0, sizeof(msg->fw_msg));
 
 	return msg;
@@ -1147,7 +1150,6 @@ static int isys_probe(struct auxiliary_device *auxdev,
 
 	mutex_init(&isys->mutex);
 	mutex_init(&isys->stream_mutex);
-	mutex_init(&isys->acquire_fw_msgbuf_lock);
 #ifdef CONFIG_VIDEO_INTEL_IPU7_ISYS_RESET
 	mutex_init(&isys->reset_mutex);
 	isys->state = 0;
@@ -1158,6 +1160,8 @@ static int isys_probe(struct auxiliary_device *auxdev,
 	INIT_LIST_HEAD(&isys->framebuflist_fw);
 
 	dev_set_drvdata(&auxdev->dev, isys);
+	adev->get_running_fw_task_count =
+		ipu7_isys_get_running_fw_task_count;
 
 	isys->icache_prefetch = 0;
 	isys->phy_rext_cal = 0;
@@ -1199,7 +1203,6 @@ out_cleanup_isys:
 #ifdef CONFIG_VIDEO_INTEL_IPU7_ISYS_RESET
 	mutex_destroy(&isys->reset_mutex);
 #endif
-	mutex_destroy(&isys->acquire_fw_msgbuf_lock);
 	cpu_latency_qos_remove_request(&isys->pm_qos);
 
 	for (unsigned int i = 0; i < IPU_ISYS_MAX_STREAMS; i++)
@@ -1589,5 +1592,10 @@ MODULE_AUTHOR("Tianshu Qiu <tian.shu.qiu@intel.com>");
 MODULE_AUTHOR("Qingwu Zhang <qingwu.zhang@intel.com>");
 MODULE_LICENSE("GPL");
 MODULE_DESCRIPTION("Intel ipu7 input system driver");
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 13, 0)
 MODULE_IMPORT_NS("INTEL_IPU7");
 MODULE_IMPORT_NS("INTEL_IPU_BRIDGE");
+#else
+MODULE_IMPORT_NS(INTEL_IPU7);
+MODULE_IMPORT_NS(INTEL_IPU_BRIDGE);
+#endif

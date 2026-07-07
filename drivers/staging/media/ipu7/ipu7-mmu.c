@@ -25,12 +25,13 @@
 #include <linux/spinlock.h>
 #include <linux/types.h>
 #include <linux/vmalloc.h>
+#include <linux/version.h>
 
 #include "ipu7.h"
+#include "ipu7-bus.h"
 #include "ipu7-dma.h"
 #include "ipu7-mmu.h"
 #include "ipu7-platform-regs.h"
-#include "ipu7-isys.h"
 
 #define ISP_PAGE_SHIFT		12
 #define ISP_PAGE_SIZE		BIT(ISP_PAGE_SHIFT)
@@ -76,45 +77,27 @@ static void tlb_invalidate(struct ipu7_mmu *mmu, int mmu_id)
 	unsigned int i;
 	int ret;
 	u32 val;
-	bool locked_get_fw = false;
-	struct ipu7_isys *isys = NULL;
-	unsigned int prev_fw_cnt = UINT_MAX;
-	unsigned int curr_fw_cnt = UINT_MAX;
+	unsigned int prev_task_cnt = UINT_MAX;
+	unsigned int curr_task_cnt;
 	unsigned int not_decreasing_count = 0;
+	struct ipu7_bus_device *adev = to_ipu7_bus_device(mmu->dev);
 
-	if (mmu->mmid == ISYS_MMID) {
-		isys = dev_get_drvdata(mmu->dev);
-		if (!isys) {
-			dev_warn(mmu->dev, "isys drvdata is NULL, skip tlb invalidate wait\n");
-			return;
-		}
-
-		if (!mutex_is_locked(&isys->acquire_fw_msgbuf_lock)) {
-			mutex_lock(&isys->acquire_fw_msgbuf_lock);
-			locked_get_fw = true;
-		}
-
+	if (adev->get_running_fw_task_count) {
 		while (1) {
-			spin_lock_irqsave(&isys->listlock, flags);
-			curr_fw_cnt = list_count_nodes(&isys->framebuflist_fw);
-			spin_unlock_irqrestore(&isys->listlock, flags);
-			if (curr_fw_cnt == 0)
+			curr_task_cnt = adev->get_running_fw_task_count(adev);
+			if (curr_task_cnt == 0)
 				break;
 
-			if (curr_fw_cnt >= prev_fw_cnt)
+			if (curr_task_cnt >= prev_task_cnt)
 				not_decreasing_count++;
 			else
 				not_decreasing_count = 0;
-			prev_fw_cnt = curr_fw_cnt;
+			prev_task_cnt = curr_task_cnt;
 
-			/*
-			 * Timeout after consecutive non-decreasing counts.
-			 * Continue invalidate to avoid indefinite stall.
-			 */
 			if (not_decreasing_count >
 			    WAIT_FW_MSG_BUFS_CLEAR_TIMES) {
-				dev_warn(&isys->adev->auxdev.dev,
-					 "wait framebuflist_fw empty timeout");
+				dev_warn(mmu->dev,
+					 "wait running fw tasks clear timeout\n");
 				break;
 			}
 
@@ -125,8 +108,6 @@ static void tlb_invalidate(struct ipu7_mmu *mmu, int mmu_id)
 	spin_lock_irqsave(&mmu->ready_lock, flags);
 	if (!mmu->ready) {
 		spin_unlock_irqrestore(&mmu->ready_lock, flags);
-		if (locked_get_fw)
-			mutex_unlock(&isys->acquire_fw_msgbuf_lock);
 		return;
 	}
 
@@ -138,8 +119,6 @@ static void tlb_invalidate(struct ipu7_mmu *mmu, int mmu_id)
 		dev_warn(mmu->dev, "invalid mmu_id %d, nr_mmus %u\n",
 			 mmu_id, mmu->nr_mmus);
 		spin_unlock_irqrestore(&mmu->ready_lock, flags);
-		if (locked_get_fw)
-			mutex_unlock(&isys->acquire_fw_msgbuf_lock);
 		return;
 	}
 
@@ -175,8 +154,6 @@ static void tlb_invalidate(struct ipu7_mmu *mmu, int mmu_id)
 	}
 
 	spin_unlock_irqrestore(&mmu->ready_lock, flags);
-	if (locked_get_fw)
-		mutex_unlock(&isys->acquire_fw_msgbuf_lock);
 }
 
 static dma_addr_t map_single(struct ipu7_mmu_info *mmu_info, void *ptr)
@@ -302,7 +279,7 @@ static u32 *alloc_l2_pt(struct ipu7_mmu_info *mmu_info)
 
 	dev_dbg(mmu_info->dev, "alloc_l2: get_zeroed_page() = %p\n", pt);
 
-	for (i = 0; i < ISP_L2PT_PTES; i++)
+	for (i = 0; i < ISP_L1PT_PTES; i++)
 		pt[i] = mmu_info->dummy_page_pteval;
 
 	return pt;
@@ -648,14 +625,18 @@ int ipu7_mmu_hw_init(struct ipu7_mmu *mmu)
 
 	return 0;
 }
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 13, 0)
 EXPORT_SYMBOL_NS_GPL(ipu7_mmu_hw_init, "INTEL_IPU7");
+#else
+EXPORT_SYMBOL_NS_GPL(ipu7_mmu_hw_init, INTEL_IPU7);
+#endif
 
 static struct ipu7_mmu_info *ipu7_mmu_alloc(struct ipu7_device *isp)
 {
 	struct ipu7_mmu_info *mmu_info;
 	int ret;
 
-	mmu_info = kzalloc_obj(*mmu_info);
+	mmu_info = kzalloc(sizeof(*mmu_info), GFP_KERNEL);
 	if (!mmu_info)
 		return NULL;
 
@@ -718,14 +699,18 @@ void ipu7_mmu_hw_cleanup(struct ipu7_mmu *mmu)
 	mmu->ready = false;
 	spin_unlock_irqrestore(&mmu->ready_lock, flags);
 }
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 13, 0)
 EXPORT_SYMBOL_NS_GPL(ipu7_mmu_hw_cleanup, "INTEL_IPU7");
+#else
+EXPORT_SYMBOL_NS_GPL(ipu7_mmu_hw_cleanup, INTEL_IPU7);
+#endif
 
 static struct ipu7_dma_mapping *alloc_dma_mapping(struct ipu7_device *isp)
 {
 	struct ipu7_dma_mapping *dmap;
 	unsigned long base_pfn;
 
-	dmap = kzalloc_obj(*dmap);
+	dmap = kzalloc(sizeof(*dmap), GFP_KERNEL);
 	if (!dmap)
 		return NULL;
 
