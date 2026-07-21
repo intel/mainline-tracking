@@ -1199,6 +1199,10 @@ The following bits are defined in the flags field:
   triple_fault_pending field contains a valid state. This bit will
   be set whenever KVM_CAP_X86_TRIPLE_FAULT_EVENT is enabled.
 
+- KVM_VCPUEVENT_VALID_FRED_STATE may be set to inform that the exception
+  state includes FRED state (specifically, the event nested flag and data).
+  This bit will be set whenever KVM_CAP_X86_FRED_EVENT is enabled.
+
 ARM64:
 ^^^^^^
 
@@ -1300,6 +1304,11 @@ contain a valid state and shall be written into the VCPU.
 If KVM_CAP_X86_TRIPLE_FAULT_EVENT is enabled, KVM_VCPUEVENT_VALID_TRIPLE_FAULT
 can be set in flags field to signal that the triple_fault field contains
 a valid state and shall be written into the VCPU.
+
+If KVM_CAP_X86_FRED_EVENT is enabled, KVM_VCPUEVENT_VALID_FRED_STATE can be set
+in the flags field to inform that the exception state contains FRED state
+(specifically, the event nested flag and data), which shall be written into the
+VCPU.
 
 ARM64:
 ^^^^^^
@@ -9055,6 +9064,19 @@ through hugetlbfs can be enabled for a VM. After the capability is
 enabled, cmma can't be enabled anymore and pfmfi and the storage key
 interpretation are disabled. If cmma has already been enabled or the
 hpage_2g module parameter is not set to 1, -EINVAL is returned.
+
+7.48 KVM_CAP_X86_FRED_EVENT
+---------------------------
+
+:Architectures: x86
+:Parameters: args[0] whether feature should be enabled or not
+:Returns: 0 on success; -EINVAL if KVM cannot virtualize FRED.
+
+With this capability enabled, KVM allows exception save and restore operations
+to include FRED event context (specifically, the event nested flag and data).
+When injecting a FRED exception during VM entry, FRED event delivery relies
+on this information to select the correct event stack level and apply proper
+event data.
 
 8. Other capabilities.
 ======================
