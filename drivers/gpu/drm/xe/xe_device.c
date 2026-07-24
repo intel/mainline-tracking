@@ -836,6 +836,9 @@ static void override_has_cached_pt(struct xe_device *xe)
 	struct xe_gt *gt;
 	u8 id;
 
+	if (XE_DEVICE_WA(xe, 14026539277))
+		xe->info.has_cached_pt = false;
+
 	/*
 	 * Wa_16029380221: The affected GT will always use non-coherent
 	 * access to page tables, so we must do uncached writes from the
