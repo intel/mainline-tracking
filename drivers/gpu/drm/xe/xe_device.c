@@ -765,9 +765,13 @@ static void override_has_cached_pt(struct xe_device *xe)
 	 * access to page tables, so we must do uncached writes from the
 	 * CPU.
 	 */
-	for_each_gt(gt, xe, id)
+	for_each_gt(gt, xe, id) {
 		if (XE_GT_WA(gt, 16029380221))
 			xe->info.has_cached_pt = false;
+
+		if (XE_GT_WA(gt, 14026539277))
+			xe->info.has_cached_pt = false;
+	}
 }
 
 static int probe_has_flat_ccs(struct xe_device *xe)
