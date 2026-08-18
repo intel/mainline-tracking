@@ -435,10 +435,10 @@ static int rsm_enter_protected_mode(struct kvm_vcpu *vcpu,
 
 	/*
 	 * First enable PAE, long mode needs it before CR0.PG = 1 is set.
-	 * Then enable protected mode.	However, PCID cannot be enabled
-	 * if EFER.LMA=0, so set it separately.
+	 * Then enable protected mode. However, PCID and FRED cannot be
+	 * enabled if EFER.LMA=0, so set them separately.
 	 */
-	bad = kvm_set_cr4(vcpu, cr4 & ~X86_CR4_PCIDE);
+	bad = kvm_set_cr4(vcpu, cr4 & ~(X86_CR4_PCIDE | X86_CR4_FRED));
 	if (bad)
 		return X86EMUL_UNHANDLEABLE;
 
@@ -446,7 +446,7 @@ static int rsm_enter_protected_mode(struct kvm_vcpu *vcpu,
 	if (bad)
 		return X86EMUL_UNHANDLEABLE;
 
-	if (cr4 & X86_CR4_PCIDE) {
+	if (cr4 & (X86_CR4_PCIDE | X86_CR4_FRED)) {
 		bad = kvm_set_cr4(vcpu, cr4);
 		if (bad)
 			return X86EMUL_UNHANDLEABLE;
@@ -599,10 +599,14 @@ int emulator_leave_smm(struct x86_emulate_ctxt *ctxt)
 		struct kvm_segment cs_desc;
 		unsigned long cr4;
 
-		/* Zero CR4.PCIDE before CR0.PG.  */
+		/*
+		 * Zero CR4.PCIDE and CR4.FRED before CR0.PG, as neither can
+		 * be set while EFER.LMA is 0, and clearing CR0.PG clears
+		 * EFER.LMA.
+		 */
 		cr4 = kvm_read_cr4(vcpu);
-		if (cr4 & X86_CR4_PCIDE)
-			kvm_set_cr4(vcpu, cr4 & ~X86_CR4_PCIDE);
+		if (cr4 & (X86_CR4_PCIDE | X86_CR4_FRED))
+			kvm_set_cr4(vcpu, cr4 & ~(X86_CR4_PCIDE | X86_CR4_FRED));
 
 		/* A 32-bit code segment is required to clear EFER.LMA.  */
 		memset(&cs_desc, 0, sizeof(cs_desc));
