@@ -36,6 +36,17 @@
  */
 	.align 4096
 
+/*
+ * Bounds of the FRED event entry text.  Every event delivered by FRED
+ * enters here, including events which the core entry code forwards
+ * through asm_fred_entry_from_kvm().  This is the FRED counterpart of
+ * __irqentry_text_start..__irqentry_text_end and lets
+ * in_event_entry_text() find the event entry point of a stack, see
+ * arch_in_event_entry_text().
+ */
+	.globl __fred_entry_text_start
+__fred_entry_text_start:
+
 SYM_CODE_START_NOALIGN(asm_fred_entrypoint_user)
 	FRED_ENTER
 	call	fred_entry_from_user
@@ -150,3 +161,6 @@ SYM_FUNC_START(asm_fred_entry_from_kvm)
 
 SYM_FUNC_END(asm_fred_entry_from_kvm)
 #endif
+
+	.globl __fred_entry_text_end
+__fred_entry_text_end:
