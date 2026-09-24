@@ -1283,7 +1283,26 @@ static void *sev_dbg_crypt_slow_alloc(struct page *page, unsigned long __va,
 	if (WARN_ON_ONCE((*pa & PAGE_MASK) != ((*pa + *nr_bytes - 1) & PAGE_MASK)))
 		return NULL;
 
+	/*
+	 * If SNP is enabled, i.e. the RMP is active, allocate a full page to
+	 * prevent concurrent accesses to the page.  As required by firmware,
+	 * the PSP driver updates the RMP to temporarily transfer ownership of
+	 * the page to Firmware while the {DE,EN}CRYPT operation is in-progress,
+	 * and so concurrent software accesses to the page will encounter
+	 * seemingly spurious RMP #PF violations
+	 */
+	if (cc_platform_has(CC_ATTR_HOST_SEV_SNP))
+		return (void *)__get_free_page(GFP_KERNEL);
+
 	return kmalloc(*nr_bytes, GFP_KERNEL);
+}
+
+static void sev_dbg_crypt_slow_free(void *buf)
+{
+	if (cc_platform_has(CC_ATTR_HOST_SEV_SNP))
+		free_page((unsigned long)buf);
+	else
+		kfree(buf);
 }
 
 static int sev_dbg_decrypt_slow(struct kvm *kvm, unsigned long src,
@@ -1307,7 +1326,7 @@ static int sev_dbg_decrypt_slow(struct kvm *kvm, unsigned long src,
 	if (copy_to_user((void __user *)dst, buf + (src & 15), len))
 		r = -EFAULT;
 out:
-	kfree(buf);
+	sev_dbg_crypt_slow_free(buf);
 	return r;
 }
 
@@ -1340,7 +1359,7 @@ static int sev_dbg_encrypt_slow(struct kvm *kvm, unsigned long src,
 		r = sev_issue_dbg_cmd(kvm, __sme_set(__pa(buf)), dst_pa,
 				      nr_bytes, KVM_SEV_DBG_ENCRYPT, err);
 out:
-	kfree(buf);
+	sev_dbg_crypt_slow_free(buf);
 	return r;
 }
 
@@ -2757,8 +2776,12 @@ int sev_mem_enc_register_region(struct kvm *kvm,
 	if (!region)
 		return -ENOMEM;
 
+	/*
+	 * Do NOT specify FOLL_WRITE, as KVM isn't using the pinned pages to
+	 * write memory, and FOLL_LONGTERM itself triggers CoW unshare.
+	 */
 	region->pages = sev_pin_memory(kvm, range->addr, range->size, &region->npages,
-				       FOLL_WRITE | FOLL_LONGTERM);
+				       FOLL_LONGTERM);
 	if (IS_ERR(region->pages)) {
 		ret = PTR_ERR(region->pages);
 		goto e_free;
@@ -3998,30 +4021,25 @@ static int snp_begin_psc(struct vcpu_svm *svm)
 	return snp_do_psc(svm);
 }
 
-/*
- * Invoked as part of svm_vcpu_reset() processing of an init event.
- */
-static void sev_snp_init_protected_guest_state(struct kvm_vcpu *vcpu)
+static void __sev_snp_reload_vmsa(struct kvm_vcpu *vcpu, gpa_t gpa)
 {
 	struct vcpu_svm *svm = to_svm(vcpu);
 	struct kvm_memory_slot *slot;
+	struct kvm *kvm = vcpu->kvm;
+	gfn_t gfn = gpa_to_gfn(gpa);
+	unsigned long mmu_seq;
 	struct page *page;
 	kvm_pfn_t pfn;
-	gfn_t gfn;
 
-	guard(mutex)(&svm->sev_es.snp_vmsa_mutex);
+	lockdep_assert_held(&svm->sev_es.snp_vmsa_mutex);
 
-	if (!svm->sev_es.snp_ap_waiting_for_reset)
-		return;
-
-	svm->sev_es.snp_ap_waiting_for_reset = false;
-
-	/* Mark the vCPU as offline and not runnable */
-	vcpu->arch.pv.pv_unhalted = false;
-	kvm_set_mp_state(vcpu, KVM_MP_STATE_HALTED);
-
-	/* Clear use of the VMSA */
+	/*
+	 * Clear use of the VMSA.  Ensure snp_guest_vmsa_gpa is written exactly
+	 * once, as it is read locklessly when responding to gfn invalidations.
+	 * Pairs with the READ_ONCE() in sev_gmem_invalidate_range().
+	 */
 	svm->vmcb->control.vmsa_pa = INVALID_PAGE;
+	WRITE_ONCE(svm->sev_es.snp_guest_vmsa_gpa, INVALID_PAGE);
 
 	/*
 	 * When replacing the VMSA during SEV-SNP AP creation,
@@ -4029,15 +4047,15 @@ static void sev_snp_init_protected_guest_state(struct kvm_vcpu *vcpu)
 	 */
 	vmcb_mark_all_dirty(svm->vmcb);
 
-	if (!VALID_PAGE(svm->sev_es.snp_vmsa_gpa))
+	if (!VALID_PAGE(gpa))
 		return;
-
-	gfn = gpa_to_gfn(svm->sev_es.snp_vmsa_gpa);
-	svm->sev_es.snp_vmsa_gpa = INVALID_PAGE;
 
 	slot = gfn_to_memslot(vcpu->kvm, gfn);
 	if (!slot)
 		return;
+
+	mmu_seq = kvm->mmu_invalidate_seq;
+	smp_rmb();
 
 	/*
 	 * The new VMSA will be private memory guest memory, so retrieve the
@@ -4057,18 +4075,64 @@ static void sev_snp_init_protected_guest_state(struct kvm_vcpu *vcpu)
 	 */
 	svm->sev_es.snp_has_guest_vmsa = true;
 
-	/* Use the new VMSA */
-	svm->vmcb->control.vmsa_pa = pfn_to_hpa(pfn);
+	read_lock(&kvm->mmu_lock);
+	/*
+	 * Save the guest-provided GPA.  If retry is needed, then KVM will try
+	 * again with the same GPA.  If the VMSA is usable, then KVM needs to
+	 * track the GPA so that the VMSA can be reloaded if the backing page
+	 * for the GPA is invalidated.
+	 */
+	svm->sev_es.snp_guest_vmsa_gpa = gpa;
+	if (mmu_invalidate_retry_gfn(kvm, mmu_seq, gfn))
+		kvm_make_request(KVM_REQ_VMSA_PAGE_RELOAD, vcpu);
+	else
+		svm->vmcb->control.vmsa_pa = pfn_to_hpa(pfn);
+	read_unlock(&kvm->mmu_lock);
 
-	/* Mark the vCPU as runnable */
-	kvm_set_mp_state(vcpu, KVM_MP_STATE_RUNNABLE);
+	kvm_release_page_clean(page);
+}
+
+/*
+ * Invoked as part of svm_vcpu_reset() processing of an init event.
+ */
+static void sev_snp_init_protected_guest_state(struct kvm_vcpu *vcpu)
+{
+	struct vcpu_svm *svm = to_svm(vcpu);
+	gpa_t gpa;
+
+	guard(mutex)(&svm->sev_es.snp_vmsa_mutex);
+
+	if (!svm->sev_es.snp_ap_waiting_for_reset)
+		return;
+
+	svm->sev_es.snp_ap_waiting_for_reset = false;
+
+	/* Mark the vCPU as offline and not runnable */
+	vcpu->arch.pv.pv_unhalted = false;
+	kvm_set_mp_state(vcpu, KVM_MP_STATE_HALTED);
+
+	gpa = svm->sev_es.snp_pending_vmsa_gpa;
+	svm->sev_es.snp_pending_vmsa_gpa = INVALID_PAGE;
+
+	__sev_snp_reload_vmsa(vcpu, gpa);
 
 	/*
-	 * gmem pages aren't currently migratable, but if this ever changes
-	 * then care should be taken to ensure svm->sev_es.vmsa is pinned
-	 * through some other means.
+	 * Mark the vCPU as runnable for CREATE requests, indicated by a valid
+	 * VMSA GPA, even if installing the VMSA failed, so that KVM_RUN will
+	 * fail instead of blocking indefinitely and hanging the vCPU, e.g. if
+	 * the backing guest_memfd page is unavailable.
 	 */
-	kvm_release_page_clean(page);
+	if (VALID_PAGE(gpa))
+		kvm_set_mp_state(vcpu, KVM_MP_STATE_RUNNABLE);
+}
+
+void sev_snp_reload_vmsa(struct kvm_vcpu *vcpu)
+{
+	struct vcpu_sev_es_state *sev_es = &to_svm(vcpu)->sev_es;
+
+	guard(mutex)(&sev_es->snp_vmsa_mutex);
+
+	__sev_snp_reload_vmsa(vcpu, sev_es->snp_guest_vmsa_gpa);
 }
 
 static int sev_snp_ap_creation(struct vcpu_svm *svm)
@@ -4124,10 +4188,10 @@ static int sev_snp_ap_creation(struct vcpu_svm *svm)
 			return -EINVAL;
 		}
 
-		target_svm->sev_es.snp_vmsa_gpa = svm->vmcb->control.exit_info_2;
+		target_svm->sev_es.snp_pending_vmsa_gpa = svm->vmcb->control.exit_info_2;
 		break;
 	case SVM_VMGEXIT_AP_DESTROY:
-		target_svm->sev_es.snp_vmsa_gpa = INVALID_PAGE;
+		target_svm->sev_es.snp_pending_vmsa_gpa = INVALID_PAGE;
 		break;
 	default:
 		vcpu_unimpl(vcpu, "vmgexit: invalid AP creation request [%#x] from guest\n",
@@ -4810,6 +4874,8 @@ int sev_vcpu_create(struct kvm_vcpu *vcpu)
 		return -ENOMEM;
 
 	svm->sev_es.vmsa = page_address(vmsa_page);
+	svm->sev_es.snp_pending_vmsa_gpa = INVALID_PAGE;
+	svm->sev_es.snp_guest_vmsa_gpa = INVALID_PAGE;
 
 	vcpu->arch.guest_tsc_protected = snp_is_secure_tsc_enabled(vcpu->kvm);
 
@@ -5195,6 +5261,41 @@ void sev_gmem_invalidate(kvm_pfn_t start, kvm_pfn_t end)
 next_pfn:
 		pfn += use_2m_update ? PTRS_PER_PMD : 1;
 		cond_resched();
+	}
+}
+
+void sev_gmem_invalidate_range(struct kvm *kvm, struct kvm_gfn_range *range)
+{
+	struct kvm_vcpu *vcpu;
+	unsigned long i;
+
+	lockdep_assert_held_write(&kvm->mmu_lock);
+
+	/*
+	 * An unstable result for "is SNP" is a-ok here, thanks to mmu_lock.
+	 * The vCPU's VMSA GPA is invalidated before the vCPU is made visible
+	 * to other tasks, and can only become valid while holding mmu_lock,
+	 * after the VM is fully committed to being an SNP VM.
+	 */
+	if (!____sev_snp_guest(kvm))
+		return;
+
+	kvm_for_each_vcpu(i, vcpu, kvm) {
+		/*
+		 * Read snp_guest_vmsa_gpa without taking the vCPU's VMSA mutex
+		 * (or its generic mutex) as mmu_lock is held, i.e. this task
+		 * can't sleep.  The VMSA is invalidated outside of mmu_lock,
+		 * but can only become valid inside of mmu_lock, i.e. the below
+		 * can get false positives, but not false negatives.  A false
+		 * positive is benign, as a spurious request simply forces the
+		 * vCPU to re-establish its VMSA.
+		 */
+		gpa_t gpa = READ_ONCE(to_svm(vcpu)->sev_es.snp_guest_vmsa_gpa);
+
+		if (VALID_PAGE(gpa) &&
+		    gpa_to_gfn(gpa) >= range->start &&
+		    gpa_to_gfn(gpa) < range->end)
+			kvm_make_request_and_kick(KVM_REQ_VMSA_PAGE_RELOAD, vcpu);
 	}
 }
 
