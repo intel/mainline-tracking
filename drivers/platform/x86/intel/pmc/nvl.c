@@ -12,7 +12,7 @@
 #include "core.h"
 
 /* PMC SSRAM PMT Telemetry GUIDS */
-#define PCDH_LPM_REQ_GUID 0x01093101
+#define PCDH_LPM_REQ_GUID 0x01093102
 #define PCHS_LPM_REQ_GUID 0x01092101
 #define PCDS_LPM_REQ_GUID 0x01091103
 
