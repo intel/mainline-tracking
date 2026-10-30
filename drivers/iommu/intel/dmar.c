@@ -675,6 +675,25 @@ parse_dmar_table(void)
 	if (ret == 0 && drhd_count == 0)
 		pr_warn(FW_BUG "No DRHD structure found in DMAR table\n");
 
+	/*
+	 * Only on a successful DMAR parse: if SINIT programmed TXT TPRs for DMA
+	 * protection, disable them here, before any queued invalidation (QI) is
+	 * enabled. TPRs block all inbound DMA to their protected range, including
+	 * the IOMMU's own QI ring, so leaving them active makes the first queued
+	 * invalidation fault (Invalidation Queue Error) and hangs the boot on any
+	 * system with interrupt remapping enabled.
+	 *
+	 * If parsing failed, dmar_table_init() propagates the error and both the
+	 * IOMMU and IRQ remmaping preparation will be aborted, before QI will
+	 * be enabled, so the TPRs are left in place and SINIT's DMA protection
+	 * will be retained.
+	 */
+	if (ret == 0 && tboot_enabled()) {
+		tboot_check_tprs();
+		if (tboot_teardown_tprs() != 0)
+			pr_warn("tboot: Failed to disable TPRs. DMA is still blocked.\n");
+	}
+
 	return ret;
 }
 

@@ -2648,6 +2648,15 @@ int __init intel_iommu_init(void)
 
 	init_no_remapping_devices();
 
+	/*
+	 * SINIT TPRs (if any were active) should be already torn down during DMAR
+	 * Table parsing process. If the teardown failed, DMA (including the IOMMU's
+	 * own QI ring) is still blocked, so refuse to continue a forced launch
+	 * rather than hang mid-init.
+	 */
+	if (tboot_is_tpr_protection_enabled() && !intel_iommu_tboot_noforce)
+		panic("tboot: Failed to disable TPRs. DMA is still blocked.\n");
+
 	ret = init_dmars();
 	if (ret) {
 		if (dmar_policy_force_on())
@@ -2698,6 +2707,14 @@ int __init intel_iommu_init(void)
 
 		iommu_disable_protect_mem_regions(iommu);
 	}
+
+	/*
+	 * Release the TXT heap mapping if it is still held. TPRs (and the
+	 * heap) are normally torn down in parse_dmar_table(); this is a
+	 * safety net for paths where no TPRs were active.
+	 */
+	tboot_unmap_txt_heap();
+
 	up_read(&dmar_global_lock);
 
 	pr_info("Intel(R) Virtualization Technology for Directed I/O\n");
@@ -2707,6 +2724,7 @@ int __init intel_iommu_init(void)
 	return 0;
 
 out_free_dmar:
+	tboot_unmap_txt_heap();
 	intel_iommu_free_dmars();
 	up_write(&dmar_global_lock);
 	return ret;
