@@ -24,9 +24,16 @@ enum {
 #include <linux/acpi.h>
 /* used to communicate between tboot and the launched kernel */
 
+/* TXT Extended Data Element Types */
+#define HEAP_EXTDATA_TYPE_END   0
+#define HEAP_EXTDATA_TYPE_DTPR 14
+
 #define TB_KEY_SIZE             64   /* 512 bits */
 
 #define MAX_TB_MAC_REGIONS      32
+
+/* TPR Base Disable BIT */
+#define TPR_BASE_DISABLE_BIT  BIT(4)
 
 struct tboot_mac_region {
 	u64  start;         /* must be 64 byte -aligned */
@@ -56,6 +63,15 @@ struct tboot_acpi_sleep_info {
 	u64 wakeup_vector;
 	u32 vector_width;
 	u64 kernel_s3_resume_vector;
+} __packed;
+
+/*
+ * structure for tboot extended data elements
+ */
+struct heap_ext_data_elt {
+	u32 type;
+	u32 size;
+	u8  data[];
 } __packed;
 
 /*
@@ -122,19 +138,29 @@ struct tboot {
 			 0xaa, 0x19, 0xea, 0x4d, 0x5, 0x7a, 0x8}
 
 bool tboot_enabled(void);
+extern s64 tboot_disable_tprs(void);
+extern s64 tboot_teardown_tprs(void);
+extern void tboot_check_tprs(void);
+extern void tboot_unmap_txt_heap(void);
 extern void tboot_probe(void);
 extern void tboot_shutdown(u32 shutdown_type);
 extern struct acpi_table_header *tboot_get_dmar_table(
 				      struct acpi_table_header *dmar_tbl);
+extern bool tboot_is_tpr_protection_enabled(void);
 
 #else
 
-#define tboot_enabled()			0
+#define tboot_enabled()		0
+#define tboot_disable_tprs()	0
+#define tboot_teardown_tprs()	0
+#define tboot_check_tprs()	do { } while (0)
 #define tboot_probe()			do { } while (0)
 #define tboot_shutdown(shutdown_type)	do { } while (0)
 #define tboot_sleep(sleep_state, pm1a_control, pm1b_control)	\
 					do { } while (0)
 #define tboot_get_dmar_table(dmar_tbl)	(dmar_tbl)
+#define tboot_unmap_txt_heap() do { } while (0)
+#define tboot_is_tpr_protection_enabled() 0
 
 #endif /* !CONFIG_INTEL_TXT */
 

@@ -18,6 +18,8 @@
 #include <linux/mm.h>
 #include <linux/tboot.h>
 #include <linux/debugfs.h>
+#include <linux/io-64-nonatomic-lo-hi.h>
+#include <acpi/actbl1.h>
 
 #include <asm/realmode.h>
 #include <asm/processor.h>
@@ -41,6 +43,15 @@ static struct tboot *tboot __read_mostly;
 #define pr_fmt(fmt)	"tboot: " fmt
 
 static u8 tboot_uuid[16] __initdata = TBOOT_UUID;
+
+/* Global pointer to TXT HEAP base */
+static void __iomem *txt_heap;
+
+/* Global pointer to the DTPR table */
+static struct acpi_table_dtpr *dtpr;
+
+/* Number of active TPRs */
+static s64 num_of_enabled_tprs;
 
 bool tboot_enabled(void)
 {
@@ -222,6 +233,140 @@ static int tboot_setup_sleep(void)
 }
 
 #endif
+
+static bool tboot_check_txt_heap_section_bounds(const u64 heap_end,
+						void *heap_section,
+						u64 *heap_section_size,
+						const char *section_name)
+{
+	if (!heap_section) {
+		pr_err("%s section is NULL\n", section_name);
+		return false;
+	}
+
+	if (!heap_section_size) {
+		pr_err("%s section size pointer is NULL\n", section_name);
+		return false;
+	}
+
+	*heap_section_size = 0;
+
+	if ((unsigned long)heap_section > heap_end || heap_end - (unsigned long)heap_section < 8) {
+		pr_err("%s size field exceeds heap boundary\n", section_name);
+		return false;
+	}
+
+	/* Read the size of the current TXT Heap section */
+	*heap_section_size = *(u64 __force *)heap_section;
+
+	if (*heap_section_size < 8) {
+		pr_err("%s size is too small\n", section_name);
+		return false;
+	}
+
+	if (*heap_section_size > heap_end - (unsigned long)heap_section) {
+		pr_err("%s exceeds heap boundary\n", section_name);
+		return false;
+	}
+
+	return true;
+}
+
+static bool tboot_check_dtpr_size(const struct heap_ext_data_elt *elt)
+{
+	struct acpi_tpr_aux_sr *tpr_aux_srl = NULL;
+	struct acpi_tpr_instance *tpr_inst = NULL;
+	struct acpi_table_dtpr *tmp_dtpr = NULL;
+	u64 dtpr_payload_size, dtpr_offset;
+	u32 i, ref_tpr_cnt;
+
+	if (!elt) {
+		pr_err("DTPR element heap extension data is NULL\n");
+		return false;
+	}
+
+	tmp_dtpr          = (struct acpi_table_dtpr *)elt->data;
+	dtpr_payload_size = elt->size - sizeof(*elt);
+
+	if (dtpr_payload_size < sizeof(struct acpi_table_dtpr)) {
+		pr_err("DTPR element payload too small for a DTPR header\n");
+		return false;
+	}
+
+	if (tmp_dtpr->header.length != dtpr_payload_size) {
+		pr_err("Mismatch between DTPR table length and payload size\n");
+		return false;
+	}
+
+	dtpr_offset = sizeof(struct acpi_table_dtpr);
+
+	if (dtpr_offset > dtpr_payload_size) {
+		pr_err("TPR header exceeds table's declared size\n");
+		return false;
+	}
+
+	if (tmp_dtpr->ins_cnt < 1) {
+		pr_err("DTPR table declares no TPR instances\n");
+		return false;
+	}
+
+	for (i = 0; i < tmp_dtpr->ins_cnt; i++) {
+		/* prove this instance's header is in bounds before reading it */
+		if (dtpr_offset + sizeof(struct acpi_tpr_instance) > dtpr_payload_size) {
+			pr_err("TPR instance No.%u header exceeds DTPR table size\n", i);
+			return false;
+		}
+
+		/* point at the current TPR instance */
+		tpr_inst = (struct acpi_tpr_instance *)((u8 *)tmp_dtpr + dtpr_offset);
+
+		if (tpr_inst->tpr_cnt < 2) {
+			pr_err("TPR instance %u has fewer than 2 TPRs\n", i);
+			return false;
+		}
+
+		/* all instances must carry the same TPR count as the first */
+		if (!i) {
+			ref_tpr_cnt = tpr_inst->tpr_cnt;
+		} else if (tpr_inst->tpr_cnt != ref_tpr_cnt) {
+			pr_err("TPR instance %u count mismatch: expected %u, found %u\n",
+			       i, ref_tpr_cnt, tpr_inst->tpr_cnt);
+			return false;
+		}
+
+		/* advance past this instance's TPR array */
+		dtpr_offset += sizeof(struct acpi_tpr_instance) +
+			       (u64)tpr_inst->tpr_cnt * sizeof(struct acpi_tpr_array);
+
+		/* verify TPR array size for this instance */
+		if (dtpr_offset > dtpr_payload_size) {
+			pr_err("TPR instance No.%u TPR entries exceed DTPR table size\n", i);
+			return false;
+		}
+	}
+
+	tpr_aux_srl = (struct acpi_tpr_aux_sr *)((u8 *)tmp_dtpr + dtpr_offset);
+	dtpr_offset += sizeof(u32);
+
+	if (dtpr_offset > dtpr_payload_size) {
+		pr_err("TPR SRL count field exceeds DTPR table size\n");
+		return false;
+	}
+
+	dtpr_offset += (u64)tpr_aux_srl->srl_cnt *
+		       sizeof(struct acpi_tpr_serialize_request);
+	if (dtpr_offset > dtpr_payload_size) {
+		pr_err("TPR SRL entries exceed DTPR table size\n");
+		return false;
+	}
+
+	if (dtpr_offset < dtpr_payload_size) {
+		pr_err("DTPR table is smaller than expected\n");
+		return false;
+	}
+
+	return true;
+}
 
 void tboot_shutdown(u32 shutdown_type)
 {
@@ -454,26 +599,28 @@ struct sha1_hash {
 };
 
 struct sinit_mle_data {
-	u32               version;             /* currently 6 */
-	struct sha1_hash  bios_acm_id;
-	u32               edx_senter_flags;
-	u64               mseg_valid;
-	struct sha1_hash  sinit_hash;
-	struct sha1_hash  mle_hash;
-	struct sha1_hash  stm_hash;
-	struct sha1_hash  lcp_policy_hash;
-	u32               lcp_policy_control;
-	u32               rlp_wakeup_addr;
-	u32               reserved;
-	u32               num_mdrs;
-	u32               mdrs_off;
-	u32               num_vtd_dmars;
-	u32               vtd_dmars_off;
+	u32                      version;             /* currently 9 */
+	struct sha1_hash         bios_acm_id;
+	u32                      edx_senter_flags;
+	u64                      mseg_valid;
+	struct sha1_hash         sinit_hash;
+	struct sha1_hash         mle_hash;
+	struct sha1_hash         stm_hash;
+	struct sha1_hash         lcp_policy_hash;
+	u32                      lcp_policy_control;
+	u32                      rlp_wakeup_addr;
+	u32                      reserved;
+	u32                      num_mdrs;
+	u32                      mdrs_off;
+	u32                      num_vtd_dmars;
+	u32                      vtd_dmars_off;
+	u32                      proc_scrtm_status; /* version 8 or later only*/
+	struct heap_ext_data_elt ext_data_elts[];
 } __packed;
 
 struct acpi_table_header *tboot_get_dmar_table(struct acpi_table_header *dmar_tbl)
 {
-	void *heap_base, *heap_ptr, *config;
+	void *heap_ptr, *config;
 
 	if (!tboot_enabled())
 		return dmar_tbl;
@@ -490,15 +637,15 @@ struct acpi_table_header *tboot_get_dmar_table(struct acpi_table_header *dmar_tb
 		return NULL;
 
 	/* now map TXT heap */
-	heap_base = ioremap(*(u64 *)(config + TXTCR_HEAP_BASE),
+	txt_heap = ioremap(*(u64 *)(config + TXTCR_HEAP_BASE),
 			    *(u64 *)(config + TXTCR_HEAP_SIZE));
 	iounmap(config);
-	if (!heap_base)
+	if (!txt_heap)
 		return NULL;
 
 	/* walk heap to SinitMleData */
 	/* skip BiosData */
-	heap_ptr = heap_base + *(u64 *)heap_base;
+	heap_ptr = txt_heap + *(u64 *)txt_heap;
 	/* skip OsMleData */
 	heap_ptr += *(u64 *)heap_ptr;
 	/* skip OsSinitData */
@@ -513,4 +660,328 @@ struct acpi_table_header *tboot_get_dmar_table(struct acpi_table_header *dmar_tb
 	/* don't unmap heap because dmar.c needs access to this */
 
 	return dmar_tbl;
+}
+
+static struct acpi_table_dtpr *tboot_get_dtpr_table(void)
+{
+	u64 heap_end, heap_size, sinit_mle_size, heap_section_size;
+	void *heap_ptr, *config, *sinit_mle_end;
+	struct sinit_mle_data *sinit_mle;
+	struct heap_ext_data_elt *elt;
+
+	if (!tboot_enabled())
+		return NULL;
+	/*
+	 * ACPI tables may not be DMA protected by tboot, so use DMAR copy
+	 * SINIT saved in SinitMleData in TXT heap (which is DMA protected)
+	 */
+
+	/* map config space in order to get heap addr */
+	config = ioremap(TXT_PUB_CONFIG_REGS_BASE, NR_TXT_CONFIG_PAGES *
+			 PAGE_SIZE);
+	if (!config)
+		return NULL;
+
+	/* now map TXT heap */
+	heap_size  = *(u64 __force *)(config + TXTCR_HEAP_SIZE);
+	if (!txt_heap)
+		txt_heap = ioremap(*(u64 __force *)(config + TXTCR_HEAP_BASE), heap_size);
+
+	iounmap(config);
+
+	if (!txt_heap) {
+		pr_err("Failed to map TXT heap\n");
+		return NULL;
+	}
+
+	if (heap_size == 0 || (unsigned long)txt_heap + heap_size < (unsigned long)txt_heap) {
+		pr_err("TXT heap size invalid or overflows\n");
+		goto teardown;
+	}
+
+	heap_end   = (unsigned long)txt_heap + heap_size;
+
+	/* walk heap to SinitMleData */
+	/* skip BiosData */
+	/* get BiosData section size */
+	if (!tboot_check_txt_heap_section_bounds(heap_end, txt_heap, &heap_section_size, "BiosData"))
+		goto teardown;
+
+	/* skip OsMleData */
+	heap_ptr = txt_heap + heap_section_size;
+	/* get OsMleData section size */
+	if (!tboot_check_txt_heap_section_bounds(heap_end, heap_ptr, &heap_section_size, "OsMleData"))
+		goto teardown;
+
+	/* skip OsSinitData */
+	heap_ptr += heap_section_size;
+	/* get OsSinitData section size */
+	if (!tboot_check_txt_heap_section_bounds(heap_end, heap_ptr, &heap_section_size, "OsSinitData"))
+		goto teardown;
+
+	/* jump to the SinitMleData */
+	heap_ptr += heap_section_size;
+	sinit_mle_size = 0;
+	/* now points to SinitMleDataSize; set to SinitMleData */
+	if (!tboot_check_txt_heap_section_bounds(heap_end, heap_ptr, &sinit_mle_size, "SinitMleData"))
+		goto teardown;
+
+	heap_ptr += sizeof(u64);
+	sinit_mle = (struct sinit_mle_data *)heap_ptr;
+	sinit_mle_end = (void *)sinit_mle + sinit_mle_size;
+	if (sizeof(struct sinit_mle_data) > sinit_mle_size) {
+		pr_err("SinitMleData size is smaller than expected.\n");
+		goto teardown;
+	}
+
+	if (sinit_mle->version < 9) {
+		pr_err("Unsupported SinitMleData version: %u\n", sinit_mle->version);
+		goto teardown;
+	}
+
+	heap_ptr += sizeof(struct sinit_mle_data);
+	if (heap_ptr > sinit_mle_end) {
+		pr_err("SinitMleData header out of bounds.\n");
+		goto teardown;
+	}
+
+	/*
+	 * The SinitMleData extended-data area is a self-describing list of
+	 * variable-length elements with no stored element count; it is
+	 * terminated only by a HEAP_EXTDATA_TYPE_END element. Traversal must
+	 * therefore be driven by each element's own size field. Forward
+	 * progress and termination are guaranteed on every iteration:
+	 *   - the 8-byte header is bounds-checked before type/size are read,
+	 *   - elt->size >= sizeof(*elt) enforces a strictly-positive advance,
+	 *   - the "elt <= sinit_mle_end" cap bounds the number of steps.
+	 */
+	elt = sinit_mle->ext_data_elts;
+	do {
+		if ((u8 *)elt + sizeof(*elt) > (u8 *)sinit_mle_end) {
+			pr_err("SinitMleData element header out of bounds.\n");
+			goto teardown;
+		}
+
+		if (elt->size < sizeof(*elt)) {
+			pr_err("Invalid SinitMleData element size: %u\n", elt->size);
+			goto teardown;
+		}
+
+		if (elt->type == HEAP_EXTDATA_TYPE_END ||
+		    elt->type == HEAP_EXTDATA_TYPE_DTPR) {
+			break;
+		}
+
+		elt = (void *)elt + elt->size;
+	} while ((void *)elt <= sinit_mle_end);
+
+	if ((void *)elt >= sinit_mle_end) {
+		pr_err("Reached the end of SinitMleData without finding DTPR nor END element.\n");
+		goto teardown;
+	}
+
+	if (elt->type == HEAP_EXTDATA_TYPE_END) {
+		pr_err("DTPR element not found in SinitMleData\n");
+		goto teardown;
+	}
+
+	if ((u8 *)elt + elt->size > (u8 *)sinit_mle_end) {
+		pr_err("DTPR Table exceeds SinitMleData bounds.\n");
+		goto teardown;
+	}
+
+	if (!tboot_check_dtpr_size(elt)) {
+		pr_err("Invalid DTPR Table size.\n");
+		goto teardown;
+	}
+
+	return (struct acpi_table_dtpr *)elt->data;
+
+teardown:
+	tboot_unmap_txt_heap();
+	return NULL;
+}
+
+void tboot_check_tprs(void)
+{
+	struct acpi_tpr_instance *tpr_inst;
+	struct acpi_tpr_array    *tpr_arr;
+	u32 *instance_cnt;
+	void __iomem *base;
+	u32 i, j;
+	u64 tpr_base_val;
+
+	dtpr = tboot_get_dtpr_table();
+
+	if (!txt_heap) {
+		pr_warn("Heap base is NULL.\n");
+		return;
+	}
+
+	if (!dtpr) {
+		pr_warn("DTPR Table is NULL.\n");
+		goto teardown;
+	}
+
+	if (!tboot_enabled()) {
+		pr_warn("TBOOT is not enabled. TPRs weren't set by TBOOT nor SINIT ACM.\n");
+		goto teardown;
+	}
+
+	instance_cnt = (u32 *)(&dtpr->ins_cnt);
+	tpr_inst = (struct acpi_tpr_instance *)(instance_cnt + 1);
+
+	for (i = 0; i < *instance_cnt; ++i) {
+		for (j = 0; j < tpr_inst->tpr_cnt; ++j) {
+			tpr_arr =  (struct acpi_tpr_array *)((u8 *)tpr_inst +
+				    sizeof(struct acpi_tpr_instance) +
+				    j * sizeof(struct acpi_tpr_array));
+
+			/*
+			 * Each TPR base address has already been verified by the SINIT ACM,
+			 * so it can be treated as trustworthy and used safely for I/O
+			 * mapping.
+			 */
+			base = ioremap(tpr_arr->base, 16);
+			if (!base) {
+				pr_warn("TPR Instance %u, TPR No.%u verification failure.\n",
+					i, j);
+				continue;
+			}
+
+			tpr_base_val = readq(base);
+			pr_info("TPR instance %u, TPR %u:base 0x%llx, limit 0x%llx\n", i, j,
+				tpr_base_val, readq((u8 __iomem *)base + 8));
+
+			/* Verify if the TPR base is enabled */
+			if ((tpr_base_val & (u64)TPR_BASE_DISABLE_BIT) == 0)
+				num_of_enabled_tprs++;
+
+			iounmap(base);
+		}
+
+		tpr_inst = (struct acpi_tpr_instance *)((u8 *)tpr_inst +
+			    sizeof(*tpr_inst) + j * sizeof(struct acpi_tpr_array));
+	}
+
+	pr_info("Number of enabled TPRs: %lld\n", num_of_enabled_tprs);
+	if (num_of_enabled_tprs > 0)
+		pr_info("TPR protection is active. PMR will be disabled\n");
+
+	return;
+
+teardown:
+	tboot_unmap_txt_heap();
+}
+
+s64 tboot_disable_tprs(void)
+{
+	struct acpi_tpr_instance *tpr_inst;
+	struct acpi_tpr_array    *tpr_arr;
+	u32 *instance_cnt;
+	void __iomem *base;
+	u32 i, j;
+	u64 tpr_base_val;
+	s64 ret = 0;
+
+	if (!txt_heap) {
+		pr_warn("TXT Heap base is NULL.\n");
+		return -1;
+	}
+
+	if (!dtpr) {
+		pr_warn("DTPR Table is NULL.\n");
+		ret = -1;
+		goto teardown;
+	}
+
+	if (!tboot_enabled()) {
+		pr_warn("TBOOT is not enabled. TPR weren't set by SINIT ACM and BIOS.\n");
+		ret = -1;
+		goto teardown;
+	}
+
+	instance_cnt = (u32 *)(&dtpr->ins_cnt);
+	tpr_inst = (struct acpi_tpr_instance *)(instance_cnt + 1);
+
+	for (i = 0; i < *instance_cnt; ++i) {
+		for (j = 0; j < tpr_inst->tpr_cnt; ++j) {
+			tpr_arr = (struct acpi_tpr_array *)((u8 *)tpr_inst +
+				   sizeof(struct acpi_tpr_instance) +
+				   j * sizeof(struct acpi_tpr_array));
+
+			/*
+			 * Each TPR base address has already been verified by the SINIT ACM,
+			 * so it can be treated as trustworthy and used safely for I/O
+			 * mapping.
+			 */
+			base = ioremap(tpr_arr->base, 16);
+			if (!base) {
+				pr_warn("TPR Instance %u, TPR No.%u disabling failure.\n",
+					i, j);
+				continue;
+			}
+
+			tpr_base_val = readq(base);
+			pr_info("TPR instance %u, TPR %u:base 0x%llx, limit 0x%llx\n", i, j,
+				tpr_base_val, readq((u8 __iomem *)base + 8));
+
+			/* If the given TPR is active, disable it */
+			if ((tpr_base_val & (u64)TPR_BASE_DISABLE_BIT) == 0) {
+				writeq(tpr_base_val | TPR_BASE_DISABLE_BIT, base);
+				num_of_enabled_tprs--;
+			}
+			iounmap(base);
+		}
+
+		tpr_inst = (struct acpi_tpr_instance *)((u8 *)tpr_inst +
+			    sizeof(*tpr_inst) + j * sizeof(struct acpi_tpr_array));
+	}
+
+	if (num_of_enabled_tprs > 0) {
+		pr_err("TPR disabling failed for some instances.\n");
+		pr_err("Number of still enabled TPRs: %lld\n", num_of_enabled_tprs);
+	} else if (num_of_enabled_tprs < 0) {
+		pr_err("Number of enabled TPRs is negative, which indicates an error.\n");
+		pr_err("TPR disabling resulted in a negative count: %lld\n",
+		       num_of_enabled_tprs);
+	} else {
+		pr_info("All of TPRs have been successfully disabled.\n");
+	}
+
+	ret = 0;
+	goto teardown;
+
+teardown:
+	tboot_unmap_txt_heap();
+	return ret;
+}
+
+s64 tboot_teardown_tprs(void)
+{
+	s64 ret = 0;
+
+	/* uses cached dtpr + txt_heap */
+	if (tboot_is_tpr_protection_enabled() && dtpr)
+		ret = tboot_disable_tprs();
+
+	/* releases internal mapping */
+	tboot_unmap_txt_heap();
+	dtpr = NULL;
+
+	/* 0 = success / nothing to do */
+	return ret;
+}
+
+void tboot_unmap_txt_heap(void)
+{
+	if (txt_heap) {
+		iounmap(txt_heap);
+		txt_heap = NULL;
+	}
+}
+
+bool tboot_is_tpr_protection_enabled(void)
+{
+	return num_of_enabled_tprs > 0;
 }
