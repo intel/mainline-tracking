@@ -2433,6 +2433,7 @@ static void timekeeping_adjust(struct timekeeper *tk, s64 offset)
 {
 	u64 ntp_tl = ntp_tick_length(tk->id);
 	s64 skew = ntp_get_skew_delta(tk->id);
+	u64 dividend;
 	u32 mult;
 
 	/*
@@ -2444,6 +2445,8 @@ static void timekeeping_adjust(struct timekeeper *tk, s64 offset)
 		/* Revert to the base mult rate. */
 		mult = tk->tkr_mono.mult - tk->ntp_err_mult;
 	} else {
+		u64 old_ntp_tick = tk->ntp_tick;
+
 		tk->ntp_tick = ntp_tl;
 		tk->skew_delta = skew;
 		/*
@@ -2451,8 +2454,35 @@ static void timekeeping_adjust(struct timekeeper *tk, s64 offset)
 		 * scale it back up to the full per-tick rate for the mult bias.
 		 */
 		skew *= NTP_INTERVAL_FREQ;
-		mult = div64_u64((tk->ntp_tick + skew) >> tk->ntp_error_shift,
-				 tk->cycle_interval);
+		dividend = (tk->ntp_tick + skew) >> tk->ntp_error_shift;
+		mult = div64_u64(dividend, tk->cycle_interval);
+
+		/*
+		 * In timekeeping_apply_adjustment(), the mult_adj value is
+		 * retrospectively applied as if it had come into effect at
+		 * the *start* of the current tick.  Any discrepancy due to
+		 * the fact that time has *actually* been counted at the old
+		 * mult rate between the start of the tick and now ('offset'
+		 * cycles into that tick) is dumped into ntp_error.
+		 *
+		 * When tick_length is changed by a large amount, that can
+		 * lead to tens of microseconds of ntp_error being accrued.
+		 *
+		 * Fix this by conceptually applying the tick_length change
+		 * now (at 'offset'), rather than the start of the tick.
+		 *
+		 * That means calculating what 'mult' would have been with
+		 * the old ntp_tick length (but the *current* value of skew),
+		 * and pre-adjusting ntp_error to compensate.
+		 */
+		if (tk->ntp_tick != old_ntp_tick) {
+			u64 old_dividend = (old_ntp_tick + skew) >> tk->ntp_error_shift;
+			s64 old_base_mult = div64_u64(old_dividend, tk->cycle_interval);
+			s64 mult_delta = (s64)mult - old_base_mult;
+
+			tk->ntp_error -= ((s64)offset * mult_delta)
+					 << tk->ntp_error_shift;
+		}
 	}
 
 	/*
