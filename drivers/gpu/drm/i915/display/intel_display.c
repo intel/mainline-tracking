@@ -45,6 +45,7 @@
 #include <drm/drm_probe_helper.h>
 #include <drm/drm_rect.h>
 #include <drm/drm_vblank.h>
+#include <drm/intel/step.h>
 
 #include "g4x_dp.h"
 #include "g4x_hdmi.h"
@@ -2777,6 +2778,10 @@ void intel_set_transcoder_timings(const struct intel_crtc_state *crtc_state,
 		       HSYNC_START(adjusted_mode->crtc_hsync_start - 1) |
 		       HSYNC_END(adjusted_mode->crtc_hsync_end - 1));
 
+	if (display->platform.novalake &&
+	    IS_DISPLAY_STEP(display, STEP_A0, STEP_C0))
+		crtc_vtotal = 1;
+
 	intel_de_write(display, TRANS_VTOTAL(display, transcoder),
 		       VACTIVE(crtc_vdisplay - 1) |
 		       VTOTAL(crtc_vtotal - 1));
@@ -2870,6 +2875,10 @@ void intel_set_transcoder_timings_lrr(const struct intel_crtc_state *crtc_state,
 	 * The double buffer latch point for TRANS_VTOTAL
 	 * is the transcoder's undelayed vblank.
 	 */
+	if (display->platform.novalake &&
+	    IS_DISPLAY_STEP(display, STEP_A0, STEP_C0))
+		crtc_vtotal = 1;
+
 	intel_de_write(display, TRANS_VTOTAL(display, transcoder),
 		       VACTIVE(crtc_vdisplay - 1) |
 		       VTOTAL(crtc_vtotal - 1));
